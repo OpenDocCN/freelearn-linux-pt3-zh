@@ -1,11 +1,15 @@
 - en: '2'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '2'
 - en: Explaining the Data Structures in a VFS
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 解释 VFS 中的数据结构
 - en: In the first chapter of this book, we got a good look at the **virtual filesystem**
     (**VFS**), its most common functions, why it is necessary, and how it plays a
     pivotal role in implementing the *everything is a file* concept in Linux. We also
@@ -14,48 +18,70 @@
     user-space programs and actual filesystems and implements a common file model
     so that applications can use uniform access methods to perform their operations,
     regardless of the filesystems being used.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本书的第一章中，我们详细介绍了**虚拟文件系统**（**VFS**），它最常见的功能、为何它是必要的以及它如何在实现 Linux 中的*一切皆文件*概念中发挥关键作用。我们还解释了
+    Linux 中的系统调用接口，以及用户空间应用程序如何使用通用系统调用与 VFS 进行交互。VFS 位于用户空间程序和实际文件系统之间，实施了一个通用的文件模型，使得应用程序能够使用统一的访问方式来执行操作，无论使用的是哪种文件系统。
 - en: While talking about the different filesystems, we mentioned that the VFS uses
     structures such as inodes, superblocks, and directory entries to represent a generic
     view of the filesystems. These structures are crucial as they ensure a clear distinction
     between the metadata and the actual data of a file.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在讨论不同的文件系统时，我们提到过 VFS 使用诸如 inode、超级块和目录项等结构来表示文件系统的通用视图。这些结构至关重要，因为它们确保了文件的元数据与实际数据之间的清晰区分。
 - en: This chapter will introduce you to the different data structures in the kernel’s
     VFS. You will get to know how the kernel uses structures such as inodes and directory
     entries to store metadata about files. You will also learn how the kernel is able
     to record the filesystem characteristics through the superblock structure. At
     the end, we’ll explain the caching mechanisms in VFS.
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将介绍内核 VFS 中的不同数据结构。你将了解内核如何使用诸如 inode 和目录项等结构来存储文件的元数据。你还将学习内核如何通过超级块结构记录文件系统的特性。最后，我们将解释
+    VFS 中的缓存机制。
 - en: 'We’re going to cover the following main topics:'
+  id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将涵盖以下主要内容：
 - en: Inodes
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: inode
 - en: Superblocks
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 超级块
 - en: Directory entries
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 目录项
 - en: File objects
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 文件对象
 - en: Page cache
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 页面缓存
 - en: Technical requirements
+  id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: It would be helpful to have a decent understanding of Linux operating system
     concepts. This includes knowledge of filesystems, processes, and memory management.
     We’re not going to create any new code in this book but if you want to explore
@@ -63,19 +89,27 @@
     for comprehending VFS data structures. As a general rule, you should make it a
     habit to refer to the official kernel documentation as it can provide in-depth
     information about the kernel’s internal workings.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 拥有一定的 Linux 操作系统概念的理解会非常有帮助。这包括对文件系统、进程和内存管理的知识。本书不会创建任何新代码，但如果你想更深入地探索 Linux
+    内核，理解 C 编程概念对于理解 VFS 数据结构至关重要。作为一般规则，你应该养成查阅官方内核文档的习惯，因为它能提供有关内核内部工作机制的深入信息。
 - en: The commands and examples presented in this chapter are distribution agnostic
     and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
     Fedora, and so on. There are a few references to the kernel source code. If you
     want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
     The code segments referred to in this chapter and book are from kernel `5.19.9`.
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章中介绍的命令和示例与发行版无关，可以在任何 Linux 操作系统上运行，例如 Debian、Ubuntu、Red Hat、Fedora 等等。文中有一些涉及内核源代码的参考。如果你想下载内核源代码，可以从[https://www.kernel.org](https://www.kernel.org)下载。本章和本书中提到的代码段来自内核
+    `5.19.9`。
 - en: Data structures in VFS
+  id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: VFS 中的数据结构
 - en: VFS uses several data structures to implement generic abstraction methods for
     all filesystems and provides the filesystem interface to user-space programs.
     These structures ensure a certain amount of commonality between the design and
@@ -89,33 +123,47 @@
     look at the relevant code segments in the kernel for some clarification. Nevertheless,
     I’ve tried my best to present the material in a generic way so that most concepts
     can be understood even without developing an understanding of the code.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: VFS使用多种数据结构来实现所有文件系统的通用抽象方法，并为用户空间程序提供文件系统接口。这些结构确保了文件系统设计和操作的某种共通性。要记住的一个重要点是，VFS定义的所有方法并不一定适用于所有文件系统。是的，文件系统应遵循VFS中定义的结构，并在此基础上建立以确保它们之间的共通性。但是，在某些情况下，这些结构中可能有许多方法和字段对于特定文件系统是不适用的。在这种情况下，文件系统会根据其设计坚持使用相关字段，并且放弃多余的信息。因为我们将要解释常见的VFS数据结构，所以有必要查看内核中的相关代码片段以便澄清一些问题。尽管如此，我已尽力以一种通用的方式呈现材料，以便大多数概念即使没有开发对代码的理解也能被理解。
 - en: 'Ancient Greeks believed that four elements made up everything: earth, water,
     air, and fire. Likewise, the following structures make up VFS – well, most of
     it:'
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 古希腊人相信四大元素构成了一切：土、水、空气和火。同样，以下结构构成了VFS的大部分内容：
 - en: Inodes
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 索引节点
 - en: Directory entries
+  id: totrans-18
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 目录条目
 - en: File objects
+  id: totrans-19
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 文件对象
 - en: Superblocks
+  id: totrans-20
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 超级块
 - en: Inodes – indexing files and directories
+  id: totrans-21
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Inodes – 索引文件和目录
 - en: 'When storing data on disk, Linux follows one strict rule: *all the outside-of-the-envelope
     information must be kept apart from the contents inside the envelope*. In other
     words, the data describing a file is isolated from the actual data in the file.
@@ -123,176 +171,246 @@
     as **inode**. The inode structure contains metadata for files and directories
     in Linux. The name of a file or directory is merely a pointer to an inode, and
     each file or directory has exactly one inode.'
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 在磁盘上存储数据时，Linux遵循一个严格的规则：*封装之外的所有信息必须与封装内部的内容分开存放*。换句话说，描述文件的数据与文件中实际数据是隔离的。保存这些元数据的结构称为**索引节点**，简称**inode**。inode结构包含Linux中文件和目录的元数据。文件或目录的名称仅是指向inode的指针，并且每个文件或目录恰好有一个inode。
 - en: Consider the Marauder’s Map as an analogy (*Harry Potter*, anyone?). The map
     shows the location of every person in the school. Each person is represented by
     a dot on the map, and when you click on the dot, it reveals information about
     the person, such as their name, location, and status. Think of the Marauder’s
     Map as the filesystem, and the dots representing people as the inodes showing
     metadata.
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 把“魔法地图”作为一个类比来考虑（*哈利·波特*，有人认为？）。地图显示了学校每个人的位置。每个人在地图上由一个点表示，当你点击这个点时，它会显示关于这个人的信息，如他们的姓名、位置和状态。把“魔法地图”想象成文件系统，把点代表的人想象成显示元数据的inode。
 - en: But what constitutes the metadata for a file? When you do a simple listing of
     a file through the `ls` command, you see a bunch of information, such as file
     permissions, ownership, time stamps, and so on. All these details constitute the
     metadata of the file since they are describing some properties of the file, not
     its actual contents.
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 但是，文件的元数据包括什么呢？当你通过`ls`命令简单列出文件时，你会看到许多信息，例如文件权限、所有权、时间戳等。所有这些细节构成了文件的元数据，因为它们描述了文件的某些属性，而不是其实际内容。
 - en: Some of the file metadata can be checked through a simple `ls` command. Although
     a slightly better command for displaying the metadata of a file is `stat`, as
     it provides a lot more information about the file attributes. For instance, it
     shows the access, modification, change timestamps, the device where the file is
     located, the number of blocks reserved on the drive for the file, and the inode
     number of the file.
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过简单的`ls`命令可以检查一些文件元数据。尽管显示文件元数据的略微更好的命令是`stat`，因为它提供了关于文件属性的更多信息。例如，它显示访问、修改、更改时间戳，文件所在设备，驱动器上为文件保留的块数，以及文件的索引节点号。
 - en: 'If want to get detailed information about a file’s metadata, such as `/etc/hosts`,
     we can use the `stat` command as follows:'
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果要获取关于文件元数据的详细信息，如 `/etc/hosts`，我们可以使用以下 `stat` 命令：
 - en: '[PRE0]'
+  id: totrans-27
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'Note the inode number (`67118958`) of `/etc/hosts` in the output of the `stat`
     command:'
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意 `/etc/hosts` 的索引节点号（`67118958`）在 `stat` 命令的输出中：
 - en: '[PRE1]'
+  id: totrans-29
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: 'An inode number works as a unique identifier for a file. Consider the example
     of the `find` command provides the `inum` argument to search for a file through
     its inode:'
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 文件的索引节点号（inode number）作为文件的唯一标识符。例如，`find` 命令提供 `inum` 参数来通过索引节点号搜索文件：
 - en: '[PRE2]'
+  id: totrans-31
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'If we search for the inode number we retrieved from the `stat` command, we
     can retrieve the corresponding file:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们通过 `stat` 命令检索到索引节点号，可以检索到相应的文件：
 - en: '[PRE3]'
+  id: totrans-33
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'Inodes are only unique within a filesystem boundary. If directories on your
     system (such as `/home` and `/tmp`) are on separate disk partitions and filesystems,
     the same inode number could be assigned to a different file on each filesystem:'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 索引节点号仅在文件系统边界内唯一。如果系统上的目录（如 `/home` 和 `/tmp`）位于不同的磁盘分区和文件系统上，则同一索引节点号可能分配给每个文件系统中的不同文件：
 - en: '[PRE4]'
+  id: totrans-35
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: The uniqueness of inode numbers within filesystem boundaries ties to the concept
     of **linking**. As the same inode number can be used by different filesystems,
     hard links do not cross filesystem boundaries.
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 索引节点号在文件系统边界内的唯一性与 **链接** 的概念相关联。由于同一索引节点号可能由不同的文件系统使用，硬链接不跨文件系统边界。
 - en: Defining an inode in the kernel
+  id: totrans-37
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 在内核中定义索引节点
 - en: 'In the kernel source code, the definition of an inode is present in `linux/fs.h`.
     There are an innumerable number of fields in this definition. Please note that
     this definition of **struct inode** is general and all-encompassing. An inode
     is a filesystem-specific property. It is not obligatory for a filesystem to define
     all these fields in its inode definition. The definition for the inode structure
     is fairly long and, as such, we’re going to limit ourselves to some basic fields:'
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 在内核源代码中，索引节点的定义位于 `linux/fs.h`。此定义中有无数个字段。请注意，此 **struct inode** 的定义是通用且包罗万象的。索引节点是特定于文件系统的属性。文件系统不必在其索引节点定义中定义所有这些字段。索引节点结构的定义相当长，因此我们将限制到一些基本字段：
 - en: '[PRE5]'
+  id: totrans-39
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Some fields of interest are defined here:'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是一些定义：
 - en: '`i_mapping`: This is a pointer to the address space structure that holds the
     mappings for the inode’s data blocks. This field is initialized by the filesystem
     when an inode is created or when it is read from disk. For instance, when a process
     writes data to a file, the kernel uses this field to map the appropriate memory
     pages to the file’s data blocks. (The data blocks are explained in the next sections.)'
+  id: totrans-41
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_mapping`：这是一个指针，指向保存索引节点数据块映射的地址空间结构。当创建索引节点或从磁盘读取时，文件系统会初始化此字段。例如，当进程向文件写入数据时，内核使用此字段将适当的内存页面映射到文件的数据块中。（数据块在下一节中有解释。）'
 - en: '`i_uid` and `i_gid`: These are for the user and group owner, respectively.'
+  id: totrans-42
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_uid` 和 `i_gid`：分别是用户和组的所有者。'
 - en: '`i_flags`: This defines filesystem-specific flags.'
+  id: totrans-43
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_flags`：这定义了特定于文件系统的标志。'
 - en: '`i_acl`: This is for access control lists for filesystems.'
+  id: totrans-44
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_acl`：这是用于文件系统访问控制列表的字段。'
 - en: '`i_op`: This points to the inode operations structure, which defines all the
     operations that can be performed on an inode, such as creating, reading, writing,
     and modifying the file attributes.'
+  id: totrans-45
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_op`：这指向索引节点操作结构，定义了可以对索引节点执行的所有操作，如创建、读取、写入和修改文件属性。'
 - en: '`i_sb`: This is pointing to the superblock structure of the underlying filesystem
     where the inode resides. (There’s a separate topic for explaining the superblock
     structure.)'
+  id: totrans-46
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_sb`：这指向包含索引节点所在的底层文件系统的超级块结构。（有一个单独的主题来解释超级块结构。）'
 - en: '`i_rdev`: This field stores the device number for some special files. For instance,
     the kernel creates special files to represent hard disks and other devices in
     the system. When a special file is created, the kernel assigns it a unique device
     number, creates an inode for the device, and sets this field to point to the device’s
     identifier.'
+  id: totrans-47
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_rdev`：此字段存储某些特殊文件的设备号。例如，内核为系统中的硬盘和其他设备创建特殊文件。创建特殊文件时，内核为其分配唯一的设备号，创建设备的索引节点，并将此字段设置为指向设备的标识符。'
 - en: '`i_atime`, `i_mtime`, and `i_ctime`: These are the access, modified, and change
     timestamps, respectively.'
+  id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_atime`、`i_mtime` 和 `i_ctime`：分别是访问时间、修改时间和更改时间戳。'
 - en: '`i_bytes`: This is the number of bytes in the file.'
+  id: totrans-49
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_bytes`：文件中的字节数。'
 - en: '`i_blkbits`: This field stores the number of bits needed to represent the block
     size of the filesystem to which the inode belongs.'
+  id: totrans-50
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_blkbits`：此字段存储表示 inode 所属文件系统块大小所需的位数。'
 - en: '`i_blocks`: This field stores the total number of disk blocks used by the file
     represented by the inode.'
+  id: totrans-51
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_blocks`：此字段存储 inode 所表示的文件使用的磁盘块的总数。'
 - en: '`i_fop`: This is a pointer to the file operations structure associated with
     the inode. For instance, when a process opens a file, the kernel uses this field
     to obtain a pointer to the file operations structure for that file. It can then
     use the functions defined in the file operations structure to perform operations
     on the file, such as reading or writing.'
+  id: totrans-52
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_fop`：这是指向与 inode 关联的文件操作结构的指针。例如，当进程打开文件时，内核使用这个字段获取该文件的文件操作结构的指针。然后它可以使用文件操作结构中定义的函数来对文件进行操作，比如读取或写入。'
 - en: '`i_count`: This is used to keep track of the number of active references to
     the inode. Whenever a new process accesses a file, this counter is incremented
     for that file. If this field reaches a value of zero, it means that there are
     no more references to the inode, and it can be safely deallocated.'
+  id: totrans-53
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_count`：用于跟踪指向 inode 的活动引用次数。每当一个新进程访问一个文件时，这个计数器就会为该文件递增。如果这个字段的值为零，意味着没有更多的引用指向该
+    inode，此时可以安全地释放它。'
 - en: '`i_nlink`: This field references the number of hard links to the inode.'
+  id: totrans-54
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_nlink`：此字段引用指向该 inode 的硬链接数量。'
 - en: '`i_io_list`: This is a list used to track inodes that have pending I/O requests.
     When the kernel adds an I/O request to the queue for an inode, that inode is added
     to this list. When the I/O request has been completed, the inode is removed from
     this list.'
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`i_io_list`：这是一个用于跟踪有待处理 I/O 请求的 inode 的列表。当内核将 I/O 请求添加到某个 inode 的队列时，该 inode
+    会被添加到这个列表中。当 I/O 请求完成后，inode 会从该列表中移除。'
 - en: There are around 50 fields in the definition for the inode structure, so we’ve
     barely scratched the surface here. But this should give us an idea that the inode
     defines much more than surface-level information for a file. Don’t worry if you’re
@@ -301,17 +419,25 @@
     and `inode_operations` structures. We’ll go through the `file_operation` structure
     a bit later when we cover file objects in the *File objects – representing open*
     *files* section.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 inode 结构的定义中大约有 50 个字段，因此我们这里只是略微触及了表面。但这应该可以让我们了解到，inode 定义的内容远不止文件的表层信息。如果你感到困惑，不用担心，我们会详细解释
+    inode。对于 inode 结构，有两种操作类型，它们分别由`file_operations`和`inode_operations`结构定义。稍后我们会在*文件对象
+    – 代表已打开文件*部分中稍微介绍一下`file_operations`结构。
 - en: Defining inode operations
+  id: totrans-57
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 定义 inode 操作
 - en: The inode operations structure contains a set of function pointers that define
     how the filesystem interacts with inodes. Each filesystem has its own inode operations
     structure, which is registered with the VFS when the filesystem is mounted.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: inode 操作结构包含一组函数指针，定义了文件系统如何与 inode 交互。每个文件系统都有自己的 inode 操作结构，在文件系统挂载时会注册到虚拟文件系统（VFS）。
 - en: The `inode_operations` struct is referred to by the `i_op` pointer. Remember
     when we explained the *everything is a file* concept in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015),
     *Where It All Starts From – The Virtual Filesystem* Since everything is a file,
@@ -322,89 +448,125 @@
     system. For instance, the inode operations applicable to a directory are different
     than a regular text file. The `inode_operations` structure provides all the functions
     that an inode needs to implement for each type of file, for managing inode data.
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: '`inode_operations`结构由`i_op`指针引用。还记得我们在[*第一章*](B19430_01.xhtml#_idTextAnchor015)中解释的*一切皆文件*概念吗？*一切皆文件*，虽然是不同类型的文件，因此每个文件都会分配一个
+    inode。磁盘驱动器、磁盘分区、常规文本文件、文档、管道和套接字都有一个 inode。每个目录也有一个 inode。但所有这些*文件*的性质不同，并且在你的系统中代表不同的实体。例如，适用于目录的
+    inode 操作与常规文本文件不同。`inode_operations`结构提供了每种类型文件需要实现的所有函数，用于管理 inode 数据。'
 - en: 'Each inode is associated with an instance of the `inode_operations` structure,
     which provides a set of operations that can be performed on the inode. This structure
     contains pointers to different functions that are used to manipulate inodes:'
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个inode都与`inode_operations`结构的一个实例相关联，该结构提供了一组可以对inode执行的操作。该结构包含指向不同函数的指针，这些函数用于操作inode：
 - en: '[PRE6]'
+  id: totrans-61
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Some of the important operations that can be performed using this structure
     are described here:'
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 一些可以通过该结构执行的重要操作在这里描述：
 - en: '`lookup`: This is used for searching an inode entry in a directory. It takes
     a directory inode and a filename as arguments, and it returns a pointer to the
     inode that corresponds to the filename.'
+  id: totrans-63
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`lookup`：用于在目录中查找inode条目。它接受一个目录inode和文件名作为参数，返回一个指向与文件名对应的inode的指针。'
 - en: '`create`: This function is called when a new file or directory is created,
     and it is responsible for initializing the inode with the appropriate metadata,
     such as ownership and permissions. This is used for constructing an inode object
     in response to an `open ()` system call.'
+  id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`create`：当创建新文件或目录时调用此函数，它负责使用适当的元数据（如所有权和权限）初始化inode。这用于响应`open ()`系统调用时构建inode对象。'
 - en: '`get_link`: This is used for working with symbolic links. A symbolic link is
     pointing to another inode.'
+  id: totrans-65
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`get_link`：用于操作符号链接。符号链接指向另一个inode。'
 - en: '`permission`: When a file is to be accessed, VFS invokes this function to check
     for access rights on the file.'
+  id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`permission`：当文件需要访问时，VFS调用此函数来检查文件的访问权限。'
 - en: '`link`: This is invoked in response to the `link ()` system call, which creates
     a new hard link. It increments the link count of the inode and updates its metadata.'
+  id: totrans-67
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`link`：这是响应`link ()`系统调用时调用的，它创建一个新的硬链接。它增加了inode的链接计数，并更新了其元数据。'
 - en: '`symlink`: This is invoked in response to the `symlink ()` system call, which
     creates a new soft link.'
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`symlink`：这是响应`symlink ()`系统调用时调用的，它创建一个新的软链接。'
 - en: '`unlink`: This is invoked in response to the `unlink ()` system call and deletes
     the file link. It decrements the link count of the inode and deletes the inode
     from the disk if the link count reaches zero.'
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`unlink`：这是响应`unlink ()`系统调用时调用的，用于删除文件链接。它减少inode的链接计数，并在链接计数为零时从磁盘中删除inode。'
 - en: '`mkdir` and `rmdir`: These are invoked in response to `mkdir ()` and `rmdir
     ()` system calls for creating and deleting directories, respectively.'
+  id: totrans-70
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`mkdir` 和 `rmdir`：这些是响应`mkdir ()`和`rmdir ()`系统调用时分别用于创建和删除目录的函数。'
 - en: Tracking file data on disk through inodes
+  id: totrans-71
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 通过inode跟踪文件在磁盘上的数据。
 - en: Since every file in the system is going to have some metadata, it will always
     have exactly one inode associated with it. As every inode is storing some information,
     filesystems need to reserve some space for them, typically just a few bytes. For
     instance, the `Ext4` filesystem by default uses 256 bytes for a single inode.
     Filesystems maintain an **inode table** to keep track of used and free inodes.
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于系统中的每个文件都会有一些元数据，它将始终与一个inode相关联。由于每个inode都存储了一些信息，文件系统需要为它们预留一些空间，通常只有几个字节。例如，`Ext4`文件系统默认为单个inode使用256字节。文件系统维护一个**inode表**来跟踪已用和空闲的inode。
 - en: 'The fields present in an inode structure provide the following two types of
     information about a file:'
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: inode结构中存在的字段提供了关于文件的以下两类信息：
 - en: '**File attributes**: Details about file ownership, permissions, timestamps,
     links, and the number of blocks used'
+  id: totrans-74
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**文件属性**：有关文件所有权、权限、时间戳、链接和使用的块数的详细信息。'
 - en: '**Data blocks**: Pointers to data blocks on disk, where the actual file content
     is stored'
+  id: totrans-75
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**数据块**：指向磁盘上的数据块，实际文件内容存储的位置。'
 - en: In addition to file permissions, ownership, and timestamps, another important
     piece of information provided by the inode is the location of actual data on the
     disk. A file can span across multiple disk blocks, depending on its size. The
@@ -415,24 +577,33 @@
     as direct and indirect pointers. For smaller files, an inode contains direct pointers
     to the data blocks of a file. Each direct pointer points to the disk address that
     is storing file data.
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了文件权限、所有权和时间戳外，inode提供的另一个重要信息是实际数据在磁盘上的位置。文件的大小决定了它可能跨越多个磁盘块。inode结构使用指针来追踪这些信息。为什么需要这样做呢？因为没有保证文件中的数据会以顺序或连续的方式存储和访问。inode使用的指针通常为4字节大小，可以分为直接指针和间接指针。对于较小的文件，inode包含指向文件数据块的直接指针。每个直接指针指向存储文件数据的磁盘地址。
 - en: 'Using direct pointers for referring to disk addresses was always going to have
     a major limitation. The question was: how many direct pointers are enough? File
     sizes can vary from a few bytes to terabytes. Using 15 direct pointers in the
     structure meant that for a block size of 4 KB, we could only point to 60 KB of
     data. Of course, this wouldn’t work in any dimension, as even small text files
     tend to be larger than 60 KB. This is depicted in *Figure 2**.1*:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用直接指针来引用磁盘地址注定会有一个主要的局限性。问题是：多少个直接指针足够？文件大小可以从几个字节到几太字节不等。在结构中使用15个直接指针意味着，对于4
+    KB的块大小，我们最多只能指向60 KB的数据。当然，这在任何维度上都行不通，因为即使是小的文本文件也通常大于60 KB。这在*图2.1*中得到了展示：
 - en: '![Figure 2.1 – Limitation when using direct pointers: for a block size of 4
     KB, only 60 KB of data can be addressed](img/B19430_02_01.jpg)'
+  id: totrans-78
   prefs: []
   type: TYPE_IMG
+  zh: '![图2.1 – 使用直接指针时的限制：对于4 KB的块大小，仅能寻址60 KB的数据](img/B19430_02_01.jpg)'
 - en: 'Figure 2.1 – Limitation when using direct pointers: for a block size of 4 KB,
     only 60 KB of data can be addressed'
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 图2.1 – 使用直接指针时的限制：对于4 KB的块大小，仅能寻址60 KB的数据
 - en: To cope with this problem, indirect pointers are used. An inode structure contains
     12 direct and 3 indirect pointers. Unlike a direct pointer, an **indirect pointer**
     is a pointer to a block of pointers. When all direct pointers have been exhausted,
@@ -444,82 +615,118 @@
     contains pointers to indirect blocks, each of which contains pointers to on-disk
     addresses. Similarly, when the file grows beyond the limits of a double indirect
     pointer—yes, you guessed it—**triple indirect pointers** are used.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了解决这个问题，使用了间接指针。一个inode结构包含12个直接指针和3个间接指针。与直接指针不同，**间接指针**是指向指针块的指针。当所有直接指针用尽时，文件系统使用数据块来存储额外的指针。inode中的倒霉的第13个或者单间接指针指向这个数据块。这个块中的指针指向实际包含文件数据的数据块。当文件大小无法通过单间接指针寻址时，就会使用双间接指针。**双间接指针**指向一个包含指向间接块的指针的块，每个间接块包含指向磁盘地址的指针。类似地，当文件的大小超出双间接指针的限制时——是的，你猜对了——**三重间接指针**被使用。
 - en: At this point, you’re probably off your head, and you’re thinking there is no
     point(-er). Needless to say, this entire hierarchy is pretty complex. Some modern
     filesystems make use of a concept called **extents** for storing even larger files.
     We’re going to cover that when we cover block filesystems in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053),
     *Exploring the Actual Filesystems Under* *the VFS*.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 到这个时候，你可能已经头晕眼花，觉得根本没有意义（指针）。不用说，这整个层次结构相当复杂。一些现代文件系统利用了一种叫做**范围**（extents）的概念来存储更大的文件。我们将在讨论块文件系统时详细讲解这个概念，具体内容会在[*第3章*](B19430_03.xhtml#_idTextAnchor053)，*探索VFS下的实际文件系统*中介绍。
 - en: 'For now, let us simplify this and point ourselves in the right direction. We’re
     going to make use of some basic math to explain how indirect pointers help in
     storing larger files. We’re going to consider a block size of 4 KB, as this is
     the default used by most filesystems:'
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们简化这一点，并为自己指明正确的方向。我们将利用一些基础数学来解释间接指针如何帮助存储更大的文件。我们将考虑 4 KB 的块大小，因为这是大多数文件系统的默认设置：
 - en: Total pointers in an inode = 15
+  id: totrans-83
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个 inode 中的总指针数量 = 15
 - en: Number of direct pointers = 12
+  id: totrans-84
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 直接指针的数量 = 12
 - en: Number of indirect pointers = 1
+  id: totrans-85
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 间接指针的数量 = 1
 - en: Number of double indirect pointers = 1
+  id: totrans-86
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 双重间接指针的数量 = 1
 - en: Number of triple indirect pointers = 1
+  id: totrans-87
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 三重间接指针的数量 = 1
 - en: Size of each pointer (direct or indirect) = 4 bytes
+  id: totrans-88
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 每个指针的大小（直接或间接）= 4 字节
 - en: Number of pointers per block = (block size) / (pointer size) = (4 KB / 4) =
     1,024 pointers
+  id: totrans-89
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 每个块的指针数量 = （块大小）/（指针大小）= （4 KB / 4）= 1,024 个指针
 - en: Maximum file size that can be referred by using direct pointers = 12 x 4 KB
     = 48 KB
+  id: totrans-90
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用直接指针可以引用的最大文件大小 = 12 x 4 KB = 48 KB
 - en: Maximum file size that can be referred by using 12 direct and 1 indirect pointer
     = [(12 x 4 KB) + (1,024 x 4 KB)] ≈ 4 MB
+  id: totrans-91
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 12 个直接指针和 1 个间接指针可以引用的最大文件大小 = [(12 x 4 KB) + (1,024 x 4 KB)] ≈ 4 MB
 - en: Maximum file size that can be referred by using 12 direct, 1 indirect, and one
     double indirect pointer = [(12 x 4 KB) + (1,024 x 4 KB) + (1,024 x 1,024 x 4 KB)]
     ≈ 4 GB
+  id: totrans-92
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 12 个直接指针、1 个间接指针和 1 个双级间接指针可以引用的最大文件大小 = [(12 x 4 KB) + (1,024 x 4 KB) +
+    (1,024 x 1,024 x 4 KB)] ≈ 4 GB
 - en: Maximum file size that can be referred by using 12 direct pointers, 1 single
     indirect, 1 double indirect, and 1 triple indirect pointer = (12 x 4 KB) + (1,024
     x 4 KB) + (1,024 x 1,024 x 4 KB) + (1 x 1,024 x 1,024 x 1,024 x 4 KB) ≈ 4 TB
+  id: totrans-93
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 12 个直接指针、1 个单级间接指针、1 个双级间接指针和 1 个三级间接指针可以引用的最大文件大小 = （12 x 4 KB）+ （1,024
+    x 4 KB）+ （1,024 x 1,024 x 4 KB）+ （1 x 1,024 x 1,024 x 1,024 x 4 KB）≈ 4 TB
 - en: 'The following figure shows how the use of indirect pointers can help in addressing
     larger files:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下图示展示了如何通过使用间接指针来帮助处理更大的文件：
 - en: '![Figure 2.2 – Visual representation of an inode structure](img/B19430_02_02.jpg)'
+  id: totrans-95
   prefs: []
   type: TYPE_IMG
+  zh: '![图 2.2 – inode 结构的可视化表示](img/B19430_02_02.jpg)'
 - en: Figure 2.2 – Visual representation of an inode structure
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 2.2 – inode 结构的可视化表示
 - en: As shown in *Figure 2**.2*, filesystems might use a single-level indirect block
     for smaller files, and then switch to a double-level indirect block for larger
     files. Using indirect inode pointers offers multiple advantages. First, it eliminates
@@ -529,12 +736,17 @@
     basis rather than the upfront reservation of a significant amount of space. Each
     inode typically has 12 direct block pointers, 1 single indirect block pointer,
     1 double indirect block pointer, and 1 triple indirect block pointer.
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: 如*图 2.2*所示，文件系统可能会为较小的文件使用单级间接块，然后对于较大的文件切换到双级间接块。使用间接 inode 指针有多个优点。首先，它消除了为了容纳大文件而需要连续存储分配的需求，从而使文件系统能够有效地处理这些文件。其次，它有助于高效的空间利用，因为可以根据需要为文件分配块，而不是预先保留大量空间。每个
+    inode 通常有 12 个直接块指针，1 个单级间接块指针，1 个双级间接块指针和 1 个三级间接块指针。
 - en: Can a filesystem run out of inodes?
+  id: totrans-98
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 文件系统会耗尽 inode 吗？
 - en: 'When managing storage, keeping space available is a major concern. Running
     out of disk space is a common scenario. An inode is assigned to every file and
     directory on the filesystem, but what if all inode numbers have been assigned?
@@ -544,73 +756,103 @@
     be able to create any new file. The number of inodes in a filesystem cannot be
     expanded once the filesystem has been created, so a backup will be the only option.
     You can check the inode usage of mounted filesystems using the `df` command:'
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 在管理存储时，保持空间可用是一个主要关注点。磁盘空间耗尽是常见的情况。每个文件和目录都分配了一个 inode，但如果所有的 inode 都已分配了怎么办？这不太可能发生，因为文件系统通常有数百万个可用的
+    inode。但是，是的，文件系统确实有可能耗尽 inode。如果发生这种情况，磁盘上可用的空间将无济于事，因为文件系统将无法创建任何新文件。文件系统创建后，inode
+    的数量无法扩展，因此备份将是唯一的选择。你可以使用 `df` 命令检查已挂载文件系统的 inode 使用情况：
 - en: '[PRE7]'
+  id: totrans-100
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'This situation is illustrated in *Figure 2**.3*. The filesystem mounted on
     `/ford` has close to 40% of free space, but since all the 6.3 million inodes have
     been exhausted, it is not possible to create any new file:'
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: '*Figure 2**.3*图示了这种情况。挂载在`/ford`上的文件系统有接近40%的剩余空间，但由于已经耗尽了630万个索引节点，无法创建任何新文件。'
 - en: '![Figure 2.3 – A filesystem can run out of inodes ](img/B19430_02_03.jpg)'
+  id: totrans-102
   prefs: []
   type: TYPE_IMG
+  zh: '![图 2.3 – 文件系统可能耗尽索引节点](img/B19430_02_03.jpg)'
 - en: Figure 2.3 – A filesystem can run out of inodes
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 2.3 – 文件系统可能耗尽索引节点
 - en: 'Let us wrap up our discussion with a few key inode pointers:'
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们用几个关键的索引节点指针来总结我们的讨论：
 - en: In addition to metadata, inodes also save information about where a file is
     stored on the physical disk. In order to keep track of a file’s physical whereabouts,
     inodes use several direct and indirect pointers.
+  id: totrans-105
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 除了元数据外，索引节点还保存文件在物理磁盘上存储位置的信息。为了追踪文件的物理位置，索引节点使用多个直接和间接指针。
 - en: Inodes are stored in on-disk filesystem structures in an inode table. When a
     file needs to be opened, its corresponding inode is loaded into memory.
+  id: totrans-106
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 索引节点存储在磁盘上的文件系统结构中的索引节点表中。当需要打开一个文件时，相应的索引节点被加载到内存中。
 - en: For filesystems that only generate their content in memory, such as `procfs`
     and `sysfs`, their inodes are only present in memory.
+  id: totrans-107
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 对于仅在内存中生成其内容的文件系统（如`procfs`和`sysfs`），它们的索引节点仅存在于内存中。
 - en: While inodes store a lot of metadata about a file, they do not store the name
     of the file. So, two things that are not part of the inode structure are the file
     contents and the filename.
+  id: totrans-108
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 虽然索引节点存储了关于文件的大量元数据，但它们不存储文件的名称。因此，索引节点结构中不包括文件内容和文件名。
 - en: Inodes use 15 pointers to keep track of a file’s data blocks on a disk. The
     first 12 pointers are direct pointers and can only address a maximum file size
     of 48 KB. The remaining three pointers provide a single, double, and triple level
     of indirection. Through the use of these indirect pointers, large files can be
     addressed.
+  id: totrans-109
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 索引节点使用15个指针来追踪文件在磁盘上的数据块。前12个指针是直接指针，只能寻址最大48 KB的文件大小。剩余的三个指针提供单一、双重和三重间接。通过使用这些间接指针，可以寻址大文件。
 - en: If a filesystem runs out of inodes, no new file can be created on it. This is
     very rare, as a filesystem usually has a large number of inodes, amounting to
     millions.
+  id: totrans-110
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果文件系统的索引节点用完，就无法在其上创建新文件。这种情况非常罕见，因为文件系统通常拥有数量庞大的索引节点，数量可达数百万。
 - en: Directory entries – mapping inodes to filenames
+  id: totrans-111
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 目录条目 – 将索引节点映射到文件名
 - en: A directory acts as a catalog or a container for user files. The operations
     that are applicable to a directory are different than regular files. There are
     different commands for working with directories. A file is always going to be
     *inside* a directory, and to access that file, you need to specify the absolute
     or relative path in terms of directories. But like most things in Linux, directories
     are also treated as files. So, how does this all work?
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 目录充当用户文件的目录或容器。适用于目录的操作与常规文件不同。有不同的命令用于处理目录。文件始终位于一个目录中，并且要访问该文件，需要以目录的绝对或相对路径指定。但是像Linux中的大多数事物一样，目录也被视为文件。那么这一切是如何工作的呢？
 - en: Native Linux filesystems treat directories as files and store them like files.
     Like all regular files, a directory is also assigned an inode. There is one difference
     between the inode of a directory and a file. In the case of a directory, the **type**
@@ -619,30 +861,40 @@
     the name of the file. The filename is present in a directory. A directory can
     be thought of as a special file that contains a table. This table consists of
     filenames and their corresponding inode numbers.
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: 本地Linux文件系统将目录视为文件并像文件一样存储它们。像所有常规文件一样，目录也分配了一个索引节点。目录索引节点和文件之间有一个区别。在目录的情况下，索引节点中的**类型**字段是**目录**。请记住，从我们关于索引节点的讨论中得知，索引节点包含了关于文件的大量元数据，但它不包含文件名。文件名存在于目录中。可以将目录视为包含表格的特殊文件。该表格包含文件名及其相应的索引节点号。
 - en: When trying to access a file, a process has to traverse the hierarchical directory
     structure. Each level in that structure defines a path that can either be absolute
     or relative. `/etc/ssh/sshd_config`. In contrast, `ssh/sshd_config`. There is
     no leading `/` in the relative pathnames.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 当尝试访问文件时，进程必须遍历分层目录结构。该结构中的每个级别定义了绝对或相对路径，可以是`/etc/ssh/sshd_config`绝对路径，也可以是`ssh/sshd_config`相对路径。相对路径名中没有前导的`/`。
 - en: '*Fully qualified*, *mapping of names to numbers*, notice how this sounds a
     bit familiar to the concept of name resolution. While describing inodes, we used
     the analogy of the DNS, and we’ll use it here as well. Just as regular DNS records
     map website names to IP addresses, a directory maps all filenames to their corresponding
     inode numbers. This combination of filenames to inodes is known as **linking**.
     The concept of linking is explained toward the end of this chapter.'
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: '*完全限定的*，*将名称映射到数字*，注意这听起来有点像名称解析的概念。在描述 inode 时，我们用了 DNS 的类比，这里也将继续使用这个类比。就像常规的
+    DNS 记录将网站名称映射到 IP 地址，目录将所有文件名映射到对应的 inode 编号。文件名和 inode 之间的这种组合被称为 **链接**。链接的概念将在本章末尾解释。'
 - en: If you prefer a pop culture reference, think of the star maps in the *Star Wars*
     franchise. In order to travel to a specific planet, the characters consult the
     star map to find the right location. Think of the star map as a directory, and
     each planet as a file or a subdirectory. The map lists the exact location and
     coordinates of each planet, much like a directory that lists the inode number
     and location of each file.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你喜欢用流行文化的参考，想象一下 *星际大战* 中的星图。为了前往特定的星球，角色们会查阅星图来找到正确的位置。将星图想象为一个目录，每个星球则是一个文件或子目录。星图列出了每个星球的确切位置和坐标，就像目录列出了每个文件的
+    inode 编号和位置。
 - en: This mapping comes in handy when performing lookup operations. Looking up pathnames
     is a directory-centric operation as files are always present inside a directory.
     For looking up pathnames, VFS uses directory entries, also known as `dentry objects`.
@@ -652,82 +904,116 @@
     both considered `dentry objects` and are mapped in memory. This helps in caching
     results of `lookup` operations, which in turn speeds up the overall performance
     when looking up pathnames.
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种映射在执行查找操作时非常有用。查找路径名是一个以目录为中心的操作，因为文件总是存在于目录内。对于查找路径名，VFS 使用目录条目，也就是 `dentry
+    objects`。`dentry objects` 负责在内存中表示目录。当遍历路径时，每个组件都被视为一个 `dentry object`。以 `/etc/hosts`
+    文件为例，`/etc` 目录和 `hosts` 文件都被视为 `dentry objects`，并映射到内存中。这有助于缓存 `lookup` 操作的结果，从而加快查找路径名时的整体性能。
 - en: 'Consider the following example: there is a `/cars` directory in the `/` partition,
     which contains three files: `McLaren`, `Porsche`, and `Lamborghini`. The following
     steps provide an oversimplified version of events that take place when a process
     wants to access the McLaren file in the `/``cars` directory:'
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: 考虑以下示例：在 `/` 分区中有一个 `/cars` 目录，里面有三个文件：`McLaren`、`Porsche` 和 `Lamborghini`。以下步骤提供了当进程想要访问
+    `/cars` 目录中的 McLaren 文件时发生的简化版事件：
 - en: The VFS will remodel the path as a `dentry object`.
+  id: totrans-119
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: VFS 会将路径重构为 `dentry object`。
 - en: A `dentry object` will be created for each component in the pathname. The VFS
     will follow each directory entry for path resolution. For looking up `/cars/McLaren`,
     separate `dentry objects` will be created for `/`, `cars`, and `McLaren`.
+  id: totrans-120
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 对路径名中的每个组件都会创建一个 `dentry object`。VFS 将跟踪每个目录条目以进行路径解析。对于查找 `/cars/McLaren`，将为
+    `/`、`cars` 和 `McLaren` 分别创建独立的 `dentry objects`。
 - en: As our process has specified the absolute path, the VFS will start with the
     first component in the pathname, that is, `/`, and then proceed to the child objects.
+  id: totrans-121
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 由于我们的进程已经指定了绝对路径，VFS 将从路径名中的第一个组件开始，即 `/`，然后继续处理子对象。
 - en: The VFS will check the relevant permissions on the inode to see whether the
     calling process has the required privileges.
+  id: totrans-122
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: VFS 将检查 inode 上的相关权限，查看调用进程是否具有所需的权限。
 - en: The VFS also calculates a hash value for `dentry objects` and compares it to
     the values in the hash table.
+  id: totrans-123
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: VFS 还会计算 `dentry objects` 的哈希值，并将其与哈希表中的值进行比较。
 - en: The `/` directory contains the mapping of files and subdirectories to their
     respective inode numbers. Once the inode of `/cars` has been retrieved, the kernel
     can use the block pointers to view the on-disk contents of the directory.
+  id: totrans-124
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`/` 目录包含文件和子目录与其对应的 inode 编号的映射。一旦 `/cars` 的 inode 被检索到，内核就可以使用块指针查看该目录的磁盘上的内容。'
 - en: The `/cars` directory will contain the mapping of the three files (`McLaren`,
     `Porsche`, and `Lamborghini`) to their inode numbers. From here, we can use the
     inode of `McLaren`, which will point us to the on-disk data blocks that contain
     the file data.
+  id: totrans-125
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`/cars`目录将包含三个文件（`McLaren`、`Porsche`和`Lamborghini`）与它们的inode号之间的映射。从这里，我们可以使用`McLaren`的inode，它将指向包含文件数据的磁盘数据块。'
 - en: 'It’s important to know that the representation of a directory through `dentry
     objects` only exists in memory. They’re not stored on disk. These objects are
     created by VFS on the fly:'
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要的是要知道，通过`dentry对象`表示目录仅存在于内存中。它们不会被存储在磁盘上。这些对象是由VFS动态创建的：
 - en: '![Figure 2.4 – The exchange between directories and inodes](img/B19430_02_04.jpg)'
+  id: totrans-127
   prefs: []
   type: TYPE_IMG
+  zh: '![图 2.4 – 目录与inode之间的交换](img/B19430_02_04.jpg)'
 - en: Figure 2.4 – The exchange between directories and inodes
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 2.4 – 目录与inode之间的交换
 - en: The eagle-eyed reader might be wondering, how did we know the inode of the `/`
     directory? Most filesystems start assigning inode values from `2`. The inode number
     `0` is not used. Inode number `1` is used to keep track of bad and defective blocks
     on the physical disk. So, inode allocation in filesystems starts from `2`, and
     the root directory of a filesystem is always assigned inode number `2`.
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 目光敏锐的读者可能会想，我们是如何知道`/`目录的inode的？大多数文件系统从`2`开始分配inode值。inode号`0`未被使用。inode号`1`用于跟踪物理磁盘上的坏块和损坏的块。因此，文件系统中的inode分配从`2`开始，文件系统的根目录总是被分配inode号`2`。
 - en: Dentry cache
+  id: totrans-130
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: Dentry缓存
 - en: 'In terms of performance, pathname traversals and directory lookups can be expensive
     operations, especially if there are multiple recursive paths that need to be resolved.
     Once a path has been resolved, and a process wants to access the same path once
     again, the VFS will have to perform the entire operation again, which is excessive.
     There’s also a dependency on the underlying storage media: how quickly it can
     retrieve the required information. This puts brakes on the operation.'
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 在性能方面，路径名遍历和目录查找可能是昂贵的操作，尤其是在需要解析多个递归路径时。一旦路径被解析，且一个进程再次需要访问同一路径，VFS必须重新执行整个操作，这是不必要的。此外，还依赖于底层存储介质：它能多快地检索所需信息。这会拖慢操作速度。
 - en: We’re once again going to use our go-to analogy here, the DNS. When a DNS client
     performs the same DNS query, the client’s local DNS server caches the results
     of the query. This is done so that for any identical request, the DNS server wouldn’t
@@ -736,8 +1022,10 @@
     cache**. Frequently accessed pathnames are kept in the memory to accelerate the
     lookup process. This saves a lot of unnecessary I/O requests to the underlying
     filesystem. The dentry cache plays a pivotal role in the filename lookup operation.
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们再次使用我们的比喻——DNS。当一个DNS客户端执行相同的DNS查询时，客户端的本地DNS服务器会缓存查询结果。这样做是为了确保对于任何相同的请求，DNS服务器不必遍历整个DNS服务器层级。类似地，为了加速路径名查找过程，内核使用**目录项缓存**。经常访问的路径名会被保存在内存中，以加速查找过程。这可以节省大量不必要的I/O请求，避免对底层文件系统造成负担。dentry缓存在文件名查找操作中起着关键作用。
 - en: 'A directory maps filenames to inodes. You have to ask: if the dentry object
     is creating an in-memory representation of directories and results of lookup operations
     are being cached, that means corresponding inodes are also being cached? The answer
@@ -745,52 +1033,72 @@
     directory entry is cached, the corresponding inode is also cached. The dentry
     objects pin corresponding inodes in memory, and they remain in memory as long
     as the dentry objects.'
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 目录将文件名映射到inode。你可能会问，如果dentry对象创建了目录的内存表示，并且查找操作的结果被缓存，这是否意味着对应的inode也被缓存？答案是肯定的。没有必要只缓存一个而不缓存另一个。如果目录项被缓存，相应的inode也会被缓存。dentry对象将对应的inode固定在内存中，并且它们会一直驻留在内存中，直到dentry对象被释放。
 - en: 'Dentry objects are defined in the `include/linux/dcache.h` file:'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: Dentry对象在`include/linux/dcache.h`文件中定义：
 - en: '[PRE8]'
+  id: totrans-135
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'Some commonly used terms are described here:'
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里描述了一些常用的术语：
 - en: '`d_name`: This field contains a pointer to a `struct qstr` object, which represents
     the name of the file or directory. The `qstr` object is a structure used by the
     kernel to represent a string or sequence of characters.'
+  id: totrans-137
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_name`：该字段包含指向`struct qstr`对象的指针，表示文件或目录的名称。`qstr`对象是内核用于表示字符串或字符序列的结构体。'
 - en: '`d_parent`: This field contains a pointer to the parent directory of the file
     or directory associated with the directory entry.'
+  id: totrans-138
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_parent`：此字段包含指向与目录项相关联的文件或目录的父目录的指针。'
 - en: '`d_inode`: This field is a pointer to the `struct inode` object of the file
     or directory.'
+  id: totrans-139
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_inode`：此字段是指向文件或目录的`struct inode`对象的指针。'
 - en: '`d_lock`: This field contains a spinlock used to protect access to the `struct
     dentry` object. It is quite common that the `dentry` and `inode` objects are shared
     among multiple processes that open the same file or directory. The `d_lock` field
     protects these objects from concurrent modifications that could lead to inconsistent
     or corrupt filesystem data.'
+  id: totrans-140
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_lock`：此字段包含一个自旋锁，用于保护对`struct dentry`对象的访问。`dentry`和`inode`对象通常被多个进程共享，这些进程打开相同的文件或目录。`d_lock`字段保护这些对象，避免并发修改，防止导致文件系统数据不一致或损坏。'
 - en: '`d_op`: This field contains a pointer to the `struct dentry_operations` structure,
     which contains a set of function pointers that define the operations that can
     be performed on the `dentry` object.'
+  id: totrans-141
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_op`：此字段包含指向`struct dentry_operations`结构的指针，该结构包含一组函数指针，用于定义可以对`dentry`对象执行的操作。'
 - en: '`d_sb`: This is a pointer to the `struct super_block` structure, which defines
     the superblock of the filesystem that the directory entry belongs to.'
+  id: totrans-142
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_sb`：这是指向`struct super_block`结构的指针，该结构定义了目录项所属的文件系统的超级块。'
 - en: The cache is represented in memory using a hash table. Each entry in the hash
     table structure points to a list of directory cache entries, having the same hash
     value. When a process attempts to access a file or a directory, the kernel searches
@@ -798,28 +1106,38 @@
     name as a key. If the entry is found in the cache, it is returned to the calling
     process. If the entry is not found, the kernel must go to disk and perform an
     I/O operation to read the directory entry from the filesystem.
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: 缓存通过哈希表在内存中表示。哈希表结构中的每个条目指向具有相同哈希值的目录缓存条目列表。当一个进程尝试访问文件或目录时，内核会使用文件或目录名称作为键，在dentry缓存中查找对应的目录项。如果在缓存中找到该条目，它将返回给调用进程。如果未找到该条目，内核必须访问磁盘并执行I/O操作，从文件系统中读取目录项。
 - en: Dentry states
+  id: totrans-144
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: Dentry 状态
 - en: 'Dentry objects tend to be in one of the following three states:'
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: Dentry对象通常处于以下三种状态之一：
 - en: '**Used**: A used dentry indicates a dentry object that is currently being used
     by the VFS and shows that there is a valid inode structure associated with it.
     This means that a process is actively using this entry.'
+  id: totrans-146
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**已使用**：已使用的dentry表示一个当前被VFS使用的dentry对象，并表明与之关联的inode结构有效。这意味着一个进程正在积极使用这个条目。'
 - en: '**Unused**: An unused entry also has a valid inode associated with it, but
     it is not being used by the VFS. If a pathname lookup operation (related to this
     entry) is performed again, that operation can be completed using this cached entry.
     If a need arises to reclaim memory, then this entry can be disposed of.'
+  id: totrans-147
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**未使用**：未使用的条目也与有效的inode关联，但它没有被VFS使用。如果再次执行与此条目相关的路径查找操作，可以使用这个缓存的条目来完成该操作。如果需要回收内存，则可以处理该条目。'
 - en: '**Negative**: A negative state is a bit unique in that it is a representation
     of a lookup operation that failed. For instance, if the file to be accessed has
     already been deleted or if the pathname doesn’t exist to begin with, a typical
@@ -827,101 +1145,144 @@
     result of this failed lookup, the VFS will create a negative dentry. Too many
     failed lookup operations can create unnecessary negative dentries and can adversely
     affect performance.'
+  id: totrans-148
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**负值**：负值状态有点特殊，它表示一个查找操作失败的情况。例如，如果要访问的文件已经被删除，或者路径名根本不存在，通常会返回**没有此文件或目录**的消息给调用进程。由于此查找失败，VFS将创建一个负值dentry。过多的查找失败可能会创建不必要的负值dentry，从而对性能产生不利影响。'
 - en: Dentry operations
+  id: totrans-149
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: Dentry 操作
 - en: 'The various filesystem-related operations that can be performed on dentry objects
     are defined in the `dentry_operations` structure:'
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以对dentry对象执行的各种文件系统相关操作由`dentry_operations`结构定义：
 - en: '[PRE9]'
+  id: totrans-151
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'A few important operations are described as follows:'
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面描述了一些重要的操作：
 - en: '`d_revalidate`: It can often happen that the dentry objects in the cache can
     become out of sync with the on-disk data. This is often true in the case of network
     filesystems. The kernel is dependent on the network to gather information about
     the on-disk structures. In such cases, VFS uses the `d_revalidate` operation to
     revalidate a dentry.'
+  id: totrans-153
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_revalidate`：目录项缓存中的 dentry 对象可能会与磁盘上的数据不同步，尤其在网络文件系统中常见。内核依赖网络来获取磁盘结构的信息。在这种情况下，VFS
+    使用 `d_revalidate` 操作来重新验证一个 dentry。'
 - en: '`d_weak_revalidate`: When a path lookup operation ends at a dentry that was
     not obtained after a lookup in the parent directory, VFS calls the `d_weak_revalidate`
     operation.'
+  id: totrans-154
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_weak_revalidate`：当路径查找操作结束时，dentry 不是通过父目录查找得到的，VFS 会调用 `d_weak_revalidate`
+    操作。'
 - en: '`d_hash`: This is used to calculate the hash value of a dentry. It takes a
     dentry as input and returns a hash value, which is used to look up the dentry
     in the directory cache.'
+  id: totrans-155
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_hash`：用于计算 dentry 的哈希值。它以一个 dentry 作为输入，返回一个哈希值，用于在目录缓存中查找该 dentry。'
 - en: '`d_compare`: This is used to compare the filenames of two dentries. It takes
     two dentries as arguments and returns `true` if they refer to the same file or
     directory, or `false` if they are different.'
+  id: totrans-156
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_compare`：用于比较两个 dentry 的文件名。它接受两个 dentry 作为参数，如果它们指向同一个文件或目录，返回 `true`；如果它们不同，则返回
+    `false`。'
 - en: '`d_init`: This is called when initializing a `dentry object`.'
+  id: totrans-157
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_init`：在初始化一个 `dentry 对象` 时调用。'
 - en: '`d_release`: This is called when a dentry has to be deallocated. It frees the
     memory used by the dentry and any associated resources, such as cached data.'
+  id: totrans-158
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_release`：当一个 dentry 需要被释放时调用。它释放 dentry 占用的内存以及任何相关资源，例如缓存的数据。'
 - en: '`d_iput`: This is invoked when a dentry object loses its inode. This is called
     just before `d_release`.'
+  id: totrans-159
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_iput`：当一个 dentry 对象失去其 inode 时调用。这个操作在 `d_release` 之前被调用。'
 - en: '`d_dname`: This is used for generating pathnames for pseudo filesystems, such
     as `procfs` and `sysfs`.'
+  id: totrans-160
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`d_dname`：用于为伪文件系统（如 `procfs` 和 `sysfs`）生成路径名。'
 - en: 'Let us summarize our discussion about directory entries:'
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们总结一下关于目录项的讨论：
 - en: Linux treats directories as files. Directories also have an inode assigned to
     them. The name of a file is stored in the directory.
+  id: totrans-162
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Linux 将目录视为文件。目录也会分配一个 inode。文件的名称存储在目录中。
 - en: The difference between the inode of a file and a directory lies in the contents
     of their corresponding disk blocks. The on-disk data of a directory contains a
     mapping of filenames and their inode numbers.
+  id: totrans-163
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 文件和目录的 inode 之间的区别在于它们对应磁盘块的内容。目录的磁盘数据包含文件名及其 inode 编号的映射。
 - en: Directories are represented in memory through dentry objects. The dentry objects
     are created by VFS in memory and are not stored on the physical disk.
+  id: totrans-164
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 目录在内存中通过 dentry 对象表示。dentry 对象由 VFS 在内存中创建，并不会存储在物理磁盘上。
 - en: To optimize lookup operations, a dentry cache is used. The dentry cache keeps
     the recently accessed pathnames and their inodes in memory.
+  id: totrans-165
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 为了优化查找操作，使用了目录项缓存（dentry cache）。dentry 缓存将最近访问过的路径名及其 inode 保存在内存中。
 - en: File objects – representing open files
+  id: totrans-166
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 文件对象 – 代表已打开的文件
 - en: Similar to dentry objects, `read` and `write`. The idea behind all this is to
     ensure that user-space programs don’t have to worry about filesystems and their
     data structures.
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 类似于 dentry 对象，`read` 和 `write`。这些操作的背后思想是确保用户空间程序不必关心文件系统及其数据结构。
 - en: When applications generate a system call to access a file, such as `open ()`,
     a file object gets created in memory. Similarly, when the application no longer
     needs access to the file and decides to close it using `close ()`, the file object
@@ -929,34 +1290,47 @@
     for a particular file. This is because access to a particular file is not limited
     to a single process; a file can be opened concurrently by multiple processes.
     Because of this, the file object is used privately by every process.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 当应用程序发起系统调用访问文件时（如 `open()`），会在内存中创建一个文件对象。同样，当应用程序不再需要访问该文件并决定使用 `close()`
+    关闭文件时，文件对象将被丢弃。需要注意的是，VFS 可以为一个特定的文件创建多个文件对象，因为对特定文件的访问不限于单个进程；一个文件可以被多个进程同时打开。因此，文件对象是由每个进程私有使用的。
 - en: 'The following are some of the differences in the way an inode and a file object
     are used by the kernel:'
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是 inode 和文件对象在内核中使用方式的一些不同之处：
 - en: File objects along with inodes are used when a process needs to access a file.
+  id: totrans-170
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 文件对象和 inode 一起使用，当进程需要访问文件时。
 - en: To access the inode of the file, the process would need a file object pointing
     to the file inode. File objects belong to a single process, whereas an inode can
     be used by multiple processes.
+  id: totrans-171
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要访问文件的inode，进程需要一个指向文件inode的文件对象。文件对象属于单个进程，而inode可以被多个进程使用。
 - en: A file object is created whenever a file is to be opened. When another process
     wants to access the same file, a new file object, private to that process, will
     be created. Hence, we can say that a file object exists for every instance of
     an open file. But every file will always have a single inode.
+  id: totrans-172
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 每当文件被打开时，都会创建一个文件对象。当另一个进程想要访问相同的文件时，会创建一个新的文件对象，这个文件对象是该进程私有的。因此，我们可以说每个打开的文件都会有一个文件对象。但每个文件始终只有一个inode。
 - en: When a process closes the file, its corresponding file object is destroyed,
     but its inode might still be kept in the cache.
+  id: totrans-173
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当进程关闭文件时，相应的文件对象将被销毁，但其inode可能仍然保留在缓存中。
 - en: 'There can be some confusion between file objects and another similar entity
     that is used for accessing files, the `open ()` system call by a process often
     returns a file descriptor, which is used by the process for accessing a file.
@@ -966,85 +1340,121 @@
     file descriptor. File descriptors are user-space references to kernel objects.
     A file object will contain information such as a file pointer representing the
     current position in the file and how the file was opened:'
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 文件对象和用于访问文件的另一个类似实体之间可能会有些混淆，进程通过`open()`系统调用通常会返回一个文件描述符，进程用它来访问文件。从某种程度上讲，文件描述符也能说明进程与文件之间的关系。那么，它们有什么区别呢？从字面上看，文件对象提供的是**打开文件描述**。文件对象将包含与文件描述符相关的所有数据。文件描述符是用户空间对内核对象的引用。文件对象将包含诸如表示当前文件位置的文件指针以及文件是如何打开的信息：
 - en: '![Figure 2.5 – A file object is created as a result of open ()](img/B19430_02_05.jpg)'
+  id: totrans-175
   prefs: []
   type: TYPE_IMG
+  zh: '![图2.5 – 文件对象是由open()函数创建的结果](img/B19430_02_05.jpg)'
 - en: Figure 2.5 – A file object is created as a result of open ()
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: 图2.5 – 文件对象是由open()函数创建的结果
 - en: 'The definition for a file object is present in `include/linux/fs.h`. This structure
     stores information about the relationship of the process to the open file. The
     `f_inode` pointer points to the inode of the file:'
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 文件对象的定义出现在`include/linux/fs.h`中。该结构体存储了进程与已打开文件之间关系的信息。`f_inode`指针指向文件的inode：
 - en: '[PRE10]'
+  id: totrans-178
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'Some important fields are described here:'
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里描述了一些重要字段：
 - en: '`f_path`: This field represents the directory path of the file associated with
     the open file. When a file is opened, the VFS creates a new `struct file` object
     and initializes its `f_path` field to point to the directory path of the file.'
+  id: totrans-180
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`f_path`：此字段表示与打开文件关联的文件的目录路径。当文件被打开时，VFS会创建一个新的`struct file`对象，并将其`f_path`字段初始化为指向文件的目录路径。'
 - en: '`f_inode`: This is a pointer to the `struct inode` object that represents the
     file associated with the `struct` `file` object.'
+  id: totrans-181
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`f_inode`：这是一个指向表示与`struct file`对象关联的文件的`struct inode`对象的指针。'
 - en: '`f_op`: This is a pointer to the `struct file_operations` object that contains
     a set of function pointers for file operations on the associated file.'
+  id: totrans-182
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`f_op`：这是一个指向`struct file_operations`对象的指针，该对象包含用于文件操作的一组函数指针。'
 - en: '`f_lock`: This field is used to ensure synchronization between different threads
     that are accessing the same file object.'
+  id: totrans-183
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`f_lock`：此字段用于确保不同线程之间对同一文件对象的访问同步。'
 - en: Defining file operations
+  id: totrans-184
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 定义文件操作
 - en: 'Like other structures, the filesystem methods applicable to file objects are
     defined in the `file_operations` table. The `f_op` pointer is pointing to the
     `file_operations` table. The VFS implements a common interface for all filesystems
     that hooks up with the actual mechanisms of the underlying filesystems:'
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 与其他结构体一样，适用于文件对象的文件系统方法在`file_operations`表中定义。`f_op`指针指向`file_operations`表。VFS为所有文件系统实现了一个通用接口，连接到底层文件系统的实际机制：
 - en: '[PRE11]'
+  id: totrans-186
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'The operations defined here look a lot similar to the generic system calls
     we described in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015):'
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里定义的操作看起来与我们在[*第1章*](B19430_01.xhtml#_idTextAnchor015)中描述的通用系统调用非常相似：
 - en: '`llseek`: This is called when the VFS needs to move the file position index'
+  id: totrans-188
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`llseek`：当VFS需要移动文件位置索引时会调用此函数。'
 - en: '`read`: This is called by `read()` and related system calls'
+  id: totrans-189
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`read`：这是由`read()`及相关系统调用调用的函数。'
 - en: '`open`: This is called when a file (inode) needs to be opened'
+  id: totrans-190
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`write`: This is called by `write()` and related system calls'
+  id: totrans-191
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`release`: This is called when an open file is being closed'
+  id: totrans-192
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`map`: This is called when a process wants to map a file in memory using the
     `mmap()` system call'
+  id: totrans-193
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -1052,9 +1462,11 @@
     At the end of the day, it’s up to the individual filesystem to pick and choose
     from this set of operations. If a particular method is not applicable to a filesystem,
     that can be simply set to `NULL`.
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
 - en: Can a process run out of file descriptors?
+  id: totrans-195
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1065,33 +1477,41 @@
     number of descriptors allowed for a process. In such cases, the limits for individual
     users can be set in the `/etc/security/limits.conf` file. For system-wide settings,
     the `sysctl` command can be used:'
+  id: totrans-196
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 2.6 – Too many open files spoil the application](img/B19430_02_06.jpg)'
+  id: totrans-197
   prefs: []
   type: TYPE_IMG
 - en: Figure 2.6 – Too many open files spoil the application
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let’s summarize our discussion before we reach our open file limit:'
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
 - en: A file object is an in-memory representation of an open file and does not have
     any corresponding on-disk image.
+  id: totrans-200
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: A file object is created in response to an `open()` system call by a process.
+  id: totrans-201
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: A file object is private for a process. As more than one process can access
     a particular file, the VFS will create multiple file objects for a particular
     file.
+  id: totrans-202
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Superblocks – describing filesystem metadata
+  id: totrans-203
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1103,6 +1523,7 @@
     respectively. Both structures do not have an on-disk image and only exist in memory.
     On a similar note, the superblock structure has a lot in common with inodes. Inodes
     store metadata about files, whereas superblocks store metadata about filesystems.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
 - en: Consider the example of a library catalog system that keeps track of the books,
@@ -1110,6 +1531,7 @@
     system is lost or damaged, it can be difficult to find and retrieve specific books
     in the library. Similarly, if the superblock structure in the kernel is corrupted
     or damaged, it can lead to data loss or filesystem errors.
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
 - en: Just as every file has an inode number assigned to it, every filesystem has
@@ -1119,8 +1541,11 @@
     is to be mounted, the superblock is the first structure that is read. Similarly,
     when the filesystem has been mounted, the information regarding the mounted filesystem
     is stored in the superblock.
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: 就像每个文件都有一个分配给它的 inode 编号一样，每个文件系统也有一个对应的超级块结构。与 inode 类似，超级块也有其磁盘映像。对于那些动态生成内容的文件系统，如
+    `procfs` 和 `sysfs`，它们的超级块结构仅存储在内存中。当文件系统需要挂载时，超级块是第一个被读取的结构。类似地，当文件系统被挂载后，关于已挂载文件系统的信息会存储在超级块中。
 - en: The superblock of a filesystem contains intricate information about the filesystem,
     such as the total number of blocks, number of used, unused, and free blocks, filesystem
     state and type, inodes, and a lot more. As changes are made to the filesystem,
@@ -1130,123 +1555,162 @@
     cannot be mounted without a superblock. Given its critical nature, several copies
     of the superblock are saved in multiple disk locations. In the case that the primary
     superblock is corrupted, a filesystem can be mounted using any of the backup superblocks.
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 文件系统的超级块包含有关文件系统的复杂信息，如总块数、已用块数、未用块数、空闲块数、文件系统状态和类型、inode 等等。随着文件系统的变化，存储在超级块中的信息会被更新。由于在挂载文件系统时会读取超级块，因此我们需要思考，如果存储在超级块中的信息被擦除或损坏会发生什么。简而言之，文件系统没有超级块是无法挂载的。鉴于其关键性质，超级块的多个副本会保存在不同的磁盘位置。若主超级块损坏，文件系统可以通过任何一个备份超级块进行挂载。
 - en: 'The superblock structure is defined in `include/linux/fs.h`. The `s_list` contains
     pointers to mounted superblocks and `s_dev` identifies the device. The superblock
     operations are defined in the `super_operations` table, pointed at by the `s_op`
     pointer:'
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: 超级块结构在 `include/linux/fs.h` 中定义。`s_list` 包含指向已挂载超级块的指针，`s_dev` 用于标识设备。超级块操作在
+    `super_operations` 表中定义，由 `s_op` 指针指向：
 - en: '[PRE12]'
+  id: totrans-209
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Some important fields of the superblock structure are explained as follows:'
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: 超级块结构中的一些重要字段如下所述：
 - en: '`s_list`: This field is used to maintain the list of all the currently mounted
     filesystems.'
+  id: totrans-211
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`s_list`：该字段用于维护当前挂载的所有文件系统的列表。'
 - en: '`s_dev`: This field specifies the device number that corresponds to the filesystem’s
     root directory inode. This is used to identify the device on which the filesystem
     resides.'
+  id: totrans-212
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`s_dev`：该字段指定与文件系统根目录 inode 对应的设备编号。用于识别文件系统所在的设备。'
 - en: '`s_type`: This field points to the definition of the specific filesystem that
     is used to interpret the data stored on the filesystem. For instance, if this
     points to the XFS filesystem, the kernel knows that it needs to use XFS-specific
     functions to interact with the filesystem.'
+  id: totrans-213
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`s_type`：该字段指向用于解释文件系统中存储数据的特定文件系统的定义。例如，如果该字段指向 XFS 文件系统，内核便知道需要使用 XFS 特定的函数与文件系统进行交互。'
 - en: '`s_root`: This field is used by the kernel to locate the root directory of
     the filesystem when it is mounted. Once the root directory has been identified,
     the directory tree can be traversed to access the other files and directories
     in the filesystem.'
+  id: totrans-214
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`s_root`：该字段由内核在挂载文件系统时用于定位根目录。一旦根目录被识别，便可以遍历目录树，访问文件系统中的其他文件和目录。'
 - en: '`s_magic`: This field is used to identify the filesystem type on a particular
     device or partition.'
+  id: totrans-215
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`s_magic`：该字段用于标识特定设备或分区上的文件系统类型。'
 - en: Again, there are a considerable number of fields, so it’s not possible to explain
     all of them. Some fields are simple integers, while others have far more complex
     data structures and function pointers.
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 同样，由于字段数量众多，因此不可能逐一解释所有字段。有些字段是简单的整数，而另一些则有更为复杂的数据结构和函数指针。
 - en: Superblock operations in the kernel
+  id: totrans-217
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 内核中的超级块操作
 - en: 'As with all VFS structures, all the superblock operations in `include/linux/fs.h`
     are not mandatory for a filesystem. The kernel keeps a copy of the filesystem
     superblock in the memory. When changes are made in the filesystem, the information
     in the superblock is updated in memory. The superblock copy in memory is thus
     marked `dirty` as the kernel needs to update the on-disk superblock with the updated
     information:'
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE13]'
+  id: totrans-219
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'Some important methods are defined as follows:'
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
 - en: '`alloc_inode`: This method is called to initialize and allocate memory for
     `struct inode`'
+  id: totrans-221
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`destroy_inode`: This method is called by `destroy_inode()` to release resources
     allocated for `struct inode`'
+  id: totrans-222
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`dirty_inode`: This method is called by the VFS to mark an inode as `dirty`'
+  id: totrans-223
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`write_inode`: This method is called when the VFS needs to write an inode to
     disk'
+  id: totrans-224
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`delete_inode`: This is called when the VFS wants to delete an inode'
+  id: totrans-225
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`sync_fs`: This is called when VFS is writing out all `dirty` data associated
     with a superblock'
+  id: totrans-226
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`statfs`: This is called when the VFS needs to get filesystem statistics, such
     as its size, free space, and number of inodes'
+  id: totrans-227
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`umount_begin`: This is called when the VFS is unmounting a filesystem'
+  id: totrans-228
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Let’s summarize:'
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
 - en: The superblock structure records all filesystem characteristics.
+  id: totrans-230
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The superblock structure is read when mounting and unmounting a filesystem.
     Filesystems maintain copies of superblocks in multiple disk locations.
+  id: totrans-231
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Linking
+  id: totrans-232
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1255,6 +1719,7 @@
     most users would know. Symbolic (soft) links behave as shortcuts, although there
     are subtle differences. **Soft links** point to the path that contains the data,
     while **hard links** refer to the data itself.'
+  id: totrans-233
   prefs: []
   type: TYPE_NORMAL
 - en: 'Going back a bit, the inode doesn’t contain the name of the file. The name
@@ -1263,27 +1728,33 @@
     use this logic. A hard link points to the inode of the file. This means that the
     link and file are indistinguishable as both are pointing to the same inode. After
     a while, you might not even know which was the original file:'
+  id: totrans-234
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 2.7 – It’s impossible to tell which is the original file as both have
     the same inode](img/B19430_02_07.jpg)'
+  id: totrans-235
   prefs: []
   type: TYPE_IMG
 - en: Figure 2.7 – It’s impossible to tell which is the original file as both have
     the same inode
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
 - en: 'In contrast, a symbolic link has a different inode number than the original
     file. Note how this symbolic link is pointing to the original file and indicates
     the `l` in the permission section of the file:'
+  id: totrans-237
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 2.8 – For soft links, the first character in the file permissions
     is “l”](img/B19430_02_08.jpg)'
+  id: totrans-238
   prefs: []
   type: TYPE_IMG
 - en: Figure 2.8 – For soft links, the first character in the file permissions is
     “l”
+  id: totrans-239
   prefs: []
   type: TYPE_NORMAL
 - en: Using the same inode number for multiple files results in some limitations.
@@ -1292,9 +1763,11 @@
     only be used for regular files, not directories. This is to prevent breaking the
     filesystem structure. A hard link to a directory could create an endless loop
     structure.
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
 - en: Summarizing the four structures
+  id: totrans-241
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1302,6 +1775,7 @@
     when we discuss block filesystems in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053),
     *Exploring the Actual Filesystems Under the VFS*. But we have gotten some understanding
     of how VFS goes about spinning that web of abstraction.
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
 - en: As discussed in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015), the design
@@ -1313,47 +1787,59 @@
     memory for non-native filesystems. Because of the difference in the design of
     non-native filesystems, they might not support some common filesystem operations
     in Linux, such as symbolic links.
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
 - en: 'The following table provides a brief summary of the major VFS structures:'
+  id: totrans-244
   prefs: []
   type: TYPE_NORMAL
 - en: '| **Structure** | **Description** | **Stored on** **disk/in memory** |'
+  id: totrans-245
   prefs: []
   type: TYPE_TB
 - en: '| Inode | Contains all file metadata except the filename | On disk and in memory
     |'
+  id: totrans-246
   prefs: []
   type: TYPE_TB
 - en: '| Dentry | Represents the relationship between a directory entry and files
     | Only in memory |'
+  id: totrans-247
   prefs: []
   type: TYPE_TB
 - en: '| File Object | Stores information about the relationship of the process to
     an open file | Only in memory |'
+  id: totrans-248
   prefs: []
   type: TYPE_TB
 - en: '| Superblock | Holds filesystem characteristics and metadata | On disk and
     in memory |'
+  id: totrans-249
   prefs: []
   type: TYPE_TB
 - en: Table 2.1 – Summarizing major VFS data structures
+  id: totrans-250
   prefs: []
   type: TYPE_NORMAL
 - en: 'The following figure represents how a process will go about opening a file
     stored on disk:'
+  id: totrans-251
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 2.9 – Relationship between common VFS structures](img/B19430_02_09.jpg)'
+  id: totrans-252
   prefs: []
   type: TYPE_IMG
 - en: Figure 2.9 – Relationship between common VFS structures
+  id: totrans-253
   prefs: []
   type: TYPE_NORMAL
 - en: Remember that the superblock structure is created and initialized during the
     filesystem mount process and it contains a pointer to the root dentry, which,
     in turn, contains a pointer to the inode that represents the root directory of
     the filesystem.
+  id: totrans-254
   prefs: []
   type: TYPE_NORMAL
 - en: When a process calls the `open()` system call to open a file, the VFS creates
@@ -1361,15 +1847,18 @@
     initializes its `f_path` field to point to the directory path of the file. The
     `struct dentry` object contains a pointer to a `struct inode` object, which represents
     the on-disk inode for the file.
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
 - en: The `struct inode` object is associated with the `struct super_block` object,
     which represents the on-disk filesystem. The `struct super_block` object contains
     pointers to the filesystem-specific functions defined in the `struct super_operations`
     structure, which is used by the VFS to interact with the filesystem.
+  id: totrans-256
   prefs: []
   type: TYPE_NORMAL
 - en: Page cache
+  id: totrans-257
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1380,6 +1869,7 @@
     the word *dirty* has been used. How and why this term has been used in Linux is
     anybody’s guess. The term *dirty* here refers to pages in memory that have been
     modified but have not yet been *flushed* to disk.
+  id: totrans-258
   prefs: []
   type: TYPE_NORMAL
 - en: Caching is a common practice used in both hardware and software applications
@@ -1388,6 +1878,7 @@
     faster than the memory subsystem, which, in turn, is faster than physical disks.
     This discrepancy in speed can result in wasted CPU cycles when waiting for a response
     from memory or disk.
+  id: totrans-259
   prefs: []
   type: TYPE_NORMAL
 - en: To address this issue, cache layers were added to the CPU to store frequently
@@ -1395,6 +1886,7 @@
     speed as long as the required data is available in the cache. Similarly, software
     applications also use caching to store frequently accessed data or instructions
     in a faster and more accessible location to improve performance.
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
 - en: The Linux design is geared toward performance, and the page cache plays a vital
@@ -1403,6 +1895,7 @@
     (provided there is enough available) so that frequent trips to the underlying
     physical disks can be avoided. All this contributes toward performance improvement
     as disk access is far slower than memory.
+  id: totrans-261
   prefs: []
   type: TYPE_NORMAL
 - en: 'Operating systems interact with hardware at a lower level and use different
@@ -1413,63 +1906,76 @@
     of memory in the kernel and is 4 KB by default. This is significant because all
     I/O operations are aligned to some number of pages. The following figure summarizes
     how data is read from and written to disk, using the page cache:'
+  id: totrans-262
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 2.10 – Improving I/O performance through Page Cache](img/B19430_02_10.jpg)'
+  id: totrans-263
   prefs: []
   type: TYPE_IMG
 - en: Figure 2.10 – Improving I/O performance through Page Cache
+  id: totrans-264
   prefs: []
   type: TYPE_NORMAL
 - en: '*Figure 2**.10* highlights how the page cache aids in improving read and write
     performance by caching frequently accessed file data in memory, thereby reducing
     disk access and improving system performance.'
+  id: totrans-265
   prefs: []
   type: TYPE_NORMAL
 - en: Reading
+  id: totrans-266
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'The following points provide a brief summary of what happens when a process
     running in user space requests data to be read from disk:'
+  id: totrans-267
   prefs: []
   type: TYPE_NORMAL
 - en: The kernel first checks whether the required data is already available in the
     cache. If the data is found in the cache, the kernel can avoid performing any
     disk operation and directly provide the requested data to the process. This scenario
     is known as a **cache hit**.
+  id: totrans-268
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: If the requested data cannot be found in the cache, the kernel must go to the
     underlying disk. This is known as a `read` operation, retrieve the requested data
     from the disk, save it to the cache, and then hand it over to the calling process.
+  id: totrans-269
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: If any further requests are made to access this page, they can be fulfilled
     from the page cache.
+  id: totrans-270
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: In the case where the requested data is found in the cache but has already been
     marked as `dirty`, the kernel will first write it back to disk before proceeding
     with the procedure mentioned earlier.
+  id: totrans-271
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: 'Similarly, when a process needs to write data to disk, the following happens:'
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
 - en: The kernel updates the page cache that is mapped to the file and marks the data
     as `dirty`. The pages that are yet to be written to the disk are known as **dirty
     pages**.
+  id: totrans-273
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: The kernel will not immediately write all dirty data to disk. Depending upon
     the configuration of the kernel’s flusher thread, the dirty data will be flushed
     to the disk.
+  id: totrans-274
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
@@ -1482,6 +1988,7 @@
     in case of abrupt power loss?* The dirty pages in memory do get flushed to the
     physical disks after a certain interval; this is called `sysctl`), which can be
     used for controlling this behavior of the page cache.'
+  id: totrans-275
   prefs: []
   type: TYPE_NORMAL
 - en: Despite the risks associated with page caching, there is no doubt that it improves
@@ -1489,9 +1996,11 @@
     The page cache can use the available memory resources. However, when the free
     memory available in the system goes below a threshold, the flushing schedulers
     will kick in and start to unload data from the page cache onto disk.
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
 - en: Summary
+  id: totrans-277
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1505,6 +2014,7 @@
     the methods defined by the VFS are generic, it is not compulsory for filesystems
     to implement all of them, although the filesystems should adhere to the structures
     defined in the VFS and build upon them to ensure a generic interface is maintained.
+  id: totrans-278
   prefs: []
   type: TYPE_NORMAL
 - en: In addition to filesystem abstractions, the VFS also provides a number of caches
@@ -1516,5 +2026,6 @@
     primarily the extended filesystem and how it organizes user data on disk. We’ll
     also explain some common concepts associated with the different filesystems in
     Linux, such as journaling, copy-on-write, and filesystems in user space.
+  id: totrans-279
   prefs: []
   type: TYPE_NORMAL
