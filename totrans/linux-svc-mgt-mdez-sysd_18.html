@@ -1,0 +1,359 @@
+<html><head></head><body>
+		<div id="_idContainer065">
+			<h1 id="_idParaDest-204"><em class="italic"><a id="_idTextAnchor215"/>Chapter 15</em>: Using systemd-networkd and systemd-resolved</h1>
+			<p>The systemd ecosystem<a id="_idIndexMarker547"/> has its own networking components. Using these components is purely optional, and you might even find that you'll never need to use them. However, there are times when using systemd's networking components might help you do things that you can't do with the traditional Linux NetworkManager. </p>
+			<p>In this chapter, we will cover the following topics:</p>
+			<ul>
+				<li>Understanding <strong class="source-inline">networkd</strong> and <strong class="source-inline">resolved</strong></li>
+				<li>Understanding Netplan on Ubuntu</li>
+				<li>Understanding networkd and resolved on RHEL-type machines</li>
+				<li>Using <strong class="source-inline">networkctl</strong> and <strong class="source-inline">resolvectl</strong></li>
+				<li>Viewing the networkd and resolved unit files</li>
+			</ul>
+			<p>All right, let's jump in!</p>
+			<h1 id="_idParaDest-205"><a id="_idTextAnchor216"/>Technical requirements</h1>
+			<p>We'll start with the Ubuntu Server virtual machine. (Note that you need to use Ubuntu <em class="italic">Server</em> because the desktop versions of Ubuntu still use the old NetworkManager by default.) Later in this chapter, we'll work with AlmaLinux.</p>
+			<p>So, let's start by providing a brief explanation of networkd and resolved.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/31mmXXZ">https://bit.ly/31mmXXZ</a></p>
+			<h1 id="_idParaDest-206"><a id="_idTextAnchor217"/>Understanding networkd and resolved</h1>
+			<p>The traditional NetworkManager<a id="_idIndexMarker548"/> has been around for quite some time, and it's still the most appropriate solution for most Linux desktops and laptops. The main reason that Red Hat developed it was to enable Linux-powered laptops to instantly <a id="_idIndexMarker549"/>switch back and forth between wired and wireless networks, or from one wireless domain to another. NetworkManager also still works well for just normal Linux servers. All RHEL-type distros and all desktop versions of Ubuntu still use NetworkManager by default.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">I'm not always going to type <strong class="source-inline">systemd-networkd</strong> or <strong class="source-inline">systemd-resolved</strong>. Unless I'm typing actual commands, I'm just going to shorten the names to <strong class="source-inline">networkd</strong> and <strong class="source-inline">resolved</strong>, which is what most people do anyway.</p>
+			<p>You already know that I have this creepy habit of reading your mind. So, I know that you're thinking, <em class="italic">But Donnie, if NetworkManager is so good, why do we need networkd and resolved?</em> Ah, I'm glad you asked. It's just that you can do certain things with <strong class="source-inline">networkd</strong> and <strong class="source-inline">resolved</strong> that<a id="_idIndexMarker550"/> you can't do quite as easily with NetworkManager. For example, you can use networkd to set up a bridged network for running containers. This allows you to directly assign IP addresses to your containers so that they can be directly accessed from the outside world. With resolved, you can set up split DNS resolution, obtain DNS server addresses from either a DHCP server or an IPv6 router advertisement, and use DNSSEC, MulticastDNS, and DNS-over-TLS. On the other hand, NetworkManager is still the best solution for normal desktop and laptop usage, due to its ability to instantly switch between networks whenever needed.</p>
+			<p>On a system that's running a pure networkd environment, the network configuration would be stored in one or more <strong class="source-inline">.network</strong> files in the <strong class="source-inline">/etc/systemd/network/</strong> directory. However, as I've already said, the RHEL distros don't use networkd by default, so at this point, there are no <strong class="source-inline">.network</strong> files on the AlmaLinux machine to show you. Ubuntu Server does use networkd by default, but the Ubuntu engineers have done something that makes things a bit more interesting. Instead of configuring either networkd or NetworkManager in the normal way, they created Netplan, which we'll look at next.</p>
+			<h1 id="_idParaDest-207"><a id="_idTextAnchor218"/>Understanding Netplan on Ubuntu</h1>
+			<p>Netplan is <a id="_idIndexMarker551"/>the<a id="_idIndexMarker552"/> new network configuration tool for Ubuntu. On a<a id="_idIndexMarker553"/> desktop machine, it doesn't do much except tell the system to use NetworkManager. On a server, you would create the networkd configuration in a <strong class="source-inline">.yaml</strong> file in the <strong class="source-inline">/etc/netplan/</strong> directory. Netplan will take this <strong class="source-inline">.yaml</strong> file and translate its contents into networkd format.</p>
+			<h2 id="_idParaDest-208"><a id="_idTextAnchor219"/>Viewing installer-generated Netplan configurations</h2>
+			<p>To <a id="_idIndexMarker554"/>begin, I'd like to show you the default configuration <a id="_idIndexMarker555"/>on an Ubuntu desktop machine. (Yeah, I know. I didn't tell you that you'd need an Ubuntu desktop virtual machine, but that's okay. This is the only time we'll need it, so you can just look at what I'm showing you here.) In the <strong class="source-inline">/etc/netplan/</strong> directory, we have the default configuration file that was created when I created the virtual machine:</p>
+			<p class="source-code">donnie@donald-virtualbox:~$ cd /etc/netplan/</p>
+			<p class="source-code">donnie@donald-virtualbox:/etc/netplan$ ls -l</p>
+			<p class="source-code">total 4</p>
+			<p class="source-code">-rw-r--r-- 1 root root 104 Feb  3  2021 01-network-manager-all.yaml</p>
+			<p class="source-code">donnie@donald-virtualbox:/etc/netplan$</p>
+			<p>Inside the <strong class="source-inline">01-network-manager-all.yaml</strong> file, we have this:</p>
+			<p class="source-code"># Let NetworkManager manage all devices on this system</p>
+			<p class="source-code">network:</p>
+			<p class="source-code">  version: 2</p>
+			<p class="source-code">  renderer: NetworkManager</p>
+			<p>Here's the breakdown:</p>
+			<ul>
+				<li>The <strong class="source-inline">network:</strong> line is flush with the left-hand side of the screen, which means that this is a new node. The next two lines are indented by one space, which means that they are part of this node definition.</li>
+				<li>What the <strong class="source-inline">version: 2</strong> line means is unclear. The <strong class="source-inline">netplan</strong> man page says that it's a <em class="italic">network mapping</em>, but doesn't explain it further, other than to indicate that it <em class="italic">might</em> have something to do with the version of YAML that Netplan uses. Or, it could be the syntax version of the <strong class="source-inline">netplan</strong> configuration. It's hard to say for <a id="_idIndexMarker556"/>sure because there appears to be no documentation that clears up the mystery. At any rate, the man page does indicate that this <strong class="source-inline">version: 2</strong> line always has to be present in the definition for a <strong class="source-inline">network:</strong> node.</li>
+				<li>The <strong class="source-inline">renderer:</strong> line tells the system to use NetworkManager, and all the other configuration is done within the normal NetworkManager files. Since this is a <a id="_idIndexMarker557"/>desktop machine, most people would just use the GUI management utilities to reconfigure the network. (Most GUI-type utilities are self-explanatory, so we won't say anything more about them.) If no <strong class="source-inline">renderer:</strong> line is present, then the system will use networkd instead of NetworkManager.<p class="callout-heading">Note</p><p class="callout">When creating or editing <strong class="source-inline">.yaml</strong> files, remember that proper indentation is very important. If the indentation isn't correct, things won't work. Also, tab characters aren't allowed in <strong class="source-inline">.yaml</strong> files, so you'll need to use the spacebar to do the indentation.</p></li>
+			</ul>
+			<p>In contrast, Ubuntu Server is configured to use networkd. So, the Netplan configuration that was created by the Ubuntu Server installer looks like this:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$ ls</p>
+			<p class="source-code">00-installer-config.yaml</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$ cat 00-installer-config.yaml </p>
+			<p class="source-code"># This is the network config written by 'subiquity'</p>
+			<p class="source-code">network:</p>
+			<p class="source-code">  ethernets:</p>
+			<p class="source-code">    enp0s3:</p>
+			<p class="source-code">      dhcp4: true</p>
+			<p class="source-code">  version: 2</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$</p>
+			<p>The <strong class="source-inline">network:</strong> node is <a id="_idIndexMarker558"/>always the top-level node. Under that, we see the <strong class="source-inline">ethernets:</strong> node, which defines the network interface. (In this case, the interface's name is <strong class="source-inline">enp0s3</strong>.) The <strong class="source-inline">dhcp4: true</strong> line tells the system to obtain an IPv4 address from a <em class="italic">DHCP</em> server. (In this case, the DHCP server is built into my internet gateway router.) </p>
+			<p>When the <a id="_idIndexMarker559"/>network starts, Netplan will take this <strong class="source-inline">.yaml</strong> file and translate it into networkd format. However, it doesn't store a permanent copy of the <strong class="source-inline">.network</strong> file. Instead, it creates a transient <strong class="source-inline">.network</strong> file in the <strong class="source-inline">/run/systemd/network/</strong> directory, as we see here:</p>
+			<p class="source-code">donnie@ubuntu2004:/run/systemd/network$ ls -l</p>
+			<p class="source-code">total 4</p>
+			<p class="source-code">-rw-r--r-- 1 root root 102 Aug 13 15:33 10-netplan-enp0s3.network</p>
+			<p class="source-code">donnie@ubuntu2004:/run/systemd/network$</p>
+			<p>Inside this file, we can see this:</p>
+			<p class="source-code">[Match]</p>
+			<p class="source-code">Name=enp0s3</p>
+			<p class="source-code">[Network]</p>
+			<p class="source-code">DHCP=ipv4</p>
+			<p class="source-code">LinkLocalAddressing=ipv6</p>
+			<p class="source-code">[DHCP]</p>
+			<p class="source-code">RouteMetric=100</p>
+			<p class="source-code">UseMTU=true</p>
+			<p>At long last, we get to see what an actual networkd configuration file looks like, and we see that's it's divided into the <strong class="source-inline">[Match]</strong>, <strong class="source-inline">[Network]</strong>, and <strong class="source-inline">[DHCP]</strong> sections. As I mentioned<a id="_idIndexMarker560"/> previously, though, this isn't a permanent file. It will disappear when you shut down<a id="_idIndexMarker561"/> or reboot the machine, and reappear when the machine boots back up. (On a non-Ubuntu machine that doesn't use Netplan, you would have a permanent copy of this file in the <strong class="source-inline">/etc/systemd/network/</strong> directory.) Most of this file is self-explanatory, but there are a couple of interesting <a id="_idIndexMarker562"/>things. Under the <strong class="source-inline">[Network]</strong> section, we see that IPv6 <strong class="bold">LinkLocalAddressing</strong> is enabled, even though there's nothing about it in the Netplan <strong class="source-inline">.yaml</strong> file. Under the <strong class="source-inline">[DHCP]</strong> section, we see that the value for the <em class="italic">Maximum Transmission Unit</em> for this network link will be obtained from the DHCP server. (Most of the time, that value will be set to <strong class="source-inline">1500</strong>.) <strong class="source-inline">RouteMetric=100</strong> defines the priority that will be given to this network link. (Of course, there's only one network link here, so this isn't doing anything for us.)</p>
+			<p>To show what a static IP address configuration looks like, I created a new Ubuntu Server machine and told the installer to create a static configuration. The Netplan <strong class="source-inline">.yaml</strong> file on that machine looks like this:</p>
+			<p class="source-code">donnie@ubuntu2004-staticip:/etc/netplan$ cat 00-installer-config.yaml </p>
+			<p class="source-code"># This is the network config written by 'subiquity'</p>
+			<p class="source-code">network:</p>
+			<p class="source-code">  ethernets:</p>
+			<p class="source-code">    enp0s3:</p>
+			<p class="source-code">      addresses:</p>
+			<p class="source-code">      - 192.168.0.49/24</p>
+			<p class="source-code">      gateway4: 192.168.0.1</p>
+			<p class="source-code">      nameservers:</p>
+			<p class="source-code">        addresses:</p>
+			<p class="source-code">        - 192.168.0.1</p>
+			<p class="source-code">        - 8.8.8.8</p>
+			<p class="source-code">  version: 2</p>
+			<p class="source-code">donnie@ubuntu2004-staticip:/etc/netplan$</p>
+			<p>The<a id="_idIndexMarker563"/> generated transient <strong class="source-inline">.network</strong> file looks like this:</p>
+			<p class="source-code">donnie@ubuntu2004-staticip:/run/systemd/network$ cat 10-netplan-enp0s3.network </p>
+			<p class="source-code">[Match]</p>
+			<p class="source-code">Name=enp0s3</p>
+			<p class="source-code">[Network]</p>
+			<p class="source-code">LinkLocalAddressing=ipv6</p>
+			<p class="source-code">Address=192.168.0.49/24</p>
+			<p class="source-code">Gateway=192.168.0.1</p>
+			<p class="source-code">DNS=192.168.0.1</p>
+			<p class="source-code">DNS=8.8.8.8</p>
+			<p class="source-code">donnie@ubuntu2004-staticip:/run/systemd/network$</p>
+			<p>This time, all we have is just the <strong class="source-inline">[Match]</strong> and <strong class="source-inline">[Network]</strong> sections. Since we're not using DHCP on this machine, there's no <strong class="source-inline">[DHCP]</strong> section.</p>
+			<p>Now, keep <a id="_idIndexMarker564"/>in mind that you don't have to use the default Netplan configuration that was created when you installed the operating system. You can edit or replace the default <strong class="source-inline">.yaml</strong> configuration file as your needs dictate. Let's look at that next.</p>
+			<h2 id="_idParaDest-209"><a id="_idTextAnchor220"/>Creating Netplan configurations</h2>
+			<p>Now, let's say that we<a id="_idIndexMarker565"/> want to convert our first Ubuntu Server machine from DHCP addressing into static addressing. The first thing I'll do is rename the current <strong class="source-inline">.yaml</strong> file to keep it as a backup in case I ever want to revert back:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$ sudo mv 00-installer-config.yaml 00-installer-config.yaml.bak</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$</p>
+			<p>Next, I'll create the new <strong class="source-inline">00-static-config.yaml</strong> file, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$ sudo vim 00-static-config.yaml</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$</p>
+			<p>Let's make this new file look like this:</p>
+			<p class="source-code">network:</p>
+			<p class="source-code">  ethernets:</p>
+			<p class="source-code">    enp0s3:</p>
+			<p class="source-code">      addresses:</p>
+			<p class="source-code">      - 192.168.0.50/24</p>
+			<p class="source-code">      gateway4: 192.168.0.1</p>
+			<p class="source-code">      nameservers:</p>
+			<p class="source-code">        addresses:</p>
+			<p class="source-code">        - 192.168.0.1</p>
+			<p class="source-code">        - 8.8.8.8</p>
+			<p class="source-code">        - 208.67.222.222</p>
+			<p class="source-code">        - 208.67.220.220</p>
+			<p class="source-code">  version: 2</p>
+			<p>Okay, I'll confess that I cheated a bit by copying and pasting this from the other virtual machine. I then changed the IP address and added the addresses for two other DNS servers. For the record, the DNS servers I'm using here are:</p>
+			<ul>
+				<li><strong class="source-inline">192.168.0.1</strong>: This is the address of my internet gateway router. This router has been configured to use the DNS servers that are run by my ISP, which is TDS Telecom. So, the <strong class="source-inline">192.168.0.1</strong> address isn't the real DNS server.</li>
+				<li><strong class="source-inline">8.8.8.8</strong>: This is one of the addresses for Google's DNS servers.</li>
+				<li><strong class="source-inline">208.67.222.222</strong> and <strong class="source-inline">208.67.220.220</strong>: These addresses are for the DNS servers that are maintained by the OpenDNS organization.</li>
+			</ul>
+			<p>So, the <a id="_idIndexMarker566"/>more the merrier when it comes to <strong class="source-inline">nameservers:</strong> addresses. If one nameserver goes down, we'll just use another one, which eliminates one single-point-of network failure.</p>
+			<p>After saving the new file, you need to <em class="italic">apply</em> it, like so:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$ sudo netplan apply</p>
+			<p>Be aware that if you do this from a remote terminal, you might not ever see the command prompt come back, which will make you think that things got stuck. It's not that, it's just that if you assign a different IP address from what the machine had to begin with, you'll break the SSH connection. (In fact, that's what just happened for me.) So, in real life, you might want to do this from the server's local terminal instead of remotely.</p>
+			<p>When you use the apply operation, you're generating the new networkd configuration and restarting the networkd service. The generated networkd configuration should now look something like this:</p>
+			<p class="source-code">donnie@ubuntu2004:/run/systemd/network$ cat 10-netplan-enp0s3.network </p>
+			<p class="source-code">[Match]</p>
+			<p class="source-code">Name=enp0s3</p>
+			<p class="source-code">[Network]</p>
+			<p class="source-code">LinkLocalAddressing=ipv6</p>
+			<p class="source-code">Address=192.168.0.50/24</p>
+			<p class="source-code">Gateway=192.168.0.1</p>
+			<p class="source-code">DNS=192.168.0.1</p>
+			<p class="source-code">DNS=8.8.8.8</p>
+			<p class="source-code">DNS=208.67.222.222</p>
+			<p class="source-code">DNS=208.67.220.220</p>
+			<p class="source-code">donnie@ubuntu2004:/run/systemd/network$</p>
+			<p>Now, let's try something else. Let's pretend that our virtual machine has multiple network interfaces, and <a id="_idIndexMarker567"/>we want to make doubly sure that this network configuration always gets applied to the correct interface. We'll do that by assigning this configuration to the MAC address of the desired interface. First, we'll use <strong class="source-inline">ip a</strong> to get the MAC address, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ ip a</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">2: enp0s3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP group default qlen 1000</p>
+			<p class="source-code">    link/ether 08:00:27:f2:c1:7a brd ff:ff:ff:ff:ff:ff</p>
+			<p class="source-code">    inet 192.168.0.50/24 brd 192.168.0.255 scope global enp0s3</p>
+			<p class="source-code">       valid_lft forever preferred_lft forever</p>
+			<p class="source-code">    inet6 fe80::a00:27ff:fef2:c17a/64 scope link </p>
+			<p class="source-code">       valid_lft forever preferred_lft forever</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>As you likely already know, the hardware address of a network interface goes by many names. Most of us know it as the <em class="italic">MAC address</em>. It's also known as the <em class="italic">physical address</em>, the <em class="italic">hardware address</em>, or, as we see here, the <em class="italic">link/ether</em> address. Anyway, let's copy that address so that we can paste it into the <strong class="source-inline">.yaml</strong> file. Under the <strong class="source-inline">enp0s3:</strong> node of the configuration file that we just created, we'll insert a new <strong class="source-inline">match:</strong> node with the <strong class="source-inline">macaddress:</strong> property of the desired network interface. The modified file should now look like this:</p>
+			<p class="source-code">network:</p>
+			<p class="source-code">  ethernets:</p>
+			<p class="source-code">    enp0s3:</p>
+			<p class="source-code">      match:</p>
+			<p class="source-code">        macaddress: 08:00:27:f2:c1:7a</p>
+			<p class="source-code">      addresses:</p>
+			<p class="source-code">      - 192.168.0.50/24</p>
+			<p class="source-code">      gateway4: 192.168.0.1</p>
+			<p class="source-code">      nameservers:</p>
+			<p class="source-code">        addresses:</p>
+			<p class="source-code">        - 192.168.0.1</p>
+			<p class="source-code">        - 8.8.8.8</p>
+			<p class="source-code">        - 208.67.222.222</p>
+			<p class="source-code">        - 208.67.220.220</p>
+			<p class="source-code">  version: 2</p>
+			<p>This time, instead <a id="_idIndexMarker568"/>of using an <strong class="source-inline">apply</strong> operation, we'll try a <strong class="source-inline">try</strong> operation, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$ sudo netplan try</p>
+			<p class="source-code">Warning: Stopping systemd-networkd.service, but it can still be activated by:</p>
+			<p class="source-code">  systemd-networkd.socket</p>
+			<p class="source-code">Do you want to keep these settings?</p>
+			<p class="source-code">Press ENTER before the timeout to accept the new configuration</p>
+			<p class="source-code">Changes will revert in 110 seconds</p>
+			<p class="source-code">Configuration accepted.</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/netplan$</p>
+			<p>The <strong class="source-inline">netplan try</strong> command does the same thing as <strong class="source-inline">netplan apply</strong>, except that it gives you a chance to revert back to the old configuration if the new one doesn't work.</p>
+			<p>Okay, I've <a id="_idIndexMarker569"/>shown you a few examples of how to set up networking with the combination of Netplan and networkd. There's a lot more to this, of course. If you want to see some more complex network setups, your best bet is to consult the <strong class="source-inline">netplan</strong> man page. Toward the bottom, you'll see some really good examples.</p>
+			<p>Okay, let's move on and learn how to use networkd in the Red Hat world.</p>
+			<h1 id="_idParaDest-210"><a id="_idTextAnchor221"/>Understanding networkd and resolved on RHEL-type machines</h1>
+			<p>We've already<a id="_idIndexMarker570"/> established that all RHEL-type machines, such<a id="_idIndexMarker571"/> as our AlmaLinux machine, use NetworkManager by default. Now, let's say that we have an AlmaLinux server and that we need the added<a id="_idIndexMarker572"/> capabilities of networkd. The <strong class="source-inline">systemd-networkd</strong> package<a id="_idIndexMarker573"/> isn't installed by default, and it isn't in the normal Alma repositories. However, it is in the third-party EPEL repository, so we'll install it by doing:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo dnf install epel-release</p>
+			<p>Now, we can install the <strong class="source-inline">systemd-networkd</strong> package, which includes both networkd and resolved:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo dnf install systemd-networkd</p>
+			<p>Next, disable NetworkManager and enable networkd and resolved. Note that I'm not stopping NetworkManager or starting networkd and resolved just yet (I'm logged in remotely and don't want to break my network connection. Besides, I still haven't created a networkd configuration):</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl disable NetworkManager</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl enable systemd-networkd systemd-resolved</p>
+			<p>When <a id="_idIndexMarker574"/>configuring networkd, we can't use the <strong class="source-inline">systemctl edit</strong> command because it will create the <strong class="source-inline">.network</strong> files in the wrong location. Instead, we'll just <strong class="source-inline">cd</strong> into the <strong class="source-inline">/etc/systemd/network/</strong> directory and use a normal<a id="_idIndexMarker575"/> text editor. Let's name this file <strong class="source-inline">99-networkconfig.network</strong> and add the following content:</p>
+			<p class="source-code">[Match]</p>
+			<p class="source-code">Name=enp0s3</p>
+			<p class="source-code">[Network]</p>
+			<p class="source-code">DHCP=yes</p>
+			<p class="source-code">IPv6AcceptRA=yes</p>
+			<p>The networkd <strong class="source-inline">.network</strong> files are set up the same way as any other systemd unit file. Instead of having to worry about proper indentation as you would with the Netplan <strong class="source-inline">.yaml</strong> files, you<a id="_idIndexMarker576"/> just place all the parameters into the <a id="_idIndexMarker577"/>proper sections. In the <strong class="source-inline">[Match]</strong> section, we have the name of the network adapter. In the <strong class="source-inline">[Network]</strong> section, we're saying that we want to get an IP address from DHCP and accept IPv6 router advertisements.</p>
+			<p>The next step is to get rid of the static <strong class="source-inline">/etc/resolv.conf</strong> file and create a symbolic link to the one that gets generated by resolved. We'll do that with these two commands:</p>
+			<p class="source-code">[donnie@localhost ~]$ cd /etc</p>
+			<p class="source-code">[donnie@localhost etc]$ sudo rm resolv.conf </p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">[donnie@localhost etc]$ sudo ln -s /run/systemd/resolve/resolv.conf /etc/resolv.conf</p>
+			<p class="source-code">[donnie@localhost etc]$</p>
+			<p>If you do an <strong class="source-inline">ls -l /etc/resolv.conf</strong> command at this point, it will appear that the <a id="_idIndexMarker578"/>symbolic link is broken. That's because we haven't started <strong class="source-inline">systemd-resolved.service</strong> yet. So, resolved still hasn't generated<a id="_idIndexMarker579"/> the dynamic <strong class="source-inline">resolv.conf</strong> file in the <strong class="source-inline">/run/systemd/resolve/</strong> directory.</p>
+			<p>The final step <a id="_idIndexMarker580"/>is to reboot the machine and then test for proper network operation.</p>
+			<p>Now, let's say <a id="_idIndexMarker581"/>that we want to convert this machine into a static configuration, and we also want to add a few features. Let's edit the <strong class="source-inline">/etc/systemd/network/99-networkconfig.network</strong> file and make it look like this:</p>
+			<p class="source-code">[Match]</p>
+			<p class="source-code">Name=enp0s3</p>
+			<p class="source-code">MACAddress=08:00:27:d2:fb:23</p>
+			<p class="source-code">[Network]</p>
+			<p class="source-code">Address=192.168.0.51/24</p>
+			<p class="source-code">DNSSEC=yes</p>
+			<p class="source-code">DNSOverTLS=opportunistic</p>
+			<p class="source-code">Gateway=192.168.0.1</p>
+			<p class="source-code">DNS=192.168.0.1</p>
+			<p class="source-code">DNS=8.8.8.8</p>
+			<p class="source-code">DNS=208.67.222.222</p>
+			<p class="source-code">DNS=208.67.220.220</p>
+			<p class="source-code">IPv6AcceptRA=yes</p>
+			<p>In the <strong class="source-inline">[Match]</strong> section, I've added the <strong class="source-inline">MACAddress=</strong> equal line to ensure that this configuration will always apply to this specific network adapter. As I did previously, I obtained the MAC address by doing an <strong class="source-inline">ip a</strong> command.</p>
+			<p>In the <strong class="source-inline">[Network]</strong> section, I assigned the IP address with its netmask, the default gateway address, and<a id="_idIndexMarker582"/> four DNS server addresses. I'm also forcing this machine to use <strong class="source-inline">DNSSEC</strong>, as well as to use <strong class="source-inline">DNSOverTLS</strong> whenever it's available. Once you save this file, either <a id="_idIndexMarker583"/>reboot the machine or do a <strong class="source-inline">sudo networkctl reload</strong> command. Then, verify that the networking works. (Note that you don't need to do a <strong class="source-inline">daemon-reload</strong> when configuring networkd.)</p>
+			<p>Before we move on, I want to talk about those two strange DNS options that you can see here. <strong class="bold">DNS Security Extensions</strong> (<strong class="bold">DNSSEC</strong>) is a fairly new feature that helps prevent <a id="_idIndexMarker584"/>DNS cache poisoning attacks. It does this by attaching a cryptographic signature to DNS records <a id="_idIndexMarker585"/>so that the DNS resolver on your local machine can verify them before accepting them. If you choose to set this parameter to <strong class="source-inline">yes</strong>, be sure to test things thoroughly to ensure that you can access everything that <a id="_idIndexMarker586"/>you need to access. So far, it's working well here. That surprises me because most websites still aren't set up with DNSSEC cryptographic keys. However, the public DNS root servers and the top-level domain servers are set up with DNSSEC keys, so we can at least verify the responses from them.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">To get a good idea of how widely DNSSEC is used on the public internet, go to <a href="https://dnssec-analyzer.verisignlabs.com/">https://dnssec-analyzer.verisignlabs.com/</a> and enter a domain name of a website. This will show you a simple graphic of what uses DNSSEC and what doesn't.</p>
+			<p>The <strong class="bold">DNSOverTLS</strong> feature <a id="_idIndexMarker587"/>aims to ensure that all the queries and responses to and from DNS servers are encrypted with the same type of TLS that websites use. It's supposed to protect user privacy, but it's also somewhat controversial. Yeah, it can prevent people from sniffing your DNS queries, and it can prevent an attacker from intercepting the queries and sending back wrong responses. However, in an enterprise environment, it makes it difficult or impossible for network administrators to monitor the websites that employees visit, as well as control access to those websites. Most public DNS servers aren't set up to use TLS, so I set this to <strong class="source-inline">opportunistic</strong>, which allows this machine to use it if it's available. (Your IT team will need to get together with company management to determine if the advantages of <strong class="bold">DNSOverTLS</strong> outweigh<a id="_idIndexMarker588"/> the disadvantages.)</p>
+			<p>When you use networkd without Netplan, there will be no dynamic <strong class="source-inline">.network</strong> file in the <strong class="source-inline">/run/systemd/network/</strong> directory, as you saw on the Ubuntu machine. However, resolved will create a dynamic <strong class="source-inline">resolv.conf</strong> file in the <strong class="source-inline">/run/systemd/resolve/</strong> directory. We don't need to go there to see it because we created a symbolic link for it in the <strong class="source-inline">/etc/</strong> directory. Let's see what's in it:</p>
+			<p class="source-code">[donnie@localhost etc]$ cat resolv.conf </p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">nameserver 192.168.0.1</p>
+			<p class="source-code">nameserver 8.8.8.8</p>
+			<p class="source-code">nameserver 208.67.222.222</p>
+			<p class="source-code"># Too many DNS servers configured, the following entries may be ignored.</p>
+			<p class="source-code">nameserver 208.67.220.220</p>
+			<p class="source-code">[donnie@localhost etc]$</p>
+			<p>Oh, dear. It appears <a id="_idIndexMarker589"/>that resolved only wants to see up to <a id="_idIndexMarker590"/>three DNS servers in its configuration. For now, that's okay. This will enable us to see something else that we need to see a bit later.</p>
+			<p>Okay, I've <a id="_idIndexMarker591"/>shown you a couple of simple examples of what you can do with networkd and resolved. If you want to be truly amazed, open the <strong class="source-inline">systemd.network</strong> man page and look at all that's there. (And yes, that is <em class="italic">systemd.network</em>, without the <em class="italic">d</em> after <em class="italic">network</em>.) You can create some very complex setups, and you can view some examples toward the bottom of the man page. What I find especially interesting is that with networkd, you can do some things that you used to have to do with either <strong class="source-inline">iptables</strong> or <strong class="source-inline">nftables</strong>. It seems<a id="_idIndexMarker592"/> to me that doing these things with networkd would be somewhat simpler. You'll also see that by adding a <strong class="source-inline">[DHCPSERVER]</strong> section, networkd can function as a simple DHCP server. Adding a <strong class="source-inline">[CAN]</strong> section allows you to control the <strong class="bold">Control Area Network</strong> (<strong class="bold">CAN</strong>) for <a id="_idIndexMarker593"/>automotive systems. Setting up a <strong class="source-inline">[BRIDGE]</strong> configuration allows you to assign normal IP addresses to containers so that the outside world can access them without having to use port forwarding. Well, the list of what you can do with networkd is quite long, and there's no way that I <a id="_idIndexMarker594"/>can cover it all here.</p>
+			<p>Finally, I'd <a id="_idIndexMarker595"/>like you <a id="_idIndexMarker596"/>to open the <strong class="source-inline">netplan</strong> man page on your Ubuntu Server machine. Even though Netplan<a id="_idIndexMarker597"/> is supposed to be a frontend for networkd, you'll see that what you can do with Netplan is only a subset of what you can do when working directly with networkd.</p>
+			<p>Now that we've seen the basics of configuring networkd and resolved, let's look at a pair of network diagnostic utilities.</p>
+			<h1 id="_idParaDest-211"><a id="_idTextAnchor222"/>Using networkctl and resolvectl</h1>
+			<p>On <a id="_idIndexMarker598"/>both the<a id="_idIndexMarker599"/> Ubuntu and the Alma machines, you can try out two cool utilities that can help you see what's going on with your network configuration. To see the list of network links and their statuses, use either <strong class="source-inline">networkctl</strong> or <strong class="source-inline">networkctl list</strong>. (The <strong class="source-inline">list</strong> option is the default, so you don't have to type it.) What you will see on the Alma machine should look something like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ networkctl</p>
+			<p class="source-code">IDX LINK     TYPE          OPERATIONAL   SETUP     </p>
+			<p class="source-code">  1    lo           loopback      carrier                     unmanaged</p>
+			<p class="source-code">  2    enp0s3   ether            routable                   configured</p>
+			<p class="source-code">2 links listed.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>On this machine, we only have two links. The <strong class="source-inline">OPERATIONAL</strong> status of the loopback link<a id="_idIndexMarker600"/> shows as <strong class="source-inline">carrier</strong>, which means that this link is operational but that it's not<a id="_idIndexMarker601"/> routable. <strong class="source-inline">SETUP</strong> shows that the loopback is <strong class="source-inline">unmanaged</strong>, which means that we can't reconfigure it. The <strong class="source-inline">enp0s3</strong> link is our normal Ethernet link, which shows as <strong class="source-inline">routable</strong> and <strong class="source-inline">configured</strong>.</p>
+			<p>On the Ubuntu Server machine, things are a bit more interesting. As shown here, there are a few more links:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ networkctl</p>
+			<p class="source-code">IDX LINK                   TYPE       OPERATIONAL    SETUP     </p>
+			<p class="source-code">  1    lo                         loopback   carrier                      unmanaged </p>
+			<p class="source-code">  2    enp0s3                 ether         routable                   configured</p>
+			<p class="source-code">  3    docker0               bridge       no-carrier                 unmanaged </p>
+			<p class="source-code">  4    cali659bb8bc7b1 ether        degraded                   unmanaged </p>
+			<p class="source-code">  7    vxlan.calico          vxlan       routable                    unmanaged </p>
+			<p class="source-code">5 links listed.</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>In addition to the two normal links, we have three links that were created when the <strong class="source-inline">docker</strong> package was installed. The <strong class="source-inline">docker0</strong> link is an <strong class="source-inline">unmanaged</strong> bridge that's currently in a <strong class="source-inline">no-carrier</strong> <strong class="source-inline">OPERATIONAL</strong> status. I don't have any containers running, so nothing is using it. The bottom two links are for Kubernetes, which is an orchestration manager for Docker containers. (The <em class="italic">calico</em> reference comes from <em class="italic">Project Calico</em>, the maintainer of this Kubernetes networking code.) The <strong class="source-inline">cali659bb8bc7b1</strong> link is listed as <strong class="source-inline">degraded</strong>, which means that it is online with a <strong class="source-inline">carrier</strong>, but it's only valid for link-local addresses.</p>
+			<p>The <strong class="source-inline">status</strong> option shows you the links with their associated IP addresses, the default gateway address, and<a id="_idIndexMarker602"/> the addresses of the DNS servers that we want to use. Here's <a id="_idIndexMarker603"/>what that looks like on the Ubuntu Server machine:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ networkctl status</p>
+			<p class="source-code">●   State: routable                                          </p>
+			<p class="source-code">  Address: 192.168.0.50 on enp0s3                            </p>
+			<p class="source-code">           172.17.0.1 on docker0                             </p>
+			<p class="source-code">           10.1.89.0 on vxlan.calico                         </p>
+			<p class="source-code">           fe80::a00:27ff:fef2:c17a on enp0s3                </p>
+			<p class="source-code">           fe80::ecee:eeff:feee:eeee on cali659bb8bc7b1      </p>
+			<p class="source-code">           fe80::648c:87ff:fe5f:94d5 on vxlan.calico         </p>
+			<p class="source-code">  Gateway: 192.168.0.1 (Actiontec Electronics, Inc) on enp0s3</p>
+			<p class="source-code">      DNS: 192.168.0.1                                       </p>
+			<p class="source-code">           8.8.8.8                                           </p>
+			<p class="source-code">           208.67.222.222                                    </p>
+			<p class="source-code">           208.67.220.220</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Of course, we've already seen how to reload a modified network configuration. On Ubuntu with Netplan, you'd do either <strong class="source-inline">sudo netplan apply</strong> or <strong class="source-inline">sudo netplan try</strong>. On the Alma machine, you'd do <strong class="source-inline">sudo networkctl reload</strong>.</p>
+			<p>To look at DNS server information, we'd use <strong class="source-inline">resolvectl</strong>. The main thing to note here is that the output is divided into sections. First, there's the <strong class="source-inline">Global</strong> section, which shows the settings from the <strong class="source-inline">/etc/systemd/resolved.conf</strong> file. On the Alma machine, these settings look like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ resolvectl</p>
+			<p class="source-code">Global</p>
+			<p class="source-code">       LLMNR setting: yes</p>
+			<p class="source-code">MulticastDNS setting: yes</p>
+			<p class="source-code">  DNSOverTLS setting: no</p>
+			<p class="source-code">      DNSSEC setting: allow-downgrade</p>
+			<p class="source-code">    DNSSEC supported: yes</p>
+			<p class="source-code">          DNSSEC NTA: 10.in-addr.arpa</p>
+			<p class="source-code">                      16.172.in-addr.arpa</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>After the <strong class="source-inline">Global</strong> section, each<a id="_idIndexMarker604"/> link has its own settings, which can override the <strong class="source-inline">Global</strong> settings. Here <a id="_idIndexMarker605"/>are the settings for the <strong class="source-inline">enp0se</strong> link on the Alma machine:</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">Link 2 (enp0s3)</p>
+			<p class="source-code">      Current Scopes: DNS LLMNR/IPv4 LLMNR/IPv6</p>
+			<p class="source-code">       LLMNR setting: yes</p>
+			<p class="source-code">MulticastDNS setting: no</p>
+			<p class="source-code">  DNSOverTLS setting: opportunistic</p>
+			<p class="source-code">      DNSSEC setting: yes</p>
+			<p class="source-code">    DNSSEC supported: yes</p>
+			<p class="source-code">  Current DNS Server: 192.168.0.1</p>
+			<p class="source-code">         DNS Servers: 192.168.0.1</p>
+			<p class="source-code">                      8.8.8.8</p>
+			<p class="source-code">                      208.67.222.222</p>
+			<p class="source-code">                      208.67.220.220</p>
+			<p>Look carefully, and you'll see a few <strong class="source-inline">Link</strong> settings that override the <strong class="source-inline">Global</strong> settings. Previously, we <a id="_idIndexMarker606"/>saw that the <strong class="source-inline">resolv.conf</strong> file for this machine has a <a id="_idIndexMarker607"/>warning about how we've listed too many nameservers, and that resolved might ignore the fourth one. But we see all four nameservers here, so everything is good.</p>
+			<p>There are lots more options for both networkctl and resolvectl. I'll let you read about them in the <strong class="source-inline">networkctl</strong> and <strong class="source-inline">resolvectl</strong> man pages.</p>
+			<p>Next, let's take a brief look at the networkd and resolved unit files.</p>
+			<h1 id="_idParaDest-212"><a id="_idTextAnchor223"/>Viewing the networkd and resolved unit files</h1>
+			<p>Before we go, I'd like you to <a id="_idIndexMarker608"/>take a quick look at the unit files<a id="_idIndexMarker609"/> for networkd <a id="_idIndexMarker610"/>and<a id="_idIndexMarker611"/> resolved. Here's the list of them:</p>
+			<p class="source-code">[donnie@localhost system]$ pwd</p>
+			<p class="source-code">/lib/systemd/system</p>
+			<p class="source-code">[donnie@localhost system]$ ls -l *networkd*</p>
+			<p class="source-code">-rw-r--r--. 1 root root 2023 Jun  6 22:26 systemd-networkd.service</p>
+			<p class="source-code">-rw-r--r--. 1 root root  640 May 15 12:33 systemd-networkd.socket</p>
+			<p class="source-code">-rw-r--r--. 1 root root  752 Jun  6 22:26 systemd-networkd-wait-online.service</p>
+			<p class="source-code">[donnie@localhost system]$ ls -l *resolved*</p>
+			<p class="source-code">-rw-r--r--. 1 root root 1668 Aug 10 17:19 systemd-resolved.service</p>
+			<p class="source-code">[donnie@localhost system]$</p>
+			<p>I'm not going to take the time to trace through them for you because by now, you should be able to do that yourself. I mean, it's mainly a matter of looking everything up in the <strong class="source-inline">systemd.directives</strong> man page, as we've done quite a few times before. Once you've done that, we'll wrap this baby up.</p>
+			<h1 id="_idParaDest-213"><a id="_idTextAnchor224"/>Summary</h1>
+			<p>As always, we've covered a lot of ground in this chapter. We started by comparing NetworkManager to systemd-networkd and systemd-resolved. Next, we looked at how to deal with the Netplan tool on Ubuntu. The RHEL-type distros use NetworkManager by default and don't use Netplan, so we looked at how to convert your Alma machine over to use networkd and resolved. After that, we worked with a couple of diagnostic utilities, and then wrapped things up by briefly looking at the networkd and resolved unit files.</p>
+			<p>Now, it's time to talk about <em class="italic">time</em>, which we'll do in the next chapter. I'll see you there!</p>
+			<h1 id="_idParaDest-214"><a id="_idTextAnchor225"/>Questions</h1>
+			<p>Answer the following questions to test your knowledge of this chapter:</p>
+			<ol>
+				<li>Which of the following statements is true?<p>A. NetworkManager is better for servers because it can instantly switch between networks.</p><p>B. NetworkManager is better for servers because it's more versatile.</p><p>C. NetworkManager is better for desktops and laptops because it can instantly switch between networks.</p><p>D. networkd is better for desktops and laptops because it can instantly switch between networks.</p></li>
+				<li>True or False: If there's no <strong class="source-inline">renderer:</strong> line in a Netplan <strong class="source-inline">.yaml</strong> file, the system will default to using NetworkManager.</li>
+				<li>On an Ubuntu Server machine, which of the following would you do after you've edited the network configuration file?<p>A. <strong class="source-inline">sudo netplan reload</strong></p><p>B. <strong class="source-inline">sudo networkctl reload</strong></p><p>C. <strong class="source-inline">sudo netplan restart</strong></p><p>D. <strong class="source-inline">sudo networkctl restart</strong></p><p>E. <strong class="source-inline">sudo netplan apply</strong></p></li>
+				<li>What does it mean when a <strong class="source-inline">networkctl</strong> command shows a link as <strong class="source-inline">degraded</strong>?<p>A. The link is offline.</p><p>B. The link is online, but not operating at full speed.</p><p>C. The link is online, but is only valid for link-local addresses.</p><p>D. The link is unreliable.</p></li>
+			</ol>
+			<h1 id="_idParaDest-215"><a id="_idTextAnchor226"/>Answers</h1>
+			<ol>
+				<li value="1">C</li>
+				<li>False</li>
+				<li>E</li>
+				<li>C</li>
+			</ol>
+			<h1 id="_idParaDest-216"><a id="_idTextAnchor227"/>Further reading</h1>
+			<p>Configuring the network with Netplan on Ubuntu:</p>
+			<ul>
+				<li><a href="https://ubuntu.com/server/docs/network-configuration">https://ubuntu.com/server/docs/network-configuration</a></li>
+				<li>How to configure networking on Ubuntu 20.04 with Netplan:</li>
+				<li><a href="https://www.serverlab.ca/tutorials/linux/administration-linux/how-to-configure-networking-in-ubuntu-20-04-with-netplan/">https://www.serverlab.ca/tutorials/linux/administration-linux/how-to-configure-networking-in-ubuntu-20-04-with-netplan/</a></li>
+				<li>YAML Tutorial:</li>
+				<li><a href="https://www.tutorialspoint.com/yaml/index.htm">https://www.tutorialspoint.com/yaml/index.htm</a></li>
+				<li>YAML for Beginners:</li>
+				<li><a href="https://www.redhat.com/sysadmin/yaml-beginners">https://www.redhat.com/sysadmin/yaml-beginners</a></li>
+				<li><strong class="source-inline">systemd-resolved</strong>: Introduction to split DNS:</li>
+				<li><a href="https://fedoramagazine.org/systemd-resolved-introduction-to-split-dns/">https://fedoramagazine.org/systemd-resolved-introduction-to-split-dns/</a></li>
+				<li>Multicast DNS: Name resolution on a small scale:</li>
+				<li><a href="https://www.ionos.com/digitalguide/server/know-how/multicast-dns/">https://www.ionos.com/digitalguide/server/know-how/multicast-dns/</a></li>
+				<li>DNS over TLS: An improved security concept:</li>
+				<li><a href="https://www.ionos.com/digitalguide/server/security/dns-over-tls/">https://www.ionos.com/digitalguide/server/security/dns-over-tls/</a></li>
+				<li>Project Calico:</li>
+				<li><a href="https://www.tigera.io/project-calico/">https://www.tigera.io/project-calico/</a></li>
+			</ul>
+		</div>
+	</body></html>

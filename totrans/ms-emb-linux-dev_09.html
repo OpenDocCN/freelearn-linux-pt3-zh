@@ -1,0 +1,1069 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer081" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor235"/>7</h1>
+    <h1 id="_idParaDest-210" class="chapterTitle"><a id="_idTextAnchor236"/>Developing with Yocto</h1>
+    <p class="normal">Bringing up Linux on unsupported hardware can be a painstaking process. Luckily, Yocto provides <strong class="keyWord">Board Support Packages</strong> (<strong class="keyWord">BSPs</strong>) to bootstrap embedded Linux development on popular single-board computers like BeaglePlay and Raspberry Pi 4. Building on top of an existing BSP layer lets us quickly take advantage of complex built-in peripherals such as Bluetooth and Wi-Fi. In this chapter, we will create a custom application layer to do just that.</p>
+    <p class="normal">Next, we will look at the development workflow enabled by Yocto’s extensible SDK. Modifying software running on a target device usually means swapping out the microSD card. Since rebuilding and redeploying full images is too time-consuming, I will show you how to use <code class="inlineCode">devtool</code> to quickly automate and iterate over your work. While doing so, you will also learn how to save your work in your own layers so that it does not get lost.</p>
+    <p class="normal">Yocto not only builds Linux images but entire Linux distributions. We will discuss the reasons for doing so before going through the motions of assembling our own Linux distribution. The many choices made include whether or not to add runtime package management for rapid application development on the target device. This comes at the cost of having to maintain a package database and remote package server, which I will touch on last.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Building on top of an existing BSP</li>
+      <li class="bulletList">Capturing changes with <code class="inlineCode">devtool</code></li>
+      <li class="bulletList">Building your own distro</li>
+      <li class="bulletList">Provisioning a remote package server</li>
+    </ul>
+    <h1 id="_idParaDest-211" class="heading-1"><a id="_idTextAnchor237"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">An Ubuntu 24.04 or later LTS host system with at least 90 GB of free disk space</li>
+      <li class="bulletList">The Yocto 5.0 (scarthgap) LTS release</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">balenaEtcher for Linux</li>
+      <li class="bulletList">An Ethernet cable and router with an available port for network connectivity</li>
+      <li class="bulletList">A Wi-Fi router</li>
+      <li class="bulletList">A smartphone with Bluetooth</li>
+      <li class="bulletList">Raspberry Pi 4</li>
+      <li class="bulletList">A 5 V USB-C power supply capable of delivering 3A</li>
+    </ul>
+    <p class="normal">You should have already built the 5.0 (scarthgap) LTS release of Yocto in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>. If you have not, then please refer to the <em class="italic">Compatible Linux Distribution</em> and <em class="italic">Build Host Packages</em> sections of the <em class="italic">Yocto Project Quick Build</em> guide (<a href="https://docs.yoctoproject.org/brief-yoctoprojectqs/"><span class="url">https://docs.yoctoproject.org/brief-yoctoprojectqs/</span>)</a> before building Yocto on your Linux host according to the instructions in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>.</p>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development</span></a>.</p>
+    <h1 id="_idParaDest-212" class="heading-1"><a id="_idTextAnchor238"/>Building on top of an existing BSP</h1>
+    <p class="normal">A <strong class="keyWord">BSP</strong> layer <a id="_idIndexMarker485"/>adds support for a particular hardware device or family of devices to Yocto. This support usually includes the bootloader, device tree blobs, and additional kernel drivers needed to boot Linux on that specific hardware. A BSP may also include any additional user-space software and peripheral firmware needed to fully enable and utilize all the features of the hardware. By convention, BSP layer names start with the <code class="inlineCode">meta-</code> prefix followed by the machine’s name. Locating the best BSP for your target device is the first step toward building a bootable image for it using Yocto.</p>
+    <p class="normal">The <a id="_idIndexMarker486"/>OpenEmbedded layer index (<a href="https://layers.openembedded.org/layerindex)"><span class="url">https://layers.openembedded.org/layerindex)</span></a> is the best place to start looking for quality BSPs. Your board’s manufacturer or silicon vendor may also offer BSP layers. The Yocto Project provides a BSP for all variants of Raspberry Pi. You can find the Git repository for that BSP layer and all the other layers endorsed by The <a id="_idIndexMarker487"/>Yocto Project in the project’s source repositories (<a href="https://git.yoctoproject.org"><span class="url">https://git.yoctoproject.org</span></a>).</p>
+    <h2 id="_idParaDest-213" class="heading-2"><a id="_idTextAnchor239"/>Building an existing BSP</h2>
+    <p class="normal">The following <a id="_idIndexMarker488"/>exercises assume you have already cloned or extracted the scarthgap release of Yocto to a directory named <code class="inlineCode">poky</code> within your host environment. Before proceeding, we also need to clone the following dependency layers one level up from that <code class="inlineCode">poky</code> directory so that the layer and <code class="inlineCode">poky</code> directories sit next to each other:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ git clone -b scarthgap git://git.openembedded.org/meta-openembedded
+$ git clone -b scarthgap git://git.yoctoproject.org/meta-raspberrypi
+</code></pre>
+    <p class="normal">Notice that <a id="_idIndexMarker489"/>the branch name of the dependency layers matches the Yocto release for compatibility. Keep all three clones up to date and in sync with their remotes using periodic <code class="inlineCode">git pull</code> commands. The <code class="inlineCode">meta-raspberrypi</code> layer is the BSP for all Raspberry Pis. Once these dependencies are in place, you can build an image that’s been customized for Raspberry Pi 4. But before we do that, let’s explore the recipes for Yocto’s generic images:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate to the directory where you cloned Yocto:
+        <pre class="programlisting con"><code class="hljs-con">$ cd poky
+</code></pre>
+      </li>
+      <li class="numberedList">Next, move down into the directory where the recipes for the standard images are:
+        <pre class="programlisting con"><code class="hljs-con">$ cd meta/recipes-core/images
+</code></pre>
+      </li>
+      <li class="numberedList">List the core image recipes:
+        <pre class="programlisting con"><code class="hljs-con">$ ls -1 core*
+core-image-base.bb
+core-image-initramfs-boot.bb
+core-image-minimal.bb
+core-image-minimal-dev.bb
+core-image-minimal-initramfs.bb
+core-image-minimal-mtdutils.bb
+core-image-ptest-all.bb
+core-image-ptest.bb
+core-image-ptest-fast.bb
+core-image-tiny-initramfs.bb
+</code></pre>
+      </li>
+      <li class="numberedList">Display the <code class="inlineCode">core-image-base</code> recipe:
+        <pre class="programlisting con"><code class="hljs-con">$ cat core-image-base.bb
+SUMMARY = "A console-only image that fully supports the target device \
+hardware."
+IMAGE_FEATURES += "splash"
+LICENSE = "MIT"
+inherit core-image
+</code></pre>
+      </li>
+      <li class="numberedList">Notice that this recipe inherits from <code class="inlineCode">core-image</code> so it’s importing the contents of <code class="inlineCode">core-image.bbclass</code>, which we will look at later.</li>
+      <li class="numberedList">Display the <code class="inlineCode">core-image-minimal</code> recipe:
+        <pre class="programlisting con"><code class="hljs-con">$ cat core-image-minimal.bb
+SUMMARY = "A small image just capable of allowing a device to boot."
+IMAGE_INSTALL = "packagegroup-core-boot ${CORE_IMAGE_EXTRA_INSTALL}"
+IMAGE_LINGUAS = " "
+LICENSE = "MIT"
+inherit core-image
+IMAGE_ROOTFS_SIZE ?= "8192"
+IMAGE_ROOTFS_EXTRA_SPACE:append = "${@bb.utils.contains("DISTRO_FEATURES", "systemd", " + 4096", "", d)}"
+</code></pre>
+      </li>
+      <li class="numberedList">Like <code class="inlineCode">core-image-base</code>, this recipe also inherits from the <code class="inlineCode">core-image</code> class file.</li>
+      <li class="numberedList">Display <a id="_idIndexMarker490"/>the <code class="inlineCode">core-image-minimal-dev</code> recipe:
+        <pre class="programlisting con"><code class="hljs-con">$ cat core-image-minimal-dev.bb
+require core-image-minimal.bb
+DESCRIPTION = "A small image just capable of allowing a device to boot and \
+is suitable for development work."
+IMAGE_FEATURES += "dev-pkgs"
+</code></pre>
+      </li>
+      <li class="numberedList">Navigate up to the classes directory under poky/meta:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ../../classes-recipe
+</code></pre>
+      </li>
+      <li class="numberedList">Lastly, display the <code class="inlineCode">core-image</code> class file:
+        <pre class="programlisting con"><code class="hljs-con">$ cat core-image.bbclass
+</code></pre>
+      </li>
+      <li class="numberedList">Notice the long list of available <code class="inlineCode">IMAGE_FEATURES</code> at the top of this class file, including the aforementioned <code class="inlineCode">dev-pkgs</code> feature.</li>
+    </ol>
+    <p class="normal">Standard images such as <code class="inlineCode">core-image-minimal</code> and <code class="inlineCode">core-image-minimal-dev</code> are machine-agnostic. In <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>, we built <code class="inlineCode">core-image-minimal</code> for both the QEMU Arm emulator and BeaglePlay. We could have just as easily built a <code class="inlineCode">core-image-minimal</code> image for <a id="_idIndexMarker491"/>Raspberry Pi 4. In contrast, a BSP layer includes image recipes intended for a specific board or series of boards.</p>
+    <p class="normal">Now let’s take a look at the <code class="inlineCode">rpi-test-image</code> recipe inside the <code class="inlineCode">meta-rasberrypi</code> BSP layer to see how support for both Wi-Fi and Bluetooth is added to <code class="inlineCode">core-image-base</code> for Raspberry Pi 4:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ../../..
+</code></pre>
+      </li>
+      <li class="numberedList">Next, move down into the directory inside the <code class="inlineCode">meta-raspberrypi</code> BSP layer where the image recipes for Raspberry Pis are:
+        <pre class="programlisting con"><code class="hljs-con">$ cd meta-raspberrypi/recipes-core/images
+</code></pre>
+      </li>
+      <li class="numberedList">List the Raspberry Pi image recipes:
+        <pre class="programlisting con"><code class="hljs-con">$ ls -1
+rpi-test-image.bb
+</code></pre>
+      </li>
+      <li class="numberedList">Display the <code class="inlineCode">rpi-test-image</code> recipe:
+        <pre class="programlisting con"><code class="hljs-con">$ cat rpi-test-image.bb
+# Base this image on core-image-base
+include recipes-core/images/core-image-base.bb
+COMPATIBLE_MACHINE = "^rpi$"
+IMAGE_INSTALL:append = " packagegroup-rpi-test"
+</code></pre>
+      </li>
+      <li class="numberedList">Notice that the <code class="inlineCode">IMAGE_INSTALL</code> variable has been overridden so that it can append <code class="inlineCode">packagegroup-rpi-test</code> and include those packages on the image.</li>
+      <li class="numberedList">Navigate to the neighboring <code class="inlineCode">packagegroups</code> directory under <code class="inlineCode">metaraspberrypi/recipes-core</code>:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ../packagegroups
+</code></pre>
+      </li>
+      <li class="numberedList">Lastly, display the <code class="inlineCode">packagegroup-rpi-test</code> recipe:
+        <pre class="programlisting con"><code class="hljs-con">$ cat packagegroup-rpi-test.bb
+DESCRIPTION = "RaspberryPi Test Packagegroup"
+LICENSE = "MIT"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+PACKAGE_ARCH = "${MACHINE_ARCH}"
+inherit packagegroup
+COMPATIBLE_MACHINE = "^rpi$"
+OMXPLAYER  = "${@bb.utils.contains('MACHINE_FEATURES', 'vc4graphics', '', 'omxplayer', d)}"
+RDEPENDS:${PN} = "\
+    ${OMXPLAYER} \
+    bcm2835-tests \
+    raspi-gpio \
+    rpio \
+    rpi-gpio \
+    pi-blaster \
+    python3-adafruit-circuitpython-register \
+    python3-adafruit-platformdetect \
+    python3-adafruit-pureio \
+    python3-rtimu \
+    connman \
+    connman-client \
+    wireless-regdb-static \
+    bluez5 \
+"
+RRECOMMENDS:${PN} = "\
+    ${@bb.utils.contains("BBFILE_COLLECTIONS", "meta-multimedia", "bigbuckbunny-1080p bigbuckbunny-480p bigbuckbunny-720p", "", d)} \
+    ${MACHINE_EXTRA_RRECOMMENDS} \
+"
+</code></pre>
+      </li>
+      <li class="numberedList">Notice <a id="_idIndexMarker492"/>that the <code class="inlineCode">connman</code>, <code class="inlineCode">connman-client</code>, and <code class="inlineCode">bluez5</code> packages are included in the list of runtime dependencies so that Wi-Fi and Bluetooth are fully enabled.</li>
+    </ol>
+    <p class="normal">Finally, let’s build <code class="inlineCode">rpi-test-image</code> for Raspberry Pi 4:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ../../..
+</code></pre>
+      </li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+      </li>
+      <li class="numberedList">This sets <a id="_idIndexMarker493"/>up a bunch of environment variables and puts you in a newly created <code class="inlineCode">build-rpi</code> directory.</li>
+      <li class="numberedList">Then, add the following layers to your image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers add-layer ../meta-openembedded/meta-oe
+$ bitbake-layers add-layer ../meta-openembedded/meta-python
+$ bitbake-layers add-layer ../meta-openembedded/meta-networking
+$ bitbake-layers add-layer ../meta-openembedded/meta-multimedia
+$ bitbake-layers add-layer ../meta-raspberrypi
+</code></pre>
+        <div class="note">
+          <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+          <p class="normal">The order in which you add these layers matters because the <code class="inlineCode">meta-networking</code> and <code class="inlineCode">meta-multimedia</code> layers both depend on the <code class="inlineCode">meta-python</code> layer. If <code class="inlineCode">bitbake-layers add-layer</code> or <code class="inlineCode">bitbake-layers show-layers</code> starts failing due to parse errors, then delete the <code class="inlineCode">build-rpi</code> directory and restart this exercise from <em class="italic">step 1</em>.</p>
+        </div>
+      </li>
+    </ol>
+    <ol>
+      <li class="numberedList" value="5">Verify that all the necessary layers have been added to the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-layers
+</code></pre>
+      </li>
+      <li class="numberedList">The output of the command should look like this:
+        <pre class="programlisting con"><code class="hljs-con">layer              path                                   priority
+==================================================================
+core               /home/frank/poky/meta                         5
+yocto              /home/frank/poky/meta-poky                    5
+yoctobsp           /home/frank/poky/meta-yocto-bsp               5
+openembedded-layer /home/frank/meta-openembedded/meta-oe         5
+meta-python        /home/frank/meta-openembedded/meta-python     5
+networking-layer   /home/frank/meta-openembedded/meta-networking 5
+multimedia-layer   /home/frank/meta-openembedded/meta-multimedia 5
+raspberrypi        /home/frank/meta-raspberrypi                  9
+</code></pre>
+      </li>
+      <li class="numberedList">Observe the changes that the preceding <code class="inlineCode">bitbake-layers add-layer</code> commands made to <code class="inlineCode">bblayers.conf</code>:
+        <pre class="programlisting con"><code class="hljs-con">$ cat conf/bblayers.conf
+</code></pre>
+      </li>
+      <li class="numberedList">The <a id="_idIndexMarker494"/>same eight layers from the previous step should be assigned to the <code class="inlineCode">BBLAYERS</code> variable.</li>
+      <li class="numberedList">List the machines supported by the <code class="inlineCode">meta-raspberrypi</code> BSP layer:
+        <pre class="programlisting con"><code class="hljs-con">$ ls ../meta-raspberrypi/conf/machine
+</code></pre>
+      </li>
+      <li class="numberedList">Notice that there are <code class="inlineCode">raspberrypi4</code> and <code class="inlineCode">raspberrypi4-64</code> machine configurations.</li>
+      <li class="numberedList">Add the following line to your <code class="inlineCode">conf/local.conf</code> file:
+        <pre class="programlisting con"><code class="hljs-con">MACHINE = "raspberrypi4-64"
+</code></pre>
+      </li>
+      <li class="numberedList">This overrides the following default in your <code class="inlineCode">conf/local.conf</code> file:
+        <pre class="programlisting con"><code class="hljs-con">MACHINE ??= "qemux86-64"
+</code></pre>
+      </li>
+      <li class="numberedList">Setting the <code class="inlineCode">MACHINE</code> variable to <code class="inlineCode">raspberrypi4-64</code> ensures that the image we’re about to build works for Raspberry Pi 4.</li>
+      <li class="numberedList">Add the following line to your <code class="inlineCode">conf/local.conf</code> file:
+        <pre class="programlisting con"><code class="hljs-con">LICENSE_FLAGS_ACCEPTED = "synaptics-killswitch"
+</code></pre>
+      </li>
+      <li class="numberedList">This suppresses the following build error:
+        <pre class="programlisting con"><code class="hljs-con">ERROR: Nothing RPROVIDES 'linux-firmware-rpidistro-bcm43455'
+</code></pre>
+      </li>
+      <li class="numberedList">Now, append <code class="inlineCode">ssh-server-openssh</code> to the list of <code class="inlineCode">EXTRA_IMAGE_FEATURES</code> in your <code class="inlineCode">conf/local.conf</code> file:
+        <pre class="programlisting con"><code class="hljs-con">EXTRA_IMAGE_FEATURES ?= "debug-tweaks ssh-server-openssh"
+</code></pre>
+      </li>
+      <li class="numberedList">This adds an SSH server to our image for local network access.</li>
+      <li class="numberedList">Lastly, build the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake rpi-test-image
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">The first build could<a id="_idIndexMarker495"/> take anywhere from minutes to hours to complete depending on how many CPU cores your host environment has available.</p>
+    <p class="normal"><code class="inlineCode">TARGET_SYS</code> should be <code class="inlineCode">aarch64-poky-linux</code> and <code class="inlineCode">MACHINE</code> should be <code class="inlineCode">raspberrypi4-64</code> since this image is targeting 64-bit for the Arm Cortex-A72 cores in Raspberry Pi 4.</p>
+    <p class="normal">Once the image has finished building, there should be a file named <code class="inlineCode">rpi-test-image-raspberrypi4-64.rootfs.wic.bz2</code> in the <code class="inlineCode">tmp/deploy/images/raspberrypi4-64</code> directory:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ls -l tmp/deploy/images/raspberrypi4-64/rpi-test*wic.bz2
+</code></pre>
+    <p class="normal">Notice that <code class="inlineCode">rpi-test-image-raspberrypi4-64.rootfs.wic.bz2</code> is a symbolic link pointing to the actual image file in the same directory. An integer denoting the date and time of the build is appended to the image filename before the <code class="inlineCode">wic.bz2</code> extension.</p>
+    <p class="normal">Now write that image to a microSD card using Etcher and boot it on your Raspberry Pi 4:</p>
+    <ol>
+      <li class="numberedList" value="1">Insert a microSD card into your host machine.</li>
+      <li class="numberedList">Launch Etcher.</li>
+      <li class="numberedList">Click <strong class="screenText">Flash from file</strong> from Etcher.</li>
+      <li class="numberedList">Locate the <code class="inlineCode">wic.bz2</code> image that you built for Raspberry Pi 4 and open it.</li>
+      <li class="numberedList">Click <strong class="screenText">Select target</strong> from Etcher.</li>
+      <li class="numberedList">Select the microSD card that you inserted in <em class="italic">step 1</em>.</li>
+      <li class="numberedList">Click <strong class="screenText">Flash</strong> from Etcher to write the image.</li>
+      <li class="numberedList">Eject the microSD card when Etcher is done flashing.</li>
+      <li class="numberedList">Insert the microSD card into your Raspberry Pi 4.</li>
+      <li class="numberedList">Apply power to Raspberry Pi 4 by way of its USB-C port.</li>
+    </ol>
+    <p class="normal">Confirm that your Raspberry Pi 4 booted successfully by plugging it into your Ethernet and observing that the network activity lights blink.</p>
+    <h2 id="_idParaDest-214" class="heading-2"><a id="_idTextAnchor240"/>Controlling Wi-Fi</h2>
+    <p class="normal">In the<a id="_idIndexMarker496"/> previous exercise, we built a bootable image for Raspberry Pi 4 that includes working Ethernet, Wi-Fi, and Bluetooth. Now that the device has booted and connected to your local network via Ethernet, let’s connect to a nearby Wi-Fi network. We will use <code class="inlineCode">connman</code> for this exercise since that is what the <code class="inlineCode">meta-raspberrypi</code> layer ships with out of the box. Other BSP layers rely on different network interface configuration daemons, such as <code class="inlineCode">systemd-networkd</code> and <code class="inlineCode">NetworkManager</code>. Follow these steps:</p>
+    <ol>
+      <li class="numberedList" value="1">The image we built has a hostname of <code class="inlineCode">raspberrypi4-64</code> so you should be able to SSH into the device as root:
+        <pre class="programlisting con"><code class="hljs-con">$ ssh root@raspberrypi4-64.local
+</code></pre>
+      </li>
+      <li class="numberedList">Enter <code class="inlineCode">yes</code> when asked if you want to continue connecting. You will not be prompted for a password. If no host is found at <code class="inlineCode">raspberrypi4-64.local</code>, use a tool such as <code class="inlineCode">arp-scan</code> to locate the IP address of your Raspberry Pi 4 and SSH into <a id="_idIndexMarker497"/>that instead of doing so by hostname.</li>
+      <li class="numberedList">Once you are in, verify that the Wi-Fi driver is on board:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# lsmod | grep 80211
+cfg80211              753664  1 brcmfmac
+rfkill                 32768  6 nfc,bluetooth,cfg80211
+</code></pre>
+      </li>
+      <li class="numberedList">Start <code class="inlineCode">connman-client</code>:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# connmanctl
+connmanctl&gt;
+</code></pre>
+      </li>
+      <li class="numberedList">Turn on Wi-Fi:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; enable wifi
+Enabled wifi
+</code></pre>
+      </li>
+      <li class="numberedList">Disregard <code class="inlineCode">"</code><code class="inlineCode">Error wifi: Already enabled"</code> if the Wi-Fi is already on.</li>
+      <li class="numberedList">Register <code class="inlineCode">connmanctl</code> as the connection agent:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; agent on
+Agent registered
+</code></pre>
+      </li>
+      <li class="numberedList">Scan for Wi-Fi networks:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; scan wifi
+Scan completed for wifi
+</code></pre>
+      </li>
+      <li class="numberedList">List all the available Wi-Fi networks:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; services
+*AO Wired ethernet_dca6320a8ead_cable
+ RT-AC66U_B1_38_2G wifi_dca6320a8eae_52542d41433636555f42315f33385f3247_managed_psk
+ RT-AC66U_B1_38_5G wifi_dca6320a8eae_52542d41433636555f42315f33385f3547_managed_psk
+</code></pre>
+      </li>
+      <li class="numberedList"><code class="inlineCode">RT-AC66U_B1_38_2G</code> and <code class="inlineCode">RT-AC66U_B1_38_5G</code> are Wi-Fi network SSIDs for an ASUS router. Your<a id="_idIndexMarker498"/> list will look different. The <code class="inlineCode">*AO</code> before <code class="inlineCode">Wired</code> indicates that the device is currently online via Ethernet.</li>
+      <li class="numberedList">Connect to a Wi-Fi network:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; connect wifi_dca6320a8eae_52542d41433636555f42315f33385f3547_managed_psk
+Agent RequestInput wifi_dca6320a8eae_52542d41433636555f42315f33385f3547_managed_psk
+ Passphrase = [ Type=psk, Requirement=mandatory ]
+Passphrase? somepassword
+Connected wifi_dca6320a8eae_52542d41433636555f42315f33385f3547_managed_psk
+</code></pre>
+      </li>
+      <li class="numberedList">Replace the service identifier after <code class="inlineCode">connect</code> with your service identifier or target network from the previous step. Substitute your Wi-Fi passphrase for <code class="inlineCode">somepassword</code>.</li>
+      <li class="numberedList">List the services again:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; services
+*AO Wired ethernet_dca6320a8ead_cable
+*AR RT-AC66U_B1_38_5G wifi_dca6320a8eae_52542d41433636555f42315f33385f3547_managed_psk
+ RT-AC66U_B1_38_2G wifi_ca6320a8eae_52542d41433636555f42315f33385f3247_managed_psk
+</code></pre>
+      </li>
+      <li class="numberedList">This time, <code class="inlineCode">*AR</code> appears before the SSID you just connected to, indicating that this network connection is ready. Ethernet takes precedence over Wi-Fi, so the device remains online over <code class="inlineCode">Wired</code>.</li>
+      <li class="numberedList">Exit <code class="inlineCode">connman-client</code>:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; quit
+</code></pre>
+      </li>
+      <li class="numberedList">Unplug your Raspberry Pi 4 from the Ethernet, thereby closing your SSH session:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# client_loop: send disconnect: Broken pipe
+</code></pre>
+      </li>
+      <li class="numberedList">Reconnect to your Raspberry Pi 4:
+        <pre class="programlisting con"><code class="hljs-con">$ ssh root@raspberrypi4-64.local
+</code></pre>
+      </li>
+      <li class="numberedList">Start <code class="inlineCode">connman-client</code> again:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# connmanctl
+connmanctl&gt;
+</code></pre>
+      </li>
+      <li class="numberedList">List the services again:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; services
+*AO RT-AC66U_B1_38_5G wifi_dca6320a8eae_52542d41433636555f42315f33385f3547_managed_psk
+</code></pre>
+      </li>
+      <li class="numberedList">Observe <a id="_idIndexMarker499"/>that the <code class="inlineCode">Wired</code> connection is now gone and that the Wi-Fi SSID you connected to that was previously ready has now been promoted to online.</li>
+    </ol>
+    <p class="normal">The <code class="inlineCode">connman</code> daemon saves your Wi-Fi credentials to a network profile directory under <code class="inlineCode">/var/lib/connman</code>, which persists on the microSD card. This means that <code class="inlineCode">connman</code> will automatically reconnect to your Wi-Fi network when your Raspberry Pi 4 boots up. There is no need to go through these steps again after power cycling. You can leave your Ethernet unplugged if you like.</p>
+    <h2 id="_idParaDest-215" class="heading-2"><a id="_idTextAnchor241"/>Controlling Bluetooth</h2>
+    <p class="normal">In addition<a id="_idIndexMarker500"/> to the <code class="inlineCode">connman</code> and <code class="inlineCode">connman-client</code> packages, the <code class="inlineCode">meta-raspberrypi</code> layer includes <code class="inlineCode">bluez5</code> for its Bluetooth stack. All of these packages as well as the requisite Bluetooth drivers are included in <code class="inlineCode">rpi-test-image</code>, which we built for Raspberry Pi 4. Let’s get Bluetooth up and running and attempt to pair it with another device:</p>
+    <ol>
+      <li class="numberedList" value="1">Power up your Raspberry Pi 4 and SSH in:
+        <pre class="programlisting con"><code class="hljs-con">$ ssh root@raspberrypi4-64.local
+</code></pre>
+      </li>
+      <li class="numberedList">Verify that the Bluetooth drivers are on board:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# lsmod | grep bluetooth
+bluetooth             643072  29 hci_uart,btbcm,bnep,rfcomm
+ecdh_generic           16384  1 bluetooth
+rfkill                 32768  7 nfc,bluetooth,cfg80211
+libaes                 12288  3 aes_arm64,bluetooth,aes_generic
+</code></pre>
+      </li>
+      <li class="numberedList">Initialize the HCI UART driver for Bluetooth connectivity:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# btuart
+</code></pre>
+      </li>
+      <li class="numberedList">Start <code class="inlineCode">connman-client</code>:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# connmanctl
+connmanctl&gt;
+</code></pre>
+      </li>
+      <li class="numberedList">Turn<a id="_idIndexMarker501"/> on Bluetooth:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; enable bluetooth
+Enabled Bluetooth
+</code></pre>
+      </li>
+      <li class="numberedList">Disregard <code class="inlineCode">"Error bluetooth: Already enabled"</code> if Bluetooth is already on.</li>
+      <li class="numberedList">Exit <code class="inlineCode">connman-client</code>:
+        <pre class="programlisting con"><code class="hljs-con">connmanctl&gt; quit
+</code></pre>
+      </li>
+      <li class="numberedList">Start the Bluetooth CLI:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# bluetoothctl
+Agent registered
+[CHG] Controller DC:A6:32:0A:8E:AF Pairable: yes
+</code></pre>
+      </li>
+      <li class="numberedList">Request the default agent:
+        <pre class="programlisting con"><code class="hljs-con">[bluetooth]# default-agent
+Default agent request successful
+</code></pre>
+      </li>
+      <li class="numberedList">Power on the controller:
+        <pre class="programlisting con"><code class="hljs-con">[bluetooth]# power on
+Changing power on succeeded
+</code></pre>
+      </li>
+      <li class="numberedList">Show information about the controller:
+        <pre class="programlisting con"><code class="hljs-con">[bluetooth]# show
+Controller DC:A6:32:0A:8E:AF (public)
+Name: BlueZ 5.72
+Alias: BlueZ 5.72
+Class: 0x00200000
+Powered: yes
+Discoverable: no
+DiscoverableTimeout: 0x000000b4
+Pairable: yes
+</code></pre>
+      </li>
+      <li class="numberedList">Start <a id="_idIndexMarker502"/>scanning for Bluetooth devices:
+        <pre class="programlisting con"><code class="hljs-con">[bluetooth]# scan on
+Discovery started
+[CHG] Controller DC:A6:32:0A:8E:AF Discovering: yes
+…
+[NEW] Device DC:08:0F:03:52:CD Frank's iPhone
+…
+</code></pre>
+      </li>
+      <li class="numberedList">If your smartphone is nearby and has Bluetooth enabled, it should appear in the list as a <code class="inlineCode">[NEW]</code> device. The <code class="inlineCode">DC:08:0F:03:52:CD</code> part next to <code class="inlineCode">Frank's</code> <code class="inlineCode">iPhone</code> is the Bluetooth MAC address of my smartphone.</li>
+      <li class="numberedList">Stop scanning for Bluetooth devices:
+        <pre class="programlisting con"><code class="hljs-con">[bluetooth]# scan off
+…
+[CHG] Controller DC:A6:32:0A:8E:AF Discovering: no
+Discovery stopped
+</code></pre>
+      </li>
+      <li class="numberedList">If you have an iPhone open, go to <strong class="screenText">Bluetooth</strong> under <strong class="screenText">Settings</strong> so that you can accept the pairing request from your Raspberry Pi 4.</li>
+      <li class="numberedList">Attempt to pair with your smartphone:
+        <pre class="programlisting con"><code class="hljs-con">[bluetooth]# pair DC:08:0F:03:52:CD
+Attempting to pair with DC:08:0F:03:52:CD
+[CHG] Device DC:08:0F:03:52:CD Connected: yes
+Request confirmation
+[agent] Confirm passkey 936359 (yes/no):
+</code></pre>
+      </li>
+      <li class="numberedList">Substitute your smartphone’s Bluetooth MAC address for <code class="inlineCode">DC:08:0F:03:52:CD</code>.</li>
+      <li class="numberedList">Before entering <code class="inlineCode">yes</code>, accept the pairing request from your smartphone:</li>
+    </ol>
+    <figure class="mediaobject"><img src="../Images/B18466_07_01.png" alt="Figure 7.1 – Bluetooth pairing request" width="748" height="1103"/></figure>
+    <p class="packt_figref">Figure 7.1 – Bluetooth pairing request</p>
+    <ol>
+      <li class="numberedList" value="19">Enter <code class="inlineCode">yes</code> to confirm the passkey:
+        <pre class="programlisting con"><code class="hljs-con">[agent] Confirm passkey 936359 (yes/no): yes
+[CHG] Device DC:08:0F:03:52:CD ServicesResolved: yes
+[CHG] Device DC:08:0F:03:52:CD Paired: yes
+Pairing successful
+[CHG] Device DC:08:0F:03:52:CD ServicesResolved: no
+[CHG] Device DC:08:0F:03:52:CD Connected: no
+</code></pre>
+      </li>
+      <li class="numberedList">Connect<a id="_idIndexMarker503"/> to your smartphone:
+        <pre class="programlisting con"><code class="hljs-con">[bluetooth]# connect DC:08:0F:03:52:CD
+Attempting to connect to DC:08:0F:03:52:CD
+[CHG] Device DC:08:0F:03:52:CD Connected: yes
+Connection successful
+[CHG] Device DC:08:0F:03:52:CD ServicesResolved: yes
+Authorize service
+</code></pre>
+      </li>
+      <li class="numberedList">Again, substitute your smartphone’s Bluetooth MAC address for <code class="inlineCode">DC:08:0F:03:52:CD</code>.</li>
+      <li class="numberedList">When prompted to authorize the service, enter <code class="inlineCode">yes</code>:
+        <pre class="programlisting con"><code class="hljs-con">[agent] Authorize service 0000110e-0000-1000-8000-
+00805f9b34fb (yes/no): yes
+[Frank's iPhone]#
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Your Raspberry Pi 4 is now paired and connected to your smartphone over Bluetooth. It should appear on your smartphone’s list of Bluetooth devices as <strong class="screenText">BlueZ 5.72</strong>. The <code class="inlineCode">bluetoothctl</code> program has numerous commands and submenus. We’ve only just scratched the surface. I recommend entering <code class="inlineCode">help</code> and perusing the self-documentation to get an idea of what you can do from the command line. Like <code class="inlineCode">connman</code>, the BlueZ Bluetooth stack is a D-Bus service, so you can communicate with it programmatically over D-Bus from Python or other high-level programming languages using D-Bus bindings.</p>
+    <h2 id="_idParaDest-216" class="heading-2"><a id="_idTextAnchor242"/>Adding a custom layer</h2>
+    <p class="normal">If you are <a id="_idIndexMarker504"/>using Raspberry Pi 4 to prototype a new product, then you can quickly generate your own custom images by adding packages to the list that’s been assigned to the <code class="inlineCode">IMAGE_INSTALL:append</code> variable in <code class="inlineCode">conf/local.conf</code>. While this simple technique works, at some point you are going to want to start developing your own embedded application. </p>
+    <p class="normal">How do you build this additional software so that you can include it in your custom images? The answer is to create a custom layer with a new recipe to build your software.</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto.</li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+      </li>
+      <li class="numberedList">This sets a bunch of environment variables and puts you back in the <code class="inlineCode">build-rpi</code> directory.</li>
+      <li class="numberedList">Create a new layer for your application:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers create-layer ../meta-gattd
+NOTE: Starting bitbake server...
+Add your new layer with 'bitbake-layers add-layer ../meta-gattd'
+</code></pre>
+      </li>
+      <li class="numberedList">This layer is named <code class="inlineCode">meta-gattd</code> for the GATT daemon. Name your layer whatever you like, but please adhere to the <code class="inlineCode">meta-</code> prefix convention.</li>
+      <li class="numberedList">Navigate up to the new layer directory:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ../meta-gattd
+</code></pre>
+      </li>
+      <li class="numberedList">Examine the layer’s file structure:
+        <pre class="programlisting con"><code class="hljs-con">$ tree
+.
+├── conf
+│   └── layer.conf
+├── COPYING.MIT
+├── README
+└── recipes-example
+    └── example
+        └── example_0.1.bb
+</code></pre>
+      </li>
+      <li class="numberedList">Rename the <code class="inlineCode">recipes-examples</code> directory:
+        <pre class="programlisting con"><code class="hljs-con">$ mv recipes-example recipes-gattd
+</code></pre>
+      </li>
+      <li class="numberedList">Rename the <code class="inlineCode">example</code> directory:
+        <pre class="programlisting con"><code class="hljs-con">$ cd recipes-gattd
+$ mv example gattd
+</code></pre>
+      </li>
+      <li class="numberedList">Rename the example recipe file:
+        <pre class="programlisting con"><code class="hljs-con">$ cd gattd
+$ mv example_0.1.bb gattd_0.1.bb
+</code></pre>
+      </li>
+      <li class="numberedList">Display the renamed recipe file:
+        <pre class="programlisting con"><code class="hljs-con">$ cat gattd_0.1.bb
+</code></pre>
+      </li>
+      <li class="numberedList">You want<a id="_idIndexMarker505"/> to populate this recipe with the metadata that’s needed to build your software, including <code class="inlineCode">SRC_URI</code> and <code class="inlineCode">md5</code> checksums.</li>
+      <li class="numberedList">For now, just replace gattd_0.1.bb with the finished recipe I have provided for you in <code class="inlineCode">MELD/Chapter07/meta-gattd/recipes-gattd/gattd/gattd_0.1.bb</code>.</li>
+      <li class="numberedList">Create a Git repository for your new layer and push it to GitHub.</li>
+      <li class="numberedList">Create a <code class="inlineCode">scarthgap</code> branch in your Git repository and push it to GitHub.</li>
+    </ol>
+    <p class="normal">Now that we have a custom layer for our application, let’s add it to your working image:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ../../..
+</code></pre>
+      </li>
+      <li class="numberedList">Clone your layer or my <code class="inlineCode">meta-gattd</code> layer from GitHub:
+        <pre class="programlisting con"><code class="hljs-con">$ git clone -b scarthgap https://github.com/fvasquez/meta-gattd.git
+</code></pre>
+      </li>
+      <li class="numberedList">Replace <code class="inlineCode">fvasquez</code> with your GitHub username and <code class="inlineCode">meta-gattd</code> with your layer’s repo name.</li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+      </li>
+      <li class="numberedList">This sets a bunch of environment variables and puts you back in the <code class="inlineCode">build-rpi</code> directory.</li>
+      <li class="numberedList">Then, add the newly cloned layer to the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers add-layer ../meta-gattd
+</code></pre>
+      </li>
+      <li class="numberedList">Replace <code class="inlineCode">meta-gattd</code> with the name of your layer.</li>
+      <li class="numberedList">Verify that all the necessary layers have been added to the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-layers
+</code></pre>
+      </li>
+      <li class="numberedList">There <a id="_idIndexMarker506"/>should be a total of nine layers in the list, including your new layer.</li>
+      <li class="numberedList">Now, add the extra package to your <code class="inlineCode">conf/local.conf</code> file:
+        <pre class="programlisting code"><code class="hljs-code">CORE_IMAGE_EXTRA_INSTALL += "gattd"
+</code></pre>
+      </li>
+      <li class="numberedList"><code class="inlineCode">CORE_IMAGE_EXTRA_INSTALL</code> is a convenience variable that’s used to add extra packages to an image that inherits from the <code class="inlineCode">core-image</code> class like <code class="inlineCode">rpi-test-image</code> does. <code class="inlineCode">IMAGE_INSTALL</code> is the variable that controls what packages are included in any image. We cannot use <code class="inlineCode">IMAGE_INSTALL += "gattd"</code> in <code class="inlineCode">conf/local.conf</code> because it replaces the default lazy assignment that’s done in <code class="inlineCode">core-image.bbclass</code>. Use <code class="inlineCode">IMAGE_INSTALL:append = " gattd"</code> or <code class="inlineCode">CORE_IMAGE_EXTRA_INSTALL += " gattd"</code> instead.</li>
+      <li class="numberedList">Lastly, rebuild the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake rpi-test-image
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">If your software successfully builds and installs, it should be included on the finished <code class="inlineCode">rpi-test-image-raspberrypi4-64.rootfs.wic.bz2</code> image. Write that image to a microSD card and boot it on your Raspberry Pi 4 to find out. There should be a Python script at <code class="inlineCode">/usr/bin/gatt_server.py</code>.</p>
+    <p class="normal">Adding packages to <code class="inlineCode">conf/local.conf</code> makes sense during the earliest stages of development. When you are ready to share the fruits of your labor with the rest of your team, you should create an image recipe and put your packages there. At the end of the previous chapter, we went all the way and wrote a <code class="inlineCode">nova-image</code> recipe to add a <code class="inlineCode">helloworld</code> package to <code class="inlineCode">core-image-minimal</code>.</p>
+    <p class="normal">Now that we’ve spent a good amount of time testing newly built images on actual hardware, it’s time to turn our attention back to software. In the next section, we’ll look at a tool that was designed to streamline the tedious compile, test, and debug cycle we’ve grown accustomed to while developing embedded software.</p>
+    <h1 id="_idParaDest-217" class="heading-1"><a id="_idTextAnchor243"/>Capturing changes with devtool</h1>
+    <p class="normal">In the previous chapter, you learned how to create a recipe for a <code class="inlineCode">helloworld</code> program from scratch. A copy-paste approach to packaging recipes may work initially, but it soon becomes very frustrating as your project grows and the number of recipes you need to maintain multiplies. I’m here to show you a better way of working with package recipes – both yours and those that are contributed to upstream by some third party. It is called <code class="inlineCode">devtool</code> and it is the cornerstone of Yocto’s extensible SDK.</p>
+    <h2 id="_idParaDest-218" class="heading-2"><a id="_idTextAnchor244"/>Development workflows</h2>
+    <p class="normal">Before <a id="_idIndexMarker507"/>you get started with <code class="inlineCode">devtool</code>, you want to make sure that you’re doing your work in a new layer instead of modifying recipes in-tree. Otherwise, you could easily overwrite and lose hours and hours of work:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto.</li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-mine
+</code></pre>
+      </li>
+      <li class="numberedList">This sets a bunch of environment variables and puts you in a new <code class="inlineCode">build-mine</code> directory.</li>
+      <li class="numberedList">Set <code class="inlineCode">MACHINE</code> in <code class="inlineCode">conf/local.conf</code> for 64-bit Arm:
+        <pre class="programlisting code"><code class="hljs-code">MACHINE ?= "qemuarm64"
+</code></pre>
+      </li>
+      <li class="numberedList">Create your new layer:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers create-layer ../meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList">Now, add your new layer:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers add-layer ../meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList">Check that your new layer was created where you want it to be:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-layers
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">The output of <code class="inlineCode">bitbake-layers show-layers</code> should look like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">layer              path                                   priority
+==================================================================
+core               /home/frank/poky/meta                         5
+yocto              /home/frank/poky/meta-poky                    5
+yoctobsp           /home/frank/poky/meta-yocto-bsp               5
+meta-mine          /home/frank/meta-mine                         6
+</code></pre>
+    <p class="normal">To get some first-hand experience with development workflows, you are going to need a target to deploy to. That means building an image:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ devtool build-image core-image-full-cmdline
+</code></pre>
+    <p class="normal">Building a full<a id="_idIndexMarker508"/> image takes a few hours the first time. When it’s complete, go ahead and boot it:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ runqemu qemuarm64 nographic
+&lt;…&gt;
+Poky (Yocto Project Reference Distro) 5.0.4 qemuarm64 ttyAMA0
+qemuarm64 login: root
+root@qemuarm64:~#
+</code></pre>
+    <p class="normal">By specifying the <code class="inlineCode">nographic</code> option, we can run QEMU directly in a separate shell. This makes typing easier than having to cope with the emulated graphics output. Log in as <code class="inlineCode">root</code>. There is no password. Leave QEMU running for now because we need it for the subsequent exercises. You can SSH into this VM with <code class="inlineCode">ssh root@192.168.7.2</code>.</p>
+    <p class="normal"><code class="inlineCode">devtool</code> supports three common development workflows:</p>
+    <ul>
+      <li class="bulletList">Add a new recipe.</li>
+      <li class="bulletList">Patch the source built by an existing recipe.</li>
+      <li class="bulletList">Upgrade a recipe to fetch a newer version of the upstream source.</li>
+    </ul>
+    <p class="normal">When you initiate any of these workflows, <code class="inlineCode">devtool</code> creates a temporary workspace for you to make your changes. This sandbox contains the recipe files and fetched source. When you are done with your work, <code class="inlineCode">devtool</code> integrates your changes back into your layer so that the workspace can be destroyed.</p>
+    <h2 id="_idParaDest-219" class="heading-2"><a id="_idTextAnchor245"/>Creating a new recipe</h2>
+    <p class="normal">Let’s say <a id="_idIndexMarker509"/>there is some open source software you want that no one has submitted a BitBake recipe for yet. And let’s say that the software in question is the <code class="inlineCode">validator</code> file-signing, verification, and installation tool. In this instance, you could download a source tarball release of <code class="inlineCode">validator</code> from GitHub and create a recipe for it. That’s exactly what <code class="inlineCode">devtool add</code> does.</p>
+    <p class="normal">First, <code class="inlineCode">devtool add</code> creates a workspace with its own local Git repository. Inside this new workspace directory, it creates a <code class="inlineCode">recipes/validator</code> directory and extracts the tarball contents into a <code class="inlineCode">sources/validator</code> directory. <code class="inlineCode">devtool</code> knows about popular build systems such as Autotools and CMake and will do its best to figure out what kind of project this is (Autotools in the case of <code class="inlineCode">validator</code>). It then uses parsed metadata and built package data cached from <a id="_idIndexMarker510"/>previous BitBake builds to figure out the values of <code class="inlineCode">DEPENDS</code> and <code class="inlineCode">RDEPENDS</code> as well as what files to inherit and require:</p>
+    <ol>
+      <li class="numberedList" value="1">First, open another shell and navigate one level above the directory where you cloned Yocto.</li>
+      <li class="numberedList">Next, set up your BitBake environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-mine
+</code></pre>
+      </li>
+      <li class="numberedList">This sets a bunch of environment variables and puts you back in your <code class="inlineCode">build-mine</code> working directory.</li>
+      <li class="numberedList">Then, run <code class="inlineCode">devtool add</code> with the URL of the source tarball release:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool add https://github.com/containers/validator/releases/download/0.2.2/validator-0.2.2.tar.xz
+</code></pre>
+      </li>
+      <li class="numberedList"><code class="inlineCode">devtool add</code> will generate a recipe that you can then build.</li>
+      <li class="numberedList">Before you build your new recipe, let’s take a look at it:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool edit-recipe validator
+</code></pre>
+      </li>
+      <li class="numberedList"><code class="inlineCode">devtool</code> will open <code class="inlineCode">recipes/validator/validator_0.2.2.bb</code> in an editor. Notice that <code class="inlineCode">devtool</code> has already filled in the MD5 checksums for you.</li>
+      <li class="numberedList">Add this line to the end of <code class="inlineCode">validator_0.2.2.bb</code>:
+        <pre class="programlisting code"><code class="hljs-code">FILES:${PN} += "${datadir}"
+do_install:append() {
+    rm -rf ${D}/usr/lib/dracut
+}
+</code></pre>
+      </li>
+      <li class="numberedList">Correct any obvious mistakes, save any changes, and exit your editor.</li>
+      <li class="numberedList">To build your new recipe, use the following command:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool build validator
+</code></pre>
+      </li>
+      <li class="numberedList">Next, deploy the compiled <code class="inlineCode">validator</code> executable to the target emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool deploy-target validator root@192.168.7.2
+</code></pre>
+      </li>
+      <li class="numberedList">This installs the necessary build artifacts onto the target emulator.</li>
+      <li class="numberedList">From your QEMU shell, run the <code class="inlineCode">validator</code> executable that you just built and deployed:
+        <pre class="programlisting con"><code class="hljs-con">root@qemuarm64:~# validator --help
+</code></pre>
+      </li>
+      <li class="numberedList">If you<a id="_idIndexMarker511"/> see a bunch of <code class="inlineCode">validator</code>-related self-documentation, then the build and deployment were successful. If you do not, then use <code class="inlineCode">devtool</code> to repeat the edit, build, and deploy steps until you are convinced that <code class="inlineCode">validator</code> works.</li>
+      <li class="numberedList">Once you are satisfied, clean up your target emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool undeploy-target validator root@192.168.7.2
+</code></pre>
+      </li>
+      <li class="numberedList">Merge all your work back into your layer:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool finish -f validator ../meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList">Delete the leftover sources from the workspace:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool reset validator
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">If you think others might benefit from your new recipe, then submit a patch to Yocto.</p>
+    <h2 id="_idParaDest-220" class="heading-2"><a id="_idTextAnchor246"/>Modifying the source built by a recipe</h2>
+    <p class="normal">Let’s say <a id="_idIndexMarker512"/>you find a bug in <code class="inlineCode">jq</code>, a command-line JSON preprocessor. You search the Git repository at <a href="https://github.com/stedolan/jq"><span class="url">https://github.com/stedolan/jq</span></a> and find that no one has reported the issue. Then, you look at the source code. It turns out that the fix requires just a few small code changes, so you decide to patch <code class="inlineCode">jq</code> yourself. That’s where <code class="inlineCode">devtool</code> modify comes in.</p>
+    <p class="normal">This time, when <code class="inlineCode">devtool</code> looks at Yocto’s cached metadata, it sees that a recipe already exists for <code class="inlineCode">jq</code>. Like <code class="inlineCode">devtool add</code>, <code class="inlineCode">devtool modify</code> creates a new temporary workspace with its own local Git repository where it copies the recipe files and extracts the upstream sources. <code class="inlineCode">jq</code> is written in C and located in an existing OpenEmbedded layer named <code class="inlineCode">meta-oe</code>. We need to add this layer as well as <code class="inlineCode">jq</code>'s dependencies to our working image before we can modify the package source:</p>
+    <ol>
+      <li class="numberedList" value="1">First, delete a couple of layers from your <code class="inlineCode">build-mine</code> environment:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers remove-layer workspace
+$ bitbake-layers remove-layer meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList">Next, clone the <code class="inlineCode">meta-openembedded</code> repository from GitHub if it does not exist already:
+        <pre class="programlisting con"><code class="hljs-con">$ git clone -b scarthgap https://github.com/openembedded/meta-openembedded.git ../meta-openembedded
+</code></pre>
+      </li>
+      <li class="numberedList">Then, add the <code class="inlineCode">meta-oe</code> and <code class="inlineCode">meta-mine</code> layers to your image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers add-layer ../meta-openembedded/meta-oe
+$ bitbake-layers add-layer ../meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList">Verify <a id="_idIndexMarker513"/>that all the necessary layers have been added to the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-layers
+</code></pre>
+      </li>
+      <li class="numberedList">The output of the command should look like this:
+        <pre class="programlisting con"><code class="hljs-con">layer              path                                   priority
+==================================================================
+core               /home/frank/poky/meta                         5
+yocto              /home/frank/poky/meta-poky                    5
+yoctobsp           /home/frank/poky/meta-yocto-bsp               5
+openembedded-layer /home/frank/meta-openembedded/meta-oe         5
+meta-mine          /home/frank/meta-mine                         6
+</code></pre>
+      </li>
+      <li class="numberedList">Add the following line to <code class="inlineCode">conf/local.conf</code> because the <code class="inlineCode">onig</code> package is a runtime dependency of <code class="inlineCode">jq</code>:
+        <pre class="programlisting code"><code class="hljs-code"><span class="hljs-symbol">IMAGE_INSTALL:</span>append = <span class="hljs-string">" onig"</span>
+</code></pre>
+      </li>
+      <li class="numberedList">Rebuild your image:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool build-image core-image-full-cmdline
+</code></pre>
+      </li>
+      <li class="numberedList">Exit QEMU with <em class="italic">Ctrl + A</em> and <em class="italic">x</em> from your other shell and restart the emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ runqemu qemuarm64 nographic
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Like many patching tools, <code class="inlineCode">devtool modify</code> uses your commit messages to generate patch filenames, so keep your commit messages brief and meaningful. It also automatically generates the patch <a id="_idIndexMarker514"/>files themselves based on your GitHub history and creates a <code class="inlineCode">.bbappend</code> file with the new patch filenames. Remember to prune and squash your Git commits so that <code class="inlineCode">devtool</code> divides your work up into sensible patch files:</p>
+    <ol>
+      <li class="numberedList" value="1">Run <code class="inlineCode">devtool modify</code> with the name of the package you wish to modify:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool modify jq
+</code></pre>
+      </li>
+      <li class="numberedList">Make your code changes using your preferred editor. Use the standard Git add and commit workflow to keep track of what you’ve done.</li>
+      <li class="numberedList">Build the modified sources using the following command:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool build jq
+</code></pre>
+      </li>
+      <li class="numberedList">Next, deploy the compiled <code class="inlineCode">jq</code> executable to the target emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool deploy-target jq root@192.168.7.2
+</code></pre>
+      </li>
+      <li class="numberedList">This installs the necessary build artifacts onto the target emulator.</li>
+      <li class="numberedList">If connecting fails, then delete the stale emulator’s key as shown here:
+        <pre class="programlisting con"><code class="hljs-con">$ ssh-keygen -f "/home/frank/.ssh/known_hosts" -R "192.168.7.2"
+</code></pre>
+      </li>
+      <li class="numberedList">Replace <code class="inlineCode">frank</code> with your username in the path.</li>
+      <li class="numberedList">From your QEMU shell, run the <code class="inlineCode">jq</code> executable that you just built and deployed. If you can no longer reproduce the bug, then your changes worked. Otherwise, repeat the edit, build, and deploy steps until you are satisfied.</li>
+      <li class="numberedList">Once you are satisfied, clean up your target emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool undeploy-target jq root@192.168.7.2
+</code></pre>
+      </li>
+      <li class="numberedList">Merge all your work back into your layer:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool finish jq ../meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList">If the merge fails because the Git source tree is dirty, then remove or unstage any leftover <code class="inlineCode">jq</code> build artifacts and try <code class="inlineCode">devtool finish</code> again.</li>
+      <li class="numberedList">Delete the leftover sources from the workspace:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool reset jq
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">If you think others<a id="_idIndexMarker515"/> might benefit from your patch or patches, then submit them to the upstream project maintainers.</p>
+    <h2 id="_idParaDest-221" class="heading-2"><a id="_idTextAnchor247"/>Upgrading a recipe to a newer version</h2>
+    <p class="normal">Let’s say you’re using the mypy Python static typechecker to develop on your target device and a new version of mypy has just been released. This latest version of mypy has a new feature that you just can’t wait to get your hands on. Instead of waiting for the mypy recipe maintainers to upgrade to the new release version, you decide to upgrade the recipe yourself. You would think that would be as easy as bumping a version number in a recipe file, but there are also source archive checksums involved. Wouldn’t it be great if the tedious process could be fully automated? Guess what devtool upgrade is for? mypy is a Python 3 module, so your image needs to include Python 3, mypy, and mypy’s dependencies before you can upgrade it. To obtain all of them, follow these steps:</p>
+    <ol>
+      <li class="numberedList" value="1">First, delete a couple of layers from your build-mine environment:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers remove-layer workspace
+$ bitbake-layers remove-layer meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList">Next, add the meta-python and meta-mine layers to your image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers add-layer ../meta-openembedded/meta-python
+$ bitbake-layers add-layer ../meta-mine
+</code></pre>
+      </li>
+      <li class="numberedList"><a id="_idTextAnchor248"/>3. Verify that all the necessary layers have been added to the project:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-layers
+</code></pre>
+      </li>
+      <li class="numberedList">The output of the command should look like this:
+        <pre class="programlisting con"><code class="hljs-con">layer              path                                   priority
+==================================================================
+core               /home/frank/poky/meta                         5
+yocto              /home/frank/poky/meta-poky                    5
+yoctobsp           /home/frank/poky/meta-yocto-bsp               5
+openembedded-layer /home/frank/meta-openembedded/meta-oe         5
+meta-python        /home/frank/meta-openembedded/meta-python     5
+meta-mine          /home/frank/meta-mine                         6
+</code></pre>
+      </li>
+      <li class="numberedList">Now, there should be lots of Python modules available for you to use:
+        <pre class="programlisting code"><code class="hljs-code"><span class="hljs-symbol">$ bitbake -s | grep ^python3</span>
+</code></pre>
+      </li>
+      <li class="numberedList">One of those modules is <code class="inlineCode">python3-mypy</code>.</li>
+      <li class="numberedList">Make sure <code class="inlineCode">python3</code> and <code class="inlineCode">python3-mypy</code> are being built and installed on your image by searching for both of them inside <code class="inlineCode">conf/local.conf</code>. If they are not there, then you can include them both by adding the following line to your <code class="inlineCode">conf/local.conf</code>:
+        <pre class="programlisting code"><code class="hljs-code">IMAGE_INSTALL:append = " python3 python3-mypy"
+</code></pre>
+      </li>
+      <li class="numberedList">Rebuild your image:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool build-image core-image-full-cmdline
+</code></pre>
+      </li>
+      <li class="numberedList">Exit QEMU with Ctrl + A and x from your other shell and restart the emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ runqemu qemuarm64 nographic
+</code></pre>
+        <div class="note">
+          <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+          <p class="normal">At the time of writing, the version of mypy included with meta-python is 1.9.0 and the latest version of mypy available on PyPI is 1.12.1.</p>
+        </div>
+      </li>
+    </ol>
+    <p class="normal">Now that all the pieces are in place, let’s do the upgrade:</p>
+    <ol>
+      <li class="numberedList" value="1">First, run devtool upgrade with the name of the package and the target version to upgrade to:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool upgrade python3-mypy --version 1.12.1
+</code></pre>
+      </li>
+      <li class="numberedList">Before you build your upgraded recipe, let’s take a look at it:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool edit-recipe python3-mypy
+</code></pre>
+      </li>
+      <li class="numberedList">devtool will open <code class="inlineCode">recipes/python3-mypy/python3-mypy_1.12.1.bb</code> in an editor. There is nothing version-specific to change in this recipe, so save the new file and exit your editor.</li>
+      <li class="numberedList">To build your new recipe, use this command:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool build python3-mypy
+</code></pre>
+      </li>
+      <li class="numberedList">Next, deploy your new mypy module to the target emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool deploy-target python3-mypy root@192.168.7.2
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">This installs the necessary build artifacts onto the target emulator.</p>
+    <ol>
+      <li class="numberedList" value="6">If connecting fails, then delete the stale emulator’s key as shown here:
+        <pre class="programlisting con"><code class="hljs-con">$ ssh-keygen -f "/home/frank/.ssh/known_hosts" -R "192.168.7.2"
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Replace frank with your username in the path.</p>
+    <ol>
+      <li class="numberedList" value="7">From your QEMU shell, check what version of mypy was deployed:
+        <pre class="programlisting con"><code class="hljs-con">root@qemuarm64:~# mypy --version
+mypy 1.12.1 (compiled: no)
+</code></pre>
+      </li>
+      <li class="numberedList">If entering <code class="inlineCode">mypy --version</code> returns ‘<code class="inlineCode">1.12.1</code>', then the upgrade worked. If it does not, then use devtool to repeat the edit, build, and deploy steps until you’ve figured out what went wrong.</li>
+      <li class="numberedList">Once you are satisfied, clean up your target emulator:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool undeploy-target python3-mypy root@192.168.7.2
+</code></pre>
+      </li>
+      <li class="numberedList">Clean up your workspace:
+        <pre class="programlisting con"><code class="hljs-con">rm -rf workspace/sources/python3-mypy/build
+rm -rf workspace/sources/python3-mypy/mypy/__pycache__
+</code></pre>
+      </li>
+      <li class="numberedList">Commit a change to SOURCES.txt:
+        <pre class="programlisting con"><code class="hljs-con">cd workspace/sources/python3-mypy
+git add mypy.egg-info/SOURCES.txt
+git commit -m "add setup cfg to egg SOURCES"
+</code></pre>
+      </li>
+      <li class="numberedList">Merge all your work back into your layer:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ../../..
+$ devtool finish python3-mypy ../meta-mine
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">devtool finish moves the sources to a folder called attic.</p>
+    <ol>
+      <li class="numberedList" value="13">If the merge fails because the GitHub source tree is dirty, then remove or unstage any leftover <code class="inlineCode">python3-mypy</code> build artifacts and try devtool finish again.</li>
+      <li class="numberedList">Delete the leftover sources from the workspace:
+        <pre class="programlisting con"><code class="hljs-con">$ devtool reset python3-mypy
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">If you <a id="_idIndexMarker516"/>think others might also be anxious to upgrade their distros to the latest version of a package, then submit a patch to Yocto.</p>
+    <p class="normal">Finally, we’ve arrived at the topic of how to build our own distro. This feature is unique to Yocto and notably missing from Buildroot. A <strong class="keyWord">distro layer</strong> is a<a id="_idIndexMarker517"/> powerful abstraction that can be shared across multiple projects targeting different hardware.</p>
+    <h1 id="_idParaDest-222" class="heading-1"><a id="_idTextAnchor249"/>Building your own distro</h1>
+    <p class="normal">At the <a id="_idIndexMarker518"/>start of the previous chapter, I told you about distro layers such as <code class="inlineCode">meta-poky</code> and the distribution metadata contained in their <code class="inlineCode">conf/distro</code> subdirectories. As we have seen, you don’t need your own distro layer to build your own custom images. You can go a long way without ever having to modify any of Poky’s distribution metadata. But if you want to alter distro policies (e.g., features, C library implementations, choice of package manager, and so on), then you can choose to build your own distro.</p>
+    <p class="normal">Building your own distro is a three-step process:</p>
+    <ol>
+      <li class="numberedList" value="1">Create a new distro layer.</li>
+      <li class="numberedList">Create a distro configuration file.</li>
+      <li class="numberedList">Add more recipes to your distro.</li>
+    </ol>
+    <p class="normal">But before we get into the technical details of how to do that, let’s consider when it’s the right time to roll your own distro.</p>
+    <h2 id="_idParaDest-223" class="heading-2"><a id="_idTextAnchor250"/>When and when not to</h2>
+    <p class="normal">Distro settings define the package format (<code class="inlineCode">rpm</code>, <code class="inlineCode">deb</code>, or <code class="inlineCode">ipk</code>), package feed, <code class="inlineCode">init</code> system (<code class="inlineCode">systemd</code> or <code class="inlineCode">sysvinit</code>), and specific package versions. You could create your own distro in a new layer by inheriting from Poky and overriding what needs to change for your distro. However, if you find yourself adding a lot of values to your build directory’s <code class="inlineCode">local.conf</code> file aside from the obvious local settings (such as relative paths), then it is probably time to create your own distro from scratch.</p>
+    <h2 id="_idParaDest-224" class="heading-2"><a id="_idTextAnchor251"/>Creating a new distro layer</h2>
+    <p class="normal">You know<a id="_idIndexMarker519"/> how to create a layer. Creating a distro layer is no different.</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto.</li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+      </li>
+      <li class="numberedList">This sets a bunch of environment variables and puts you back in the <code class="inlineCode">build-rpi</code> directory from earlier.</li>
+      <li class="numberedList">Delete the <code class="inlineCode">meta-gattd</code> layer from your <code class="inlineCode">build-rpi</code> environment:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers remove-layer meta-gattd
+</code></pre>
+      </li>
+      <li class="numberedList">Comment out or delete <code class="inlineCode">CORE_IMAGE_EXTRA_INSTALL</code> from <code class="inlineCode">conf/local.conf</code>:
+        <pre class="programlisting code"><code class="hljs-code">#CORE_IMAGE_EXTRA_INSTALL += "gattd"
+</code></pre>
+      </li>
+      <li class="numberedList">Create a new layer for our distro:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers create-layer ../meta-mackerel
+</code></pre>
+      </li>
+      <li class="numberedList">Now, add our new layer to the <code class="inlineCode">build-rpi</code> configuration:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers add-layer ../meta-mackerel
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">The name of our distro is <code class="inlineCode">mackerel</code>. Creating our own distro layer enables us to keep distro policies separate from package recipes (the implementation).</p>
+    <h2 id="_idParaDest-225" class="heading-2"><a id="_idTextAnchor252"/>Configuring your distro</h2>
+    <p class="normal">Create the <a id="_idIndexMarker520"/>distro configuration file in the <code class="inlineCode">conf/distro</code> directory of your <code class="inlineCode">meta-mackerel</code> distro layer. Give it the same name as your distro (e.g., <code class="inlineCode">mackerel.conf</code>).</p>
+    <p class="normal">Set the required <code class="inlineCode">DISTRO_NAME</code> and <code class="inlineCode">DISTRO_VERSSION</code> variables in <code class="inlineCode">conf/distro/mackerel.conf</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">DISTRO_NAME = "Mackerel (Mackerel Embedded Linux Distro)"
+DISTRO_VERSION = "0.1"
+</code></pre>
+    <p class="normal">The following optional variables can also be set in <code class="inlineCode">mackerel.conf</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">DISTRO_FEATURES: Add software support for these features.
+DISTRO_EXTRA_RDEPENDS: Add these packages to all images.
+DISTRO_EXTRA_RRECOMMENDS: Add these packages if they exist.
+TCLIBC: Select this version of the C standard library.
+</code></pre>
+    <p class="normal">Once you are <a id="_idIndexMarker521"/>done with those variables, you can define just about any variable in <code class="inlineCode">conf/local.conf</code> that you want for your distro. Look at other distros’ <code class="inlineCode">conf/distro</code> directories, such as Poky’s, to see how they organize things, or copy and use <code class="inlineCode">poky/meta/conf/distro/defaultsetup.conf</code> as a template. If you decide to break your distro configuration file up into multiple include files, make sure to place them in the <code class="inlineCode">conf/distro/include</code> directory of your layer.</p>
+    <h2 id="_idParaDest-226" class="heading-2"><a id="_idTextAnchor253"/>Adding more recipes to your distro</h2>
+    <p class="normal">Add <a id="_idIndexMarker522"/>more distro-related metadata to your distro layer. You will want to add recipes for additional configuration files. These are configuration files that have yet to be installed by an existing recipe. More importantly, you will also want to add append files to customize existing recipes and add their configuration files to your distro.</p>
+    <h2 id="_idParaDest-227" class="heading-2"><a id="_idTextAnchor254"/>Runtime package management</h2>
+    <p class="normal">Including <a id="_idIndexMarker523"/>a package manager for your distro images is great for enabling secure over-the-air updates and rapid application development. When your team works on software that revs multiple times a day, frequent package updates are one way to keep everybody in sync and moving forward. Full image updates are unnecessary (only one package changes) and disruptive (reboot required). Being able to fetch packages from a remote server and install them on a target device is known as <strong class="keyWord">runtime package management</strong>.</p>
+    <p class="normal">Yocto has support for different package formats (<code class="inlineCode">rpm</code>, <code class="inlineCode">ipk</code>, and<code class="inlineCode"> deb</code>) and different package managers (<code class="inlineCode">dnf</code> and <code class="inlineCode">opkg</code>). The package format you select for your distro determines which package manager you can include on it.</p>
+    <p class="normal">To select a package format for our distro, you can set the <code class="inlineCode">PACKAGE_CLASSES</code> variable in your distro’s <code class="inlineCode">conf</code> file. Add this line to <code class="inlineCode">meta-mackerel/conf/distro/mackerel.conf</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-variable">PACKAGE_CLASSES</span> <span class="hljs-string">?=</span> <span class="hljs-string">"package_ipk"</span>
+</code></pre>
+    <p class="normal">Now, let’s return to the <code class="inlineCode">build-rpi</code> directory:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+    <p class="normal">We are targeting Raspberry Pi 4, so make sure <code class="inlineCode">MACHINE</code> is still set accordingly in <code class="inlineCode">conf/local.conf</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-built_in">MACHINE</span> <span class="hljs-operator">=</span> <span class="hljs-string">"raspberrypi4-64"</span>
+</code></pre>
+    <p class="normal">Comment out <code class="inlineCode">PACKAGE_CLASSES</code> in your build directory’s <code class="inlineCode">conf/local.conf</code> since our distro already selects <code class="inlineCode">package_ipk</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#PACKAGE_CLASSES ?= </span><span class="hljs-string">"</span><span class="hljs-string">package_rpm"</span>
+</code></pre>
+    <p class="normal">To enable runtime package management, append <code class="inlineCode">package-management</code> to the list of <code class="inlineCode">EXTRA_IMAGE_FEATURES</code> in your build directory’s <code class="inlineCode">conf/local.conf</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-built_in">EXTRA_IMAGE</span>_FEATURES ?= <span class="hljs-string">"debug-tweaks ssh-server-openssh package-management"</span>
+</code></pre>
+    <p class="normal">This will<a id="_idIndexMarker524"/> install a package database containing all the packages from your current build onto your distro image. A prepopulated package database is optional because you can always initialize a package database on the target after your distro image has been deployed.</p>
+    <p class="normal">Lastly, set the <code class="inlineCode">DISTRO</code> variable in your build directory’s <code class="inlineCode">conf/local.conf</code> file to the name of our distro:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-built_in">DISTRO</span> <span class="hljs-operator">=</span> <span class="hljs-string">"mackerel"</span>
+</code></pre>
+    <p class="normal">This points your build directory’s <code class="inlineCode">conf/local.conf</code> file at our distro configuration file.</p>
+    <p class="normal">Finally, we are ready to build our distro:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ bitbake -c clean rpi-test-image
+$ bitbake rpi-test-image
+</code></pre>
+    <p class="normal">We are rebuilding <code class="inlineCode">rpi-test-image</code> with a different package format, so this will take a little while. The finished images are placed in a different directory this time around:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ls tmp-glibc/deploy/images/raspberrypi4-64/rpi-test-image*wic.bz2
+</code></pre>
+    <p class="normal">Write the image to a microSD card using Etcher and boot it on your Raspberry Pi 4. Plug it into your Ethernet and SSH in like you did previously:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ssh root@raspberrypi4-64.local
+</code></pre>
+    <p class="normal">If connecting fails, then delete Raspberry Pi’s stale key, as shown here:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ssh-keygen -f "/home/frank/.ssh/known_hosts" -R "raspberrypi4-64.local"
+</code></pre>
+    <p class="normal">Replace <code class="inlineCode">frank</code> with your username in the path.</p>
+    <p class="normal">Once you have<a id="_idIndexMarker525"/> logged in, verify that the <code class="inlineCode">opkg</code> package manager has been installed:</p>
+    <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# which opkg
+/usr/bin/opkg
+</code></pre>
+    <p class="normal">A package manager isn’t of much use without a remote package server to pull it from.</p>
+    <h1 id="_idParaDest-228" class="heading-1"><a id="_idTextAnchor255"/>Provisioning a remote package server</h1>
+    <p class="normal">Setting <a id="_idIndexMarker526"/>up an HTTP remote package server and pointing your target clients at it is easier than you might think. The client-side server address configuration varies between package managers. We will configure <code class="inlineCode">opkg</code> manually on Raspberry Pi 4.</p>
+    <p class="normal">Let’s start with the package server:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto.</li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+      </li>
+      <li class="numberedList">This sets a bunch of environment variables and puts you back in the <code class="inlineCode">build-rpi</code> directory.</li>
+      <li class="numberedList">Build the <code class="inlineCode">curl</code> package:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake curl
+</code></pre>
+      </li>
+      <li class="numberedList">Populate the package index:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake package-index
+</code></pre>
+      </li>
+      <li class="numberedList">Locate the package installer files:
+        <pre class="programlisting con"><code class="hljs-con">$ ls tmp-glibc/deploy/ipk
+</code></pre>
+      </li>
+      <li class="numberedList">There should be three directories, named cortexa72, all, and raspberrypi4_64, in ipk. The architecture directory is cortexa72 while the machine directory is raspberrypi4_64. The names of these two directories will vary depending on how your image has been configured for building.</li>
+      <li class="numberedList">Navigate to the <code class="inlineCode">ipk</code> directory, which is where the package installer files are:
+        <pre class="programlisting con"><code class="hljs-con">$ cd tmp-glibc/deploy/ipk
+</code></pre>
+      </li>
+      <li class="numberedList">Get the IP address of your Linux host machine.</li>
+      <li class="numberedList">Start the HTTP package server:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo python3 -m http.server --bind 192.168.1.69 80
+[sudo] password for frank:
+Serving HTTP on 192.168.1.69 port 80
+(http://192.168.1.69:80/) ...
+</code></pre>
+      </li>
+      <li class="numberedList">Replace <code class="inlineCode">192.168.1.69</code> with your Linux host machine’s IP address.</li>
+    </ol>
+    <p class="normal">Now, let’s <a id="_idIndexMarker527"/>configure the target client:</p>
+    <ol>
+      <li class="numberedList" value="1">SSH back into your Raspberry Pi 4:
+        <pre class="programlisting con"><code class="hljs-con">$ ssh root@raspberrypi4-64.local
+</code></pre>
+      </li>
+      <li class="numberedList">Edit <code class="inlineCode">/etc/opkg/opkg.conf</code> so that it looks like this:
+        <pre class="programlisting code"><code class="hljs-code">src/gz all http://192.168.1.69/all
+src/gz cortexa72 http://192.168.1.69/cortexa72
+src/gz raspberrypi4_64 http://192.168.1.69/raspberrypi4_64
+dest root /
+option lists_dir /var/lib/opkg/lists
+</code></pre>
+      </li>
+      <li class="numberedList">Replace <code class="inlineCode">192.168.1.69</code> with your Linux host machine’s IP address.</li>
+      <li class="numberedList">Run <code class="inlineCode">opkg update</code>:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# opkg update
+Downloading http://192.168.1.69/all/Packages.gz.
+Updated source 'all'.
+Downloading http://192.168.1.69/aarch64/Packages.gz.
+Updated source 'aarch64'.
+Downloading http://192.168.1.69/raspberrypi4_64/Packages.gz.
+Updated source 'raspberrypi4_64'.
+</code></pre>
+      </li>
+      <li class="numberedList">Try to run <code class="inlineCode">curl</code>:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# curl
+</code></pre>
+      </li>
+      <li class="numberedList">The command should fail because <code class="inlineCode">curl</code> is not installed.</li>
+      <li class="numberedList">Install <code class="inlineCode">curl</code>:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# opkg install curl
+Installing libcurl4 (7.69.1) on root
+Downloading http://192.168.1.69/aarch64/
+libcurl4_7.69.1-r0_aarch64.ipk.
+Installing curl (7.69.1) on root
+Downloading http://192.168.1.69/aarch64/curl_7.69.1-r0_aarch64.ipk.
+Configuring libcurl4.
+Configuring curl.
+</code></pre>
+      </li>
+      <li class="numberedList">Verify that <code class="inlineCode">curl</code> was installed:
+        <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# curl
+curl: try 'curl --help' for more information
+root@raspberrypi4-64:~# which curl
+/usr/bin/curl
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">As you<a id="_idIndexMarker528"/> continue to work in the <code class="inlineCode">build-rpi</code> directory from a Linux host machine, you can check for updates from your Raspberry Pi 4:</p>
+    <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# opkg list-upgradable
+</code></pre>
+    <p class="normal">Then, you can apply them:</p>
+    <pre class="programlisting con"><code class="hljs-con">root@raspberrypi4-64:~# opkg upgrade
+</code></pre>
+    <p class="normal">This is faster than rewriting an image, swapping out the microSD card, and rebooting.</p>
+    <h1 id="_idParaDest-229" class="heading-1"><a id="_idTextAnchor256"/>Summary</h1>
+    <p class="normal">I know that was a lot to absorb. And trust me – this is just the beginning. Yocto certainly has a steep learning curve. Luckily, there is lots of documentation and a friendly community to guide you. There is also <code class="inlineCode">devtool</code> to automate much of the tedium and mistakes of copy-paste development. If you use the tools provided for you and continually save your work to your own layers, Yocto doesn’t have to be painful. Before you know it, you’ll be rolling your own distro layer and running your own remote package server.</p>
+    <p class="normal">A remote package server is just one way to deploy packages and applications. We will learn about a few others later in <a href="Chapter_15.xhtml#_idTextAnchor483"><em class="italic">Chapter 15</em></a>. Despite the title, some of the techniques we’ll look at in that chapter (e.g., conda) apply to any programming language. While package managers are great for development, runtime package management is not commonly used on embedded systems running in production. We will look closely at full image and containerized over-the-air update mechanisms in <a href="Chapter_10.xhtml#_idTextAnchor341"><em class="italic">Chapter 10</em></a>.</p>
+    <h1 id="_idParaDest-230" class="heading-1"><a id="_idTextAnchor257"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">Transitioning to a custom environment for systems development</em>, Yocto Project – <a href="https://docs.yoctoproject.org/transitioning-to-a-custom-environment.html"><span class="url">https://docs.yoctoproject.org/transitioning-to-a-custom-environment.html</span></a></li>
+      <li class="bulletList"><em class="italic">Yocto Project Development Tasks Manual</em>, Yocto Project – <a href="https://docs.yoctoproject.org/dev-manual/"><span class="url">https://docs.yoctoproject.org/dev-manual/</span></a></li>
+      <li class="bulletList"><em class="italic">Using Devtool to Streamline Your Yocto Project Workflow</em>, by Tim Orling – <a href="https://www.youtube.com/watch?v=CiD7rB35CRE"><span class="url">https://www.youtube.com/watch?v=CiD7rB35CRE</span></a></li>
+    </ul>
+  </div>
+</div></div></body></html>

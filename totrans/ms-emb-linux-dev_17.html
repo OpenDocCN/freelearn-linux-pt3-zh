@@ -1,0 +1,498 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer130" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor462"/>14</h1>
+    <h1 id="_idParaDest-404" class="chapterTitle"><a id="_idTextAnchor463"/>Managing Power</h1>
+    <p class="normal">For devices operating on battery power, power management is critical. Anything we can do to reduce power usage will increase battery life. Even for devices running on mains power, reducing power usage lowers energy costs and decreases the need for cooling. In this chapter, I will introduce the four principles of power management:</p>
+    <ul>
+      <li class="bulletList">Don’t rush if you don’t have to.</li>
+      <li class="bulletList">Don’t be ashamed of being idle.</li>
+      <li class="bulletList">Turn off things you are not using.</li>
+      <li class="bulletList">Sleep when there is nothing else to do.</li>
+    </ul>
+    <p class="normal">In more technical terms, the power management system should reduce the CPU clock frequency. During idle periods, it should choose the deepest sleep state possible; it should reduce the load by powering down unused peripherals; and it should put the whole system into a suspended state while ensuring power state transitions are quick.</p>
+    <p class="normal">Linux has features that address each of these points. I will describe each one in turn with examples and advice on how to apply them to an embedded system.</p>
+    <p class="normal">Some of the terms, such <a id="_idIndexMarker988"/>as <strong class="keyWord">C-states</strong> and <strong class="keyWord">P-states</strong>, are <a id="_idIndexMarker989"/>taken from <a id="_idIndexMarker990"/>the <strong class="keyWord">Advanced Configuration and Power Interface</strong> (<strong class="keyWord">ACPI</strong>) specification. I will describe these as we get to them. The full reference to the specification is given in the <em class="italic">Further study</em> section.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Measuring power usage</li>
+      <li class="bulletList">Scaling the clock frequency</li>
+      <li class="bulletList">Selecting the best idle state</li>
+      <li class="bulletList">Powering down peripherals</li>
+      <li class="bulletList">Putting the system to sleep</li>
+    </ul>
+    <h1 id="_idParaDest-405" class="heading-1"><a id="_idTextAnchor464"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">An Ubuntu 24.04 or later LTS host system</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">balenaEtcher for Linux</li>
+      <li class="bulletList">An Ethernet cable and router with an available port for network connectivity</li>
+      <li class="bulletList">A USB-to-TTL serial cable with 3.3 V logic level</li>
+      <li class="bulletList">BeaglePlay</li>
+      <li class="bulletList">A 5 V USB-C power supply capable of delivering 3 A</li>
+    </ul>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development</span></a>.</p>
+    <h1 id="_idParaDest-406" class="heading-1"><a id="_idTextAnchor465"/>Measuring power usage</h1>
+    <p class="normal">For the <a id="_idIndexMarker991"/>examples in this chapter, we need to use real hardware rather than virtual. This means that we need a BeaglePlay with working power management. The <a id="_idIndexMarker992"/>necessary firmware for BeaglePlay’s <strong class="keyWord">Power Management Integrated Circuit</strong> (<strong class="keyWord">PMIC</strong>) might exist in the <code class="inlineCode">meta-ti</code> layer but I did not investigate that. We will use a pre-built Debian image instead.</p>
+    <p class="normal">The procedure for installing Debian on BeaglePlay is the same as in <a href="Chapter_04.xhtml#_idTextAnchor126"><em class="italic">Chapter 12</em></a>. Revisit the <em class="italic">Installing Debian on BeaglePlay</em> section and flash the eMMC with Debian Bookworm if you have not already. Remove any microSD from your BeaglePlay and boot from the eMMC. SSH to <code class="inlineCode">beaglebone.local</code> and log in as the <code class="inlineCode">debian</code> user.</p>
+    <p class="normal">Verify that the correct version of Debian is running:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ cat /etc/os-release
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+VERSION="12 (bookworm)"
+VERSION_CODENAME=bookworm
+ID=debian
+HOME_URL="https://www.debian.org/"
+SUPPORT_URL="https://www.debian.org/support"
+BUG_REPORT_URL="https://bugs.debian.org/"
+</code></pre>
+    <p class="normal">Now check whether the power management is working:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ cat /sys/power/state
+freeze mem disk
+</code></pre>
+    <p class="normal">If you see all three states, then everything is working fine. If you see only <code class="inlineCode">freeze</code>, then the power management subsystem is not working. Go back and double-check the previous steps.</p>
+    <p class="normal">Now we can move<a id="_idIndexMarker993"/> on to measuring power usage. There are two approaches: <em class="italic">external</em> and <em class="italic">internal</em>. To measure power externally, we need an ammeter to measure the current and a voltmeter to measure the voltage, then multiply the two together to get the wattage. You can use basic meters that give a readout that you then jot down, or they can be much more sophisticated and integrate data logging so that you can see the change in power as the load fluctuates millisecond by millisecond. For the purposes of this chapter, I powered the BeaglePlay from the USB-C port and used a cheap USB-C power monitor of the type that costs a few dollars.</p>
+    <p class="normal">The other approach is to use the monitoring systems that are built into Linux. You will find that plenty of information is reported to you via <code class="inlineCode">sysfs</code>. There is also a very useful program called <strong class="keyWord">PowerTOP</strong>, which <a id="_idIndexMarker994"/>gathers information together from various sources and presents it in a single place. PowerTOP is a package for both The Yocto Project and Buildroot. It is also available for installation on Debian.</p>
+    <p class="normal">To <a id="_idIndexMarker995"/>install PowerTOP on BeaglePlay from Debian Bookworm, run the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo apt update
+&lt;…&gt;
+debian@BeagleBone:~$ sudo apt install powertop
+[sudo] password for debian:
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+Suggested packages:
+  cpufrequtils laptop-mode-tools
+The following NEW packages will be installed:
+  powertop
+<a id="_idTextAnchor466"/>0 upgraded, 1 newly installed, 0 to remove and 39 not upgraded.
+Need to get 183 kB of archives.
+After this operation, 649 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian bookworm/main arm64 powertop arm64 2.14-1+b2 [183 kB]
+Fetched 183 kB in 0s (1279 kB/s)
+Selecting previously unselected package powertop.
+(Reading database ... 72376 files and directories currently installed.)
+Preparing to unpack .../powertop_2.14-1+b2_arm64.deb ...
+Unpacking powertop (2.14-1+b2) ...
+Setting up powertop (2.14-1+b2) ...
+</code></pre>
+    <p class="normal">Don’t forget to plug your BeaglePlay into Ethernet before updating the list of available packages and <a id="_idIndexMarker996"/>installing PowerTOP.</p>
+    <p class="normal">Here is an <a id="_idIndexMarker997"/>example of PowerTOP running on BeaglePlay:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_14_01.png" alt="Figure 14.1 – PowerTOP overview" width="1644" height="898"/></figure>
+    <p class="packt_figref">Figure 14.1 – PowerTOP overview</p>
+    <p class="normal">In this screenshot, we can see that the system is quiet, with only 2.7% of CPU used. I will show more interesting examples later in the <em class="italic">Using CPUFreq</em> and <em class="italic">CPUIdle driver</em> subsections of this chapter.</p>
+    <p class="normal">Now that we have a way to measure power consumption, let’s look at one of the biggest knobs for managing power in an embedded Linux system: the clock frequency.</p>
+    <h1 id="_idParaDest-407" class="heading-1"><a id="_idTextAnchor467"/>Scaling the clock frequency</h1>
+    <p class="normal">If running for a<a id="_idIndexMarker998"/> kilometer takes more energy than walking, then maybe running the CPU at a lower frequency can save energy. Let’s see.</p>
+    <p class="normal">The power consumption of a CPU when executing code is the sum of a static component, caused primarily by gate leakage current, and a dynamic component, caused by the gate switching:</p>
+    <p class="normal"><em class="italic">P</em><sub class="italic">cpu</sub><em class="italic"> = P</em><sub class="italic">static</sub><em class="italic"> + P</em><sub class="italic">dyn</sub></p>
+    <p class="normal">The dynamic power component is dependent on the total capacitance of the logic gates being switched, the clock frequency, and the square of the voltage:</p>
+    <p class="normal"><em class="italic">P</em><sub class="italic">dyn</sub><em class="italic"> = CFV</em><sub class="italic">2</sub></p>
+    <p class="normal">Changing the <a id="_idIndexMarker999"/>frequency by itself does not save energy because the same number of CPU cycles need to be completed for a given task. If we reduce the frequency by half while keeping the voltage constant, then it will take twice as long to complete the task, even though the total amount of energy expended is the same. In fact, reducing the frequency may actually increase the power budget because it takes longer for the CPU to enter an idle state. This is especially the case when there are no other competing tasks to run, and the CPU’s idle state is extremely energy efficient. So, under these conditions, it is best to use the highest frequency<a id="_idIndexMarker1000"/> possible so that the CPU can go back to idle quickly. This is called the <strong class="keyWord">race to idle</strong>.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">There is another motivation to reduce frequency: <strong class="keyWord">thermal management</strong>. It may become necessary<a id="_idIndexMarker1001"/> to operate at a lower frequency just to keep the temperature of the package within bounds. But that is not our focus here.</p>
+    </div>
+    <p class="normal">Therefore, if we want to reduce power consumption, we must be able to change the voltage that the CPU core operates at. But for any given voltage, there is a maximum frequency beyond which the switching of the gates becomes unreliable. Higher frequencies need higher voltages, and so the two need to be adjusted together. Many SoCs implement such a feature. It is <a id="_idIndexMarker1002"/>called <strong class="keyWord">Dynamic Voltage and Frequency Scaling</strong> (<strong class="keyWord">DVFS</strong>). Manufacturers calculate optimum combinations of core frequency and voltage. Each combination is<a id="_idIndexMarker1003"/> called an <strong class="keyWord">Operating Performance Point</strong> (<strong class="keyWord">OPP</strong>). The ACPI specification refers to them as <strong class="keyWord">P-states</strong>, with <code class="inlineCode">P0</code> being<a id="_idIndexMarker1004"/> the OPP with the highest frequency. Although an OPP is a combination of a frequency and a voltage, it is most often referred to by the frequency component alone.</p>
+    <p class="normal">A kernel driver is needed to switch between P-states. Next, we will look at that driver and the governors that control it.</p>
+    <h2 id="_idParaDest-408" class="heading-2"><a id="_idTextAnchor468"/>CPUFreq driver</h2>
+    <p class="normal">Linux has <a id="_idIndexMarker1005"/>a component named <strong class="keyWord">CPUFreq</strong> that manages the transitions between OPPs. It is part of the board support for the package for each SoC. CPUFreq consists of drivers that make the transition from one OPP to another and a set of governors that implement the policy of when to switch. It is controlled per CPU via the <code class="inlineCode">/sys/devices/system/cpu/cpuN/cpufreq</code> directory, with <code class="inlineCode">N</code> being the CPU number. In there, we find a number of files, the most interesting of which are:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">cpuinfo_cur_freq</code>, <code class="inlineCode">cpuinfo_max_freq</code>, and <code class="inlineCode">cpuinfo_min_freq</code>: These are the current frequencies for this CPU, together with the maximum and minimum in KHz.</li>
+      <li class="bulletList"><code class="inlineCode">cpuinfo_transition_latency</code>: This is the time in nanoseconds to switch from one OPP to another. If the value is unknown, it is set to <code class="inlineCode">-1</code>.</li>
+      <li class="bulletList"><code class="inlineCode">scaling_available_frequencies</code>: This is a list of OPP frequencies available on this CPU.</li>
+      <li class="bulletList"><code class="inlineCode">scaling_available_governors</code>: This is a list of governors available on this CPU.</li>
+      <li class="bulletList"><code class="inlineCode">scaling_governor</code>: This is the CPUFreq governor currently being used.</li>
+      <li class="bulletList"><code class="inlineCode">scaling_min_freq</code> and <code class="inlineCode">scaling_max_freq</code>: This is the range of frequencies available to the governor in KHz.</li>
+      <li class="bulletList"><code class="inlineCode">scaling_setspeed</code>: This is a file that allows you to manually set the frequency when the governor is <code class="inlineCode">userspace</code>, which I will describe at the end of this subsection.</li>
+    </ul>
+    <p class="normal">The governor sets <a id="_idIndexMarker1006"/>the policy to change the OPP. It can set the frequency between the limits of <code class="inlineCode">scaling_min_freq</code> and <code class="inlineCode">scaling_max_freq</code>. The governors are named:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">performance</code>: This always selects the highest frequency.</li>
+      <li class="bulletList"><code class="inlineCode">powersave</code>: This always selects the lowest frequency.</li>
+      <li class="bulletList"><code class="inlineCode">userspace</code>: This is where the frequency is set by a user-space program.</li>
+      <li class="bulletList"><code class="inlineCode">ondemand</code>: This changes the frequency based on the CPU utilization. If the CPU is idle less than 20% of the time, it sets the frequency to the maximum. If the CPU is idle more than 30% of the time, it lowers the frequency as idle time increases.</li>
+      <li class="bulletList"><code class="inlineCode">conservative</code>: This is like <code class="inlineCode">ondemand</code> except it switches to higher frequencies in 5% steps rather than going immediately to the maximum.</li>
+      <li class="bulletList"><code class="inlineCode">schedutil</code>: This aims at better integration with the Linux scheduler.</li>
+    </ul>
+    <p class="normal">The default governor when Debian Bookworm starts up is <code class="inlineCode">performance</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd /sys/devices/system/cpu/cpu0/cpufreq
+$ cat scaling_governor
+performance
+</code></pre>
+    <p class="normal">The TI Linux kernel for BeaglePlay comes with only two governors built-in:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cat scaling_available_governors
+performance schedutil
+</code></pre>
+    <p class="normal">The other governors can be loaded dynamically using <code class="inlineCode">cpupower</code> or <code class="inlineCode">modprobe</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo modprobe cpufreq_userspace
+</code></pre>
+    <p class="normal">To<a id="_idIndexMarker1007"/> install <code class="inlineCode">cpupower</code> on<a id="_idIndexMarker1008"/> BeaglePlay from Debian Bookworm, run the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo apt install linux-cpupower
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following additional packages will be installed:
+  libcpupower1
+The following NEW packages will be installed:
+  libcpupower1 linux-cpupower
+0 upgraded, 2 newly installed, 0 to remove and 39 not upgraded.
+Need to get 1953 kB of archives.
+After this operation, 2174 kB of additional disk space will be used.
+Do you want to continue? [Y/n] Y
+Get:1 http://deb.debian.org/debian bookworm-updates/main arm64 libcpupower1 arm64 6.1.124-1 [960 kB]
+Get:2 http://deb.debian.org/debian bookworm-updates/main arm64 linux-cpupower arm64 6.1.124-1 [992 kB]
+Fetched 1953 kB in 0s (8989 kB/s)
+Selecting previously unselected package libcpupower1.
+(Reading database ... 72409 files and directories currently installed.)
+Preparing to unpack .../libcpupower1_6.1.124-1_arm64.deb ...
+Unpacking libcpupower1 (6.1.124-1) ...
+Selecting previously unselected package linux-cpupower.
+Preparing to unpack .../linux-cpupower_6.1.124-1_arm64.deb ...
+Unpacking linux-cpupower (6.1.124-1) ...
+Setting up libcpupower1 (6.1.124-1) ...
+Setting up linux-cpupower (6.1.124-1) ...
+Processing triggers for libc-bin (2.36-9+deb12u9) ...
+</code></pre>
+    <p class="normal">To switch to the <code class="inlineCode">ondemand</code> governor, run the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo cpupower frequency-set -g ondemand
+Setting cpu: 0
+Setting cpu: 1
+Setting cpu: 2
+Setting cpu: 3
+</code></pre>
+    <p class="normal">The parameters that the <code class="inlineCode">ondemand</code> governor uses to decide when to change OPP can be found and set in <code class="inlineCode">/sys/devices/system/cpu/cpufreq/ondemand/</code>.</p>
+    <p class="normal">Both the <code class="inlineCode">ondemand</code> and <code class="inlineCode">conservative</code> governors take into account the effort required to change frequency and voltage. This CPUFreq value is <code class="inlineCode">cpuinfo_transition_latency</code>. This calculation only applies to threads with a normal scheduling policy. If a thread is being scheduled in real time, both <a id="_idIndexMarker1009"/>governors will immediately select the highest OPP so that the thread can meet its scheduling deadline.</p>
+    <p class="normal">The <code class="inlineCode">userspace</code> governor allows the logic of selecting the OPP to be performed by a user-space daemon. Examples include <code class="inlineCode">cpudyn</code> and <code class="inlineCode">powernowd</code>, although both are orientated toward x86-based laptops rather than embedded devices.</p>
+    <p class="normal">Now that we know where the runtime details about the CPUFreq driver are located, let’s look at how to define the OPPs at compile time.</p>
+    <h2 id="_idParaDest-409" class="heading-2"><a id="_idTextAnchor469"/>Using CPUFreq</h2>
+    <p class="normal">Looking at <a id="_idIndexMarker1010"/>BeaglePlay, we find that the OPPs are <a id="_idIndexMarker1011"/>coded in the device tree. Here is an extract from <code class="inlineCode">k3</code>-<code class="inlineCode">am625.dtsi</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-symbol">a53_opp_table:</span> <span class="hljs-title">opp-table</span> <span class="hljs-punctuation">{</span>
+	<span class="hljs-attr">compatible</span> <span class="hljs-operator">=</span> <span class="hljs-string">"operating-points-v2-ti-cpu"</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-attr">opp-shared</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-attr">syscon</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-variable">&amp;wkup_conf</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-title">opp-200000000</span> <span class="hljs-punctuation">{</span>
+		<span class="hljs-attr">opp-hz</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">/bits/</span> <span class="hljs-number">64</span> <span class="hljs-params">&lt;</span><span class="hljs-number">200000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">opp-supported-hw</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">0x01</span><span class="hljs-params"> </span><span class="hljs-number">0x0007</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">clock-latency-ns</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">6000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-punctuation">};</span>
+	<span class="hljs-title">opp-400000000</span> <span class="hljs-punctuation">{</span>
+		<span class="hljs-attr">opp-hz</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">/bits/</span> <span class="hljs-number">64</span> <span class="hljs-params">&lt;</span><span class="hljs-number">400000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">opp-supported-hw</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">0x01</span><span class="hljs-params"> </span><span class="hljs-number">0x0007</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">clock-latency-ns</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">6000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-punctuation">};</span>
+	<span class="hljs-title">opp-600000000</span> <span class="hljs-punctuation">{</span>
+		<span class="hljs-attr">opp-hz</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">/bits/</span> <span class="hljs-number">64</span> <span class="hljs-params">&lt;</span><span class="hljs-number">600000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">opp-supported-hw</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">0x01</span><span class="hljs-params"> </span><span class="hljs-number">0x0007</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">clock-latency-ns</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">6000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-punctuation">};</span>
+	<span class="hljs-title">opp-800000000</span> <span class="hljs-punctuation">{</span>
+		<span class="hljs-attr">opp-hz</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">/bits/</span> <span class="hljs-number">64</span> <span class="hljs-params">&lt;</span><span class="hljs-number">800000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">opp-supported-hw</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">0x01</span><span class="hljs-params"> </span><span class="hljs-number">0x0007</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">clock-latency-ns</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">6000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-punctuation">};</span>
+	<span class="hljs-title">opp-1000000000</span> <span class="hljs-punctuation">{</span>
+		<span class="hljs-attr">opp-hz</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">/bits/</span> <span class="hljs-number">64</span> <span class="hljs-params">&lt;</span><span class="hljs-number">1000000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">opp-supported-hw</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">0x01</span><span class="hljs-params"> </span><span class="hljs-number">0x0006</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">clock-latency-ns</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">6000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-punctuation">};</span>
+	<span class="hljs-title">opp-1250000000</span> <span class="hljs-punctuation">{</span>
+		<span class="hljs-attr">opp-hz</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">/bits/</span> <span class="hljs-number">64</span> <span class="hljs-params">&lt;</span><span class="hljs-number">1250000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">opp-supported-hw</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">0x01</span><span class="hljs-params"> </span><span class="hljs-number">0x0004</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">clock-latency-ns</span> <span class="hljs-operator">=</span> <span class="hljs-params">&lt;</span><span class="hljs-number">6000000</span><span class="hljs-params">&gt;</span><span class="hljs-punctuation">;</span>
+		<span class="hljs-attr">opp-suspend</span><span class="hljs-punctuation">;</span>
+	<span class="hljs-punctuation">};</span>
+<span class="hljs-punctuation">};</span>
+</code></pre>
+    <p class="normal">We can <a id="_idIndexMarker1012"/>confirm that these are the OPPs in use at runtime by viewing the available frequencies:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd /sys/devices/system/cpu/cpu0/cpufreq
+$ cat scaling_available_frequencies
+200000 400000 600000 800000 1000000 1250000 1400000
+</code></pre>
+    <p class="normal">Select<a id="_idIndexMarker1013"/> the <code class="inlineCode">userspace</code> governor:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo cpupower frequency-set -g userspace
+Setting cpu: 0
+Setting cpu: 1
+Setting cpu: 2
+Setting cpu: 3
+</code></pre>
+    <p class="normal">List the available frequency steps:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo cpupower frequency-info
+analyzing CPU 0:
+  driver: cpufreq-dt
+  CPUs which run at the same hardware frequency: 0 1 2 3
+  CPUs which need to have their frequency coordinated by software: 0 1 2 3
+  maximum transition latency: 6.00 ms
+  hardware limits: 200 MHz - 1.40 GHz
+  available frequency steps:  200 MHz, 400 MHz, 600 MHz, 800 MHz, 1000 MHz, 1.25 GHz, 1.40 GHz
+  available cpufreq governors: ondemand userspace performance schedutil
+  current policy: frequency should be within 200 MHz and 1.40 GHz.
+                  The governor "userspace" may decide which speed to use
+                  within this range.
+  current CPU frequency: 1.25 GHz (asserted by call to hardware)
+</code></pre>
+    <p class="normal">Now we can measure the power consumed at each OPP with a USB-C power monitor. These measurements are not very accurate, so do not take them too seriously.</p>
+    <p class="normal">Set the frequency by writing to <code class="inlineCode">scaling_setspeed</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo 200000 &gt; /sys/devices/system/cpu/cpufreq/policy0/scaling_setspeed
+</code></pre>
+    <p class="normal">Build and<a id="_idIndexMarker1014"/> run the <code class="inlineCode">MELD/Chapter14/do-work</code> program on BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd MELD/Chapter15/do-work
+$ make
+$ ./do-work -l 80828
+</code></pre>
+    <p class="normal">If we run <a id="_idIndexMarker1015"/>this constant load while varying the frequency, then we observe the following: </p>
+    <table id="table001-3" class="table-container">
+      <tbody>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Frequency (MHz)</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">CPU utilization (%)</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Power (mW)</strong></p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">200</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">88</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">1,160</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">400</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">44</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">1,160</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">600</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">29</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">1,160</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">800</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">22</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">1,210</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">1,000</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">18</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">1,210</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">1,250</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">14</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">1,210</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">1,400</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">13</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">1,210</p>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="packt_figref">Table 14.1 – Power consumed at different frequencies</p>
+    <p class="normal">This shows power savings of about 4% at the lower frequencies.</p>
+    <p class="normal">In most cases, the <code class="inlineCode">ondemand</code> governor is the best one to use since it switches between OPPs based on CPU load. To select a particular governor, you can either configure the kernel with a default governor like <code class="inlineCode">CPU_FREQ_DEFAULT_GOV_ONDEMAND</code>, or you can use an <code class="inlineCode">init</code> script to change the governor at boot time. See <code class="inlineCode">MELD/Chapter14/cpufrequtils</code> for an example of how Debian does this with SysVinit.</p>
+    <p class="normal">For more information on the CPUFreq driver, look at the files in the <code class="inlineCode">Documentation/cpu-freq</code> directory of the Linux kernel source tree.</p>
+    <p class="normal">In this section, we were concerned about the power used when the CPU is busy. In the next section, we will look at how to save power when the CPU is idle.</p>
+    <h1 id="_idParaDest-410" class="heading-1"><a id="_idTextAnchor470"/>Selecting the best idle state</h1>
+    <p class="normal">When a processor<a id="_idIndexMarker1016"/> has no more work to do, it executes<a id="_idIndexMarker1017"/> a <strong class="keyWord">halt instruction</strong> and enters an idle state. While idle, the CPU uses less power. It exits the idle state when an event such as a hardware interrupt occurs. Most CPUs have multiple idle states that use varying amounts of power. Usually, there is a trade-off between the power usage and the latency, or the length of time, it takes to exit the state. In the ACPI specification, they <a id="_idIndexMarker1018"/>are called <strong class="keyWord">C-states</strong>.</p>
+    <p class="normal">In the deeper C-states, more circuitry is turned off at the expense of losing some state, so it takes longer to return to normal operation. For example, in some C-states, the CPU caches may be powered off, and so when the CPU runs again, it may have to reload some information from the main memory. This is expensive, so you only want to do this if there is a good chance that the CPU will remain in this state for some time. The number of states varies from one system to another. Each takes some time to recover from sleeping to being fully active.</p>
+    <p class="normal">The key to selecting the right idle state is to have a good idea of how long the CPU is going to be inactive. Predicting the future is always tricky, but there are some things that can help. One is the current CPU load: if it is high now, it is likely to continue to be so in the immediate future, so a deep sleep would not be beneficial. Even if the load is low, it is worth looking to see whether there is a timer event that expires soon. If there is no load and no timer, then a deeper idle state is justified.</p>
+    <p class="normal">The part of Linux that selects the best idle state is the CPUIdle driver. There is a good deal of information about it available in the <code class="inlineCode">Documentation/driver-api/pm/cpuidle.rst</code> file inside the Linux kernel source tree.</p>
+    <h2 id="_idParaDest-411" class="heading-2"><a id="_idTextAnchor471"/>CPUIdle driver</h2>
+    <p class="normal">Like <a id="_idIndexMarker1019"/>the CPUFreq subsystem, <strong class="keyWord">CPUIdle</strong> consists of a driver that is part of the BSP and a governor that determines the policy. Unlike CPUFreq, the governor cannot be changed at runtime and there is no interface for user-space governors. There was no CPUIdle support in Debian Bookworm for BeaglePlay at the time of writing, so I can only describe it here.</p>
+    <p class="normal">CPUIdle exposes information about each of the idle states in the <code class="inlineCode">/sys/devices/system/cpu/cpu0/cpuidle</code> directory. Inside that directory, there is a subdirectory for each of the sleep states named <code class="inlineCode">state0</code> to <code class="inlineCode">stateN</code>. <code class="inlineCode">state0</code> is the lightest sleep and <code class="inlineCode">stateN</code> is the deepest. Note that the numbering does not match that of the C-states and that CPUIdle does not have a state equivalent to <code class="inlineCode">C0</code> (running). Each state has these files:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">desc</code>: A short description of the state</li>
+      <li class="bulletList"><code class="inlineCode">disable</code>: An option to disable this state by writing <code class="inlineCode">1</code> to this file</li>
+      <li class="bulletList"><code class="inlineCode">latency</code>: The time in microseconds that the CPU core takes to resume normal operation when exiting this state</li>
+      <li class="bulletList"><code class="inlineCode">name</code>: The name of this state</li>
+      <li class="bulletList"><code class="inlineCode">power</code>: The power in milliwatts consumed while in this idle state</li>
+      <li class="bulletList"><code class="inlineCode">time</code>: The total time in microseconds spent in this idle state</li>
+      <li class="bulletList"><code class="inlineCode">usage</code>: The count of the number of times this state was entered</li>
+    </ul>
+    <p class="normal">CPUIdle has<a id="_idIndexMarker1020"/> two governors:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">ladder</code>: Steps idle states down or up, one at a time, depending on the time spent in the last idle period. It works well with a regular timer tick but not with a dynamic tick.</li>
+      <li class="bulletList"><code class="inlineCode">menu</code>: Selects an idle state based on the expected idle time. It works well with dynamic tick systems.</li>
+    </ul>
+    <p class="normal">You should choose one or the other depending on your configuration of <code class="inlineCode">NO_HZ</code>, which I will describe at the end of this section.</p>
+    <p class="normal">Once again, user interaction is via the <code class="inlineCode">sysfs</code> filesystem. In the <code class="inlineCode">/sys/devices/system/cpu/cpuidle</code> directory, you will find two files:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">current_driver</code>: This is the name of the CPUIdle driver.</li>
+      <li class="bulletList"><code class="inlineCode">current_governor_ro</code>: This is the name of the governor.</li>
+    </ul>
+    <p class="normal">These show which driver and which governor are being used.</p>
+    <p class="normal">Even with the CPU fully idling, most Linux systems are still configured to wake up periodically on receipt of a system timer interrupt. To save more power, we need to configure the Linux kernel for tickless operation.</p>
+    <h2 id="_idParaDest-412" class="heading-2"><a id="_idTextAnchor472"/>Tickless operation</h2>
+    <p class="normal">A related topic is the<a id="_idIndexMarker1021"/> tickless, or <code class="inlineCode">NO_HZ</code>, option. If the system is truly idle, the most likely source of interruptions will be the system timer, which is programmed to generate a regular time tick at a rate of <code class="inlineCode">HZ</code> per second, where <code class="inlineCode">HZ</code> is typically <code class="inlineCode">100</code>. Historically, Linux uses the timer tick as the main time base for measuring timeouts.</p>
+    <p class="normal">And yet it is plainly wasteful to wake the CPU up to process a timer interrupt if no timer events are registered for that given moment. The dynamic tick kernel configuration option, <code class="inlineCode">CONFIG_NO_HZ_IDLE</code>, looks at the timer queue at the end of the timer processing routine and schedules the next interruption at the time of the next event. This avoids unnecessary wakeups and allows the CPU to be idle for long periods. In any power-sensitive application, the kernel should be configured with this option enabled.</p>
+    <p class="normal">While the CPU consumes much of the power in an embedded Linux system, there are other components of the system that can also be powered down for energy savings.</p>
+    <h1 id="_idParaDest-413" class="heading-1"><a id="_idTextAnchor473"/>Powering down peripherals</h1>
+    <p class="normal">The <a id="_idIndexMarker1022"/>discussion up to now has been about CPUs and how to reduce power consumption when they are running or idling. Now it is time to focus on other parts of the system and see whether we can achieve power savings here.</p>
+    <p class="normal">In the Linux kernel, this is managed <a id="_idIndexMarker1023"/>by the <strong class="keyWord">runtime power management system</strong>, or <strong class="keyWord">runtime pm</strong> for short. It works with drivers that support runtime pm by shutting down those that are not in use and waking them again when they are next needed. </p>
+    <p class="normal">It is dynamic and should be transparent to user space. It is up to the device driver to decide how to power down the hardware. Typically, runtime pm includes turning off the clock to the subsystem, also known as clock gating, and turning off core circuitry where possible.</p>
+    <p class="normal">Runtime power management is exposed via a <code class="inlineCode">sysfs</code> interface. Each device has a subdirectory named <code class="inlineCode">power</code> where you will find these files:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">control</code>: This allows user space to determine whether runtime pm is used on this device. If it is set to <code class="inlineCode">auto</code>, then runtime pm is enabled, but by setting it to <code class="inlineCode">on</code>, the device is always on and does not use runtime pm.</li>
+      <li class="bulletList"><code class="inlineCode">runtime_enabled</code>: This reports that runtime pm is <code class="inlineCode">enabled</code> or <code class="inlineCode">disabled</code>, or, if <code class="inlineCode">control</code> is <code class="inlineCode">on</code>, it reports <code class="inlineCode">forbidden</code>.</li>
+      <li class="bulletList"><code class="inlineCode">runtime_status</code>: This reports the current state of the device. It may be <code class="inlineCode">active</code>, <code class="inlineCode">suspended</code>, or <code class="inlineCode">unsupported</code>.</li>
+      <li class="bulletList"><code class="inlineCode">autosuspend_delay_ms</code>: This is the time before the device is suspended. <code class="inlineCode">-1</code> means wait forever. Some drivers implement this if there is a significant cost to suspending the device hardware since it prevents rapid suspend/resume cycles.</li>
+    </ul>
+    <p class="normal">For a concrete example, let’s look at the MMC driver on BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cd /sys/devices/platform/bus@f0000/fa00000.mmc/mmc_host/mmc1/power
+# grep "" *
+async:enabled
+grep: autosuspend_delay_ms: Input/output error
+control:auto
+runtime_active_kids:0
+runtime_active_time:0
+runtime_enabled:disabled
+runtime_status:unsupported
+runtime_suspended_time:0
+runtime_usage:0
+</code></pre>
+    <p class="normal">So, runtime pm is disabled, the device is currently unsupported, and we cannot determine how much delay there will be when it is suspended again.</p>
+    <p class="normal">For more information on runtime pm, look in the Linux kernel source code at <code class="inlineCode">Documentation/power/runtime_pm.rst</code>.</p>
+    <p class="normal">Now that we know what the runtime pm is and what it does, let’s see it in action.</p>
+    <h1 id="_idParaDest-414" class="heading-1"><a id="_idTextAnchor474"/>Putting the system to sleep</h1>
+    <p class="normal">There is one more <a id="_idIndexMarker1024"/>power management technique to consider: putting the whole system into sleep mode with the expectation that it will not be used again for a while. In the Linux kernel, this is known as <strong class="keyWord">system sleep</strong>. It is usually user-initiated: the user decides that the device should be shut down for a while. For example, I shut the lid of my laptop and put it in my bag when it is time to go home. Much of the support for system sleep in Linux comes from the support for laptops. In the laptop world, there are usually two options:</p>
+    <ul>
+      <li class="bulletList">Suspend</li>
+      <li class="bulletList">Hibernate</li>
+    </ul>
+    <p class="normal">The first, also known <a id="_idIndexMarker1025"/>as <strong class="keyWord">suspend to RAM</strong>, shuts everything down except the system memory, so the machine is still consuming a little power. When the system wakes up, the memory retains all the previous state, and my laptop is operational within a few seconds.</p>
+    <p class="normal">If I select <a id="_idIndexMarker1026"/>the <strong class="keyWord">hibernate</strong> option, the contents of the memory are saved to the hard drive. The system consumes no power at all, and so it can stay in this state indefinitely. On wake up, it takes some time to restore the memory from disk. Hibernate is very seldom used in embedded systems, mostly because the flash storage tends to be quite slow on read/write, but also because it is intrusive to the flow of work.</p>
+    <p class="normal">For more information, look at the <code class="inlineCode">Documentation/power</code> directory in the kernel source tree.</p>
+    <p class="normal">The suspend to RAM and hibernate options map to two of the four sleep states supported by Linux. We’ll look at these two types of system sleep and the rest of the ACPI power states next.</p>
+    <h2 id="_idParaDest-415" class="heading-2"><a id="_idTextAnchor475"/>Power states</h2>
+    <p class="normal">In the ACPI <a id="_idIndexMarker1027"/>specification, the sleep states are called <strong class="keyWord">S-states</strong>. Linux <a id="_idIndexMarker1028"/>supports four sleep states (<strong class="keyWord">freeze</strong>, <strong class="keyWord">standby</strong>, <strong class="keyWord">mem</strong>, and <strong class="keyWord">disk</strong>), which are shown in the following list along with the corresponding ACPI S-state ([<code class="inlineCode">S0</code>], <code class="inlineCode">S1</code>, <code class="inlineCode">S3</code>, and <code class="inlineCode">S4</code>):</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">freeze</code> ([S0]): This stops (freezes) all activity in user space while the CPU and memory continue to operate as normal.</li>
+    </ul>
+    <p class="normal">The power savings result from the fact that no user-space code is being run. ACPI does not have an equivalent state so S0 is the closest match. S0 is the state for a running system.</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">standby</code> (S1): This is like <code class="inlineCode">freeze</code> except that, in addition, it takes all CPUs offline except for the boot CPU.</li>
+      <li class="bulletList"><code class="inlineCode">mem</code> (S3): This powers down the system and puts the memory in self-refresh mode. Also known<a id="_idIndexMarker1029"/> as <strong class="keyWord">suspend to RAM</strong>.</li>
+      <li class="bulletList"><code class="inlineCode">disk</code> (S4): This saves the memory to the hard disk and powers the system down. Also known<a id="_idIndexMarker1030"/> as <strong class="keyWord">suspend to disk</strong>.</li>
+    </ul>
+    <p class="normal">Not all systems<a id="_idIndexMarker1031"/> have support for all states. To find out which are available, read the <code class="inlineCode">/sys/power/state</code> file as shown:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeaglePlay:~$ cat /sys/power/state
+freeze mem disk
+</code></pre>
+    <p class="normal">To enter one of the system sleep states, just write the desired state to <code class="inlineCode">/sys/power/state</code>.</p>
+    <p class="normal">For embedded devices, the most common need is to suspend to RAM using the <code class="inlineCode">mem</code> option. For example, I can suspend BeaglePlay like this:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo mem &gt; /sys/power/state
+</code></pre>
+    <p class="normal">The device powers down in less than a second and then power usage drops down to 10 milliwatts, as measured by my basic multimeter. But how do I wake it up again? That is the next topic.</p>
+    <h2 id="_idParaDest-416" class="heading-2"><a id="_idTextAnchor476"/>Wakeup events</h2>
+    <p class="normal">Before<a id="_idIndexMarker1032"/> you suspend a device, you must have some way of waking it up again. The kernel tries to help you here. If there is not at least one wakeup source, the system will refuse to suspend and will return the following message:</p>
+    <pre class="programlisting con"><code class="hljs-con">No sources enabled to wake-up! Sleep abort.
+</code></pre>
+    <p class="normal">Of course, this means that some parts of the system have to remain powered on even during the deepest sleep. This usually<a id="_idIndexMarker1033"/> involves the <strong class="keyWord">power management IC</strong> (<strong class="keyWord">PMIC</strong>) and <a id="_idIndexMarker1034"/>the <strong class="keyWord">real-time clock</strong> (<strong class="keyWord">RTC</strong>), and may additionally include interfaces such as GPIO, UART, Ethernet, and Wi-Fi.</p>
+    <p class="normal">Wakeup events are controlled through <code class="inlineCode">sysfs</code>. Each device in <code class="inlineCode">/sys/device</code> has a subdirectory named <code class="inlineCode">power</code> containing a <code class="inlineCode">wakeup</code> file with one of these strings:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">enabled</code>: Means this device will generate wakeup events</li>
+      <li class="bulletList"><code class="inlineCode">disabled</code>: Means this device will not generate wakeup events</li>
+      <li class="bulletList">(empty): Means this device is not capable of generating wakeup events</li>
+    </ul>
+    <p class="normal">To get a list of devices that can generate wakeups, search for all devices where <code class="inlineCode">wakeup</code> contains either <code class="inlineCode">enabled</code> or <code class="inlineCode">disabled</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ find /sys/devices/ -name wakeup | xargs grep "abled"
+</code></pre>
+    <p class="normal">We’ve seen <a id="_idIndexMarker1035"/>how to put a device to sleep and then wake it up with an event from a peripheral interface like a UART. What if we want a device to wake itself up without any outside interaction? This is where the RTC comes into play.</p>
+    <h2 id="_idParaDest-417" class="heading-2"><a id="_idTextAnchor477"/>Timed wakeups from the real-time clock</h2>
+    <p class="normal"><a id="_idIndexMarker1036"/>BeaglePlay has an RTC that can generate alarm interrupts up to 24 hours in the future. If so, the <code class="inlineCode">/sys/class/rtc/rtc1</code> directory <a id="_idIndexMarker1037"/>will exist. It should contain the <code class="inlineCode">wakealarm</code> file. Writing a number to <code class="inlineCode">wakealarm</code> will cause it to generate an alarm that number of seconds later. If you also enable wakeup events from <code class="inlineCode">rtc1</code>, the RTC will resume a suspended device.</p>
+    <p class="normal">For example, the following <code class="inlineCode">rtcwake</code> command puts the system in <code class="inlineCode">freeze</code> with the RTC waking it up after 5 seconds:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo su –
+root@BeagleBone:~# rtcwake -d /dev/rtc1 -m freeze -s 5
+rtcwake: assuming RTC uses UTC ...
+rtcwake: wakeup from "freeze" using /dev/rtc1 at Thu Jan  1 00:06:21 1970
+</code></pre>
+    <p class="normal">The corresponding <code class="inlineCode">journalctl</code> output looks like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">Feb 08 01:21:53 BeagleBone kernel: PM: suspend entry (s2idle)
+Feb 08 01:21:59 BeagleBone kernel: Filesystems sync: 0.000 seconds
+Feb 08 01:21:59 BeagleBone kernel: Freezing user space processes
+Feb 08 01:21:59 BeagleBone kernel: Freezing user space processes completed (elapsed 0.001 seconds)
+Feb 08 01:21:59 BeagleBone kernel: OOM killer disabled.
+Feb 08 01:21:59 BeagleBone kernel: Freezing remaining freezable tasks
+Feb 08 01:21:59 BeagleBone kernel: Freezing remaining freezable tasks completed (elapsed 0.001 seconds)
+Feb 08 01:21:59 BeagleBone kernel: printk: Suspending console(s) (use no_console_suspend to debug)
+Feb 08 01:21:59 BeagleBone kernel: wlcore: down
+Feb 08 01:21:59 BeagleBone kernel: wlcore: down
+Feb 08 01:21:59 BeagleBone kernel: am65-cpsw-nuss 8000000.ethernet eth0: Link is Down
+Feb 08 01:21:59 BeagleBone kernel: ti-sci 44043000.system-controller: ti_sci_resume: wakeup source: 0xFF
+Feb 08 01:21:59 BeagleBone kernel: am65-cpsw-nuss 8000000.ethernet: set new flow-id-base 19
+Feb 08 01:21:59 BeagleBone kernel: am65-cpsw-nuss 8000000.ethernet eth0: PHY [8000f00.mdio:00] driver [RTL8211F-VD Gigabit Ethernet]&gt;
+Feb 08 01:21:59 BeagleBone kernel: am65-cpsw-nuss 8000000.ethernet eth0: configuring for phy/rgmii-rxid link mode
+Feb 08 01:21:59 BeagleBone kernel: wlcore: using inverted interrupt logic: 2
+Feb 08 01:21:59 BeagleBone kernel: wlcore: PHY firmware version: Rev 8.2.0.0.243
+Feb 08 01:21:59 BeagleBone kernel: wlcore: firmware booted (Rev 8.9.0.0.83)
+Feb 08 01:21:59 BeagleBone kernel: OOM killer enabled.
+Feb 08 01:21:59 BeagleBone kernel: Restarting tasks ... done.
+Feb 08 01:21:59 BeagleBone kernel: PM: suspend exit
+</code></pre>
+    <p class="normal">The <strong class="screenText">Power</strong> button <a id="_idIndexMarker1038"/>on BeaglePlay is also a wakeup source so you can use that to resume from <code class="inlineCode">freeze</code> in the absence of a serial console. Make sure to press the <strong class="screenText">Power</strong> button and not the <strong class="screenText">Reset</strong> button, which is next to<a id="_idIndexMarker1039"/> it; otherwise, the board will reboot.</p>
+    <p class="normal">This concludes our coverage of the four Linux system sleep modes. We learned how to suspend a device to the <code class="inlineCode">mem</code> or <code class="inlineCode">freeze</code> power state and then wake it up via an event from an RTC or the <strong class="screenText">Power</strong> button. While the runtime pm in Linux was created mostly for laptops, we can leverage this support for embedded systems that also run on battery power.</p>
+    <h1 id="_idParaDest-418" class="heading-1"><a id="_idTextAnchor478"/>Summary</h1>
+    <p class="normal">Linux has sophisticated power management functions. In this chapter, I described four main components:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">CPUFreq</strong> changes the OPP of each processor core to reduce power on those that are busy but have some bandwidth to spare, thereby allowing us to scale the frequency back. OPPs are known as P-states in the ACPI specification.</li>
+      <li class="bulletList"><strong class="keyWord">CPUIdle</strong> selects deeper idle states when the CPU is not expected to be woken up for a while. Idle states are known as C-states in the ACPI specification.</li>
+      <li class="bulletList"><strong class="keyWord">Runtime pm</strong> will shut down peripherals that are not needed.</li>
+      <li class="bulletList"><strong class="keyWord">System sleep</strong> modes will put the whole system into a low-power state. They are usually under end user control, for example, by pressing a standby button. System sleep states are known as S-states in the ACPI specification.</li>
+    </ul>
+    <p class="normal">Most of the power management is done for you by the BSP. Your main task is to make sure that it is configured correctly for your intended use cases. Only the last component, selecting a system sleep state, requires you to write some code that will allow the end user to enter and exit the state.</p>
+    <p class="normal">The next part of the book is about writing embedded applications. We will start with packaging and deploying Python code and then explore containerization techniques.</p>
+    <h1 id="_idParaDest-419" class="heading-1"><a id="_idTextAnchor479"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">Advanced Configuration and Power Interface Specification</em>, UEFI Forum, Inc. – <a href="https://uefi.org/sites/default/files/resources/ACPI_Spec_6_5_Aug29.pdf"><span class="url">https://uefi.org/sites/default/files/resources/ACPI_Spec_6_5_Aug29.pdf</span></a></li>
+    </ul>
+    <h1 id="_idParaDest-420" class="heading-1"><a id="_idTextAnchor480"/>Join our community on Discord</h1>
+    <p class="normal">Join our community’s Discord space for discussions with the authors and other readers: <span class="url">https://packt.link/embeddedsystems</span></p>
+    <p class="normal"><img src="../Images/QR_Code12308107448340296.png" alt="" role="presentation" width="354" height="354"/></p>
+  </div>
+</div></div></body></html>

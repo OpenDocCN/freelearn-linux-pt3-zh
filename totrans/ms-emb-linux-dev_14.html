@@ -1,0 +1,776 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer117" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor373"/>11</h1>
+    <h1 id="_idParaDest-336" class="chapterTitle"><a id="_idTextAnchor374"/>Interfacing with Device Drivers</h1>
+    <p class="normal">Kernel device drivers are the mechanism by which the underlying hardware is exposed to the rest of the system. As a developer of embedded systems, you need to know how these device drivers fit into the overall architecture and how to access them from user space programs. Your system will probably have some novel pieces of hardware and you will have to work out a way of accessing them. In many cases, you will find that there are device drivers provided for you and you can achieve everything you want without writing any kernel code. For example, you can manipulate GPIO pins and LEDs using files in <code class="inlineCode">sysfs</code>, and there are libraries you can use <a id="_idIndexMarker817"/>to access serial buses including <strong class="keyWord">SPI</strong> (<strong class="keyWord">Serial Peripheral Interface</strong>) and <strong class="keyWord">I2C</strong> (<strong class="keyWord">Inter-Integrated Circuit</strong>).</p>
+    <p class="normal">There are <a id="_idIndexMarker818"/>many places to find out how to write a device driver, but few tell you why you would want to and the choices you have in doing so. This is what I want to cover here. However, remember that this is not a book dedicated to writing kernel device drivers and that the information given here is to help you navigate the territory but not necessarily set up home there. There are many good books and blog posts that will help you write device drivers, some of which are listed at the end of this chapter in the <em class="italic">Further study</em> section.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Role of device drivers</li>
+      <li class="bulletList">Character devices</li>
+      <li class="bulletList">Block devices</li>
+      <li class="bulletList">Network devices</li>
+      <li class="bulletList">Finding out about drivers at runtime</li>
+      <li class="bulletList">Finding the right device driver</li>
+      <li class="bulletList">Device drivers in user space</li>
+      <li class="bulletList">Writing a kernel device driver</li>
+      <li class="bulletList">Discovering the hardware configuration</li>
+    </ul>
+    <h1 id="_idParaDest-337" class="heading-1"><a id="_idTextAnchor375"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">A Linux-based host system</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">A BeaglePlay</li>
+      <li class="bulletList">A 5V USB-C power supply capable of delivering 3A</li>
+      <li class="bulletList">An Ethernet cable and router with an available port for network connectivity</li>
+    </ul>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter11"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter11</span></a>.</p>
+    <h1 id="_idParaDest-338" class="heading-1"><a id="_idTextAnchor376"/>Role of device drivers</h1>
+    <p class="normal">As I mentioned in <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a>, one of the functions of the kernel is to encapsulate the many hardware interfaces <a id="_idIndexMarker819"/>of a computer system and present them in a consistent manner to user space programs. The kernel has frameworks designed to make it easy to write a device driver, which is the piece of code that mediates between the kernel above and the hardware below. A device driver may be written to control physical devices such as a UART or an MMC controller, or it may represent a virtual device such as the null device (<code class="inlineCode">/dev/null</code>) or a RAMdisk. One driver may control multiple devices of the same kind.</p>
+    <p class="normal">Kernel device driver code runs at a high privilege level, as does the rest of the kernel. It has full access to the processor address space and hardware registers. It can handle interrupts and DMA transfers. It can also make use of the sophisticated kernel infrastructure for synchronization and memory management. However, you should be aware that there is a downside to this; if something goes wrong in a buggy driver, it can go really wrong and bring the system down.</p>
+    <p class="normal">Consequently, there is a principle that device drivers should be as simple as possible by just providing information to applications (where the real decisions are made). You often hear this being expressed as <em class="italic">no policy in the kernel</em>. It is the responsibility of user space to set the policy that governs the overall behavior of the system. For example, loading kernel modules in response to external events, such as plugging in a new USB device, is the responsibility of the <code class="inlineCode">udev</code> user space program, not the kernel. The kernel just supplies a means of loading a kernel module.</p>
+    <p class="normal">In Linux, there are three main types of device drivers:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">Character</strong>: This is <a id="_idIndexMarker820"/>for unbuffered I/O with a rich range of functions and a thin layer between the application code and the driver. It is the first choice when implementing custom device drivers.</li>
+      <li class="bulletList"><strong class="keyWord">Block</strong>: This has <a id="_idIndexMarker821"/>an interface tailored for block I/O to and from mass storage devices. There is a thick layer of buffering designed to make disk reads and writes as fast as possible, which makes it unsuitable for anything else.</li>
+      <li class="bulletList"><strong class="keyWord">Network</strong>: This is <a id="_idIndexMarker822"/>similar to a block device but is used for transmitting and receiving network packets rather than disk blocks.</li>
+    </ul>
+    <p class="normal">There is also a fourth type that presents itself as a group of files in one of the pseudo filesystems. For example, you might access the GPIO driver through a group of files in <code class="inlineCode">/sys/class/gpio</code>, as I will describe later in this chapter. Let’s begin by looking at these three basic device types in more detail.</p>
+    <h1 id="_idParaDest-339" class="heading-1"><a id="_idTextAnchor377"/>Character devices</h1>
+    <p class="normal">Character devices <a id="_idIndexMarker823"/>are identified in user space by a special file called a <strong class="keyWord">device node</strong>. This filename <a id="_idIndexMarker824"/>is mapped to a device driver using the major and minor numbers associated with it. Broadly <a id="_idIndexMarker825"/>speaking, the <strong class="keyWord">major number</strong> maps the device node to a <a id="_idIndexMarker826"/>particular device driver, while the <strong class="keyWord">minor number</strong> tells the driver which interface is being accessed. For example, the device node of the first serial port on the Arm Versatile PB is named <code class="inlineCode">/dev/ttyAMA0</code> and has a major number of <code class="inlineCode">204</code> and a minor number of <code class="inlineCode">64</code>. The device node for the second serial port has the same major number but the minor number is <code class="inlineCode">65</code>. We can see the numbers for all four serial ports in the directory listing:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls -l /dev/ttyAMA*
+crw-rw---- 1 root root 204, 64    Jan  1 1970 /dev/ttyAMA0
+crw-rw---- 1 root root 204, 65    Jan  1 1970 /dev/ttyAMA1
+crw-rw---- 1 root root 204, 66    Jan  1 1970 /dev/ttyAMA2
+crw-rw---- 1 root root 204, 67    Jan  1 1970 /dev/ttyAMA3
+</code></pre>
+    <p class="normal">The list of standard major and minor numbers can be found in the kernel documentation in <code class="inlineCode">Documentation/admin-guide/devices.txt</code>. The list does not get updated very often and does not include the <code class="inlineCode">ttyAMA</code> device described in the preceding paragraph. Nevertheless, if you look at the kernel source code in <code class="inlineCode">drivers/tty/serial/amba-pl011.c</code>, you will see where the major and minor numbers are declared:</p>
+    <pre class="programlisting code"><code class="hljs-code">#define SERIAL_AMBA_MAJOR 204
+#define SERIAL_AMBA_MINOR 64
+</code></pre>
+    <p class="normal">Where there is more than one instance of a device, as with the <code class="inlineCode">ttyAMA</code> driver, the convention for forming the name of the device node is to take a base name (<code class="inlineCode">ttyAMA</code>) and append the instance number from <code class="inlineCode">0</code> to <code class="inlineCode">3</code>.</p>
+    <p class="normal">As I mentioned in <a href="Chapter_05.xhtml#_idTextAnchor138"><em class="italic">Chapter 5</em></a>, device nodes can be created in several ways:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">devtmpfs</code>: The device node is created when the device driver registers a new device interface using a base name supplied by the driver (<code class="inlineCode">ttyAMA</code>) and an instance number.</li>
+      <li class="bulletList"><code class="inlineCode">udev</code> or <code class="inlineCode">mdev</code> (without <code class="inlineCode">devtmpfs</code>): These are essentially the same as <code class="inlineCode">devtmpfs</code>, except that a user space daemon program has to extract the device name from <code class="inlineCode">sysfs</code> and create the node.</li>
+      <li class="bulletList"><code class="inlineCode">mknod</code>: If you are using static device nodes, they are created manually using <code class="inlineCode">mknod</code>.</li>
+    </ul>
+    <p class="normal">You may have <a id="_idIndexMarker827"/>gotten the impression from the numbers I used here that both major and minor numbers are 8-bit numbers in the range of 0 to 255. In fact, the major number is 12 bits long, which gives valid major numbers from 1 to 4,095, and the minor number is 20 bits long, from 0 to 1,048,575.</p>
+    <p class="normal">When you open a character device node, the kernel checks whether the major and minor numbers fall into a range registered by a character device driver. If so, it passes the call to the driver; otherwise, the <code class="inlineCode">open(2)</code> call fails. The device driver can extract the minor number to find out which hardware interface to use.</p>
+    <p class="normal">To write a program that accesses a device driver, you need to have some knowledge of how it works. In other words, a device driver is not the same as a file: the things you do with it change the state of the device. A simple example is the <code class="inlineCode">urandom</code> pseudorandom number generator, which returns bytes of random data every time you read it. </p>
+    <p class="normal">Here is a program that does just this:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/types.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/stat.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;fcntl.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-type">int</span> <span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+<span class="hljs-type">    int</span> f;
+<span class="hljs-type">    unsigned</span> <span class="hljs-type">int</span> rnd;
+<span class="hljs-type">    int</span> n;
+f = open(<span class="hljs-string">"/dev/urandom"</span>, O_RDONLY);
+<span class="hljs-keyword">    if</span> (f &lt; <span class="hljs-number">0</span>) {
+        perror(<span class="hljs-string">"Failed to open urandom"</span>);
+<span class="hljs-keyword">        return</span> <span class="hljs-number">1</span>;
+    }
+    n = read(f, &amp;rnd, <span class="hljs-keyword">sizeof</span>(rnd));
+<span class="hljs-keyword">    if</span> (n != <span class="hljs-keyword">sizeof</span>(rnd)) {
+        perror(<span class="hljs-string">"Problem reading urandom"</span>);
+<span class="hljs-keyword">        return</span> <span class="hljs-number">1</span>;
+    }
+<span class="hljs-built_in">    printf</span>(<span class="hljs-string">"Random number = 0x%x\n"</span>, rnd);
+    close(f);
+<span class="hljs-keyword">    return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">You can find the full source code and a BitBake recipe for this program in the <code class="inlineCode">MELD/Chapter11/meta-device-drivers/recipes-local/read-urandom</code> directory.</p>
+    <p class="normal">The nice thing <a id="_idIndexMarker828"/>about the Unix driver model is that once we know that there is a device named <code class="inlineCode">urandom</code>, then every time we read from it, it returns a fresh set of pseudorandom data, so we don’t need to know anything else about it. We can just use standard functions such as <code class="inlineCode">open(2)</code>, <code class="inlineCode">read(2)</code>, and <code class="inlineCode">close(2)</code>.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">You could use the stream I/O functions known as <code class="inlineCode">fopen(3)</code>, <code class="inlineCode">fread(3)</code>, and <code class="inlineCode">fclose(3)</code> instead, but the buffering implicit in these functions often causes unexpected behavior. For example, <code class="inlineCode">fwrite(3)</code> usually only writes to the user space buffer, not to the device. You need to call <code class="inlineCode">fflush(3)</code> to force the buffer to be written out. Therefore, it is best to not use stream I/O functions when calling device drivers.</p>
+    </div>
+    <p class="normal">Most device drivers employ a character interface. Mass storage devices are a notable exception. Reading and writing to disk requires a block interface for maximum speed.</p>
+    <h1 id="_idParaDest-340" class="heading-1"><a id="_idTextAnchor378"/>Block devices</h1>
+    <p class="normal">Block devices <a id="_idIndexMarker829"/>are also associated with a device node that also has major and minor numbers.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">Tip</strong></p>
+      <p class="normal">Although character and block devices are identified using major and minor numbers, they are in different namespaces. A character driver with a major number of 4 is in no way related to a block driver with a major number of 4. </p>
+    </div>
+    <p class="normal">With block devices, the major number is used to identify the device driver, and the minor number is used to identify the partition. Let’s look at the MMC driver on the BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls -l /dev/mmcblk*
+brw-rw---- 1 root disk 179,   0 Aug  7 13:25 /dev/mmcblk0
+brw-rw---- 1 root disk 179, 256 Aug  7 13:25 /dev/mmcblk0boot0
+brw-rw---- 1 root disk 179, 512 Aug  7 13:25 /dev/mmcblk0boot1
+brw-rw---- 1 root disk 179,   1 Aug  7 13:25 /dev/mmcblk0p1
+brw-rw---- 1 root disk 179,   2 Aug  7 13:25 /dev/mmcblk0p2
+brw-rw---- 1 root disk 236,   0 Aug  7 13:25 /dev/mmcblk0rpmb
+brw-rw---- 1 root disk 179, 768 Feb  4 09:42 /dev/mmcblk1
+brw-rw---- 1 root disk 179, 769 Feb  4 09:42 /dev/mmcblk1p1
+brw-rw---- 1 root disk 179, 770 Feb  4 09:42 /dev/mmcblk1p2
+</code></pre>
+    <p class="normal">Here, <code class="inlineCode">mmcblk0</code> is the eMMC chip, which has two partitions, and <code class="inlineCode">mmcblk1</code> is the microSD card slot, which has a card also with two partitions. The major number for the MMC block driver is <code class="inlineCode">179</code> (you can look it up in <code class="inlineCode">devices.txt</code>). The minor numbers are used in ranges to identify different physical MMC devices and the partitions of the storage medium that are on that device. In the case of the MMC driver, the ranges are eight minor numbers per device: the minor numbers from <code class="inlineCode">0</code> to <code class="inlineCode">7</code> are for the first device, the numbers from <code class="inlineCode">8</code> to <code class="inlineCode">15</code> are for the second, and so on. Within each range, the first minor number represents the entire device as raw sectors, and the others represent up to seven partitions. On the BeaglePlay’s eMMC chip, there are two 4 MB areas of memory reserved for use by a bootloader. These are represented as two devices known as <code class="inlineCode">mmcblk0boot0</code> and <code class="inlineCode">mmcblk0boot1</code>, and they have minor numbers of <code class="inlineCode">256</code> and <code class="inlineCode">512</code>, respectively.</p>
+    <p class="normal">As another <a id="_idIndexMarker830"/>example, you are probably aware of the SCSI disk driver known as <code class="inlineCode">sd</code>, which is used to control a range of disks that use the SCSI command set, including SCSI, SATA, USB mass storage, and <strong class="keyWord">Universal Flash Storage</strong> (<strong class="keyWord">UFS</strong>). It has the major number <code class="inlineCode">8</code> and ranges of <code class="inlineCode">16</code> minor numbers per interface or disk. </p>
+    <p class="normal">The minor numbers from <code class="inlineCode">0</code> to <code class="inlineCode">15</code> are for the first interface with device nodes named <code class="inlineCode">sda</code> up to <code class="inlineCode">sda15</code>; the numbers from <code class="inlineCode">16</code> to <code class="inlineCode">31</code> are for the second disk with device nodes <code class="inlineCode">sdb</code> up to <code class="inlineCode">sdb15</code>; and so on. This continues up to the 16th disk from <code class="inlineCode">240</code> to <code class="inlineCode">255</code> with the node name <code class="inlineCode">sdp</code>. There are other major numbers reserved for them because SCSI disks are so popular, but we needn’t worry about that here.</p>
+    <p class="normal">Both the MMC and SCSI block drivers expect to find a partition table at the start of the disk. The partition table is created using utilities such as <code class="inlineCode">fdisk</code>, <code class="inlineCode">sfidsk</code>, and <code class="inlineCode">parted</code>.</p>
+    <p class="normal">A user space program can open and interact with a block device directly via the device node. This is not <a id="_idIndexMarker831"/>a common thing to do, though. It is usually only done to perform administrative operations such as creating partitions, formatting a partition with a filesystem, and mounting. Once the filesystem has been mounted, you interact with the block device indirectly through the files in that filesystem.</p>
+    <p class="normal">Most block devices will have a kernel driver that works, so we rarely need to write our own. The same goes for network devices. Just like a filesystem abstracts the details of a block device, the network stack eliminates the need to interact directly with a network device.</p>
+    <h1 id="_idParaDest-341" class="heading-1"><a id="_idTextAnchor379"/>Network devices</h1>
+    <p class="normal">Network devices are not accessed through device nodes, and they do not have major and minor numbers. Instead, a network device is allocated a name by the kernel based on a string and an <a id="_idIndexMarker832"/>instance number. Here is an example of the way a network driver registers an interface:</p>
+    <pre class="programlisting code"><code class="hljs-code">my_netdev = alloc_netdev(<span class="hljs-number">0</span>, <span class="hljs-string">"net%d"</span>, NET_NAME_UNKNOWN, netdev_setup);
+ret = register_netdev(my_netdev);
+</code></pre>
+    <p class="normal">This creates a network device named <code class="inlineCode">net0</code> the first time it is called, <code class="inlineCode">net1</code> the second time, and so on. More common names include <code class="inlineCode">lo</code>, <code class="inlineCode">eth0</code>, <code class="inlineCode">enp2s0</code>, <code class="inlineCode">wlan0,</code> and <code class="inlineCode">wlp1s0</code>. Note that this is the name it starts off with; device managers such as <code class="inlineCode">udev</code> may change it to something different later.</p>
+    <p class="normal">Usually, the network interface name is only used when configuring the network using utilities such as <code class="inlineCode">ip</code> to establish a network address and route. Thereafter, you interact with the network driver indirectly by opening sockets and letting the network layer decide how to route them to the right interface.</p>
+    <p class="normal">However, it is possible to access network devices directly from the user space by creating a socket and using the <code class="inlineCode">ioctl</code> commands listed in <code class="inlineCode">include/linux/sockios.h</code>. Here is a program that uses <code class="inlineCode">SIOCGIFHWADDR</code> to query the network driver for a hardware (MAC) address:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdlib.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;string.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/ioctl.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;linux/sockios.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;net/if.h&gt;</span>
+<span class="hljs-type">int</span> <span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">int</span><span class="hljs-params"> argc, </span><span class="hljs-type">char</span><span class="hljs-params"> *argv[])</span>
+{
+<span class="hljs-type">    int</span> s;
+<span class="hljs-type">    int</span> ret;
+<span class="hljs-keyword">    struct</span><span class="hljs-class"> </span><span class="hljs-title">ifreq</span><span class="hljs-class"> </span><span class="hljs-title">ifr</span><span class="hljs-class">;</span>
+<span class="hljs-keyword">    if</span> (argc != <span class="hljs-number">2</span>) {
+<span class="hljs-built_in">        printf</span>(<span class="hljs-string">"Usage %s [network interface]\n"</span>, argv[<span class="hljs-number">0</span>]);
+<span class="hljs-keyword">        return</span> <span class="hljs-number">1</span>;
+    }
+    s = socket(PF_INET, SOCK_DGRAM, <span class="hljs-number">0</span>);
+<span class="hljs-keyword">    if</span> (s &lt; <span class="hljs-number">0</span>) {
+        perror(<span class="hljs-string">"</span><span class="hljs-string">socket"</span>);
+<span class="hljs-keyword">        return</span> <span class="hljs-number">1</span>;
+    }
+<span class="hljs-built_in">    strcpy</span>(ifr.ifr_name, argv[<span class="hljs-number">1</span>]);
+    ret = ioctl(s, SIOCGIFHWADDR, &amp;ifr);
+<span class="hljs-keyword">    if</span> (ret &lt; <span class="hljs-number">0</span>) {
+        perror(<span class="hljs-string">"ioctl"</span>);
+<span class="hljs-keyword">        return</span> <span class="hljs-number">1</span>;
+    }
+<span class="hljs-keyword">  for</span> (<span class="hljs-type">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">6</span>; i++) {
+<span class="hljs-built_in">        printf</span>(<span class="hljs-string">"%02x:"</span>, (<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span>)ifr.ifr_hwaddr.sa_data[i]);
+    }
+<span class="hljs-built_in">    printf</span>(<span class="hljs-string">"\n"</span>);
+    close(s);
+<span class="hljs-keyword">    return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">You will <a id="_idIndexMarker833"/>find the full source code and a BitBake recipe for this program in the <code class="inlineCode">MELD/Chapter11/meta-device-drivers/recipes-local/show-mac-address</code> directory. The <code class="inlineCode">show-mac-address</code> program takes a network interface name as an argument. After opening a socket, we copy the interface name to a struct and pass that struct into the <code class="inlineCode">ioctl</code> call on the socket before printing out the resulting MAC address.</p>
+    <p class="normal">Now that we <a id="_idIndexMarker834"/>know what the three categories of device drivers are, how do we list the different drivers that are in use on our system?</p>
+    <h1 id="_idParaDest-342" class="heading-1"><a id="_idTextAnchor380"/>Finding out about drivers at runtime</h1>
+    <p class="normal">Once you have a running Linux system, it is useful to know which device drivers have been loaded and <a id="_idIndexMarker835"/>what state they are in. You can find out a lot by reading the files in <code class="inlineCode">/proc</code> and <code class="inlineCode">/sys</code>.</p>
+    <p class="normal">List the character and block device drivers that are currently loaded and active by reading <code class="inlineCode">/proc/devices</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cat /proc/devices
+Character devices:
+<a id="_idTextAnchor381"/>  1 mem
+<a id="_idTextAnchor382"/>  4 /dev/vc/0
+  4 tty
+  4 ttyS
+<a id="_idTextAnchor383"/>  5 /dev/tty
+  5 /dev/console
+&lt;…&gt;
+</code></pre>
+    <p class="normal">For each driver, you can see the major number and the base name. However, this does not tell you how many devices each driver is attached to. It only shows <code class="inlineCode">ttyAMA</code> but it gives you no clue as to whether it is attached to four real serial ports. I will come back to that later when we look at <code class="inlineCode">sysfs</code>.</p>
+    <p class="normal">Network devices do not appear in this list because they do not have device nodes. Instead, you can use the <code class="inlineCode">ip</code> tool to get a list of network devices:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ip link show
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+<a id="_idTextAnchor384"/>2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq qlen 1000
+    link/ether 34:08:e1:85:07:d9 brd ff:ff:ff:ff:ff:ff
+<a id="_idTextAnchor385"/>3: eth1: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop qlen 1000
+    link/ether 7a:1f:d8:46:36:b1 brd ff:ff:ff:ff:ff:ff
+</code></pre>
+    <p class="normal">You can also find out about devices attached to USB or PCI buses using the well-known <code class="inlineCode">lsusb</code> and <code class="inlineCode">lspci</code> commands, respectively. There is information about them in the respective manual pages and plenty of online guides, so I will not describe them any further here.</p>
+    <p class="normal">The really interesting information is in <code class="inlineCode">sysfs</code>, which is the next topic we’ll cover.</p>
+    <h2 id="_idParaDest-343" class="heading-2"><a id="_idTextAnchor386"/>Getting information from sysfs</h2>
+    <p class="normal">You can define <code class="inlineCode">sysfs</code> in a pedantic <a id="_idIndexMarker836"/>way as a representation of kernel objects, attributes, and relationships. A kernel <a id="_idIndexMarker837"/>object is a <strong class="keyWord">directory</strong>, an attribute is a <strong class="keyWord">file</strong>, and a relationship is a <strong class="keyWord">symbolic link</strong> from one object to another. From a more practical point of view, since the Linux device driver model represents all devices and drivers as kernel objects, you can see the kernel’s view of the system laid out before you by looking in <code class="inlineCode">/sys</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys
+block     class     devices   fs        module
+bus       dev       firmware  kernel    power
+</code></pre>
+    <p class="normal">In the context of discovering information about devices and drivers, I will look at three of these directories: <code class="inlineCode">devices</code>, <code class="inlineCode">class</code>, and <code class="inlineCode">block</code>.</p>
+    <h3 id="_idParaDest-344" class="heading-3"><a id="_idTextAnchor387"/>Devices – /sys/devices</h3>
+    <p class="normal">This is the kernel’s view of the devices that have been discovered since boot and how they are connected <a id="_idIndexMarker838"/>to each other. It is organized at the top level by the system bus, so what <a id="_idIndexMarker839"/>you see varies from one system to another. Here is the QEMU emulation of the Arm Versatile board:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/devices
+platform  software  system   tracepoint virtual
+</code></pre>
+    <p class="normal">There are three directories that are present on all systems:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">system/</code>: This contains devices at the heart of the system including CPUs and clocks.</li>
+      <li class="bulletList"><code class="inlineCode">virtual/</code>: This contains devices that are memory-based. You will find the memory devices that appear as <code class="inlineCode">/dev/null</code>, <code class="inlineCode">/dev/random</code>, and <code class="inlineCode">/dev/zero</code> in <code class="inlineCode">virtual/mem</code>. You will also find the <code class="inlineCode">lo</code> loopback device in <code class="inlineCode">virtual/net</code>.</li>
+      <li class="bulletList"><code class="inlineCode">platform/</code>: This is a catch-all for devices that are not connected via a conventional hardware bus. This may be almost everything on an embedded device.</li>
+    </ul>
+    <p class="normal">The other devices appear in directories that correspond to actual system buses. For example, the PCI root bus, if there is one, appears as <code class="inlineCode">pci0000:00</code>.</p>
+    <p class="normal">Navigating this hierarchy is quite hard because it requires some knowledge of the topology of your system and the pathnames become quite long and hard to remember. To make life easier, <code class="inlineCode">/sys/class</code> and <code class="inlineCode">/sys/block</code> offer two different views of the devices.</p>
+    <h3 id="_idParaDest-345" class="heading-3"><a id="_idTextAnchor388"/>Drivers – /sys/class</h3>
+    <p class="normal">This is a view of the device drivers presented by their type. In other words, it is a software view rather <a id="_idIndexMarker840"/>than a hardware view. Each of the subdirectories represents a class of drivers and is implemented by a component of the driver framework. For example, UART devices <a id="_idIndexMarker841"/>are managed by the <code class="inlineCode">tty</code> layer, so you will find them in <code class="inlineCode">/sys/class/tty</code>. Likewise, you will find network devices in <code class="inlineCode">/sys/class/net</code>, input devices such as keyboard, touchscreen, and mouse in <code class="inlineCode">/sys/class/input</code>, and so on.</p>
+    <p class="normal">There is a symbolic link in each subdirectory for each instance of that type of device pointing to its representation in <code class="inlineCode">/sys/device</code>.</p>
+    <p class="normal">Let’s look at the serial ports on the Versatile PB. We can see that there are four of them:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls -d /sys/class/tty/ttyAMA*
+/sys/class/tty/ttyAMA0    /sys/class/tty/ttyAMA2
+/sys/class/tty/ttyAMA1    /sys/class/tty/ttyAMA3
+</code></pre>
+    <p class="normal">Each directory is a representation of the kernel object that is associated with an instance of a device interface. Looking within one of these directories, we can see the attributes of the object, represented as files, and the relationships with other objects, represented by links:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/class/tty/ttyAMA0
+close_delay       flags             line            uartclk
+closing_wait      io_type           port            uevent
+custom_divisor    iomem_base        power           xmit_fifo_size
+dev               iomem_reg_shift   subsystem
+device            irq               type
+</code></pre>
+    <p class="normal">The link called <code class="inlineCode">device</code> points to the hardware object for the device. The link called <code class="inlineCode">subsystem</code> points back to the parent subsystem at <code class="inlineCode">/sys/class/tty</code>. The remaining directory entries are attributes. Some are specific to a serial port, such as <code class="inlineCode">xmit_fifo_size</code>, while others apply to many types of devices, such as <code class="inlineCode">irq</code> for the interrupt number and <code class="inlineCode">dev</code> for the device number. Some attribute files are writable and allow you to tune parameters in the driver at runtime.</p>
+    <p class="normal">The <code class="inlineCode">dev</code> attribute is particularly interesting. If you look at its value, you will find the following:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cat /sys/class/tty/ttyAMA0/dev
+204:64
+</code></pre>
+    <p class="normal">These are the major and minor numbers of the device. This attribute is created when the driver registers the interface. It is from this file that <code class="inlineCode">udev</code> and <code class="inlineCode">mdev</code> find the major and minor numbers of the device driver.</p>
+    <h3 id="_idParaDest-346" class="heading-3"><a id="_idTextAnchor389"/>Block drivers – /sys/block</h3>
+    <p class="normal">There is one <a id="_idIndexMarker842"/>more view of the device model that is important to this discussion: the block <a id="_idIndexMarker843"/>driver view that you will find in <code class="inlineCode">/sys/block</code>. There is a subdirectory for each block device. This listing is from a BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/block
+loop0   loop4   mmcblk0        ram0    ram12   ram2   ram6
+loop1   loop5   mmcblk1        ram1    ram13   ram3   ram7
+loop2   loop6   mmcblk0boot0   ram10   ram14   ram4   ram8
+loop3   loop7   mmcblk0boot1   ram11   ram15   ram5   ram9
+</code></pre>
+    <p class="normal">If you look inside <code class="inlineCode">mmcblk0</code>, which is the eMMC chip on this board, you will see the attributes of the interface and the partitions within it:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/block/mmcblk0
+alignment_offset   events             holders       mmcblk0p2  ro
+bdi                events_async       inflight      mq         size
+capability         events_poll_msecs  integrity     power      slaves
+dev                ext_range          mmcblk0boot0  queue      stat
+device             force_ro           mmcblk0boot1  range      subsystem
+discard_alignment  hidden             mmcblk0p1     removable  uevent
+</code></pre>
+    <p class="normal">In conclusion, you can learn a lot about the devices (the hardware) and the drivers (the software) that are present on a system by reading <code class="inlineCode">sysfs</code>.</p>
+    <h1 id="_idParaDest-347" class="heading-1"><a id="_idTextAnchor390"/>Finding the right device driver</h1>
+    <p class="normal">A typical embedded board is based on a reference design from the manufacturer with changes to make it suitable for a particular application. The BSP that comes with the reference board should support <a id="_idIndexMarker844"/>all the peripherals on that board. Then you customize the design, perhaps by adding a temperature sensor attached via I2C, some lights and buttons connected via GPIO pins, a display panel via a MIPI interface, or many other things. Your job is to create a custom kernel to control all of these, but where do you start looking for device drivers that support all these peripherals?</p>
+    <p class="normal">The most obvious place to look is the driver support page on the manufacturer’s website, or you could ask them directly. In my experience, this seldom gets you the result you want. Hardware manufacturers are not particularly Linux-savvy, and they often give you misleading information. They may have proprietary drivers as binary blobs or source code for a different version of the kernel than the one you have. So, by all means, try this route. Personally, I will always try to find an open-source driver for the task at hand.</p>
+    <p class="normal">There may be support in your kernel already: there are many thousands of drivers in mainline Linux and there are many vendor-specific drivers in the vendor kernels. Begin by running <code class="inlineCode">make menuconfig</code> (or <code class="inlineCode">xconfig</code>) and search for the product name or number. If you do not find an exact match, try more generic searches allowing for the fact that most drivers handle a range of products from the same family. Next, try searching through the code in the <code class="inlineCode">drivers</code> directory (<code class="inlineCode">grep</code> is your friend here).</p>
+    <p class="normal">If you still don’t have a driver, you can try searching online and asking in the relevant forums to see if there <a id="_idIndexMarker845"/>is a driver for a later version of Linux. If you find one, you should seriously consider updating the BSP to use the later kernel. Sometimes, this is not practical, so you may have to think about backporting the driver to your kernel. If the kernel versions are similar, it may be easy, but if they are more than 12 to 18 months apart, then chances are that the code will have changed to the extent that you will have to rewrite a chunk of the driver to integrate it with your kernel. If all these options fail, you will have to find a solution yourself by writing the missing kernel driver. However, this is not always necessary. We will look at an alternative in the next section.</p>
+    <h1 id="_idParaDest-348" class="heading-1"><a id="_idTextAnchor391"/>Device drivers in user space</h1>
+    <p class="normal">Before you start writing a device driver, pause for a moment to consider whether it is really necessary. There are generic device drivers for many common types of devices that allow you to interact with <a id="_idIndexMarker846"/>hardware directly from user space, without having to write a line of kernel code. User space code is certainly easier to write and debug. It is also not covered by the GPL, although I don’t feel that is a good reason to do it this way.</p>
+    <p class="normal">These drivers fall into two broad categories: those that you control through files in <code class="inlineCode">sysfs</code>, including GPIO and LEDs, and serial buses that expose a generic interface through a device node, such as I2C.</p>
+    <p class="normal">Let’s build a Yocto image for the BeaglePlay with some examples installed:</p>
+    <ol>
+      <li class="numberedList" value="1">Navigate one level above the directory where you cloned Yocto:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+</code></pre>
+      </li>
+      <li class="numberedList">Copy the meta-device-driver layers from the book’s Git repo:
+        <pre class="programlisting con"><code class="hljs-con">$ cp -a MELD/Chapter11/meta-device-drivers .
+</code></pre>
+      </li>
+      <li class="numberedList">Set up your BitBake work environment for the BeaglePlay:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-beagleplay
+</code></pre>
+      </li>
+      <li class="numberedList">This sets up a bunch of environment variables and puts you back in the <code class="inlineCode">build-beagleplay</code> directory you populated during the <em class="italic">Layers</em> section from <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>. Repeat the exercise where you add your own <code class="inlineCode">meta-nova</code> layer and build <code class="inlineCode">core-image-minimal</code> for the BeaglePlay if you have since deleted that work.</li>
+      <li class="numberedList">Remove the <code class="inlineCode">meta-nova</code> layer:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers remove-layer ../meta-nova
+</code></pre>
+      </li>
+      <li class="numberedList">Add the <code class="inlineCode">meta-device-drivers</code> layer:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers add-layer ../meta-device-drivers
+</code></pre>
+      </li>
+      <li class="numberedList">Confirm <a id="_idIndexMarker847"/>that your layer structure is set up correctly:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-layers
+NOTE: Starting bitbake server...
+layer                 path                                       priority
+=========================================================================
+core                /home/frank/poky/meta                        5
+yocto               /home/frank/poky/meta-poky                   5
+yoctobsp            /home/frank/poky/meta-yocto-bsp              5
+arm-toolchain       /home/frank/meta-arm/meta-arm-toolchain      5
+meta-arm            /home/frank/meta-arm/meta-arm                5
+meta-ti-bsp         /home/frank/meta-ti/meta-ti-bsp              6
+device-drivers      /home/frank/meta-device-drivers              6
+</code></pre>
+      </li>
+      <li class="numberedList">Modify <code class="inlineCode">conf/local.conf</code> so that the example programs and dummy driver are installed:
+        <pre class="programlisting con"><code class="hljs-con">IMAGE_INSTALL:append = " read-urandom show-mac-address gpio-int i2c-eeprom-read dummy-driver"
+</code></pre>
+      </li>
+      <li class="numberedList">Enable the legacy <code class="inlineCode">/sys/class/gpio</code> interface in the kernel:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake -c menuconfig virtual/kernel
+</code></pre>
+      </li>
+      <li class="numberedList">Ensure that the <code class="inlineCode">CONFIG_EXPERT</code>, <code class="inlineCode">CONFIG_GPIO_SYSFS</code>, <code class="inlineCode">CONFIG_DEBUG_FS</code>, and <code class="inlineCode">CONFIG_DEBUG_FS_ALLOW_ALL</code> options are enabled. Ensure that the <code class="inlineCode">CONFIG_KEYBOARD_GPIO</code> option is disabled.</li>
+      <li class="numberedList">Enable the <code class="inlineCode">/sys/class/leds</code> interface in the kernel by ensuring that the <code class="inlineCode">CONFIG_LEDS_CLASS</code>, <code class="inlineCode">CONFIG_LEDS_GPIO</code>, and <code class="inlineCode">CONFIG_LEDS_TRIGGER_TIMER</code> options are enabled.</li>
+      <li class="numberedList">Save the <a id="_idIndexMarker848"/>modified kernel <code class="inlineCode">.config</code> and exit <code class="inlineCode">menuconfig</code>.</li>
+      <li class="numberedList">Build <code class="inlineCode">core-image-minimal</code>:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake core-image-minimal
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Write the finished image to a microSD using balenaEtcher, insert the microSD into your BeaglePlay, and boot it as described in the <em class="italic">Running the BeaglePlay target</em> section from <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>.</p>
+    <h2 id="_idParaDest-349" class="heading-2"><a id="_idTextAnchor392"/>GPIO</h2>
+    <p class="normal"><strong class="keyWord">General-Purpose Input/Output</strong> (<strong class="keyWord">GPIO</strong>) is the simplest form of digital interface since it gives you direct <a id="_idIndexMarker849"/>access to individual hardware pins, each of which can be in one of two states: either high or low. In most cases, you can configure the GPIO pin to be either an input or an output. You can even use a group of GPIO pins to create higher-level interfaces such as I2C or SPI by manipulating each bit in software, a technique <a id="_idIndexMarker850"/>that is called <strong class="keyWord">bit banging</strong>. The main limitation is the speed and accuracy of the software loops and the number of CPU cycles you want to dedicate to them. Generally, it is hard to achieve timer accuracy better than a millisecond unless you configure a real-time kernel, as we shall see in <a href="Chapter_19.xhtml#_idTextAnchor654"><em class="italic">Chapter 21</em></a>. More common use cases for GPIO are for reading push buttons and digital sensors and controlling LEDs, motors, and relays.</p>
+    <p class="normal">Most SoCs have a lot of GPIO bits grouped together in GPIO registers, usually 32 bits per register. On-chip GPIO bits are routed through to GPIO pins on the chip package via a multiplexer <a id="_idIndexMarker851"/>known as a <strong class="keyWord">pin mux</strong>. There may be additional GPIO pins available off-chip in the power management chip and in dedicated GPIO extenders connected through I2C or SPI buses. All this diversity is handled <a id="_idIndexMarker852"/>by a kernel subsystem known as <code class="inlineCode">gpiolib</code>, which is not actually a library, but the infrastructure GPIO drivers use to expose I/O in a consistent way. There are details about the implementation of <code class="inlineCode">gpiolib</code> in the kernel source under <code class="inlineCode">Documentation/driver-api/gpio/</code>, and the code for the drivers themselves is in <code class="inlineCode">drivers/gpio/</code>.</p>
+    <p class="normal">Applications can interact with <code class="inlineCode">gpiolib</code> through files in the <code class="inlineCode">/sys/class/gpio/</code> directory. Here is what you would see on a typical embedded board like a BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/class/gpio
+export       gpiochip512  gpiochip515  gpiochip539  gpiochip631  unexport
+</code></pre>
+    <p class="normal">The directories named <code class="inlineCode">gpiochip512</code> through to <code class="inlineCode">gpiochip631</code> represent four GPIO registers, each with a variable number of GPIO bits. If you look in one of the <code class="inlineCode">gpiochip</code> directories, you will see the following:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/class/gpio/gpiochip512
+base       device     label      ngpio      power      subsystem  uevent
+</code></pre>
+    <p class="normal">The file named <code class="inlineCode">base</code> contains the number of the first GPIO pin in the register, while <code class="inlineCode">ngpio</code> contains the <a id="_idIndexMarker853"/>number of bits in the register. In this case, <code class="inlineCode">gpiochip512/base</code> is <code class="inlineCode">512</code> and <code class="inlineCode">gpiochip512/ngpio</code> is <code class="inlineCode">3</code>, which tells you that it contains GPIO bits <code class="inlineCode">512</code> to <code class="inlineCode">514</code>. It is possible for there to be a gap between the last GPIO in one register and the first GPIO in the next.</p>
+    <p class="normal">To control a GPIO bit from user space, you first need to export it from kernel space, which you can do by writing the GPIO number to <code class="inlineCode">/sys/class/gpio/export</code>. This example shows the process for GPIO 640, which is wired to the INT pin of the mikroBUS connector on the BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo 640 &gt; /sys/class/gpio/export
+# ls /sys/class/gpio
+export       gpiochip512  gpiochip539  unexport
+gpio640      gpiochip515  gpiochip631
+</code></pre>
+    <p class="normal">Now, there is a new <code class="inlineCode">gpio640</code> directory containing the files you need to control the pin.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">Important note</strong></p>
+      <p class="normal">If the GPIO bit is already claimed by the kernel, you will not be able to export it in this way:</p>
+      <pre class="programlisting con"><code class="hljs-con"># echo 640 &gt; /sys/class/gpio/export
+bash: echo: write error: Device or resource busy
+</code></pre>
+    </div>
+    <p class="normal">The <code class="inlineCode">gpio640</code> directory contains these files:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/class/gpio/gpio640
+active_low  direction   power       uevent
+device      edge        subsystem   value
+</code></pre>
+    <p class="normal">The pin begins as an input that is valid for the INT (interrupt) pin of the mikroBUS connector. To convert a GPIO to an output, write <code class="inlineCode">out</code> to the <code class="inlineCode">direction</code> file. The <code class="inlineCode">value</code> file contains the current state of the pin, which is <code class="inlineCode">0</code> for low and <code class="inlineCode">1</code> for high. If it is an output, you can change the state by writing <code class="inlineCode">0</code> or <code class="inlineCode">1</code> to <code class="inlineCode">value</code>. Sometimes the meaning of low and high is reversed in hardware (hardware engineers enjoy doing that sort of thing), so writing <code class="inlineCode">1</code> to <code class="inlineCode">active_low</code> inverts the <a id="_idIndexMarker854"/>meaning of <code class="inlineCode">value</code> so that a low voltage is reported as <code class="inlineCode">1</code> and a high voltage is reported as <code class="inlineCode">0</code>.</p>
+    <p class="normal">Conversely, you can remove a GPIO from user space control by writing the GPIO number to <code class="inlineCode">/sys/class/gpio/unexport</code>, as you did for export.</p>
+    <h3 id="_idParaDest-350" class="heading-3"><a id="_idTextAnchor393"/>Handling interrupts from GPIO</h3>
+    <p class="normal">In many cases, a GPIO input can be configured to generate an interrupt when it changes state. This allows <a id="_idIndexMarker855"/>you to wait for the interrupt rather than polling in an inefficient software loop. If the GPIO bit can generate interrupts, a file called <code class="inlineCode">edge</code> exists. Initially, it has the value called <code class="inlineCode">none</code>, meaning that it does not generate interrupts. To enable interrupts, you can set it to one of these values:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">rising</code>: Interrupt on the rising edge.</li>
+      <li class="bulletList"><code class="inlineCode">falling</code>: Interrupt on the falling edge.</li>
+      <li class="bulletList"><code class="inlineCode">both</code>: Interrupt on both rising and falling edges.</li>
+      <li class="bulletList"><code class="inlineCode">none</code>: No interrupts (default).</li>
+    </ul>
+    <p class="normal">To determine which GPIO the USR button on the BeaglePlay is assigned to:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cat /sys/kernel/debug/gpio | grep USR_BUTTON
+ gpio-557 (USR_BUTTON          |sysfs               ) in  hi IRQ
+</code></pre>
+    <p class="normal">If you want to wait for a falling edge on GPIO 557 (USR button), you must first enable interrupts:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo 557 &gt; /sys/class/gpio/export
+# echo falling &gt; /sys/class/gpio/gpio557/edge
+</code></pre>
+    <p class="normal">Here is a program that waits for an interrupt from the GPIO:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;fcntl.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/epoll.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/types.h&gt;</span>
+<span class="hljs-type">int</span> <span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">int</span><span class="hljs-params"> argc, </span><span class="hljs-type">char</span><span class="hljs-params"> *argv[])</span>
+{
+    <span class="hljs-type">int</span> ep;
+    <span class="hljs-type">int</span> f;
+    <span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-title">epoll_event</span><span class="hljs-class"> </span><span class="hljs-title">ev</span><span class="hljs-class">, </span><span class="hljs-title">events</span><span class="hljs-class">;</span>
+    <span class="hljs-type">char</span> value[<span class="hljs-number">4</span>];
+    <span class="hljs-type">int</span> ret;
+    <span class="hljs-type">int</span> n;
+    ep = epoll_create(<span class="hljs-number">1</span>);
+    <span class="hljs-keyword">if</span> (ep == <span class="hljs-number">-1</span>) {
+        perror(<span class="hljs-string">"Can't create epoll"</span>);
+        <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+    }
+    f = open(<span class="hljs-string">"/sys/class/gpio/gpio557/value"</span>, O_RDONLY | O_NONBLOCK);
+    <span class="hljs-keyword">if</span> (f == <span class="hljs-number">-1</span>) {
+        perror(<span class="hljs-string">"Can't open gpio557"</span>);
+        <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+    }
+    n = read(f, &amp;value, <span class="hljs-keyword">sizeof</span>(value));
+    <span class="hljs-keyword">if</span> (n &gt; <span class="hljs-number">0</span>) {
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Initial value value=%c\n"</span>, value[<span class="hljs-number">0</span>]);
+        lseek(f, <span class="hljs-number">0</span>, SEEK_SET);
+    }
+    ev.events = EPOLLPRI;
+    ev.data.fd = f;
+    ret = epoll_ctl(ep, EPOLL_CTL_ADD, f, &amp;ev);
+    <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Waiting\n"</span>);
+        ret = epoll_wait(ep, &amp;events, <span class="hljs-number">1</span>, <span class="hljs-number">-1</span>);
+        <span class="hljs-keyword">if</span> (ret &gt; <span class="hljs-number">0</span>) {
+            n = read(f, &amp;value, <span class="hljs-keyword">sizeof</span>(value));
+            <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Button pressed: value=%c\n"</span>, value[<span class="hljs-number">0</span>]);
+            lseek(f, <span class="hljs-number">0</span>, SEEK_SET);
+        }
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">Here is how the code for the <code class="inlineCode">gpio-int</code> program works. First, call <code class="inlineCode">epoll_create</code> to create the <code class="inlineCode">epoll</code> notification facility. Next, open the GPIO and read out its initial value. Call <code class="inlineCode">epoll_ctl</code> to register the GPIO’s file descriptor with <code class="inlineCode">POLLPRI</code> as the event. Lastly, wait for an interrupt using the <code class="inlineCode">epoll_wait</code> function. When you press the USR button on the BeaglePlay, the program will print <code class="inlineCode">Button pressed:</code> followed by the number of bytes and value read from the GPIO.</p>
+    <p class="normal">While we could <a id="_idIndexMarker856"/>have used <code class="inlineCode">select</code> and <code class="inlineCode">poll</code> to handle interrupts, unlike those other two system calls, the performance of <code class="inlineCode">epoll</code> does not degrade rapidly as the number of file descriptors being monitored increases.</p>
+    <p class="normal">The complete source code for this program, as well as a BitBake recipe and GPIO configuration script, can be found inside the <code class="inlineCode">MELD/Chapter11/meta-device-drivers/recipes-local/gpio-int</code> directory.</p>
+    <p class="normal">Like GPIOs, LEDs are accessible from <code class="inlineCode">sysfs</code>. The interface, however, is noticeably different.</p>
+    <h2 id="_idParaDest-351" class="heading-2"><a id="_idTextAnchor394"/>LEDs</h2>
+    <p class="normal">LEDs are often controlled through a GPIO pin, but there is another kernel subsystem that offers more <a id="_idIndexMarker857"/>specialized control specifically for this purpose. The <code class="inlineCode">leds</code> kernel subsystem adds the ability to set brightness, should the LED have that ability, and it can handle LEDs connected in other ways than a simple GPIO pin. It can be configured to trigger the LED on an event, such as block device access or a heartbeat, to show that the device is working. You will have to configure your kernel with the <code class="inlineCode">CONFIG_LEDS_CLASS</code> option and with the LED trigger actions that are appropriate to you. There is more information in <code class="inlineCode">Documentation/leds/</code> and the drivers are in <code class="inlineCode">drivers/leds/</code>.</p>
+    <p class="normal">As with GPIOs, LEDs are controlled through a <code class="inlineCode">sysfs</code> interface in the <code class="inlineCode">/sys/class/leds/</code> directory. In the case of the BeaglePlay, the user LED names are encoded in the device tree in the form of <code class="inlineCode">:function</code>, as shown here:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /sys/class/leds
+:cpu            :heartbeat      :wlan           mmc1::
+:disk-activity  :lan            mmc0::          mmc2::
+</code></pre>
+    <p class="normal">Now, we can look at the attributes of one of the LEDs:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cd /sys/class/leds/\:heartbeat
+# ls
+brightness      invert          power           trigger
+device          max_brightness  subsystem       uevent
+</code></pre>
+    <p class="normal">Note that leading backslashes are required by the shell to escape any colons in the path.</p>
+    <p class="normal">The <code class="inlineCode">brightness</code> file controls the brightness of the LED and can be a number between <code class="inlineCode">0</code> (off) and <code class="inlineCode">max_brightness</code> (fully on). If the LED doesn’t support intermediate brightness, any non-zero value turns it on. The file called <code class="inlineCode">trigger</code> lists the events that trigger the LED to turn on. The list of triggers is implementation-dependent. Here is an example:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cat trigger
+none kbd-scrolllock kbd-numlock &lt;…&gt; disk-write [heartbeat] cpu &lt;…&gt;
+</code></pre>
+    <p class="normal">The trigger <a id="_idIndexMarker858"/>currently selected is shown in square brackets. You can change it by writing one of the other triggers to the file. If you want to control the LED entirely through brightness, select <code class="inlineCode">none</code>. If you set trigger to <code class="inlineCode">timer</code>, two extra files will appear that allow you to set the on and off times in milliseconds:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo timer &gt; trigger
+# ls
+brightness      delay_on        max_brightness  subsystem       uevent
+delay_off       device          power           trigger
+# cat delay_on
+500
+# cat delay_off
+500
+</code></pre>
+    <p class="normal">If the LED has on-chip timer hardware, the blinking takes place without interrupting the CPU.</p>
+    <h2 id="_idParaDest-352" class="heading-2"><a id="_idTextAnchor395"/>I2C</h2>
+    <p class="normal">I2C is a simple low-speed 2-wire bus that is common on embedded boards. It is typically used to access <a id="_idIndexMarker859"/>peripherals that are not on the SoC such as display controllers, camera sensors, GPIO extenders, and so on. There is a related standard known <a id="_idIndexMarker860"/>as <strong class="keyWord">system management bus</strong> (<strong class="keyWord">SMBus</strong>) that is found on PCs and is used to access temperature and voltage sensors. SMBus is a subset of I2C.</p>
+    <p class="normal">I2C is a master-slave protocol with the master being one or more host controllers on the SoC. Slaves have a 7-bit address assigned by the manufacturer (read the data sheet) allowing up to 128 nodes per bus, but 16 are reserved, so only 112 nodes are allowed in practice. The master may initiate read or write transactions with one of the slaves. Frequently, the first byte is used to specify a register on the slave, while the remaining bytes are the data that’s read from or written to that register.</p>
+    <p class="normal">There is one device node for each host controller. This SoC has five:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls -l /dev/i2c*
+crw-rw---- 1 root gpio 89, 0  Aug  7 13:25 /dev/i2c-0
+crw-rw---- 1 root gpio 89, 1  Aug  7 13:25 /dev/i2c-1
+crw-rw---- 1 root gpio 89, 2  Aug  7 13:25 /dev/i2c-2
+crw-rw---- 1 root gpio 89, 3  Aug  7 13:25 /dev/i2c-3
+crw-rw---- 1 root gpio 89, 5  Aug  7 13:25 /dev/i2c-5
+</code></pre>
+    <p class="normal">The device interface provides a series of <code class="inlineCode">ioctl</code> commands that query the host controller and send the read and write commands to I2C slaves. There is a package named <code class="inlineCode">i2c-tools</code> that uses this <a id="_idIndexMarker861"/>interface to provide basic command-line tools to interact with I2C devices. The tools are as follows:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">i2cdetect</code>: Lists the I2C adapters and probes the bus.</li>
+      <li class="bulletList"><code class="inlineCode">i2cdump</code>: Dumps data from all the registers of an I2C peripheral.</li>
+      <li class="bulletList"><code class="inlineCode">i2cget</code>: Reads data from an I2C slave.</li>
+      <li class="bulletList"><code class="inlineCode">i2cset</code>: Writes data to an I2C slave.</li>
+    </ul>
+    <p class="normal">The <code class="inlineCode">i2c-tools</code> package is available in Buildroot and The Yocto Project as well as most mainstream distributions. Writing a user space program to talk to the device is straightforward as long as you know the address and protocol of the slave. The example that follows shows how to read the first four bytes from the FT24C32A-ELR-T EEPROM, which is mounted on the BeaglePlay on I2C bus 0. The EEPROM has a slave address of <code class="inlineCode">0x50</code>.</p>
+    <p class="normal">Here is the code for a program that reads the first four bytes from an I2C address:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;fcntl.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/ioctl.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;linux/i2c-dev.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> I2C_ADDRESS 0x50</span>
+<span class="hljs-type">int</span> <span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+<span class="hljs-type">    int</span> f;
+<span class="hljs-type">    int</span> n;
+<span class="hljs-type">    char</span> buf[<span class="hljs-number">10</span>];
+<span class="hljs-comment">    /* Open the adapter and set the address of the I2C device */</span>
+<span class="hljs-type">    </span>f = open(<span class="hljs-string">"/dev/i2c-0"</span>, O_RDWR);
+<span class="hljs-comment">    /* Set the address of the i2c slave device */</span>
+    ioctl(f, I2C_SLAVE, I2C_ADDRESS);
+<span class="hljs-comment">    /* Set the 16-bit address to read from to 0 */</span>
+    buf[<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>; <span class="hljs-comment">/* address byte 1 */</span>
+    buf[<span class="hljs-number">1</span>] = <span class="hljs-number">0</span>; <span class="hljs-comment">/* address byte 2 */</span>
+    n = write(f, buf, <span class="hljs-number">2</span>);
+<span class="hljs-comment">/* Now read 4 bytes from that address */</span>
+    n = read(f, buf, <span class="hljs-number">4</span>);
+<span class="hljs-built_in">    printf</span>(<span class="hljs-string">"0x%x 0x%x 0x%x 0x%x\n"</span>, buf[<span class="hljs-number">0</span>], buf[<span class="hljs-number">1</span>], buf[<span class="hljs-number">2</span>], buf[<span class="hljs-number">3</span>]);
+    close(f);
+<span class="hljs-keyword">    return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">This <code class="inlineCode">i2c-eeprom-read</code> program prints <code class="inlineCode">0xaa 0x55 0x33 0x33</code> when executed on a BeaglePlay. That four-byte sequence is the magic number for the EEPROM. The complete source and a BitBake recipe for this program can be found inside the <code class="inlineCode">MELD/Chapter11/meta-device-drivers/recipes-local/i2c-eeprom-read</code> directory.</p>
+    <p class="normal">Note that <a id="_idIndexMarker862"/>a device on the other end of the I2C bus can be little-endian or big-endian. Little-endian and big-endian refer to the order of bytes within a data word. A 32-bit word contains four bytes. Little-endian means that the least significant byte is at index 0 and the most significant byte is at index 3. In contrast, big-endian means that the most significant byte is at index 0 and the least significant byte is at index 3. Big-endian is also referred to as <em class="italic">network order</em> corresponding to the order in which the bytes are transmitted over the wire in network protocols.</p>
+    <p class="normal">This program is like <code class="inlineCode">i2cget</code> except that the address and register bytes being read from are both hardcoded rather than passed in as arguments. We can use <code class="inlineCode">i2cdetect</code> to discover the addresses of any peripherals on an I2C bus. <code class="inlineCode">i2cdetect</code> can leave I2C peripherals in a bad state or lock up the bus, so it’s good practice to reboot after using it. A peripheral’s data sheet tells us what the registers map to. With that information, we can then use <code class="inlineCode">i2cset</code> to write to its registers over I2C. These I2C commands can easily be converted into a library of C functions for interfacing with the peripheral.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">Important note</strong></p>
+      <p class="normal">There is more information about the Linux implementation of I2C in <code class="inlineCode">Documentation/i2c/dev-interface.rst</code>. The host controller drivers are in <code class="inlineCode">drivers/i2c/busses/</code>.</p>
+    </div>
+    <p class="normal">Another popular communication protocol is the <strong class="keyWord">SPI</strong>, which utilizes a 4-wire bus.</p>
+    <h2 id="_idParaDest-353" class="heading-2"><a id="_idTextAnchor396"/>SPI</h2>
+    <p class="normal">The SPI bus is similar to I2C but is a lot faster by up to tens of MHz. The interface uses four wires with <a id="_idIndexMarker863"/>separate send and receive lines, which allow it to operate in full duplex. Each chip on the bus is selected with a dedicated chip select line. It is commonly used to connect to touchscreen sensors, display controllers, and serial NOR flash devices.</p>
+    <p class="normal">As with I2C, it is a master-slave protocol, with most SoCs implementing one or more master host controllers. There is a generic SPI device driver that you can enable through the <code class="inlineCode">CONFIG_SPI_SPIDEV</code> kernel configuration. This creates a device node for each SPI controller, which allows you to access SPI chips from user space. The device nodes are named <code class="inlineCode">spidev&lt;bus&gt;.&lt;chip select&gt;</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls -l /dev/spi*
+crw-rw---- 1 root root 153, 0  Jan  1 00:29 /dev/spidev1.0
+</code></pre>
+    <p class="normal">For examples of using the <code class="inlineCode">spidev</code> interface, please refer to the example code in <code class="inlineCode">Documentation/spi/</code>.</p>
+    <p class="normal">So far, the device drivers we’ve seen all have longstanding upstream support within the Linux kernel. Because all these device drivers are generic (GPIO, LEDs, I2C, and SPI), accessing them from user space is straightforward. At some point, you will encounter a piece of hardware that lacks a compatible kernel device driver. That hardware may be the centerpiece of your product (LiDAR, SDR, and so on). There may also be an FPGA in between the SoC and this hardware. Under these circumstances, you may have no other recourse than to write your own kernel module(s).</p>
+    <h1 id="_idParaDest-354" class="heading-1"><a id="_idTextAnchor397"/>Writing a kernel device driver</h1>
+    <p class="normal">Eventually, when you have exhausted all the previous user space options, you will find yourself <a id="_idIndexMarker864"/>having to write a device driver to access a piece of hardware attached to your device. Character drivers are the most flexible and should cover 90% of all your needs; network drivers apply if you are working with a network interface; and block drivers are for mass storage. The task of writing a kernel driver is complex and beyond the scope of this book. There are some references at the end that will help you on your way. In this section, I want to outline the options available for interacting with a driver – a topic not normally covered – and show you the bare bones of a character device driver.</p>
+    <h2 id="_idParaDest-355" class="heading-2"><a id="_idTextAnchor398"/>Designing a character driver interface</h2>
+    <p class="normal">The main character driver interface is based on a stream of bytes, as you would have with a serial port. However, many devices don’t fit this description: a controller for a robot arm needs functions <a id="_idIndexMarker865"/>to move and rotate each joint, for <a id="_idIndexMarker866"/>example. Luckily, there are other ways to communicate with device drivers than just <code class="inlineCode">read</code> and <code class="inlineCode">write</code>:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">ioctl</code>: The <code class="inlineCode">ioctl</code> function allows <a id="_idIndexMarker867"/>you to pass two arguments to your driver. These arguments can have any meaning you like. By convention, the first argument is a command that selects one of several functions in your driver, while the second is a pointer to a structure that serves as a container for the input and output parameters. This is a blank canvas that allows you to design any program interface you like. It is pretty common when the driver and application are closely linked and written by the same team. However, <code class="inlineCode">ioctl</code> is deprecated in the kernel, and you will find it hard to get any drivers with new uses of <code class="inlineCode">ioctl</code> accepted upstream. The kernel maintainers dislike <code class="inlineCode">ioctl</code> because it makes kernel code and application code too interdependent, and it is hard to keep both of them in step across kernel versions and architectures.</li>
+      <li class="bulletList"><code class="inlineCode">sysfs</code>: This is the <a id="_idIndexMarker868"/>preferred way to do things now, with a good example being the LED interface described earlier. The advantage is that it is somewhat self-documenting, so long as you choose descriptive names for the files. It is also scriptable because the file’s content is usually text strings. On the other hand, the requirement for each file to contain a single value makes it hard to achieve atomicity if you need to change more than one value at a time. Conversely, <code class="inlineCode">ioctl</code> passes all its arguments in a structure, via a single function call.</li>
+      <li class="bulletList"><code class="inlineCode">mmap</code>: You can <a id="_idIndexMarker869"/>get direct access to kernel buffers and hardware registers by mapping kernel memory into user space, thus bypassing the kernel. You may still need some kernel code to handle interrupts and DMA. There is a subsystem that encapsulates this idea known as <code class="inlineCode">uio</code>, which is short for <strong class="keyWord">user I/O</strong>. There is more documentation in <code class="inlineCode">Documentation/driver-api/uio-howto.rst</code> and there are example drivers in <code class="inlineCode">drivers/uio/</code>.</li>
+      <li class="bulletList"><code class="inlineCode">sigio</code>: You can <a id="_idIndexMarker870"/>send a signal from a driver using the kernel function named <code class="inlineCode">kill_fasync()</code> to notify applications of an event such as input becoming ready or an interrupt being received. By convention, the signal called <code class="inlineCode">SIGIO</code> is used, but it could be any. You can see some examples in <code class="inlineCode">drivers/uio/uio.c</code> and <code class="inlineCode">drivers/char/rtc.c</code>. The main problem is that it is difficult to write reliable signal handlers in user space, so it remains a little-used facility.</li>
+      <li class="bulletList"><code class="inlineCode">debugfs</code>: This is <a id="_idIndexMarker871"/>another pseudo filesystem that represents kernel data as files and directories, like <code class="inlineCode">proc</code> and <code class="inlineCode">sysfs</code>. The main distinction is that <code class="inlineCode">debugfs</code> must not contain information that is needed for the normal operation of the system; it is for debug and trace information only. It is mounted via <code class="inlineCode">mount -t debugfs debug /sys/kernel/debug</code>. There is a good description of <code class="inlineCode">debugfs</code> in <code class="inlineCode">Documentation/filesystems/debugfs.rst</code>.</li>
+      <li class="bulletList"><code class="inlineCode">proc</code>: The <code class="inlineCode">proc</code> filesystem is deprecated for all new code unless it relates to processes, which was <a id="_idIndexMarker872"/>what the filesystem was originally intended for. However, you can use <code class="inlineCode">proc</code> to publish any information you choose. And, unlike <code class="inlineCode">sysfs</code> and <code class="inlineCode">debugfs</code>, it is available to non-GPL modules.</li>
+      <li class="bulletList"><code class="inlineCode">netlink</code>: This is a <a id="_idIndexMarker873"/>socket protocol family. <code class="inlineCode">AF_NETLINK</code> creates a socket that links kernel space to user space. It was originally created so that network tools could communicate with the Linux network code to access the routing tables and other details. It is also used by <code class="inlineCode">udev</code> to pass events from the kernel to the <code class="inlineCode">udev</code> daemon. It is very rarely used in general device drivers.</li>
+    </ul>
+    <p class="normal">There are many examples of all the preceding filesystems in the kernel source code, and you can design really interesting interfaces to your driver code. The only universal rule is the <em class="italic">principle of least astonishment</em>. In other words, application writers who are using your driver should find that everything works in a logical way without any quirks or oddities.</p>
+    <h2 id="_idParaDest-356" class="heading-2"><a id="_idTextAnchor399"/>Anatomy of a device driver</h2>
+    <p class="normal">It’s time to draw some threads together by looking at the code for a simple device driver.</p>
+    <p class="normal">Here is the <a id="_idIndexMarker874"/>start of a device driver named <code class="inlineCode">dummy</code>, which creates four devices that can be accessed through <code class="inlineCode">/dev/dummy0</code> to <code class="inlineCode">/dev/dummy3</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;linux/kernel.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;linux/module.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;linux/init.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;linux/fs.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;linux/device.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> DEVICE_NAME </span><span class="hljs-string">"dummy"</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> MAJOR_NUM 42</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> NUM_DEVICES 4</span>
+<span class="hljs-type">static</span> <span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-keyword">class</span><span class="hljs-class"> *</span><span class="hljs-title">dummy_class</span><span class="hljs-class">;</span>
+</code></pre>
+    <p class="normal">Next, we will define the <code class="inlineCode">dummy_open()</code>, <code class="inlineCode">dummy_release()</code>, <code class="inlineCode">dummy_read()</code>, and <code class="inlineCode">dummy_write()</code> functions for the character device interface:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title">dummy_open</span><span class="hljs-params">(</span><span class="hljs-keyword">struct</span><span class="hljs-params"> inode *inode, </span><span class="hljs-keyword">struct</span><span class="hljs-params"> file *file)</span>
+{
+    pr_info(<span class="hljs-string">"%s\n"</span>, __func__);
+<span class="hljs-keyword">    return</span> <span class="hljs-number">0</span>;
+}
+<span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title">dummy_release</span><span class="hljs-params">(</span><span class="hljs-keyword">struct</span><span class="hljs-params"> inode *inode, </span><span class="hljs-keyword">struct</span><span class="hljs-params"> file *file)</span>
+{
+    pr_info(<span class="hljs-string">"%s\n"</span>, __func__);
+<span class="hljs-keyword">    return</span> <span class="hljs-number">0</span>;
+}
+<span class="hljs-type">static</span> <span class="hljs-type">ssize_t</span> <span class="hljs-title">dummy_read</span><span class="hljs-params">(</span><span class="hljs-keyword">struct</span><span class="hljs-params"> file *file, </span><span class="hljs-type">char</span><span class="hljs-params"> *buffer, </span><span class="hljs-type">size_t</span><span class="hljs-params"> length, </span><span class="hljs-type">loff_t</span><span class="hljs-params"> * offset)</span>
+{
+    pr_info(<span class="hljs-string">"%s %u\n"</span>, __func__, length);
+<span class="hljs-keyword">    return</span> <span class="hljs-number">0</span>;
+}
+<span class="hljs-type">static</span> <span class="hljs-type">ssize_t</span> <span class="hljs-title">dummy_write</span><span class="hljs-params">(</span><span class="hljs-keyword">struct</span><span class="hljs-params"> file *file, </span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *buffer, </span><span class="hljs-type">size_t</span><span class="hljs-params"> length, </span><span class="hljs-type">loff_t</span><span class="hljs-params"> * offset)</span>
+{
+    pr_info(<span class="hljs-string">"%s %u\n"</span>, __func__, length);
+<span class="hljs-keyword">    return</span> length;
+}
+</code></pre>
+    <p class="normal">After that, we need <a id="_idIndexMarker875"/>to initialize a <code class="inlineCode">file_operations</code> structure and define the <code class="inlineCode">dummy_init()</code> and <code class="inlineCode">dummy_exit()</code> functions, which are called when the driver is loaded and unloaded:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-title">file_operations</span><span class="hljs-class"> </span><span class="hljs-title">dummy_fops</span><span class="hljs-class"> =</span> {
+    .open = dummy_open,
+    .release = dummy_release,
+    .read = dummy_read,
+    .write = dummy_write,
+};
+<span class="hljs-type">int</span> __init <span class="hljs-title">dummy_init</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+<span class="hljs-type">    int</span> ret;
+<span class="hljs-type">    int </span>i;
+    printk(<span class="hljs-string">"Dummy loaded\n"</span>);
+    ret = register_chrdev(MAJOR_NUM, DEVICE_NAME, &amp;dummy_fops);
+<span class="hljs-keyword">    if</span> (ret != <span class="hljs-number">0</span>){
+<span class="hljs-keyword">        return</span> ret;
+    }
+    dummy_class = class_create(DEVICE_NAME);
+<span class="hljs-keyword">    for</span> (<span class="hljs-type">int</span> i = <span class="hljs-number">0</span>; i &lt; NUM_DEVICES; i++) {
+        device_create(dummy_class, <span class="hljs-literal">NULL</span>, MKDEV(MAJOR_NUM, i), <span class="hljs-literal">NULL</span>, <span class="hljs-string">"dummy%d"</span>, i);
+    }
+<span class="hljs-keyword">    return</span> <span class="hljs-number">0</span>;
+}
+<span class="hljs-type">void</span> __exit <span class="hljs-title">dummy_exit</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+    int i;
+<span class="hljs-keyword">    for</span> (<span class="hljs-type">int</span> i = <span class="hljs-number">0</span>; i &lt; NUM_DEVICES; i++) {
+        device_destroy(dummy_class, MKDEV(MAJOR_NUM, i));
+    }
+    class_destroy(dummy_class);
+    unregister_chrdev(MAJOR_NUM, DEVICE_NAME);
+    printk(<span class="hljs-string">"Dummy unloaded\n"</span>);
+}
+</code></pre>
+    <p class="normal">At the end <a id="_idIndexMarker876"/>of the code, the macros called <code class="inlineCode">module_init</code> and <code class="inlineCode">module_exit</code> specify the functions to be called when the module is loaded and unloaded:</p>
+    <pre class="programlisting code"><code class="hljs-code">module_init(dummy_init);
+module_exit(dummy_exit);
+</code></pre>
+    <p class="normal">The closing three macros, named <code class="inlineCode">MODULE_*</code>, add some basic information about the module:</p>
+    <pre class="programlisting code"><code class="hljs-code">MODULE_LICENSE(<span class="hljs-string">"GPL"</span>);
+MODULE_AUTHOR(<span class="hljs-string">"Chris Simmonds"</span>);
+MODULE_DESCRIPTION(<span class="hljs-string">"A dummy driver"</span>);
+</code></pre>
+    <p class="normal">This information can be retrieved from the compiled kernel module using the <code class="inlineCode">modinfo</code> command. The complete source code, as well as a <code class="inlineCode">Makefile</code> for this driver, can be found inside the <code class="inlineCode">MELD/Chapter11/meta-device-drivers/recipes-kernel/dummy-driver</code> directory.</p>
+    <p class="normal">When the module is loaded, the <code class="inlineCode">dummy_init()</code> function is called. The point at which it becomes a character device is when it makes the call to <code class="inlineCode">register_chrdev</code> passing a pointer to <code class="inlineCode">struct file_operations</code> containing pointers to the four functions that the driver implements. While <code class="inlineCode">register_chrdev</code> tells the kernel that there is a driver with a major number of <code class="inlineCode">42</code>, it doesn’t say anything about the class of the driver, so it will not create an entry in <code class="inlineCode">/sys/class/</code>.</p>
+    <p class="normal">Without an entry in <code class="inlineCode">/sys/class/</code>, the device manager cannot create device nodes. So, the next few lines <a id="_idIndexMarker877"/>of code create a device class named <code class="inlineCode">dummy</code> and four devices of that class called <code class="inlineCode">dummy0</code> to <code class="inlineCode">dummy3</code>. The result is that the <code class="inlineCode">/sys/class/dummy/</code> directory is created containing subdirectories <code class="inlineCode">dummy0</code> to <code class="inlineCode">dummy3</code> when the driver is initialized. Each of the subdirectories contains a <code class="inlineCode">dev</code> file that contains the major and minor numbers of the device. This is all that a device manager needs to create device nodes <code class="inlineCode">/dev/dummy0</code> to <code class="inlineCode">/dev/dummy3</code>.</p>
+    <p class="normal">The <code class="inlineCode">dummy_exit()</code> function has to release the resources claimed by <code class="inlineCode">dummy_init()</code> by freeing up the device class and major number.</p>
+    <p class="normal">The file operations for this driver are implemented by <code class="inlineCode">dummy_open()</code>, <code class="inlineCode">dummy_read()</code>, <code class="inlineCode">dummy_write()</code>, and <code class="inlineCode">dummy_release()</code>. They are called when a user space program calls <code class="inlineCode">open(2)</code>, <code class="inlineCode">read(2)</code>, <code class="inlineCode">write(2)</code>, and <code class="inlineCode">close(2)</code>, respectively. They just print a kernel message so that you can see that they were called. You can demonstrate this from the command line using the <code class="inlineCode">echo</code> command:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo hello &gt; /dev/dummy0
+dummy_open
+dummy_write 6
+dummy_release
+</code></pre>
+    <p class="normal">In this case, the messages appear because I was logged on to the console, and kernel messages are printed to the console by default. If you are not logged on to the console, you can still see the kernel messages by using the <code class="inlineCode">dmesg</code> command.</p>
+    <p class="normal">The full source code for this driver is less than 100 lines, but it is enough to illustrate how the linkage between a device node and driver code works, how the device class is created, and how the data is moved between the user and kernel spaces. Next, you need to build it.</p>
+    <h2 id="_idParaDest-357" class="heading-2"><a id="_idTextAnchor400"/>Compiling kernel modules</h2>
+    <p class="normal">At this point, you have some driver code that you want to compile and test on your target system. You can <a id="_idIndexMarker878"/>copy it into the kernel source tree and modify makefiles to build it, or you can compile it as a module out of tree. Let’s start by building out of tree.</p>
+    <p class="normal">You will need a simple <code class="inlineCode">Makefile</code> that uses the kernel build system to do all the hard work:</p>
+    <pre class="programlisting code"><code class="hljs-code">obj-m := dummy.o
+SRC := $(shell pwd)
+all:
+        $(MAKE) -C $(KERNEL_SRC) M=$(SRC)
+modules_install:
+        $(MAKE) -C $(KERNEL_SRC) M=$(SRC) modules_install
+clean:
+        rm -f *.o *~ core .depend .*.cmd *.ko *.mod.c
+        rm -f Module.markers Module.symvers modules.order
+        rm -rf .tmp_versions Modules.symvers
+</code></pre>
+    <p class="normal">Yocto sets <code class="inlineCode">KERNEL_SRC</code> to the directory of the kernel for your target device that you will be running the <a id="_idIndexMarker879"/>module on. The <code class="inlineCode">obj-m := dummy.o</code> code will invoke the kernel build rule to take the <code class="inlineCode">dummy.c</code> source file and create a <code class="inlineCode">dummy.ko</code> kernel module. I will show you how to load kernel modules in the next section.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">Important note</strong></p>
+      <p class="normal">Kernel modules are <a id="_idIndexMarker880"/>not binary compatible between kernel releases and configurations: the module will only load on the kernel it was compiled with. </p>
+    </div>
+    <p class="normal">If you want to build a driver in the kernel source tree, the procedure is quite simple. Choose a directory appropriate to the type of driver you have. The driver is a basic character device, so I would put <code class="inlineCode">dummy.c</code> in <code class="inlineCode">drivers/char/</code>. Then, edit the makefile in the directory and add a line to build the driver unconditionally as a module, like so:</p>
+    <pre class="programlisting code"><code class="hljs-code">obj-m += dummy.o
+</code></pre>
+    <p class="normal">Alternatively, you can add the following line to build it unconditionally as a built-in:</p>
+    <pre class="programlisting code"><code class="hljs-code">obj-y += dummy.o
+</code></pre>
+    <p class="normal">If you want to make the driver optional, you can add a menu option to the <code class="inlineCode">Kconfig</code> file and make the compilation conditional on the configuration option, as I described in the <em class="italic">Understanding kernel configuration</em> section of <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a>.</p>
+    <h2 id="_idParaDest-358" class="heading-2"><a id="_idTextAnchor401"/>Loading kernel modules</h2>
+    <p class="normal">You <a id="_idIndexMarker881"/>can load, list, and unload modules using the simple <code class="inlineCode">modprobe</code>, <code class="inlineCode">lsmod</code>, and <code class="inlineCode">rmmod</code> commands. Here, they are loading and unloading the dummy driver:</p>
+    <pre class="programlisting con"><code class="hljs-con"># modprobe dummy
+# lsmod
+Module                  Size  Used by
+dummy                  12288  0
+# rmmod dummy
+</code></pre>
+    <p class="normal">If the module is placed in a subdirectory in <code class="inlineCode">/lib/modules/&lt;kernel release&gt;</code>, you can create a modules dependency database using the <code class="inlineCode">depmod -a</code> command, like so:</p>
+    <pre class="programlisting con"><code class="hljs-con"># depmod -a
+# ls /lib/modules/6.12.9-ti-g8906665ace32
+modules.alias              modules.builtin.modinfo    modules.softdep
+modules.alias.bin          modules.dep                modules.symbols
+modules.builtin            modules.dep.bin            modules.symbols.bin
+modules.builtin.alias.bin  modules.devname            updates
+modules.builtin.bin        modules.order
+</code></pre>
+    <p class="normal">The information in the <code class="inlineCode">modules.*</code> files is used by the <code class="inlineCode">modprobe</code> command to locate a module by name rather than its full path. <code class="inlineCode">modprobe</code> has many other features, all of which are described on the <code class="inlineCode">modprobe(8)</code> manual page.</p>
+    <p class="normal">Now that we have written and loaded our dummy kernel module, how do we get it to talk to some real piece of hardware? We need to bind our driver to that hardware either by way of the device tree or platform data. Discovering hardware and linking that hardware to a device driver is the topic of the next section.</p>
+    <h1 id="_idParaDest-359" class="heading-1"><a id="_idTextAnchor402"/>Discovering the hardware configuration</h1>
+    <p class="normal">The dummy driver demonstrates the structure of a device driver, but it lacks interaction with real hardware <a id="_idIndexMarker882"/>since it only manipulates memory structures. Device drivers are usually written to interact with hardware. Part of that is being able to discover the hardware in the first place, bearing in mind that it may be at different addresses in different configurations.</p>
+    <p class="normal">In some cases, the hardware provides the information itself. Devices on a discoverable bus such as PCI or USB have a query mode that returns resource requirements and a unique identifier. The kernel matches the identifier and possibly other characteristics with the device drivers and marries them up.</p>
+    <p class="normal">However, most of the hardware blocks on an embedded board do not have such identifiers. You have to provide the <a id="_idIndexMarker883"/>information yourself in the form of a <strong class="keyWord">device tree</strong> or as C structures known as <strong class="keyWord">platform data</strong>.</p>
+    <p class="normal">In the standard <a id="_idIndexMarker884"/>driver model for Linux, device drivers register themselves with the appropriate subsystem: PCI, USB, open firmware (device tree), platform device, and so on. The registration includes an identifier and a callback function called a <code class="inlineCode">probe</code> function that is called <a id="_idIndexMarker885"/>if there is a match between the ID of the hardware and the ID of the driver. For PCI and USB, the ID is based on the vendor and the product IDs of the devices. For device trees and platform devices, it is a name (a text string).</p>
+    <h2 id="_idParaDest-360" class="heading-2"><a id="_idTextAnchor403"/>Device trees</h2>
+    <p class="normal">I gave you an introduction to device trees in <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a>. Here, I want to show you how the Linux device <a id="_idIndexMarker886"/>drivers hook up with this information.</p>
+    <p class="normal">As an example, I will <a id="_idIndexMarker887"/>use the Arm Versatile board (<code class="inlineCode">arch/arm/boot/dts/versatile-ab.dts</code>) for which the Ethernet adapter is defined here:</p>
+    <pre class="programlisting code"><code class="hljs-code">net@10010000 {
+   compatible = "smsc,lan91c111";
+   reg = &lt;0x10010000 0x10000&gt;;
+   interrupts = &lt;25&gt;;
+};
+</code></pre>
+    <p class="normal">Pay special attention to the <code class="inlineCode">compatible</code> property of this node. This string value will reappear later in the source code for the Ethernet adapter. We will learn more about device trees in <a href="Chapter_04.xhtml#_idTextAnchor126"><em class="italic">Chapter 12</em></a>.</p>
+    <h2 id="_idParaDest-361" class="heading-2"><a id="_idTextAnchor404"/>Platform data</h2>
+    <p class="normal">In the absence <a id="_idIndexMarker888"/>of device tree support, there is a fallback <a id="_idIndexMarker889"/>method of describing hardware using C structures, known as the platform data.</p>
+    <p class="normal">Each piece of hardware is described by <code class="inlineCode">struct platform_device</code>, which has a name and a pointer to an array of resources. The resource’s type is determined by flags, which include the following:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">IORESOURCE_MEM</code>: This is the physical address of a region of memory.</li>
+      <li class="bulletList"><code class="inlineCode">IORESOURCE_IO</code>: This is the physical address or port number of I/O registers.</li>
+      <li class="bulletList"><code class="inlineCode">IORESOURCE_IRQ</code>: This is the interrupt number.</li>
+    </ul>
+    <p class="normal">Here is an example of the platform data for an Ethernet controller taken from <code class="inlineCode">arch/arm/machversatile/core.c</code>, which has been edited for clarity:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> VERSATILE_ETH_BASE 0x10010000</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> IRQ_ETH 25</span>
+<span class="hljs-type">static</span> <span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-title">resource</span><span class="hljs-class"> </span><span class="hljs-title">smc91x_resources</span><span class="hljs-class">[] =</span> {
+[<span class="hljs-number">0</span>] = {
+   .start = VERSATILE_ETH_BASE,
+   .end = VERSATILE_ETH_BASE + SZ_64K - <span class="hljs-number">1</span>,
+   .flags = IORESOURCE_MEM,
+ },
+ [<span class="hljs-number">1</span>] = {
+   .start = IRQ_ETH,
+   .end = IRQ_ETH,
+   .flags = IORESOURCE_IRQ,
+ },
+};
+<span class="hljs-type">static</span> <span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-title">platform_device</span><span class="hljs-class"> </span><span class="hljs-title">smc91x_device</span><span class="hljs-class"> =</span> {
+  .name = <span class="hljs-string">"smc91x"</span>,
+  .id = <span class="hljs-number">0</span>,
+  .num_resources = ARRAY_SIZE(smc91x_resources),
+  .resource = smc91x_resources,
+};
+</code></pre>
+    <p class="normal">It has a <a id="_idIndexMarker890"/>memory area of 64 KB and an interrupt. The platform <a id="_idIndexMarker891"/>data is usually registered with the kernel when the board is initialized:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">void</span> __init <span class="hljs-title">versatile_init</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+   platform_device_register(&amp;versatile_flash_device);
+   platform_device_register(&amp;versatile_i2c_device);
+   platform_device_register(&amp;smc91x_device);
+&lt;…&gt;
+</code></pre>
+    <p class="normal">The platform data shown here is functionally equivalent to the previous device tree source except for the <code class="inlineCode">name</code> field, which takes the place of the <code class="inlineCode">compatible</code> property.</p>
+    <h2 id="_idParaDest-362" class="heading-2"><a id="_idTextAnchor405"/>Linking hardware with device drivers</h2>
+    <p class="normal">In the <a id="_idIndexMarker892"/>preceding section, you saw how an Ethernet adapter is described using a device tree or platform data. The corresponding driver code is in <code class="inlineCode">drivers/net/ethernet/smsc/smc91x.c</code> and it works with both the device tree and platform data.</p>
+    <p class="normal">Here is the initialization code, once again edited for clarity:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">static</span> <span class="hljs-type">const</span> <span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-title">of_device_id</span><span class="hljs-class"> </span><span class="hljs-title">smc91x_match</span><span class="hljs-class">[] =</span> {
+   { .compatible = <span class="hljs-string">"smsc,lan91c94"</span>, },
+   { .compatible = <span class="hljs-string">"smsc,lan91c111"</span>, },
+   {},
+};
+MODULE_DEVICE_TABLE(of, smc91x_match);
+<span class="hljs-type">static</span> <span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-title">platform_driver</span><span class="hljs-class"> </span><span class="hljs-title">smc_driver</span><span class="hljs-class"> =</span> {
+    .probe = smc_drv_probe,
+    .remove = smc_drv_remove,
+    .driver = {
+        .name = <span class="hljs-string">"smc91x"</span>,
+        .of_match_table = of_match_ptr(smc91x_match),
+},
+};
+<span class="hljs-type">static</span> <span class="hljs-type">int</span> __init <span class="hljs-title">smc_driver_init</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+<span class="hljs-keyword">    return</span> platform_driver_register(&amp;smc_driver);
+}
+<span class="hljs-type">static</span> <span class="hljs-type">void</span> __exit <span class="hljs-title">smc_driver_exit</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+    platform_driver_unregister(&amp;smc_driver);
+}
+module_init(smc_driver_init);
+module_exit(smc_driver_exit);
+</code></pre>
+    <p class="normal">When <a id="_idIndexMarker893"/>the driver is initialized, it calls <code class="inlineCode">platform_driver_register()</code> pointing to <code class="inlineCode">struct platform_driver</code>, in which there is a callback to a <code class="inlineCode">probe</code> function, a driver name of <code class="inlineCode">smc91x</code>, and a pointer to <code class="inlineCode">struct of_device_id</code>.</p>
+    <p class="normal">If this driver has been configured by the device tree, the kernel will look for a match between the <code class="inlineCode">compatible</code> property in the device tree node and the string being pointed to by the compatible structure element. For each match, it calls the <code class="inlineCode">probe</code> function.</p>
+    <p class="normal">On the other hand, if it was configured through platform data, the probe function will be called for each match on the string pointed to by <code class="inlineCode">driver.name</code>.</p>
+    <p class="normal">The <code class="inlineCode">probe</code> function extracts information about the interface:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">static</span> <span class="hljs-type">int</span> <span class="hljs-title">smc_drv_probe</span><span class="hljs-params">(</span><span class="hljs-keyword">struct</span><span class="hljs-params"> platform_device *pdev)</span>
+{
+<span class="hljs-keyword">   struct</span><span class="hljs-class"> </span><span class="hljs-title">smc91x_platdata</span><span class="hljs-class"> *</span><span class="hljs-title">pd</span><span class="hljs-class"> =</span> dev_get_platdata(&amp;pdev-&gt;dev);
+<span class="hljs-keyword">   </span><span class="hljs-type">const</span> <span class="hljs-keyword">struct</span><span class="hljs-class"> </span><span class="hljs-title">of_device_id</span><span class="hljs-class"> *</span><span class="hljs-title">match</span><span class="hljs-class"> =</span> <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">   struct</span><span class="hljs-class"> </span><span class="hljs-title">resource</span><span class="hljs-class"> *</span><span class="hljs-title">res</span><span class="hljs-class">, *</span><span class="hljs-title">ires</span><span class="hljs-class">;</span>
+<span class="hljs-keyword">   </span><span class="hljs-type">int</span> irq;
+<span class="hljs-keyword">   </span>res = platform_get_resource(pdev, IORESOURCE_MEM, <span class="hljs-number">0</span>);
+<span class="hljs-keyword">   </span>ires = platform_get_resource(pdev, IORESOURCE_IRQ, <span class="hljs-number">0</span>);
+<span class="hljs-keyword">   </span>&lt;…&gt;
+<span class="hljs-keyword">   </span>addr = ioremap(res-&gt;start, SMC_IO_EXTENT);
+<span class="hljs-keyword">   </span>irq = ires-&gt;start;
+<span class="hljs-keyword">   </span>&lt;…&gt;
+}
+</code></pre>
+    <p class="normal">The calls to <code class="inlineCode">platform_get_resource()</code> extract the memory and <code class="inlineCode">irq</code> information from either the device tree or the platform data. It is up to the driver to map the memory and install the interrupt handler. The third parameter (<code class="inlineCode">0</code> in both of the previous cases) comes into play if there is more than one resource of that particular type.</p>
+    <p class="normal">Device <a id="_idIndexMarker894"/>trees allow you to configure more than just basic memory ranges and interrupts. There is a section of code in the <code class="inlineCode">probe</code> function that extracts optional parameters from the device tree. In this snippet, it gets the <code class="inlineCode">register-io-width</code> property:</p>
+    <pre class="programlisting code"><code class="hljs-code">match = of_match_device(of_match_ptr(smc91x_match), &amp;pdev-&gt;dev);
+<span class="hljs-keyword">if</span> (match) {
+<span class="hljs-keyword">   struct</span><span class="hljs-class"> </span><span class="hljs-title">device_node</span><span class="hljs-class"> *</span><span class="hljs-title">np</span><span class="hljs-class"> =</span> pdev-&gt;dev.of_node;
+   u32 val;
+   &lt;…&gt;
+   of_property_read_u32(np, <span class="hljs-string">"reg-io-width"</span>, &amp;val);
+   &lt;…&gt;
+}
+</code></pre>
+    <p class="normal">For most drivers, specific bindings are documented in <code class="inlineCode">Documentation/devicetree/bindings/</code>. For this particular driver, the information is in <code class="inlineCode">Documentation/devicetree/bindings/net/smsc,lan9115.yaml</code>.</p>
+    <p class="normal">The main thing to remember here is that drivers should register a <code class="inlineCode">probe</code> function and enough information for the kernel to call <code class="inlineCode">probe</code> as it finds matches with the hardware it knows about. The linkage <a id="_idIndexMarker895"/>between the hardware described by the device tree and the device driver is done through the <code class="inlineCode">compatible</code> property. The linkage between platform data and a driver is done through the name.</p>
+    <h1 id="_idParaDest-363" class="heading-1"><a id="_idTextAnchor406"/>Summary</h1>
+    <p class="normal">Device drivers have the job of handling devices, usually physical hardware but sometimes virtual interfaces, and presenting them to the user space in a consistent and useful way. Linux device drivers fall into three broad categories: character, block, and network. Of the three, the character driver interface is the most flexible and, therefore, the most common. Linux drivers fit into a framework known as the driver model, which is exposed through <code class="inlineCode">sysfs</code>. Pretty much the entire state of the devices and drivers is visible in <code class="inlineCode">/sys/</code>.</p>
+    <p class="normal">Each embedded system has its own unique set of hardware interfaces and requirements. Linux provides drivers for most standard interfaces, and by selecting the right kernel configuration, you can get a working target board very quickly. This leaves you with the non-standard components for which you will have to add your own device support.</p>
+    <p class="normal">In some cases, you can sidestep the issue by using generic drivers for GPIO, I2C, and SPI, and instead, write user space code to do the work. I recommend this as a starting point as it gives you the chance to become familiar with the hardware without writing kernel code. Writing kernel drivers is not particularly difficult, but you do need to code carefully so as not to compromise the stability of the system.</p>
+    <p class="normal">I have talked about writing the kernel driver code: if you go down this route, you will inevitably want to know how to check whether it is working correctly and detect any bugs. I will cover that topic in <a href="Chapter_19.xhtml#_idTextAnchor611"><em class="italic">Chapter 19</em></a>.</p>
+    <p class="normal">The next chapter demonstrates techniques for rapid prototyping with single board computers and add-on boards.</p>
+    <h1 id="_idParaDest-364" class="heading-1"><a id="_idTextAnchor407"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">Linux Kernel Development, 3rd Edition</em>, by Robert Love</li>
+      <li class="bulletList"><em class="italic">Linux Weekly News</em> – <a href="https://lwn.net/Kernel%0D%0A"><span class="url">https://lwn.net/Kernel</span></a></li>
+      <li class="bulletList"><em class="italic">Async IO on Linux: select, poll, and epoll</em>, by Julia Evans – <a href="https://jvns.ca/blog/2017/06/03/async-io-on-linux--select--poll--and-epoll/%0D%0A"><span class="url">https://jvns.ca/blog/2017/06/03/async-io-on-linux--select--poll--and-epoll/</span></a></li>
+      <li class="bulletList"><em class="italic">Essential Linux Device Drivers, 1st Edition</em>, by Sreekrishnan Venkateswaran</li>
+    </ul>
+    <h1 id="_idParaDest-365" class="heading-1"><a id="_idTextAnchor408"/>Join our community on Discord</h1>
+    <p class="normal">Join our community’s Discord space for discussions with the authors and other readers: <span class="url">https://packt.link/embeddedsystems</span></p>
+    <p class="normal"><img src="../Images/QR_Code12308107448340296.png" alt="" role="presentation" width="354" height="354"/></p>
+  </div>
+</div></div></body></html>

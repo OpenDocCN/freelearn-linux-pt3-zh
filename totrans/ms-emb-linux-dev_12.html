@@ -1,0 +1,634 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer099" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor293"/>9</h1>
+    <h1 id="_idParaDest-264" class="chapterTitle"><a id="_idTextAnchor294"/>Creating a Storage Strategy</h1>
+    <p class="normal">The mass storage options for embedded devices have a great impact on the rest of the system in terms of the robustness, speed, and methods used for in-field updates. Most devices employ flash memory in some form or another. Flash memory has become much less expensive over the past few years as storage capacities have increased from tens of megabytes to tens of gigabytes.</p>
+    <p class="normal">In this chapter, we will begin with a detailed look at the technology behind flash memory as well as how different memory organization strategies affect the low-level driver software that has to manage it, including the <a id="_idIndexMarker595"/>Linux <strong class="keyWord">memory technology device</strong> (<strong class="keyWord">MTD</strong>) layer.</p>
+    <p class="normal">For each flash technology, there are different choices when it comes to the filesystem. I will describe those most commonly found on embedded devices and complete the survey by providing a summary of choices for each type of flash memory. Finally, we will consider some techniques that make the best use of flash memory and draw everything together into a coherent storage strategy.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Storage options</li>
+      <li class="bulletList">Accessing flash memory from the bootloader</li>
+      <li class="bulletList">Accessing flash memory from Linux</li>
+      <li class="bulletList">Filesystems for flash memory</li>
+      <li class="bulletList">Filesystems for NOR and NAND flash memory</li>
+      <li class="bulletList">Filesystems for managed flash</li>
+      <li class="bulletList">Read-only compressed filesystems</li>
+      <li class="bulletList">Temporary filesystems</li>
+      <li class="bulletList">Making the root filesystem read-only</li>
+      <li class="bulletList">Filesystem choices</li>
+    </ul>
+    <h1 id="_idParaDest-265" class="heading-1"><a id="_idTextAnchor295"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">A Linux-based host system with <code class="inlineCode">e2fsprogs</code>, <code class="inlineCode">genext2fs</code>, <code class="inlineCode">mtd-utils</code>, <code class="inlineCode">squashfs-tools</code>, and <code class="inlineCode">util-linux</code> or their equivalents installed</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">balenaEtcher for Linux</li>
+      <li class="bulletList">The U-Boot source tree from <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a></li>
+      <li class="bulletList">The Linux kernel source tree from <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a></li>
+      <li class="bulletList">A USB to TTL serial cable with 3.3V logic-level pins</li>
+      <li class="bulletList">A BeaglePlay</li>
+      <li class="bulletList">A 5V USB-C power supply capable of delivering 3A</li>
+    </ul>
+    <p class="normal">You should have already downloaded and built U-Boot for the BeaglePlay back in <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a>. You should have obtained the Linux kernel source tree from <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a>.</p>
+    <p class="normal">Ubuntu provides packages for most of the tools needed to create and format various filesystems. To install the tools on an Ubuntu 24.04 LTS system, use the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo apt install e2fsprogs genext2fs mtd-utils squashfs-tools util-linux
+</code></pre>
+    <p class="normal">The <code class="inlineCode">mtd-utils</code> package includes <code class="inlineCode">mtdinfo</code>, <code class="inlineCode">mkfs.jffs2</code>, <code class="inlineCode">sumtool</code>, <code class="inlineCode">nandwrite</code>, and the UBI command-line tools.</p>
+    <h1 id="_idParaDest-266" class="heading-1"><a id="_idTextAnchor296"/>Storage options</h1>
+    <p class="normal">Embedded devices <a id="_idIndexMarker596"/>need storage that takes little power and is physically compact, robust, and reliable over a lifetime of perhaps tens of years. In almost all cases, this means solid-state storage. Solid-state storage was introduced many years ago <a id="_idIndexMarker597"/>with <strong class="keyWord">read-only memory</strong> (<strong class="keyWord">ROM</strong>), but for the past 20 years, it has been flash memory of some kind. There have been several generations of flash memory in that time, progressing from NOR to NAND to managed flash such as eMMC.</p>
+    <p class="normal">NOR flash is expensive but reliable and can be mapped into the CPU address space, allowing you to execute code directly from flash. NOR flash chips are low capacity, ranging from a few megabytes to a gigabyte or so.</p>
+    <p class="normal">NAND flash memory is much cheaper than NOR and is available in higher capacities from tens of megabytes to tens of gigabytes. However, it needs a lot of hardware and software support to turn it into a useful storage medium.</p>
+    <p class="normal">Managed flash memory consists of one or more NAND flash chips packaged with a controller that handles the complexities of flash memory and presents a hardware interface similar to that of a hard disk. The attraction is that it removes complexity from the driver software and insulates the system designer from the frequent changes in flash technology.</p>
+    <p class="normal">SD cards, eMMC chips, and USB flash drives fit into this category. Almost all the current generations of smartphones and tablets have eMMC storage and this trend is likely to progress with other categories of embedded devices.</p>
+    <p class="normal">Hard drives are seldom found in embedded systems. One exception is digital video recording in set-top boxes and smart TVs where a large amount of storage is needed with fast write times.</p>
+    <p class="normal">In all cases, robustness is of prime importance: you want the device to boot and reach a functional state despite power failures and unexpected resets. You should choose filesystems that behave well under such circumstances. Your choice of storage device technology limits your choice of<a id="_idIndexMarker598"/> filesystems.</p>
+    <p class="normal">In this section, we will learn the difference between NOR and NAND flash and consider our options when choosing a managed flash technology.</p>
+    <h2 id="_idParaDest-267" class="heading-2"><a id="_idTextAnchor297"/>NOR flash</h2>
+    <p class="normal">The memory cells<a id="_idIndexMarker599"/> in NOR flash chips are arranged into erase blocks of, for <a id="_idIndexMarker600"/>example, 128 KB. Erasing a block sets all the bits to 1. It can be programmed one word at a time (8, 16, or 32 bits depending on the data bus width). Each erase cycle damages the memory cells slightly and after a number of cycles, the erase block becomes unreliable and cannot be used anymore. The maximum number of erase cycles should be given in the data sheet for the chip but is usually in the range of 1 K to 1 M.</p>
+    <p class="normal">The data can be read word by word. The chip is usually mapped into the CPU address space, meaning that you can execute code directly from NOR flash. This makes it a convenient place to put the bootloader code as it needs no initialization beyond hardwiring the address mapping. SoCs that support NOR flash in this way have configurations that provide a default memory mapping so that it encompasses the reset vector of the CPU.</p>
+    <p class="normal">The kernel, and even the root filesystem, can also be located in flash memory, avoiding the need for copying them into RAM and thus creating devices with small<a id="_idIndexMarker601"/> memory footprints. This technique is known<a id="_idIndexMarker602"/> as <strong class="keyWord">Execute-in-Place</strong> or <strong class="keyWord">XIP</strong>. It is very specialized, and I will not examine it further here. I have included some references at the end of this chapter in the <em class="italic">Further study</em> section.</p>
+    <p class="normal">There is a standard register-level interface for NOR flash chips called the <strong class="keyWord">Common Flash Interface</strong> or <strong class="keyWord">CFI</strong>, which all modern chips support. The CFI is described in standard JESD68, which you can get from <a href="https://www.jedec.org/"><span class="url">https://www.jedec.org/</span></a>.</p>
+    <p class="normal">Now that we have learned what NOR flash is, let’s look at NAND flash.</p>
+    <h2 id="_idParaDest-268" class="heading-2"><a id="_idTextAnchor298"/>NAND flash</h2>
+    <p class="normal">NAND flash is much <a id="_idIndexMarker603"/>cheaper<a id="_idIndexMarker604"/> than NOR flash and has a higher capacity. First-generation NAND chips stored one bit per memory cell in what is now known<a id="_idIndexMarker605"/> as a <strong class="keyWord">single-level cell</strong> (<strong class="keyWord">SLC</strong>) organization. Later generations moved on to two bits per cell <a id="_idIndexMarker606"/>in <strong class="keyWord">multi-level cell</strong> (<strong class="keyWord">MLC</strong>) chips and now to three bits per<a id="_idIndexMarker607"/> cell in <strong class="keyWord">tri-level cell</strong> (<strong class="keyWord">TLC</strong>) chips. As the number of bits per cell increased, the reliability of the storage decreased, requiring more complex controller hardware and software to compensate for this. Where reliability is a concern, you should make sure you are using SLC NAND flash chips.</p>
+    <p class="normal">As with NOR flash, NAND flash is organized into erase blocks ranging in size from 16 KB to 512 KB and, once again, erasing a block sets all the bits to 1. However, the number of erase cycles is lower before the block becomes unreliable. There are typically as few as 1 K cycles for TLC chips and up to 100 K for SLC. NAND flash can only be read and written in pages (usually of 2 or 4 KB). Since they cannot be accessed byte by byte, they cannot be mapped into the address space, so code and data have to be copied into RAM before they can be accessed.</p>
+    <p class="normal">Data transfers to and from the chip are prone to bit flips, which can be detected and corrected using <strong class="keyWord">error-correction codes</strong> (<strong class="keyWord">ECC</strong>s). SLC<a id="_idIndexMarker608"/> chips generally use <a id="_idIndexMarker609"/>a simple <strong class="keyWord">hamming code</strong>, which can be implemented efficiently in software and can correct a single-bit error in a page read. MLC and TLC chips need more sophisticated codes such<a id="_idIndexMarker610"/> as <strong class="keyWord">Bose-Chaudhuri-Hocquenghem</strong> (<strong class="keyWord">BCH</strong>), which can correct up to 8-bit errors per page. Correcting that many errors requires hardware support inside the flash controller.</p>
+    <p class="normal">The ECCs need to be stored somewhere, so there is an extra area of memory per page known as the <strong class="keyWord">out-of-band</strong> (<strong class="keyWord">OOB</strong>) area <a id="_idIndexMarker611"/>or the spare area. SLC designs usually have 1 byte of OOB per 32 bytes of main storage. So, for a 2 KB page device, the OOB is 64 bytes per page, and for a 4 KB page, it is 128 bytes. MLC and <a id="_idIndexMarker612"/>TLC chips have proportionally larger OOB<a id="_idIndexMarker613"/> areas to accommodate more complex ECCs. The following diagram shows the organization of a chip with a 128 KB erase block and 2 KB pages:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_09_01.png" alt="Figure 9.1 – OOB area" width="735" height="917"/></figure>
+    <p class="packt_figref">Figure 9.1 – OOB area</p>
+    <p class="normal">During production, the manufacturer tests all the blocks and marks any that fail by setting a flag in the OOB area of each page in the block. It is not uncommon to find that brand-new chips have up to 2% of their blocks marked bad in this way. Saving OOB information for analysis before erasing the area can be useful when there is a problem. Furthermore, it is within the specification for a similar proportion of blocks to give errors on erase before the erase cycle limit is reached. The NAND flash driver should detect this and mark it as bad.</p>
+    <p class="normal">Once space has been made in the OOB area for a bad block flag and ECC bytes, there are still some bytes left. Some flash filesystems make use of these free bytes to store filesystem metadata. Consequently, many parts of the system are interested in the layout of the OOB area: the SoC ROM boot code, the bootloader, the kernel MTD driver, the filesystem code, and the tools to create filesystem images. There is not much standardization, so it is easy to get into a situation in which the bootloader writes data using an OOB format that cannot be read by the kernel MTD driver. It is up to you to make sure that they all agree.</p>
+    <p class="normal">Access to NAND flash chips requires a NAND flash controller, which is usually part of the SoC. You will need the corresponding driver in the bootloader and kernel. The NAND flash controller handles the hardware interface for the chip transferring data to and from pages and may include hardware for error correction.</p>
+    <p class="normal">There is a standard register-level interface for NAND flash chips <a id="_idIndexMarker614"/>known as the <strong class="keyWord">Open NAND Flash Interface</strong> or <strong class="keyWord">ONFI</strong>, which<a id="_idIndexMarker615"/> most<a id="_idIndexMarker616"/> modern chips adhere to. See <a href="https://onfi.org/"><span class="url">https://onfi.org/</span></a> for more information.</p>
+    <p class="normal">Modern NAND flash <a id="_idIndexMarker617"/>technology is complicated. Pairing NAND flash memory with a controller is no longer enough. We also need an interface to the hardware that abstracts most of the technical details such as error correction away.</p>
+    <h2 id="_idParaDest-269" class="heading-2"><a id="_idTextAnchor299"/>Managed flash</h2>
+    <p class="normal">The burden of supporting<a id="_idIndexMarker618"/> flash memory in the operating system – NAND in<a id="_idIndexMarker619"/> particular – becomes smaller if there is a well-defined hardware interface and a standard flash controller that hides the complexities of the memory. This is managed flash memory, and it is becoming more and more common. In essence, it means combining one or more flash chips with a microcontroller that offers an ideal storage device with a small sector size and that is compatible with conventional filesystems. The most important types of chips for embedded systems are <strong class="keyWord">Secure Digital</strong> (<strong class="keyWord">SD</strong>) cards and the embedded variant known as eMMC.</p>
+    <h3 id="_idParaDest-270" class="heading-3"><a id="_idTextAnchor300"/>The MultiMediaCard and Secure Digital cards</h3>
+    <p class="normal">The <strong class="keyWord">MultiMediaCard</strong> (<strong class="keyWord">MMC</strong>) was <a id="_idIndexMarker620"/>introduced in 1997 by SanDisk and <a id="_idIndexMarker621"/>Siemens<a id="_idIndexMarker622"/> as a form of packaged storage using flash memory. Shortly after, in 1999, SanDisk, Matsushita, and Toshiba created <a id="_idIndexMarker623"/>the SD card, which is based on MMC but adds encryption and <strong class="keyWord">Digital Rights Management</strong> (<strong class="keyWord">DRM</strong>), hence the “secure” part <a id="_idIndexMarker624"/>of the name. Both were intended for consumer electronics such as digital cameras, music players, and similar devices. Currently, SD cards are the dominant form of managed flash for consumer and embedded electronics even though the encryption features are seldom used. Newer versions of the SD specification allow smaller packaging (miniSD and microSD) and larger capacities: high capacity SDHC up to 32 GB and extended capacity SDXC up to 2 TB.</p>
+    <p class="normal">The hardware interface for MMC and SD cards is very similar. It is possible to use full-sized MMC cards in full-sized SD card slots (but not the other way around). Early incarnations used a 1-bit <strong class="keyWord">Serial Peripheral Interface</strong> (<strong class="keyWord">SPI</strong>). More<a id="_idIndexMarker625"/> recent cards use a 4-bit interface.</p>
+    <p class="normal">There is a command set for reading and writing memory in sectors of 512 bytes. Inside the package is a microcontroller and one or more NAND flash chips, as shown in the following diagram:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_09_02.png" alt="Figure 9.2 – SD card package" width="450" height="680"/></figure>
+    <p class="packt_figref">Figure 9.2 – SD card package</p>
+    <p class="normal">The microcontroller implements the command set and manages the flash memory, performing the function of a flash translation layer, as described later in this chapter. They are preformatted with a FAT filesystem: FAT16 on SDSC cards, FAT32 on SDHC, and exFAT on SDXC. The quality of the NAND flash chips and the software on the microcontroller varies greatly between cards. It is questionable whether any of them are sufficiently reliable for deep embedded use. Certainly not with a FAT filesystem, which is prone to file corruption. Remember that <a id="_idIndexMarker626"/>the<a id="_idIndexMarker627"/> prime use <a id="_idIndexMarker628"/>case <a id="_idIndexMarker629"/>for MMC and SD cards is for removable storage on cameras, tablets, and phones.</p>
+    <h3 id="_idParaDest-271" class="heading-3"><a id="_idTextAnchor301"/>eMMC</h3>
+    <p class="normal"><strong class="keyWord">Embedded MMC</strong> or <strong class="keyWord">eMMC</strong> is simply MMC memory that’s been packaged so that it can be soldered onto <a id="_idIndexMarker630"/>the motherboard using a 4- or 8-bit interface for<a id="_idIndexMarker631"/> data transfer. However, they are intended to be used as storage for an operating system, so the components are capable of performing that task. The chips are usually not preformatted with any filesystem.</p>
+    <h3 id="_idParaDest-272" class="heading-3"><a id="_idTextAnchor302"/>Other types of managed flash</h3>
+    <p class="normal">One of the first<a id="_idIndexMarker632"/> managed <a id="_idIndexMarker633"/>flash technologies <a id="_idIndexMarker634"/>was <strong class="keyWord">CompactFlash</strong> (<strong class="keyWord">CF</strong>), which uses a subset of the <strong class="keyWord">Personal Computer Memory Card International Association</strong> (<strong class="keyWord">PCMCIA</strong>) hardware interface. CF exposes memory through a <strong class="keyWord">Parallel Advanced Technology Attachment</strong> (<strong class="keyWord">PATA</strong>) interface <a id="_idIndexMarker635"/>and appears to the operating system as a standard hard disk. They were common in x86-based single-board computers and professional video and camera equipment.</p>
+    <p class="normal">One other format that we use every day is <a id="_idIndexMarker636"/>the <strong class="keyWord">USB flash drive</strong>. In this case, memory is accessed through a USB interface and the controller implements the USB mass storage specification as well as the flash translation layer and interface to the flash chip or chips. The USB mass storage protocol is based on the SCSI disk command set. As with MMC and SD cards, they are usually preformatted with a FAT filesystem. Their main use case in embedded systems is to exchange data with PCs.</p>
+    <p class="normal">A recent addition to the list of options for managed flash storage is <strong class="keyWord">Universal Flash Storage</strong> (<strong class="keyWord">UFS</strong>). Like eMMC, it is <a id="_idIndexMarker637"/>packaged in a chip that is mounted on the motherboard. It has a high-speed serial interface and can achieve data rates greater than eMMC. It supports an SCSI disk command set.</p>
+    <p class="normal">Now that we<a id="_idIndexMarker638"/> know what types of flash are available, let’s learn how U-Boot loads a kernel image from each of them.</p>
+    <h1 id="_idParaDest-273" class="heading-1"><a id="_idTextAnchor303"/>Accessing flash memory from the bootloader</h1>
+    <p class="normal">In <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a> I mentioned the need for the bootloader to load kernel binaries and <a id="_idIndexMarker639"/>other images from various flash devices and to perform system maintenance tasks such as erasing and reprogramming flash memory. It follows that the bootloader must have the drivers and infrastructure needed to support read, erase, and write operations on the type of memory you have, whether it be NOR, NAND, or managed. I will use U-Boot in the following examples. Other bootloaders follow a similar pattern.</p>
+    <h2 id="_idParaDest-274" class="heading-2"><a id="_idTextAnchor304"/>U-Boot and NOR flash</h2>
+    <p class="normal">U-Boot has <a id="_idIndexMarker640"/>drivers for NOR CFI chips <a id="_idIndexMarker641"/>in <code class="inlineCode">drivers/mtd</code> and utilizes various <code class="inlineCode">erase</code> commands to erase memory and <code class="inlineCode">cp.b</code> to copy data byte by byte onto the flash cells. Suppose that you have NOR flash memory mapped from <code class="inlineCode">0x40000000</code> to <code class="inlineCode">0x48000000</code>, of which 4 MB, starting at <code class="inlineCode">0x40040000</code>, is a kernel image. Here, you would load a new kernel into flash using these U-Boot commands:</p>
+    <pre class="programlisting con"><code class="hljs-con">=&gt; tftpboot 0x100000 uImage
+=&gt; erase 0x40040000 0x403fffff
+=&gt; cp.b 0x100000 0x40040000 $(filesize)
+</code></pre>
+    <p class="normal">The <code class="inlineCode">filesize</code> variable in the preceding example is set by the <code class="inlineCode">tftpboot</code> command to the size of the file just downloaded.</p>
+    <h2 id="_idParaDest-275" class="heading-2"><a id="_idTextAnchor305"/>U-Boot and NAND flash</h2>
+    <p class="normal">For NAND flash, you<a id="_idIndexMarker642"/> need a driver for the<a id="_idIndexMarker643"/> NAND flash controller on your SoC, which you can find in the U-Boot source code in the <code class="inlineCode">drivers/mtd/nand</code> directory.</p>
+    <p class="normal">You can use the <code class="inlineCode">nand</code> command to manage memory using its <code class="inlineCode">erase</code>, <code class="inlineCode">write</code>, and <code class="inlineCode">read</code> sub-commands. This example shows a kernel image being loaded into RAM at <code class="inlineCode">0x82000000</code> and then placed into flash starting at the <code class="inlineCode">0x280000</code> offset:</p>
+    <pre class="programlisting con"><code class="hljs-con">=&gt; tftpboot 0x82000000 uImage
+=&gt; nand erase 0x280000 0x400000
+=&gt; nand write 0x82000000 0x280000 $(filesize)
+</code></pre>
+    <p class="normal">U-Boot can also read files stored in the JFFS2, YAFFS2, and UBIFS filesystems. <code class="inlineCode">nand write</code> will skip blocks that<a id="_idIndexMarker644"/> are marked as bad.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">Important note</strong></p>
+      <p class="normal">If the data you’re writing is for a filesystem, make sure that the filesystem also skips bad blocks.</p>
+    </div>
+    <h2 id="_idParaDest-276" class="heading-2"><a id="_idTextAnchor306"/>U-Boot and MMC, SD, and eMMC</h2>
+    <p class="normal">U-Boot has drivers<a id="_idIndexMarker645"/> for <a id="_idIndexMarker646"/>several MMC <a id="_idIndexMarker647"/>controllers in <code class="inlineCode">drivers/mmc</code>. You<a id="_idIndexMarker648"/> can access raw<a id="_idIndexMarker649"/> data <a id="_idIndexMarker650"/>using <code class="inlineCode">mmc read</code> and <code class="inlineCode">mmc write</code> at the user interface level, allowing you to handle raw kernel and filesystem images.</p>
+    <p class="normal">U-Boot can also read files from the FAT32 and ext4 filesystems on MMC storage.</p>
+    <p class="normal">U-Boot needs drivers to access NOR, NAND, and managed flash. Which driver you should use depends on your choice of NOR chip or the flash controller on your SoC. Accessing raw NOR and NAND flash from Linux involves additional layers of software.</p>
+    <h1 id="_idParaDest-277" class="heading-1"><a id="_idTextAnchor307"/>Accessing flash memory from Linux</h1>
+    <p class="normal">Raw NOR and NAND <a id="_idIndexMarker651"/>flash memory is handled by the <strong class="keyWord">Memory Technology Device</strong> (<strong class="keyWord">MTD</strong>) subsystem, which provides you with basic interfaces to read, erase, and write blocks of flash memory. In the case of NAND flash, there are also functions that handle the OOB area and are used to identify bad blocks.</p>
+    <p class="normal">For managed flash, you need drivers to handle a particular hardware interface. MMC/SD cards and eMMC use the <code class="inlineCode">mmcblk</code> driver. While CompactFlash and hard drives use the <code class="inlineCode">sd</code> SCSI disk driver. USB flash drives use the <code class="inlineCode">usb_storage</code> driver together with the <code class="inlineCode">sd</code> driver.</p>
+    <h2 id="_idParaDest-278" class="heading-2"><a id="_idTextAnchor308"/>Memory technology devices</h2>
+    <p class="normal">The MTD<a id="_idIndexMarker652"/> subsystem was started by<a id="_idIndexMarker653"/> David Woodhouse in 1999 and has been extensively developed over the intervening years. In this section, I will concentrate on the way it handles the two main technologies, NOR and NAND flash.MTD consists of three layers: a core set of functions, a set of drivers for various types of chips, and user-level drivers that present the flash memory as a character device or a block device:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_09_03.png" alt="Figure 9.3 – MTD layers" width="868" height="564"/></figure>
+    <p class="packt_figref">Figure 9.3 – MTD layers</p>
+    <p class="normal">The chip drivers are at the lowest level and interface with flash chips. Only a small number of drivers are needed for NOR flash chips, enough to cover the CFI standard and variations, plus a few non-compliant chips, which are now mostly obsolete. For NAND flash, you will need a driver for the NAND flash controller you are using. This is usually supplied as part of the board support package. There<a id="_idIndexMarker654"/> are drivers for <a id="_idIndexMarker655"/>about 40 of them in the current mainline kernel in the <code class="inlineCode">drivers/mtd/nand</code> directory.</p>
+    <h3 id="_idParaDest-279" class="heading-3"><a id="_idTextAnchor309"/>MTD partitions</h3>
+    <p class="normal">In most cases, you will <a id="_idIndexMarker656"/>want to partition the flash memory into a number of areas, for example, to provide space for a bootloader, a kernel image, or a root filesystem. In MTD, there are several ways to specify the size and location of partitions, with the main ones being as follows:</p>
+    <ul>
+      <li class="bulletList">Through the kernel command line using <code class="inlineCode">CONFIG_MTD_CMDLINE_PARTS</code></li>
+      <li class="bulletList">Via the device tree using <code class="inlineCode">CONFIG_MTD_OF_PARTS</code></li>
+      <li class="bulletList">With a platform-mapping driver</li>
+    </ul>
+    <p class="normal">In the case of the first option, the kernel command-line option to use is <code class="inlineCode">mtdparts</code>, which is defined within the Linux source code inside <code class="inlineCode">drivers/mtd/parsers/cmdlinepart.c</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">&lt;mtddef&gt;  := &lt;mtd-id&gt;:&lt;partdef&gt;[,&lt;partdef&gt;]
+&lt;partdef&gt; := &lt;size&gt;[@&lt;offset&gt;][&lt;name&gt;][ro][lk][slc]
+&lt;mtd-id&gt;  := unique name used in mapping driver/device (mtd-&gt;name)
+&lt;size&gt;    := standard linux memsize OR <span class="hljs-string">"-"</span> to denote all remaining space
+             size is automatically truncated at end of device
+             <span class="hljs-keyword">if</span> specified or truncated size is <span class="hljs-number">0</span> the part is skipped
+&lt;offset&gt;  := standard linux memsize
+             <span class="hljs-keyword">if</span> omitted the part will immediately follow the previous part
+             or <span class="hljs-number">0</span> <span class="hljs-keyword">if</span> the first part
+&lt;name&gt;    := <span class="hljs-string">'('</span> NAME <span class="hljs-string">'</span><span class="hljs-string">)'</span>
+</code></pre>
+    <p class="normal">Perhaps an example will help. Imagine that you have one flash chip of 128 MB that is to be divided into five partitions. A typical command line would be this:</p>
+    <pre class="programlisting con"><code class="hljs-con">mtdparts=:512k(SPL)ro,780k(U-Boot)ro,128k(U-BootEnv),4m(Kernel),-(Filesystem)
+</code></pre>
+    <p class="normal">The first element before the colon is <code class="inlineCode">mtd-id</code>, which identifies the flash chip either by number or by the name assigned by the board support package. If there is only one chip, as is the case here, it can be left empty. If there is more than one chip, the information for each is separated by a semicolon. Then, for each chip, there is a comma-separated list of partitions each with a size in bytes, KB (<code class="inlineCode">k</code>) or MB (<code class="inlineCode">m</code>), and a name in parentheses. The <code class="inlineCode">ro</code> suffix makes the partition read-only to MTD and is often used to prevent accidental overwriting of the bootloader. The size of the last partition for the chip may be replaced by a dash (<code class="inlineCode">-</code>) indicating that it should take up all the remaining space.</p>
+    <p class="normal">You can see a summary of the configuration at runtime by reading <code class="inlineCode">/proc/mtd</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cat /proc/mtd
+dev: size erasesize name
+mtd0: 00080000 00020000 "SPL"
+mtd1: 000C3000 00020000 "U-Boot"
+mtd2: 00020000 00020000 "U-BootEnv"
+mtd3: 00400000 00020000 "Kernel"
+mtd4: 07A9D000 00020000 "Filesystem"
+</code></pre>
+    <p class="normal">There is more detailed information for each partition in <code class="inlineCode">/sys/class/mtd</code>, including the erase block size and the page size. It is nicely summarized using <code class="inlineCode">mtdinfo</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mtdinfo /dev/mtd0
+mtd0
+Name: SPL
+Type: nand
+272 Creating a Storage Strategy
+Eraseblock size: 131072 bytes, 128.0 KiB
+Amount of eraseblocks: 4 (524288 bytes, 512.0 KiB)
+Minimum input/output unit size: 2048 bytes
+Sub-page size: 512 bytes
+OOB size: 64 bytes
+Character device major/minor: 90:0
+Bad blocks are allowed: true
+Device is writable: false
+</code></pre>
+    <p class="normal">Another way of specifying <a id="_idIndexMarker657"/>MTD partitions is through the device tree. Here is an example that creates the same partitions as the command-line example:</p>
+    <pre class="programlisting code"><code class="hljs-code">nand<span class="hljs-meta">@0,0</span> {
+ <span class="hljs-comment">#address-cells = &lt;1&gt;;</span>
+ <span class="hljs-comment">#size-cells = &lt;1&gt;;</span>
+ partition<span class="hljs-meta">@0</span> {
+  label = <span class="hljs-string">"SPL"</span>;
+  reg = <span class="hljs-variable">&lt;0 0x80000&gt;</span>;
+ };
+ partition<span class="hljs-meta">@80000</span> {
+  label = <span class="hljs-string">"U-Boot"</span>;
+  reg = <span class="hljs-variable">&lt;0x80000 0xc3000&gt;</span>;
+ };
+ partition<span class="hljs-meta">@143000</span> {
+  label = <span class="hljs-string">"U-BootEnv"</span>;
+  reg = <span class="hljs-variable">&lt;0x143000 0x20000&gt;</span>;
+ };
+ partition<span class="hljs-meta">@163000</span> {
+  label = <span class="hljs-string">"Kernel"</span>;
+  reg = <span class="hljs-variable">&lt;0x163000 0x400000&gt;</span>;
+ };
+ partition<span class="hljs-meta">@563000</span> {
+  label = <span class="hljs-string">"</span><span class="hljs-string">Filesystem"</span>;
+  reg = <span class="hljs-variable">&lt;0x563000 0x7a9d000&gt;</span>;
+ };
+};
+</code></pre>
+    <p class="normal">A third alternative is to code the partition information as platform data in an <code class="inlineCode">mtd_partition</code> structure as shown in this example taken from <code class="inlineCode">arch/arm/mach-omap2/board-omap3beagle.c</code> (<code class="inlineCode">NAND_BLOCK_SIZE</code> is defined <a id="_idIndexMarker658"/>elsewhere as 128 KB):</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">static</span> <span class="hljs-keyword">struct</span> <span class="hljs-title">mtd_partition</span> omap3beagle_nand_partitions[] = {
+ {
+  .name = <span class="hljs-string">"X-Loader"</span>,
+  .offset = <span class="hljs-number">0</span>,
+  .size = <span class="hljs-number">4</span> * NAND_BLOCK_SIZE,
+  .mask_flags = MTD_WRITEABLE, <span class="hljs-comment">/* force read-only */</span>
+ },
+ {
+  .name = <span class="hljs-string">"U-Boot"</span>,
+  .offset = <span class="hljs-number">0x80000</span>;
+  .size = <span class="hljs-number">15</span> * NAND_BLOCK_SIZE,
+  .mask_flags = MTD_WRITEABLE, <span class="hljs-comment">/* force read-only */</span>
+ },
+ {
+  .name = <span class="hljs-string">"U-Boot Env"</span>,
+  .offset = <span class="hljs-number">0x260000</span>;
+  .size = <span class="hljs-number">1</span> * NAND_BLOCK_SIZE,
+ },
+ {
+  .name = <span class="hljs-string">"Kernel"</span>,
+  .offset = <span class="hljs-number">0x280000</span>;
+  .size = <span class="hljs-number">32</span> * NAND_BLOCK_SIZE,
+ },
+ {
+  .name = <span class="hljs-string">"File System"</span>,
+  .offset = <span class="hljs-number">0x680000</span>;
+  .size = MTDPART_SIZ_FULL,
+ },
+};
+</code></pre>
+    <p class="normal">Platform data is<a id="_idIndexMarker659"/> deprecated: you will only find it used in BSPs for old SoCs that have not been updated to use a device tree.</p>
+    <h3 id="_idParaDest-280" class="heading-3"><a id="_idTextAnchor310"/>MTD device drivers</h3>
+    <p class="normal">The upper level of the MTD<a id="_idIndexMarker660"/> subsystem contains a pair of device drivers:</p>
+    <ul>
+      <li class="bulletList">A character device with a major number of <code class="inlineCode">90</code>. There are two device nodes per MTD partition number, N: <code class="inlineCode">/dev/mtdN</code> (minor number=N*2) and <code class="inlineCode">/dev/mtdNro</code> (minor number=(N*2 + 1)). The latter is just a read-only version of the former.</li>
+      <li class="bulletList">A block device with a major number of <code class="inlineCode">31</code> and a minor number of N. The device nodes are in the form <code class="inlineCode">/dev/mtdblockN</code>.</li>
+    </ul>
+    <p class="normal">Let’s look at the character device first since it is the most commonly used of the two. Character devices behave much like files on storage in the sense that you can easily read text from and write text to them.</p>
+    <h3 id="_idParaDest-281" class="heading-3"><a id="_idTextAnchor311"/>The MTD character device, mtd</h3>
+    <p class="normal">The character<a id="_idIndexMarker661"/> devices are the most important: they allow you to access the underlying flash memory as an array of bytes so that you can read and write (program) the flash. It also implements a number of <code class="inlineCode">ioctl</code> functions that allow you to erase blocks and manage the OOB area on NAND chips. The following list has been taken from <code class="inlineCode">include/uapi/mtd/mtd-abi.h</code>:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">MEMGETINFO</code>: Gets basic MTD characteristic information.</li>
+      <li class="bulletList"><code class="inlineCode">MEMERASE</code>: Erases blocks in the MTD partition.</li>
+      <li class="bulletList"><code class="inlineCode">MEMWRITEOOB</code>: Writes out-of-band data for the page.</li>
+      <li class="bulletList"><code class="inlineCode">MEMREADOOB</code>: Reads out-of-band data for the page.</li>
+      <li class="bulletList"><code class="inlineCode">MEMLOCK</code>: Locks the chip (if supported).</li>
+      <li class="bulletList"><code class="inlineCode">MEMUNLOCK</code>: Unlocks the chip (if supported).</li>
+      <li class="bulletList"><code class="inlineCode">MEMGETREGIONCOUNT</code>: Gets the number of erase regions: non-zero if there are erase blocks of differing sizes in the partition, which is common for NOR flash but rare on NAND.</li>
+      <li class="bulletList"><code class="inlineCode">MEMGETREGIONINFO</code>: Can be used to get the offset, size, and block count of each region if <code class="inlineCode">MEMGETREGIONCOUNT</code> is non-zero.</li>
+      <li class="bulletList"><code class="inlineCode">MEMGETOOBSEL</code>: Deprecated.</li>
+      <li class="bulletList"><code class="inlineCode">MEMGETBADBLOCK</code>: Gets the bad block flag.</li>
+      <li class="bulletList"><code class="inlineCode">MEMSETBADBLOCK</code>: Sets the bad block flag.</li>
+      <li class="bulletList"><code class="inlineCode">OTPSELECT</code>: Sets OTP (one-time programmable) mode if the chip supports it.</li>
+      <li class="bulletList"><code class="inlineCode">OTPGETREGIONCOUNT</code>: Gets the number of OTP regions.</li>
+      <li class="bulletList"><code class="inlineCode">OTPGETREGIONINFO</code>: Gets information about an OTP region.</li>
+      <li class="bulletList"><code class="inlineCode">ECCGETLAYOUT</code>: Deprecated.</li>
+    </ul>
+    <p class="normal">There is a set of utility programs known as <code class="inlineCode">mtd-utils</code> for manipulating flash memory that makes use of these <code class="inlineCode">ioctl</code> functions. The source can be found at <code class="inlineCode">git://git.infradead.org/mtd-utils.git</code> and is available as a package in The Yocto Project and Buildroot. The essential tools are shown in the following list. The package also contains utilities for the JFFS2 and UBI/UBIFS filesystems, which I will cover later. For each of these tools, the MTD character device is one of the following parameters:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">flash_erase</code>: Erases a range of blocks.</li>
+      <li class="bulletList"><code class="inlineCode">flash_lock</code>: Locks a range of blocks.</li>
+      <li class="bulletList"><code class="inlineCode">flash_unlock</code>: Unlocks a range of blocks.</li>
+      <li class="bulletList"><code class="inlineCode">nanddump:</code> Dumps memory from NAND flash, optionally, including the OOB area. Skips bad blocks.</li>
+      <li class="bulletList"><code class="inlineCode">nandtest</code>: Tests and performs diagnostics for NAND flash.</li>
+      <li class="bulletList"><code class="inlineCode">nandwrite</code>: Writes (programs) data from a file into NAND flash, skipping bad blocks.<div class="packt_tip">
+          <p class="normal"><strong class="keyWord">Tip</strong></p>
+          <p class="normal">You must always erase flash memory before writing new content to it.</p>
+          <p class="normal"><code class="inlineCode">flash_erase</code> is the command that does this.</p>
+        </div>
+      </li>
+    </ul>
+    <p class="normal">To program NOR flash, you simply copy bytes to the MTD device node using a file copy command such as cp.</p>
+    <p class="normal">Unfortunately, this <a id="_idIndexMarker662"/>doesn’t work with NAND memory as the copy will fail at the first bad block. Instead, use <code class="inlineCode">nandwrite</code>, which skips over any bad blocks. To read back NAND memory, you should use <code class="inlineCode">nanddump</code>, which also skips bad blocks.</p>
+    <h3 id="_idParaDest-282" class="heading-3"><a id="_idTextAnchor312"/>The MTD block device, mtdblock</h3>
+    <p class="normal">The <code class="inlineCode">mtdblock</code> driver isn’t <a id="_idIndexMarker663"/>used often. Its purpose is to present flash memory as a block device you can use to format and mount a filesystem. However, it has severe limitations because it does not handle bad blocks in NAND flash, it does not do wear leveling, and it does not handle the mismatch in size between filesystem blocks and flash erase blocks. In other words, it does not have a flash translation layer, which is essential for reliable file storage. The only case where the <code class="inlineCode">mtdblock</code> device is useful is for mounting read-only file systems such as SquashFS on top of reliable flash memory such as NOR.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">Tip</strong></p>
+      <p class="normal">If you want a read-only filesystem on NAND flash, you should use the UBI driver as described later in this chapter.</p>
+    </div>
+    <h3 id="_idParaDest-283" class="heading-3"><a id="_idTextAnchor313"/>Logging kernel oops to MTD</h3>
+    <p class="normal">A kernel error or<a id="_idIndexMarker664"/> oops is normally logged <a id="_idIndexMarker665"/>via the <code class="inlineCode">klogd</code> and <code class="inlineCode">syslogd</code> daemons to a circular memory buffer or a file. After a reboot, the log will be lost in the case of a ring buffer. Even in the case of a file, it may not have been properly written to before the system crashed. A more reliable method is to write oops and kernel panics to an MTD partition as a circular log buffer. You can enable it with <code class="inlineCode">CONFIG_MTD_OOPS</code> and add <code class="inlineCode">console=ttyMTDN</code> to the kernel command line with <code class="inlineCode">N</code> being the MTD device number to write the messages to.</p>
+    <h3 id="_idParaDest-284" class="heading-3"><a id="_idTextAnchor314"/>Simulating NAND memory</h3>
+    <p class="normal">The NAND simulator <a id="_idIndexMarker666"/>emulates a NAND<a id="_idIndexMarker667"/> chip using system RAM. Its main use is to test code that has to be NAND-aware without access to physical NAND memory. The ability to simulate bad blocks, bit flips, and other errors allows you to test code paths that are difficult to exercise using real flash memory. For more information, the best place to look is in the code itself, which provides a comprehensive description of the ways you can configure the driver. The code is in <code class="inlineCode">drivers/mtd/nand/nandsim.c</code>. Enable it with the <code class="inlineCode">CONFIG_MTD_NAND_NANDSIM</code> kernel configuration.</p>
+    <h2 id="_idParaDest-285" class="heading-2"><a id="_idTextAnchor315"/>The MMC block driver</h2>
+    <p class="normal">MMC/SD cards and <a id="_idIndexMarker668"/>eMMC chips are accessed using <a id="_idIndexMarker669"/>the <code class="inlineCode">mmcblk</code> block driver. You need a host controller to match the MMC adapter you are using, which is part of the board support package. The drivers are in the Linux source code under <code class="inlineCode">drivers/mmc/host</code>.</p>
+    <p class="normal">MMC storage is partitioned using a partition table in exactly the same way you would for hard disks. That is, by using <code class="inlineCode">fdisk</code> or a similar utility.</p>
+    <p class="normal">We now know how Linux accesses each type of flash. Next, we will look at the problems intrinsic to flash memory and how Linux deals with them, either by way of the filesystem or the block device driver.</p>
+    <h1 id="_idParaDest-286" class="heading-1"><a id="_idTextAnchor316"/>Filesystems for flash memory</h1>
+    <p class="normal">There are several <a id="_idIndexMarker670"/>challenges when it comes to making efficient use of flash memory for mass storage: the mismatch between the size of an erase block and a disk sector, the limited number of erase cycles per erase block, and the need for bad block handling on NAND chips. These differences are resolved by a <strong class="keyWord">flash translation layer</strong> (<strong class="keyWord">FTL</strong>).</p>
+    <h2 id="_idParaDest-287" class="heading-2"><a id="_idTextAnchor317"/>Flash translation layers</h2>
+    <p class="normal">A flash translation<a id="_idIndexMarker671"/> layer <a id="_idIndexMarker672"/>has the following features:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">Sub allocation</strong>: Filesystems <a id="_idIndexMarker673"/>work best with a small allocation unit, traditionally a 512-byte sector. This is much smaller than a flash erase block of 128 KB or more. Therefore, erase blocks need to be subdivided into smaller units to avoid wasting large amounts of space.</li>
+      <li class="bulletList"><strong class="keyWord">Garbage collection</strong>: A consequence of sub allocation is that an erase block will contain a mixture of good data and stale data once the filesystem has been in use for a while. Since we can only free up whole erase blocks, the only way to reclaim this free space is to coalesce the good data into one place and then return the now empty erase block to the free list. This is known as garbage collection, and it is usually implemented as a background thread.</li>
+      <li class="bulletList"><strong class="keyWord">Wear leveling</strong>: There is a limit on the number of erase cycles for each block. To maximize the lifespan of a chip, it is important to move data around so that each block is erased roughly the same number of times.</li>
+      <li class="bulletList"><strong class="keyWord">Bad block handling</strong>: On NAND flash chips, you must avoid using any block marked bad and also mark good blocks as bad if they cannot be erased.</li>
+      <li class="bulletList"><strong class="keyWord">Robustness</strong>: Embedded devices may be powered off or reset without warning. Any filesystem should be <a id="_idIndexMarker674"/>able to cope without corruption, usually by incorporating a journal or a log of transactions.</li>
+    </ul>
+    <p class="normal">There are several ways<a id="_idIndexMarker675"/> to deploy the <a id="_idIndexMarker676"/>flash translation layer:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">In the filesystem</strong>: As with JFFS2, YAFFS2, and UBIFS.</li>
+      <li class="bulletList"><strong class="keyWord">In the block device driver</strong>: The UBI driver, which UBIFS depends on implements some aspects of a flash translation layer.</li>
+      <li class="bulletList"><strong class="keyWord">In the device controller</strong>: As with managed flash devices.</li>
+    </ul>
+    <p class="normal">When the flash translation layer is in the filesystem or the block driver, the code is part of the kernel so we can see how it works and expect that it will be improved over time. On the other hand, if the FTL is inside a managed flash device, it is hidden from view, and we cannot verify whether it works as we want. Not only that but putting the FTL into the disk controller means that it misses out on useful information that is held at the filesystem layer, like which sectors belong to files that have been deleted. The latter problem is solved by adding commands that pass this information between the filesystem and the device. I will describe how this works later, in the section on the <code class="inlineCode">TRIM</code> command. However, the question of code visibility remains. If you are using managed flash, you just have to choose a manufacturer you can trust.</p>
+    <p class="normal">Now that we know the<a id="_idIndexMarker677"/> motivation behind filesystems, let’s look at which filesystems are best suited for which types of flash.</p>
+    <h1 id="_idParaDest-288" class="heading-1"><a id="_idTextAnchor318"/>Filesystems for NOR and NAND flash memory</h1>
+    <p class="normal">To use raw flash chips <a id="_idIndexMarker678"/>for mass storage, you have to use a filesystem that understands the peculiarities of the underlying technology. There are three such filesystems:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">JFFS2</strong> (<strong class="keyWord">Journaling Flash File System 2</strong>): This was the first flash filesystem for Linux and is still in use today. It works for NOR and NAND memory but is notoriously slow during mount.</li>
+      <li class="bulletList"><strong class="keyWord">YAFFS2</strong> (<strong class="keyWord">Yet Another Flash File System 2</strong>): This is like JFFS2 but specifically for NAND flash memory. It was adopted by Google as the preferred raw flash filesystem on Android devices.</li>
+      <li class="bulletList"><strong class="keyWord">UBIFS</strong> (<strong class="keyWord">Unsorted Block Image File System</strong>): This works in conjunction with the UBI block driver to create a reliable flash filesystem. It works well with both NOR and NAND memory. Since it generally offers better performance than JFFS2 or YAFFS2 it should be the preferred solution for new designs.</li>
+    </ul>
+    <p class="normal">All of these use MTD as the common interface to flash memory.</p>
+    <h2 id="_idParaDest-289" class="heading-2"><a id="_idTextAnchor319"/>JFFS2</h2>
+    <p class="normal">The <strong class="keyWord">Journaling Flash File System</strong> had its <a id="_idIndexMarker679"/>beginnings in the software for the Axis 2100 network camera<a id="_idIndexMarker680"/> back in 1999. For many years, it was the only flash filesystem for Linux and has been deployed on many different types of devices. Today, it is not the best choice, but I will cover it first because it shows the beginning of the evolutionary path.</p>
+    <p class="normal">JFFS2 is a log-structured filesystem that uses MTD to access flash memory. In a log-structured filesystem, changes are written sequentially as nodes to flash memory. A node may contain changes to a directory, such as the names of files created and deleted, or it may contain changes to file data. After a while, a node may be superseded by information contained in subsequent nodes and become an obsolete node. Both NOR and NAND flash are organized as erase blocks. Erasing a block sets all its bits to 1.</p>
+    <p class="normal">JFFS2 categorizes erase blocks into three types:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">Free</strong>: Contains no nodes at all.</li>
+      <li class="bulletList"><strong class="keyWord">Clean</strong>: Only contains valid nodes.</li>
+      <li class="bulletList"><strong class="keyWord">Dirty</strong>: Contains at least one obsolete node.</li>
+    </ul>
+    <p class="normal">At any one time, there is one block receiving updates, which is called the open block. If power is lost or the system is reset, the only data that can be lost is the last write to the open block. In addition, nodes are compressed as they are written, increasing the effective storage capacity of the flash chip, which is important if you are using expensive NOR flash memory.</p>
+    <p class="normal">When the number of free blocks falls below a certain threshold, a garbage collector kernel thread is started, which scans for dirty blocks, copies the valid nodes into the open block, and then frees up the dirty block.</p>
+    <p class="normal">At the same time, the garbage collector provides a crude form of wear leveling because it cycles valid data from one block to another. The way that the open block is chosen means that each block is erased roughly the same number of times as long as it contains data that changes from time to time. Sometimes, a clean block is chosen for garbage collection to make sure that blocks containing static data that is seldom written are also wear-leveled.</p>
+    <p class="normal">JFFS2 filesystems have a write-through cache, meaning that writes are written to the flash memory synchronously as if they have been mounted with the <code class="inlineCode">-o</code> sync option. While improving reliability, this approach increases the time to write data. There is a further problem with small writes: if the length of a write is comparable to the size of the node header (40 bytes), the<a id="_idIndexMarker681"/> overhead<a id="_idIndexMarker682"/> becomes high. A well-known corner case is log files like those produced by <code class="inlineCode">syslogd</code>.</p>
+    <h3 id="_idParaDest-290" class="heading-3"><a id="_idTextAnchor320"/>Summary nodes</h3>
+    <p class="normal">There is one overriding<a id="_idIndexMarker683"/> disadvantage to JFFS2: since there is no on-chip index, the directory’s structure has to be deduced at mount time by reading the log from start to finish. At the end of the scan, you have a complete picture of the directory structure of the valid nodes, but the mount time taken is proportional to the size of the partition. It is not uncommon to see mount times of the order of one second per megabyte, leading to total mount times of tens or hundreds of seconds.</p>
+    <p class="normal">Summary nodes became an option in Linux 2.6.15 for reducing the time to scan during a mount. A summary node is written at the end of the open erase block, just before it is closed. The summary node contains all of the information needed for the mount-time scan, thereby reducing the amount of data to process during the scan. Summary nodes can reduce mount times by a factor of between two and five at the expense of an overhead of about 5% of the storage space. They are enabled with the <code class="inlineCode">CONFIG_JFFS2_SUMMARY</code> kernel configuration.</p>
+    <h3 id="_idParaDest-291" class="heading-3"><a id="_idTextAnchor321"/>Clean markers</h3>
+    <p class="normal">An erased block<a id="_idIndexMarker684"/> with all its bits set to 1 is indistinguishable from a block that has been written with 1s, but the latter has not had its memory cells refreshed and cannot be programmed again until it is erased. JFFS2 uses a mechanism called <strong class="keyWord">clean markers</strong> to distinguish between these two situations. After a successful block erase, a clean marker is written either to the beginning of the block or to the OOB area of the first page of the block. If the clean marker exists, then it must be a clean block.</p>
+    <h3 id="_idParaDest-292" class="heading-3"><a id="_idTextAnchor322"/>Creating a JFFS2 filesystem</h3>
+    <p class="normal">Creating an empty<a id="_idIndexMarker685"/> JFFS2 filesystem at runtime is as simple as erasing an MTD partition with clean markers and then mounting it. There is no formatting step because a blank JFFS2 filesystem consists entirely of free blocks. For example, to format MTD partition 6, you would enter these commands on the device:</p>
+    <pre class="programlisting con"><code class="hljs-con"># flash_erase -j /dev/mtd6 0 0
+# mount -t jffs2 mtd6 /mnt
+</code></pre>
+    <p class="normal">The <code class="inlineCode">-j</code> option to <code class="inlineCode">flash_erase</code> adds the clean markers and mounting with the <code class="inlineCode">jffs2</code> type presents the partition as an empty filesystem. Note that the device to be mounted is given as <code class="inlineCode">mtd6</code>, not <code class="inlineCode">/dev/mtd6</code>. Alternatively, you can give the block the <code class="inlineCode">/dev/mtdblock6</code> device node. This is just a peculiarity of JFFS2. Once mounted, you can treat it like any other filesystem.</p>
+    <p class="normal">You can create a filesystem image directly from the staging area of your development system using <code class="inlineCode">mkfs.jffs2</code> to write out the files in JFFS2 format and <code class="inlineCode">sumtool</code> to add the summary nodes. Both of these are part of the <code class="inlineCode">mtd-utils</code> package.</p>
+    <p class="normal">As an example, to create an image of the files in <code class="inlineCode">rootfs</code> for a NAND flash device with an erase block size of 128 KB (<code class="inlineCode">0x20000</code>) and with summary nodes, you would use these two commands:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ mkfs.jffs2 -n -e 0x20000 -p -d ~/rootfs -o ~/rootfs.jffs2
+$ sumtool -n -e 0x20000 -p -i ~/rootfs.jffs2 -o ~/rootfs-sum.jffs2
+</code></pre>
+    <p class="normal">The <code class="inlineCode">-p</code> option adds padding at the end of the image file to make it a whole number of erase blocks. The <code class="inlineCode">-n</code> option suppresses the creation of clean markers in the image, which is normal for NAND devices as the clean marker is in the OOB area. For NOR devices, you would leave out the <code class="inlineCode">-n</code> option. You can use a device table with <code class="inlineCode">mkfs.jffs2</code> to set the permissions and the ownership of files by<a id="_idIndexMarker686"/> adding <code class="inlineCode">-D &lt;device table&gt;</code>. Of course, Buildroot and The Yocto Project will do all this for you.</p>
+    <p class="normal">You can program the image into flash memory from your bootloader. For example, if you have loaded a filesystem image into RAM at address <code class="inlineCode">0x82000000</code> and you want to load it into a flash partition that begins at <code class="inlineCode">0x163000</code> bytes from the start of the flash chip and is <code class="inlineCode">0x7a9d000</code> bytes long, the U-Boot commands for this would be:</p>
+    <pre class="programlisting con"><code class="hljs-con">nand erase clean 163000 7a9d000
+nand write 82000000 163000 7a9d000
+</code></pre>
+    <p class="normal">You can do the same thing from Linux using the <code class="inlineCode">mtd</code> driver like this:</p>
+    <pre class="programlisting con"><code class="hljs-con"># flash_erase -j /dev/mtd6 0 0
+# nandwrite /dev/mtd6 rootfs-sum.jffs2
+</code></pre>
+    <p class="normal">To boot with a JFFS2 root filesystem, you need to pass the <code class="inlineCode">mtdblock</code> device on the kernel command line for the partition and a <code class="inlineCode">rootfstype</code> since JFFS2 cannot be auto-detected:</p>
+    <pre class="programlisting con"><code class="hljs-con">root=/dev/mtdblock6 rootfstype=jffs2
+</code></pre>
+    <p class="normal">Shortly after JFFS2 was <a id="_idIndexMarker687"/>introduced, another log-structured filesystem appeared.</p>
+    <h2 id="_idParaDest-293" class="heading-2"><a id="_idTextAnchor323"/>YAFFS2</h2>
+    <p class="normal">The YAFFS filesystem <a id="_idIndexMarker688"/>was written by<a id="_idIndexMarker689"/> Charles Manning starting in 2001 to handle NAND flash chips at a time when JFFS2 did not. Subsequent changes to handle larger (2 KB) page sizes resulted in YAFFS2. The website for YAFFS is <a href="https://yaffs.net/"><span class="url">https://yaffs.net/</span></a>.</p>
+    <p class="normal">YAFFS is also a log-structured filesystem that follows the same design principles as JFFS2. The different design decisions mean that it has a faster mount-time scan, simpler and faster garbage collection, and no compression, which speeds up reads and writes at the expense of less efficient use of storage.</p>
+    <p class="normal">YAFFS is not limited to Linux. It has been ported to a wide range of operating systems. It has a dual license: GPLv2 (compatible with Linux) and a commercial license for other operating systems. Unfortunately, the YAFFS code has never been merged into mainline Linux so you will have to patch your kernel.</p>
+    <p class="normal">To get YAFFS2 and patch a kernel, do the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ git clone git://www.aleph1.co.uk/yaffs2
+$ cd yaffs2
+$ ./patch-ker.sh c m &lt;path to your link source&gt;
+</code></pre>
+    <p class="normal">Then, you can configure the kernel with <code class="inlineCode">CONFIG_YAFFS_YAFFS2</code>.</p>
+    <h3 id="_idParaDest-294" class="heading-3"><a id="_idTextAnchor324"/>Creating a YAFFS2 filesystem</h3>
+    <p class="normal">As with JFFS2, to<a id="_idIndexMarker690"/> create a YAFFS2 filesystem at runtime, you only need to erase the partition and mount it, but note that in this case, you do not enable clean markers:</p>
+    <pre class="programlisting con"><code class="hljs-con"># flash_erase /dev/mtd/mtd6 0 0
+# mount -t yaffs2 /dev/mtdblock6 /mnt
+</code></pre>
+    <p class="normal">To create a filesystem image, the simplest thing to do is use the <code class="inlineCode">mkyaffs2</code> tool from <a href="https://code.google.com/archive/p/yaffs2utils/"><span class="url">https://code.google.com/archive/p/yaffs2utils/</span></a><span class="url">:</span></p>
+    <pre class="programlisting con"><code class="hljs-con">$ mkyaffs2 -c 2048 -s 64 rootfs rootfs.yaffs2
+</code></pre>
+    <p class="normal">Here, <code class="inlineCode">-c</code> is the page size and <code class="inlineCode">-s</code> is the OOB size. There is a tool named <code class="inlineCode">mkyaffs2image</code> that is part of the YAFFS code, but it has a couple of drawbacks. Firstly, the page and OOB size are hard coded in the source, so you will have to edit and recompile if you have memory that does not match the defaults of 2,048 and 64. Secondly, the OOB layout is incompatible with MTD, which uses the first two bytes as a bad block marker, whereas <code class="inlineCode">mkyaffs2image</code> uses those bytes to store part of the YAFFS metadata.</p>
+    <p class="normal">To copy the image to the MTD partition from a Linux shell prompt on the target, follow these steps:</p>
+    <pre class="programlisting con"><code class="hljs-con"># flash_erase /dev/mtd6 0 0
+# nandwrite -a /dev/mtd6 rootfs.yaffs2
+</code></pre>
+    <p class="normal">To boot with a YAFFS2 root filesystem, add the following to the kernel command line:</p>
+    <pre class="programlisting con"><code class="hljs-con">root=/dev/mtdblock6 rootfstype=yaffs2
+</code></pre>
+    <p class="normal">While we are on the<a id="_idIndexMarker691"/> topic of filesystems for raw NOR and NAND flash, let’s look at one of the more modern options. This filesystem runs on top of the UBI driver.</p>
+    <h2 id="_idParaDest-295" class="heading-2"><a id="_idTextAnchor325"/>UBI and UBIFS</h2>
+    <p class="normal">The <strong class="keyWord">Unsorted Block Image</strong> (<strong class="keyWord">UBI</strong>) driver is a volume manager for flash memory that takes care of bad block handling and wear leveling. It was implemented by Artem Bityutskiy and first appeared in Linux 2.6.22. In parallel with that, engineers at Nokia were working on a filesystem that would take advantage of the features of UBI, which they called UBIFS. It appeared in Linux 2.6.27. Splitting the flash translation layer in this way makes the code more modular and also allows other filesystems to take advantage of the UBI driver, as we shall see later on.</p>
+    <h3 id="_idParaDest-296" class="heading-3"><a id="_idTextAnchor326"/>UBI</h3>
+    <p class="normal">UBI provides an idealized, reliable view<a id="_idIndexMarker692"/> of a flash<a id="_idIndexMarker693"/> chip by mapping <strong class="keyWord">physical erase blocks</strong> (<strong class="keyWord">PEBs</strong>) to <strong class="keyWord">logical erase blocks</strong> (<strong class="keyWord">LEBs</strong>). Bad <a id="_idIndexMarker694"/>blocks are not mapped to LEBs and so are <a id="_idIndexMarker695"/>never used. If a block cannot be erased, it is marked as bad and dropped from the mapping. UBI keeps a count of the number of times each PEB has been erased in the header of the LEB and then changes the mapping to ensure that each PEB is erased the same number of times.</p>
+    <p class="normal">UBI accesses the flash memory through the MTD layer. As an extra feature, it can divide an MTD partition into several UBI volumes, which improves wear leveling as follows. Imagine that you have two filesystems: one containing fairly static data, such as a root filesystem, and the other containing data that is constantly changing.</p>
+    <p class="normal">If they are stored in separate MTD partitions, the wear leveling only impacts the second one. Whereas if you choose to store them in two UBI volumes in a single MTD partition, the wear leveling takes place over both areas of the storage, and the lifetime of the flash memory is increased. The following diagram illustrates this situation:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_09_04.png" alt="Figure 9.4 – UBI volumes" width="775" height="489"/></figure>
+    <p class="packt_figref">Figure 9.4 – UBI volumes</p>
+    <p class="normal">In this way, UBI fulfills two of the requirements of a flash translation layer: wear leveling and bad-block handling.</p>
+    <p class="normal">To prepare an MTD partition for UBI, you don’t use <code class="inlineCode">flash_erase</code> as with JFFS2 and YAFFS2. Instead, you use the <code class="inlineCode">ubiformat</code> utility, which preserves the erase counts that are stored in the PEB headers. <code class="inlineCode">ubiformat</code> needs to know the minimum unit of I/O, which for most NAND flash chips is the page size, but some chips allow reading and writing in subpages that are a half or a quarter of the page size. Consult the chip data sheet for details and, if in doubt, use the page size. This example prepares <code class="inlineCode">mtd6</code> using a page size of 2048 bytes:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ubiformat /dev/mtd6 -s 2048
+ubiformat: mtd0 (nand), size 134217728 bytes (128.0 MiB), 1024 eraseblocks of 131072 bytes (128.0 KiB), min. I/O size 2048 bytes
+</code></pre>
+    <p class="normal">Then, you can use the <code class="inlineCode">ubiattach</code> command to load the UBI driver on an MTD partition that has been prepared in this way:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ubiattach -p /dev/mtd6 -O 2048
+UBI device number 0, total 1024 LEBs (130023424 bytes, 124.0 MiB), available 998 LEBs (126722048 bytes, 120.9 MiB), LEB size 126976 bytes (124.0 KiB)
+</code></pre>
+    <p class="normal">This creates the <code class="inlineCode">/dev/ubi0</code> device node through which you can access the UBI volumes. You can use <code class="inlineCode">ubiattach</code> on several MTD partitions, in which case they can be accessed through <code class="inlineCode">/dev/ubi1</code>, <code class="inlineCode">/dev/ubi2</code>, and so on. Note that since each LEB has a header containing the meta information used by UBI, the LEB is smaller than the PEB by two pages. For example, a chip with a PEB size of 128 KB and 2 KB pages would have an LEB of 124 KB. This is important information that you will need when creating a UBIFS image.</p>
+    <p class="normal">The PEB-to-LEB mapping is loaded into memory during the attach phase, a process that takes time proportional to the number of PEBs, typically a few seconds. A new feature was added in Linux 3.7, called the <a id="_idIndexMarker696"/>UBI fastmap, which <a id="_idIndexMarker697"/>checkpoints the mapping to flash from time to time and so reduces the attach time. The kernel configuration option for this is <code class="inlineCode">CONFIG_MTD_UBI_FASTMAP</code>.</p>
+    <p class="normal">The first time you attach to an MTD partition after a <code class="inlineCode">ubiformat</code>, there will be no volumes. You can create volumes using <code class="inlineCode">ubimkvol</code>. For example, suppose you have a 128 MB MTD partition, and you want to split it into two volumes. The first is to be 32 MB in size and the second will take up the remaining space:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ubimkvol /dev/ubi0 -N vol_1 -s 32MiB
+Volume ID 0, size 265 LEBs (33648640 bytes, 32.1 MiB), LEB size 126976 bytes (124.0 KiB), dynamic, name "vol_1", alignment 1
+# ubimkvol /dev/ubi0 -N vol_2 -m
+Volume ID 1, size 733 LEBs (93073408 bytes, 88.8 MiB), LEB size 126976 bytes (124.0 KiB), dynamic, name "vol_2", alignment 1
+</code></pre>
+    <p class="normal">Now, you have a device with two nodes: <code class="inlineCode">/dev/ubi0_0</code> and <code class="inlineCode">/dev/ubi0_1</code>. You can confirm this using <code class="inlineCode">ubinfo</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ubinfo -a /dev/ubi0
+ubi0
+Volumes count: 2
+Logical eraseblock size: 126976 bytes, 124.0 KiB
+Total amount of logical eraseblocks: 1024 (130023424 bytes, 124.0 MiB)
+Amount of available logical eraseblocks: 0 (0 bytes)
+Maximum count of volumes 128
+Count of bad physical eraseblocks: 0
+Count of reserved physical eraseblocks: 20
+Current maximum erase counter value: 1
+Minimum input/output unit size: 2048 bytes
+Character device major/minor: 250:0
+Present volumes: 0, 1
+Volume ID: 0 (on ubi0)
+Type: dynamic
+Alignment: 1
+Size: 265 LEBs (33648640 bytes, 32.1 MiB)
+State: OK
+Name: vol_1
+Character device major/minor: 250:1
+-----------------------------------
+Volume ID: 1 (on ubi0)
+Type: dynamic
+Alignment: 1
+Size: 733 LEBs (93073408 bytes, 88.8 MiB)
+State: OK
+Name: vol_2
+Character device major/minor: 250:2
+</code></pre>
+    <p class="normal">At this point, you have a 128 MB MTD partition containing two UBI volumes of sizes 32 MB and 88.8 MB. The total<a id="_idIndexMarker698"/> storage <a id="_idIndexMarker699"/>available is 32 MB plus 88.8 MB, which equals 120.8 MB. The remaining space, 7.2 MB, is taken up by the UBI headers at the start of each PEB, and space is reserved for mapping out blocks that go bad during the lifetime of the chip.</p>
+    <h3 id="_idParaDest-297" class="heading-3"><a id="_idTextAnchor327"/>UBIFS</h3>
+    <p class="normal">UBIFS uses a UBI <a id="_idIndexMarker700"/>volume to create a<a id="_idIndexMarker701"/> robust filesystem. It adds sub-allocation and garbage collection to create a complete flash translation layer. Unlike JFFS2 and YAFFS2, it stores index information on-chip, so mounting is fast, although don’t forget that attaching the UBI volume beforehand may take a significant amount of time. It also allows write-back caching as in a normal disk filesystem, so writes are much faster, but data that has not been flushed to flash memory is lost in the event of power down. You can resolve this problem by making careful use of the <code class="inlineCode">fsync(2)</code> and <code class="inlineCode">fdatasync(2)</code> functions to force a flush of file data at crucial points.</p>
+    <p class="normal">UBIFS has a journal for fast recovery in the event of power down. The minimum size of the journal is 4 MB so UBIFS is not suitable for very small flash devices.</p>
+    <p class="normal">Once you have created the UBI volumes, you can mount them using the device node for the volume, such as <code class="inlineCode">/dev/ubi0_0</code>, or by using the device node for the whole partition plus the volume name, as shown here:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t ubifs ubi0:vol_1 /mnt
+</code></pre>
+    <p class="normal">Creating a filesystem image for UBIFS is a two-stage process. First, you create a UBIFS image using <code class="inlineCode">mkfs.ubifs</code>, and then embed it into a UBI volume using <code class="inlineCode">ubinize</code>. For the first stage, <code class="inlineCode">mkfs.ubifs</code> needs to be informed of the page size with <code class="inlineCode">-m</code>, the size of the UBI LEB with <code class="inlineCode">-e</code>, and the maximum number of erase blocks in the volume with <code class="inlineCode">-c</code>. If the first volume is 32 MB and an erase block is 128 KB, then the number of erase blocks is 256. So, to take the contents of the <code class="inlineCode">rootfs</code> directory and create a UBIFS image named <code class="inlineCode">rootfs.ubi</code>, type the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ mkfs.ubifs -r rootfs -m 2048 -e 124KiB -c 256 -o rootfs.ubi
+</code></pre>
+    <p class="normal">The second stage requires you to create a configuration file for <code class="inlineCode">ubinize</code> that describes the characteristics of each volume in the image. The help page (<code class="inlineCode">ubinize -h</code>) provides details about the<a id="_idIndexMarker702"/> format. This <a id="_idIndexMarker703"/>example creates two volumes (<code class="inlineCode">vol_1</code> and <code class="inlineCode">vol_2</code>):</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-section">[ubifsi_vol_1]</span>
+<span class="hljs-attr">mode</span>=ubi
+<span class="hljs-attr">image</span>=rootfs.ubi
+<span class="hljs-attr">vol_id</span>=<span class="hljs-number">0</span>
+<span class="hljs-attr">vol_name</span>=vol_1
+<span class="hljs-attr">vol_size</span>=<span class="hljs-number">32</span>MiB
+<span class="hljs-attr">vol_type</span>=dynamic
+<span class="hljs-section">[ubifsi_vol_2]</span>
+<span class="hljs-attr">mode</span>=ubi
+<span class="hljs-attr">image</span>=data.ubi
+<span class="hljs-attr">vol_id</span>=<span class="hljs-number">1</span>
+<span class="hljs-attr">vol_name</span>=vol_2
+<span class="hljs-attr">vol_type</span>=dynamic
+<span class="hljs-attr">vol_flags</span>=autoresize
+</code></pre>
+    <p class="normal">The second volume has an auto-resize flag and so will expand to fill the remaining space on the MTD partition. Only one volume can have this flag. From this information, <code class="inlineCode">ubinize</code> will create an image file named by the <code class="inlineCode">-o</code> parameter, with the PEB size as <code class="inlineCode">-p</code>, the page size as <code class="inlineCode">-m</code>, and the sub-page size as <code class="inlineCode">-s</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ubinize -o ~/ubi.img -p 128KiB -m 2048 -s 512 ubinize.cfg
+</code></pre>
+    <p class="normal">To install this image on the target, you would enter these commands on the target:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ubiformat /dev/mtd6 -s 2048
+# nandwrite /dev/mtd6 /ubi.img
+# ubiattach -p /dev/mtd6 -O 2048
+</code></pre>
+    <p class="normal">If you want to boot with a UBIFS root filesystem, you will need to provide these kernel command-line parameters:</p>
+    <pre class="programlisting con"><code class="hljs-con">ubi.mtd=6 root=ubi0:vol_1 rootfstype=ubifs
+</code></pre>
+    <p class="normal">UBIFS completes our<a id="_idIndexMarker704"/> survey of filesystems <a id="_idIndexMarker705"/>for raw NOR and NAND flash memory. Next, we’ll look at filesystems for managed flash.</p>
+    <h1 id="_idParaDest-298" class="heading-1"><a id="_idTextAnchor328"/>Filesystems for managed flash</h1>
+    <p class="normal">As the trend <a id="_idIndexMarker706"/>toward managed flash technologies continues, particularly eMMC, we need to consider how to use them effectively. While they appear to have the same characteristics as hard disk drives, the underlying NAND flash chips have the limitations of large erase blocks with limited erase cycles and bad block handling. We also need robustness in the event of power loss.</p>
+    <p class="normal">It is possible to use any of the normal disk filesystems, but we should try to choose one that reduces disk writes and has a fast restart after an unscheduled shutdown.</p>
+    <h2 id="_idParaDest-299" class="heading-2"><a id="_idTextAnchor329"/>Flashbench</h2>
+    <p class="normal">To make optimum use of the <a id="_idIndexMarker707"/>underlying flash memory, you<a id="_idIndexMarker708"/> need to know the erase block size and page size. Manufacturers do not publish these numbers as a rule, but it is possible to deduce them by observing the behavior of the chip or card.</p>
+    <p class="normal">Flashbench is one such tool. It was initially written by Arnd Bergman as described in the LWN article available at <a href="https://lwn.net/Articles/428584"><span class="url">https://lwn.net/Articles/428584</span></a><span class="url">.</span> You can get the code from <a href="https://github.com/bradfa/flashbench"><span class="url">https://github.com/bradfa/flashbench</span></a>.</p>
+    <p class="normal">Here is a typical run on a SanDisk 4 GB SDHC card:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo ./flashbench -a /dev/mmcblk0 --blocksize=1024
+align 536870912 pre 4.38ms on 4.48ms post 3.92ms diff 332µs
+align 268435456 pre 4.86ms on 4.9ms post 4.48ms diff 227µs
+align 134217728 pre 4.57ms on 5.99ms post 5.12ms diff 1.15ms
+align 67108864 pre 4.95ms on 5.03ms post 4.54ms diff 292µs
+align 33554432 pre 5.46ms on 5.48ms post 4.58ms diff 462µs
+align 16777216 pre 3.16ms on 3.28ms post 2.52ms diff 446µs
+align 8388608 pre 3.89ms on 4.1ms post 3.07ms diff 622µs
+align 4194304 pre 4.01ms on 4.89ms post 3.9ms diff 940µs
+align 2097152 pre 3.55ms on 4.42ms post 3.46ms diff 917µs
+align 1048576 pre 4.19ms on 5.02ms post 4.09ms diff 876µs
+align 524288 pre 3.83ms on 4.55ms post 3.65ms diff 805µs
+align 262144 pre 3.95ms on 4.25ms post 3.57ms diff 485µs
+align 131072 pre 4.2ms on 4.25ms post 3.58ms diff 362µs
+align 65536 pre 3.89ms on 4.24ms post 3.57ms diff 511µs
+align 32768 pre 3.94ms on 4.28ms post 3.6ms diff 502µs
+align 16384 pre 4.82ms on 4.86ms post 4.17ms diff 372µs
+align 8192 pre 4.81ms on 4.83ms post 4.16ms diff 349µs
+align 4096 pre 4.16ms on 4.21ms post 4.16ms diff 52.4µs
+align 2048 pre 4.16ms on 4.16ms post 4.17ms diff 9ns
+</code></pre>
+    <p class="normal">In this case, <code class="inlineCode">flashbench</code> reads blocks of 1,024 bytes just before and just after various power-of-two boundaries. As you cross a page or erase a block boundary, the reads after the boundary take longer. The rightmost column shows the difference and is the one that is most interesting. Reading from the bottom, there is a big jump at 4 KB, which is the most likely size of a page. There is a second jump from 52.4µs to 349µs at 8 KB. This is fairly common and indicates that the card can use multi-plane access to read two 4 KB pages at the same time. Beyond that, the differences are less well marked, but there is a clear jump from 485µs to 805µs at 512 KB, which is probably the<a id="_idIndexMarker709"/> erase block’s size. Given that the card <a id="_idIndexMarker710"/>being tested is quite old, these are the sort of numbers you would expect.</p>
+    <h2 id="_idParaDest-300" class="heading-2"><a id="_idTextAnchor330"/>Discard and TRIM</h2>
+    <p class="normal">Usually, when you <a id="_idIndexMarker711"/>delete a file, only the modified directory node is<a id="_idIndexMarker712"/> written to storage while the sectors containing the file’s contents remain unchanged. When the flash translation layer is in the disk controller, as with managed flash, it does not know that this group of disk sectors no longer contains useful data and so it ends up copying stale data.</p>
+    <p class="normal">In the last few years, the<a id="_idIndexMarker713"/> addition of transactions that pass information about deleted sectors down to the disk controller has improved this situation. The SCSI and SATA specifications have a <code class="inlineCode">TRIM</code> command, and MMC has a similar command named <code class="inlineCode">ERASE</code>. In Linux, this feature is known as <strong class="keyWord">discard</strong>.</p>
+    <p class="normal">To make use of discard, you need a storage device that supports it – most current eMMC chips do – and a Linux device driver to match. You can check this by looking at the block system queue parameters in <code class="inlineCode">/sys/block/&lt;block device&gt;/queue/</code>.</p>
+    <p class="normal">The ones of interest are as follows:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">discard_granularity</code>: The size of the internal allocation unit of the device.</li>
+      <li class="bulletList"><code class="inlineCode">discard_max_bytes</code>: The maximum number of bytes that can be discarded in one go.</li>
+      <li class="bulletList"><code class="inlineCode">discard_zeroes_data</code>: If this is set to <code class="inlineCode">1</code>, discarded data will be set to 0.</li>
+    </ul>
+    <p class="normal">If the device or the device driver does not support discard, these values will all be set to <code class="inlineCode">0</code>. As an example, these are the parameters you will see from the 2 GB eMMC chip on my BeagleBone Black:</p>
+    <pre class="programlisting con"><code class="hljs-con"># grep -s "" /sys/block/mmcblk0/queue/discard_*
+/sys/block/mmcblk0/queue/discard_granularity:2097152
+/sys/block/mmcblk0/queue/discard_max_bytes:2199023255040
+/sys/block/mmcblk0/queue/discard_zeroes_data:1
+</code></pre>
+    <p class="normal">More information can be found in the <code class="inlineCode">Documentation/block/queue-sysfs.txt</code> kernel documentation file.</p>
+    <p class="normal">You can enable discard when mounting a filesystem by adding the <code class="inlineCode">-o</code> discard option to the mount command. Both ext4 and F2FS support it.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">Tip</strong></p>
+      <p class="normal">Make sure that the storage device supports discard before using the <code class="inlineCode">-o</code> discard mount option as data loss can occur. </p>
+    </div>
+    <p class="normal">It is also possible to force discard from the command line independently of how the partition is mounted using the <code class="inlineCode">fstrim</code> command, which is part of the <code class="inlineCode">util-linux</code> package. Typically, you would run this command periodically to free up unused space. <code class="inlineCode">fstrim</code> operates on a mounted filesystem so to trim the root filesystem, you would type the following:</p>
+    <pre class="programlisting con"><code class="hljs-con"># sudo fstrim -v /
+/: 2061000704 bytes were trimmed
+</code></pre>
+    <p class="normal">The preceding<a id="_idIndexMarker714"/> example uses the <code class="inlineCode">-v</code> verbose option so<a id="_idIndexMarker715"/> that it <a id="_idIndexMarker716"/>prints out the number of bytes that have been potentially freed up. In this case, 2,061,000,704 is the approximate amount of free space in the filesystem, so it is the maximum amount of storage that could have been trimmed.</p>
+    <h2 id="_idParaDest-301" class="heading-2"><a id="_idTextAnchor331"/>Ext4</h2>
+    <p class="normal">The <strong class="keyWord">extended filesystem</strong> (<strong class="keyWord">ext</strong>) has<a id="_idIndexMarker717"/> been<a id="_idIndexMarker718"/> the <a id="_idIndexMarker719"/>main filesystem for Linux desktops since 1992. The current version (<strong class="keyWord">ext4</strong>) is very stable, well-tested, and has a journal that makes recovering from an unscheduled shutdown fast and mostly painless. It is a good choice for managed flash devices, and you will find that it is the preferred filesystem for Android devices that have eMMC storage. If the device supports discard, you can mount an ext4 filesystem on it with the <code class="inlineCode">-o</code> discard option.</p>
+    <p class="normal">To format and create an ext4 filesystem at runtime, type the following:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mkfs.ext4 /dev/mmcblk0p2
+# mount -t ext4 -o discard /dev/mmcblk0p1 /mnt
+</code></pre>
+    <p class="normal">To create a filesystem image at build time, you can use the <code class="inlineCode">genext2fs</code> utility available from <a href="https://github.com/bestouff/genext2fs"><span class="url">https://github.com/bestouff/genext2fs</span></a>. In this example, I have specified the block size with <code class="inlineCode">-B</code> and the number of blocks in the image with <code class="inlineCode">-b</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ genext2fs -B 1024 -b 10000 -d rootfs rootfs.ext4
+</code></pre>
+    <p class="normal"><code class="inlineCode">genext2fs</code> can make use of a device table to set the file permissions and ownership as described in <a href="Chapter_05.xhtml#_idTextAnchor138"><em class="italic">Chapter 5</em></a> with <code class="inlineCode">-D &lt;file table&gt;</code>.</p>
+    <p class="normal">As the name implies, this will generate an image in ext2 format. You can upgrade to ext4 using tune2fs as follows (details of the command’s options can be found on the <code class="inlineCode">tune2fs(8)</code> manual page):</p>
+    <pre class="programlisting con"><code class="hljs-con">$ tune2fs -j -J size=1 -O filetype,extents,uninit_bg,dir_index rootfs.ext4
+$ e2fsck -pDf rootfs.ext4
+</code></pre>
+    <p class="normal">Both The Yocto Project and Buildroot use exactly these steps when creating images in ext4 format.</p>
+    <p class="normal">While a journal is an asset for devices that may power down without warning, it does add extra write cycles to each write transaction, wearing out the flash memory. If the device is battery-powered, especially if the battery is not removable, the chances of an unscheduled power down are small, so you may want to leave the journal out.</p>
+    <p class="normal">Even with journaling, filesystem corruption can occur on unexpected power loss. In many devices, holding down the power button, unplugging the power cord, or pulling out the battery can result in immediate shutdown. </p>
+    <p class="normal">Due to the nature of buffered I/O, data being written out to flash<a id="_idIndexMarker720"/> may be lost if the power goes out before the write is done<a id="_idIndexMarker721"/> flushing to storage. For these reasons, it is good to run <code class="inlineCode">fsck</code> non-interactively on a user partition to check for and repair any filesystem corruption before mounting. Otherwise, the corruption can compound over time until it becomes a serious issue.</p>
+    <h2 id="_idParaDest-302" class="heading-2"><a id="_idTextAnchor332"/>F2FS</h2>
+    <p class="normal">The <strong class="keyWord">Flash-Friendly File System</strong> (<strong class="keyWord">F2FS</strong>) is a <a id="_idIndexMarker722"/>log-structured<a id="_idIndexMarker723"/> filesystem designed for managed flash devices, especially eMMC chips and SD cards. It was written by Samsung and was merged into mainline Linux in 3.8. It is marked as experimental, indicating that it has not been extensively deployed yet, but it seems that some Android devices are using it.</p>
+    <p class="normal">F2FS takes into account the page and erase block sizes and then tries to align data on these boundaries. The log format provides resilience in the face of power down and also provides good write performance. In some tests, F2FS shows a twofold improvement over ext4. There is a good description of the design of F2FS in the <code class="inlineCode">Documentation/filesystems/f2fs.txt</code> kernel documentation file and there are references at the end of this chapter in the <em class="italic">Further study</em> section.</p>
+    <p class="normal">The <code class="inlineCode">mkfs.f2fs</code> utility creates an empty F2FS filesystem with the <code class="inlineCode">-l</code> label:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mkfs.f2fs -l rootfs /dev/mmcblock0p1
+# mount -t f2fs /dev/mmcblock0p1 /mnt
+</code></pre>
+    <p class="normal">There isn’t a tool you<a id="_idIndexMarker724"/> can use to create F2FS filesystem<a id="_idIndexMarker725"/> images offline yet.</p>
+    <h2 id="_idParaDest-303" class="heading-2"><a id="_idTextAnchor333"/>FAT16/32</h2>
+    <p class="normal">The old Microsoft filesystems (FAT16 and FAT32) continue to be important as a common format understood <a id="_idIndexMarker726"/>by most operating systems. When you <a id="_idIndexMarker727"/>buy an SD card or USB flash drive, it is almost certain to be formatted as FAT32, and, in some cases, the on-card microcontroller is optimized for FAT32 access patterns. Also, some boot ROMs require a FAT partition for the second-stage bootloader. However, FAT formats are definitely not suitable for storing critical files because they are prone to corruption and make poor use of the storage space.</p>
+    <p class="normal">Linux supports FAT16 through both the <code class="inlineCode">msdos</code> and <code class="inlineCode">vfat</code> filesystems, but FAT32 is only supported through the <code class="inlineCode">vfat</code> filesystem. To mount a device, say an SD card, on the second MMC hardware adapter, type this:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t vfat /dev/mmcblock1p1 /mnt
+</code></pre>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">Important note</strong></p>
+      <p class="normal">In the past, there have been licensing issues with the <code class="inlineCode">vfat</code> driver, which may (or may not) infringe a patent held by Microsoft. </p>
+    </div>
+    <p class="normal">FAT32 has a limitation of 32 GB on the device’s size. Devices of a larger capacity may be formatted using the Microsoft exFAT format and it is a requirement for SDXC cards. There is no kernel driver for exFAT, but it can be supported by means of a user space FUSE driver. Since exFAT is proprietary to Microsoft, there are bound to be licensing implications if you support this format on your device.</p>
+    <p class="normal">That does it for <a id="_idIndexMarker728"/>read-write filesystems geared toward managed <a id="_idIndexMarker729"/>flash. What about space-saving read-only filesystems? The choice is simple: SquashFS.</p>
+    <h1 id="_idParaDest-304" class="heading-1"><a id="_idTextAnchor334"/>Read-only compressed filesystems</h1>
+    <p class="normal">Compressing data is <a id="_idIndexMarker730"/>useful if you don’t have quite enough storage to fit everything in. Both JFFS2 and UBIFS do on-the-fly data compression by default. However, if the files are never going to be written, as is usually the case with the root filesystem, you can achieve better compression ratios by using a read-only compressed filesystem. Linux supports several of these: <code class="inlineCode">romfs</code>, <code class="inlineCode">cramfs</code>, and <code class="inlineCode">squashfs</code>. The first two are obsolete now, so I will only describe SquashFS.</p>
+    <h2 id="_idParaDest-305" class="heading-2"><a id="_idTextAnchor335"/>SquashFS</h2>
+    <p class="normal">The SquashFS filesystem <a id="_idIndexMarker731"/>was written by Phillip Lougher<a id="_idIndexMarker732"/> in 2002 as a replacement for <code class="inlineCode">cramfs</code>. It existed as a kernel patch for a long time, eventually being merged into mainline Linux in version 2.6.29 in 2009. It is very easy to use. You create a filesystem image using <code class="inlineCode">mksquashfs</code> and install it to the flash memory:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ mksquashfs rootfs rootfs.squashfs
+</code></pre>
+    <p class="normal">The resulting filesystem is read-only so there is no mechanism for modifying any of the files at runtime. The only way to update a SquashFS filesystem is to erase the whole partition and program in a new image.</p>
+    <p class="normal">SquashFS is not bad-block aware so it must be used with reliable flash memory such as NOR flash. However, it can be used on NAND flash as long as you use UBI to create an emulated, reliable MTD. You have to enable the <code class="inlineCode">CONFIG_MTD_UBI_BLOCK</code> kernel configuration, which will create a read-only MTD block device for each UBI volume. The following diagram shows two MTD partitions, each with accompanying <code class="inlineCode">mtdblock</code> devices. The second partition is also used to create a UBI volume that is exposed as a third, reliable <code class="inlineCode">mtdblock</code> device, which you can use for any read-only filesystem that is not bad-block aware:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_09_05.png" alt="Figure 9.5 – UBI volume" width="924" height="623"/></figure>
+    <p class="packt_figref">Figure 9.5 – UBI volume</p>
+    <p class="normal">A read-only filesystem<a id="_idIndexMarker733"/> is great for immutable <a id="_idIndexMarker734"/>contents, but what about temporary files that don’t need to persist across reboots? This is where a RAM disk comes in handy.</p>
+    <h1 id="_idParaDest-306" class="heading-1"><a id="_idTextAnchor336"/>Temporary filesystems</h1>
+    <p class="normal">There are always<a id="_idIndexMarker735"/> some files that have a short lifetime or have no significance after a reboot. Many such files are put into <code class="inlineCode">/tmp</code>, so it makes sense to keep these files from reaching permanent storage.</p>
+    <p class="normal">The temporary filesystem (<code class="inlineCode">tmpfs</code>) is ideal for this purpose. You can create a temporary RAM-based filesystem by simply mounting <code class="inlineCode">tmpfs</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t tmpfs tmp_files /tmp
+</code></pre>
+    <p class="normal">As with <code class="inlineCode">procfs</code> and <code class="inlineCode">sysfs</code>, there is no device node associated with <code class="inlineCode">tmpfs</code>, so you have to supply a placekeeper string, which is <code class="inlineCode">tmp_files</code> in the preceding example.</p>
+    <p class="normal">The amount of memory used will grow and shrink as files are created and deleted. The default maximum size is half the physical RAM. In most cases, it would be a disaster if <code class="inlineCode">tmpfs</code> grew to be that large, so it is a very good idea to cap it with the <code class="inlineCode">-o</code> size parameter. The parameter can be given in bytes, KB (k), MB (m), or GB (g) like this for example:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t tmpfs -o size=1m tmp_files /tmp
+</code></pre>
+    <p class="normal">In addition to <code class="inlineCode">/tmp</code>, some subdirectories of <code class="inlineCode">/var</code> contain volatile data and it is good practice to use <code class="inlineCode">tmpfs</code> for them as well, either by creating a separate filesystem for each or, more economically, using symbolic links. Buildroot does this like so:</p>
+    <pre class="programlisting con"><code class="hljs-con">/var/cache -&gt; /tmp
+/var/lock -&gt; /tmp
+/var/log -&gt; /tmp
+/var/run -&gt; /tmp
+/var/spool -&gt; /tmp
+/var/tmp -&gt; /tmp
+</code></pre>
+    <p class="normal">In The Yocto Project, <code class="inlineCode">/run</code> and <code class="inlineCode">/var/volatile</code> are <code class="inlineCode">tmpfs</code> mounts with symbolic links pointing to them as shown:</p>
+    <pre class="programlisting con"><code class="hljs-con">/tmp -&gt; /var/tmp
+/var/lock -&gt; /run/lock
+/var/log -&gt; /var/volatile/log
+/var/run -&gt; /run
+/var/tmp -&gt; /var/volatile/tmp
+</code></pre>
+    <p class="normal">It is not uncommon to load the root filesystem into RAM on embedded Linux systems. That way, any damage to its contents that may occur at runtime is not permanent. The root filesystem does not <a id="_idIndexMarker736"/>need to reside on SquashFS or <code class="inlineCode">tmpfs</code> to be protected. You just need to make sure the root filesystem is read-only.</p>
+    <h1 id="_idParaDest-307" class="heading-1"><a id="_idTextAnchor337"/>Making the root filesystem read-only</h1>
+    <p class="normal">You need to make your target device able to survive unexpected events, including file corruption, and <a id="_idIndexMarker737"/>still be able to boot and achieve at least a minimum level of functionality. Making the root filesystem read-only is a key part of achieving this ambition because it eliminates accidental overwrites. Making it read-only is easy. Replace <code class="inlineCode">rw</code> with <code class="inlineCode">ro</code> on the kernel command line or use an inherently read-only filesystem such as SquashFS. However, you will find that there are a few files and directories that are traditionally writable:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">/etc/resolv.conf</code>: This file is written by network configuration scripts to record the addresses of DNS name servers. The information is volatile so you simply have to make it a symlink to a temporary directory like <code class="inlineCode">/etc/resolv.conf -&gt; /var/run/resolv.conf</code>.</li>
+      <li class="bulletList"><code class="inlineCode">/etc/passwd</code>: This file, along with <code class="inlineCode">/etc/group</code>, <code class="inlineCode">/etc/shadow</code>, and <code class="inlineCode">/etc/gshadow</code>, stores user and group names and passwords. They need to be symbolically linked to an area of persistent storage.</li>
+      <li class="bulletList"><code class="inlineCode">/var/lib</code>: Many applications expect to be able to write to this directory and to keep permanent data here as well. One solution is to copy a base set of files to a <code class="inlineCode">tmpfs</code> filesystem at boot time and then bind mount <code class="inlineCode">/var/lib</code> to the new location. You can do this by putting a sequence of commands such as these into one of the boot scripts:
+        <pre class="programlisting con"><code class="hljs-con">$ mkdir -p /var/volatile/lib
+$ cp -a /var/lib/* /var/volatile/lib
+$ mount --bind /var/volatile/lib /var/lib
+</code></pre>
+      </li>
+      <li class="bulletList"><code class="inlineCode">/var/log</code>: This is the place where <code class="inlineCode">syslogd</code> and other daemons keep their logs. Generally, logging to flash memory is not desirable because of the many small write cycles it generates. A simple solution is to mount <code class="inlineCode">/var/log</code> using <code class="inlineCode">tmpfs</code> making all log messages volatile. In the case of <code class="inlineCode">syslogd</code>, BusyBox has a version that can log to a circular ring buffer.</li>
+    </ul>
+    <p class="normal">If you are using The Yocto Project, you<a id="_idIndexMarker738"/> can create a read-only root filesystem by adding <code class="inlineCode">IMAGE_FEATURES = "read-only-rootfs"</code> to <code class="inlineCode">conf/local.conf</code> or to your image recipe.</p>
+    <h1 id="_idParaDest-308" class="heading-1"><a id="_idTextAnchor338"/>Filesystem choices</h1>
+    <p class="normal">So far, we have<a id="_idIndexMarker739"/> looked at the technology behind solid-state memory and at the many types of filesystems. Now it is time to summarize the options that are available. In most cases, you will be able to divide<a id="_idIndexMarker740"/> your storage requirements into these three categories:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">Permanent, read-write data</strong>: Runtime configuration, network parameters, passwords, data logs, and user data</li>
+      <li class="bulletList"><strong class="keyWord">Permanent, read-only data</strong>: Programs, libraries, and configurations files that are constant; for example, the root filesystem</li>
+      <li class="bulletList"><strong class="keyWord">Volatile data</strong>: Temporary storage; for example, <code class="inlineCode">/tmp</code></li>
+    </ul>
+    <p class="normal">The choices for read-write storage <a id="_idIndexMarker741"/>are as follows:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">NOR</strong>: UBIFS or JFFS2</li>
+      <li class="bulletList"><strong class="keyWord">NAND</strong>: UBIFS, JFFS2, or YAFFS2</li>
+      <li class="bulletList"><strong class="keyWord">eMMC</strong>: ext4 or F2FS</li>
+    </ul>
+    <p class="normal">For read-only storage, you can use any of these mounted with the <code class="inlineCode">ro</code> attribute. Additionally, if you want to save space, you <a id="_idIndexMarker742"/>could use SquashFS. Finally, for volatile storage, there is only one choice: <code class="inlineCode">tmpfs</code>.</p>
+    <h1 id="_idParaDest-309" class="heading-1"><a id="_idTextAnchor339"/>Summary</h1>
+    <p class="normal">Flash memory has been the storage technology of choice for embedded Linux from the beginning. Over the years, Linux has gained very good flash memory support from low-level drivers up to flash-aware filesystems, with the latest being UBIFS.</p>
+    <p class="normal">As the rate at which new flash technologies are introduced increases, it is becoming harder to keep pace with the changes at the top end. System designers are increasingly turning to managed flash in the form of eMMC to provide a stable hardware and software interface that is independent of the memory chips inside. Embedded Linux developers are beginning to get to grips with these new chips. Support for <code class="inlineCode">TRIM</code> in ext4 and F2FS is well-established, and it is slowly finding its way into the chips themselves. Also, the appearance of new filesystems that have been optimized to manage flash, such as F2FS, is a welcome step forward.</p>
+    <p class="normal">However, the fact remains that flash memory is not the same as a hard disk drive. You have to be careful when you’re minimizing the number of filesystem writes – especially as the higher density TLC chips may be able to support as few as 1,000 erase cycles.</p>
+    <p class="normal">In the next chapter, we will continue with the theme of storage options as we consider different ways to keep software up to date on devices that may be deployed to remote locations.</p>
+    <h1 id="_idParaDest-310" class="heading-1"><a id="_idTextAnchor340"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">XIP: The past, the present... the future?</em>, by Vitaly Wool – <a href="https://archive.fosdem.org/2007/slides/devrooms/embedded/Vitaly_Wool_XIP.pdf"><span class="url">https://archive.fosdem.org/2007/slides/devrooms/embedded/Vitaly_Wool_XIP.pdf</span></a></li>
+      <li class="bulletList"><em class="italic">Optimizing Linux with cheap flash drives</em>, by Arnd Bergmann – <a href="https://lwn.net/Articles/428584/"><span class="url">https://lwn.net/Articles/428584/</span></a></li>
+      <li class="bulletList"><em class="italic">eMMC/SSD File System Tuning Methodology</em>, Cogent Embedded, Inc. – <a href="https://elinux.org/images/b/b6/EMMC-SSD_File_System_Tuning_Methodology_v1.0.pdf"><span class="url">https://elinux.org/images/b/b6/EMMC-SSD_File_System_Tuning_Methodology_v1.0.pdf</span></a></li>
+      <li class="bulletList"><em class="italic">Flash-Friendly File System (F2FS)</em>, by Joo-Young Hwang – <a href="https://elinux.org/images/1/12/Elc2013_Hwang.pdf"><span class="url">https://elinux.org/images/1/12/Elc2013_Hwang.pdf</span></a></li>
+      <li class="bulletList"><em class="italic">An F2FS teardown</em>, by Neil Brown – <a href="https://lwn.net/Articles/518988/"><span class="url">https://lwn.net/Articles/518988/</span></a></li>
+    </ul>
+  </div>
+</div></div></body></html>

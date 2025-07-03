@@ -1,0 +1,319 @@
+<html><head></head><body>
+		<div id="_idContainer033">
+			<h1 id="_idParaDest-105"><em class="italic"><a id="_idTextAnchor106"/>Chapter 8</em>: Understanding the systemd Boot Process</h1>
+			<p>In this chapter, we'll take a brief look at the <strong class="source-inline">systemd</strong> boot process. Now, you might think that this would be a bit dull, but I can assure you that it won't be. Rather than lead you through a dull slog about all that happens during bootup, my aim is to give you practical information that can make bootups run more efficiently. After that, I'll show you some ways in which <strong class="source-inline">systemd</strong> has been made somewhat backward-compatible with the legacy <strong class="bold">System V</strong> (<strong class="bold">SysV</strong>) stuff. Specific topics in this chapter include the following:</p>
+			<ul>
+				<li>Comparing SysV bootup and <strong class="source-inline">systemd</strong> bootup</li>
+				<li>Analyzing bootup performance</li>
+				<li>Some differences on Ubuntu Server 20.04</li>
+				<li>Understanding <strong class="source-inline">systemd</strong> generators</li>
+			</ul>
+			<p>Note that we won't be talking about bootloaders in this chapter because we're saving that for later.</p>
+			<p>All right—if you're ready, let's get started.</p>
+			<h1 id="_idParaDest-106"><a id="_idTextAnchor107"/>Technical requirements</h1>
+			<p>The technical requirements are the same as always—just have an Ubuntu and an Alma <strong class="bold">virtual machine</strong> (<strong class="bold">VM</strong>) fired up so that you can follow along.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/3phdZ6o">https://bit.ly/3phdZ6o</a></p>
+			<h1 id="_idParaDest-107"><a id="_idTextAnchor108"/>Comparing SysV bootup and systemd bootup</h1>
+			<p>Computer bootups all start<a id="_idIndexMarker238"/> pretty much the same way, regardless of <a id="_idIndexMarker239"/>which operating system is running. You<a id="_idIndexMarker240"/> turn on the power switch, then the machine's <strong class="bold">Basic Input/Output System</strong> (<strong class="bold">BIOS</strong>) or <strong class="bold">Unified Extensible Firmware Interface</strong> (<strong class="bold">UEFI</strong>) initializes the<a id="_idIndexMarker241"/> hardware and then pulls the operating system boot information from the <strong class="bold">master boot record</strong> (<strong class="bold">MBR</strong>) of the<a id="_idIndexMarker242"/> machine's drive. After that, things are different for the various operating systems. Let's first look at what's common for the SysV and <strong class="source-inline">systemd</strong> bootup sequence.</p>
+			<h2 id="_idParaDest-108"><a id="_idTextAnchor109"/>Understanding SysV and systemd bootup similarities</h2>
+			<p>Once the machine can access the MBR of the<a id="_idIndexMarker243"/> machine's drive, the operating system begins to load. In the <strong class="source-inline">/boot/</strong> directory, you'll see a compressed Linux kernel file that generally has <strong class="source-inline">vmlinuz</strong> in its filename. You'll also see an <strong class="bold">initial RAM (random-access memory) disk image</strong> that will normally have either <strong class="source-inline">initramfs</strong> or <strong class="source-inline">initrd</strong> in its filename. The first step of this process is for the Linux kernel image to get uncompressed and loaded into the system memory. At this stage, the kernel still can't access<a id="_idIndexMarker244"/> the root filesystem because it can't access the proper drivers for it. These drivers are in the initial RAM disk image. So, the next step is to load this initial RAM disk image, which will establish a temporary root filesystem that the kernel can access. Once the kernel has loaded the proper drivers, the image will unload. The boot process will then continue by accessing whatever it needs to access on the machine's root filesystem.</p>
+			<p>After this, things get different. To show how, let's take a whirlwind tour of the SysV bootup process.</p>
+			<h2 id="_idParaDest-109"><a id="_idTextAnchor110"/>Understanding the SysV bootup process</h2>
+			<p>I'm not going to go deep into<a id="_idIndexMarker245"/> the details of the SysV bootup process because there's no need to. All I want to do is to show you enough information so that you can<a id="_idIndexMarker246"/> understand how it differs from the <strong class="source-inline">systemd</strong> bootup.</p>
+			<p>The <strong class="source-inline">init</strong> process, which is always <strong class="bold">process identifier 1</strong> (<strong class="source-inline">PID 1</strong>), is the first process to start. This <strong class="source-inline">init</strong> process will control the rest of the boot sequence with a series of complex, convoluted bash shell scripts in the <strong class="source-inline">/etc/</strong> directory. At some point, the <strong class="source-inline">init</strong> process will obtain information about the default run level from the <strong class="source-inline">/etc/inittab</strong> file. Once the basic system initialization has been completed, system services will get started from bash shell scripts in the <strong class="source-inline">/etc/init.d/</strong> directory, as determined by what's enabled for the default runlevel. </p>
+			<p>Bootups on a SysV machine can be rather slow because everything gets started in a serial mode—in other words, SysV can only start one service at a time during bootup. Of course, I may have made SysV sound worse than it really is. Although it's outdated by today's standards, it did work well for the hardware of its time. I mean, when you're talking about a server that's running with a pair of single-core 750 <strong class="bold">megahertz</strong> (<strong class="bold">MHz</strong>) Pentium III processors and 512 <strong class="bold">megabytes</strong> (<strong class="bold">MB</strong>) of memory, there's not much you can do to speed it up in any case. (I still have a few of those old machines in my collection, but I haven't booted them up in ages.)</p>
+			<p>As I said, this is a whirlwind <a id="_idIndexMarker247"/>tour. For our present purposes, this is all you need to know about SysV bootup. So, let's leave this topic and look at how the <strong class="source-inline">systemd</strong> bootup process works.</p>
+			<h2 id="_idParaDest-110"><a id="_idTextAnchor111"/>Understanding the systemd bootup process</h2>
+			<p>With <strong class="source-inline">systemd</strong>, the <strong class="source-inline">systemd</strong> process is the<a id="_idIndexMarker248"/> first process to start. It also runs as <strong class="source-inline">PID 1</strong>, as you can see here on the Alma machine:</p>
+			<p class="source-code">[donnie@localhost ~]$ ps aux</p>
+			<p class="source-code">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND</p>
+			<p class="source-code">root           1  1.9  0.8 186956 15088 ?        Ss   14:18   0:07 /usr/lib/systemd/systemd --switched-root --system --deserialize 17</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Curiously, <strong class="source-inline">PID 1</strong> still shows up as the <strong class="source-inline">init</strong> process on the Ubuntu machine, as we see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ ps aux</p>
+			<p class="source-code">USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND</p>
+			<p class="source-code">root           1  1.2  0.5 101924 11308 ?        Ss   18:26   0:04 /sbin/init maybe-ubiquity</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>This is because the Ubuntu developers, for some bizarre reason, created an <strong class="source-inline">init</strong> symbolic link that points to the <strong class="source-inline">systemd</strong> executable, as we see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ cd /sbin</p>
+			<p class="source-code">donnie@ubuntu20-04:/sbin$ ls -l init</p>
+			<p class="source-code">lrwxrwxrwx 1 root root 20 Mar 17 21:36 init -&gt; /lib/systemd/systemd</p>
+			<p class="source-code">donnie@ubuntu20-04:/sbin$</p>
+			<p>I have no idea why the Ubuntu developers thought they needed to do that. It works though, so it's all good.</p>
+			<p>Instead of running <a id="_idIndexMarker249"/>complex bash shell scripts to initialize the system, <strong class="source-inline">systemd</strong> runs targets. It starts by looking at the <strong class="source-inline">default.target</strong> file to see if it's set to <strong class="source-inline">graphical</strong> or <strong class="source-inline">multi-user</strong>. As I pointed out in <a href="B17491_06_Final_NM_ePub.xhtml#_idTextAnchor077"><em class="italic">Chapter 6</em></a>, <em class="italic">Understanding systemd Targets</em>, there's a chain of dependencies that begins with whatever the default target is and stretches backward. Let's say that our machine has the graphical target set as its default. In the <strong class="source-inline">graphical.target</strong> file, we see the following line:</p>
+			<p class="source-code">Requires=multi-user.target</p>
+			<p>This means that the graphical target can't start until after the multi-user target has started. In the <strong class="source-inline">multi-user.target</strong> file, we see this line:</p>
+			<p class="source-code">Requires=basic.target</p>
+			<p>Now, if we keep tracing this chain back to its origin, we'll see that the basic target <em class="italic">Requires</em> the <strong class="source-inline">sysinit.target</strong> file, which in turn <em class="italic">Wants</em> the <strong class="source-inline">local-fs.target</strong> file, which in turn starts <strong class="source-inline">after</strong> the <strong class="source-inline">local-fs-pre.target</strong> file.</p>
+			<p>So, what does all this mean? Well, it's just that once the <strong class="source-inline">systemd</strong> process has determined what the default target is, it starts loading the bootup targets in the following order:</p>
+			<ol>
+				<li><strong class="source-inline">local-fs-pre.target</strong></li>
+				<li><strong class="source-inline">local-fs.target</strong></li>
+				<li><strong class="source-inline">sysinit.target</strong></li>
+				<li><strong class="source-inline">basic.target</strong></li>
+				<li><strong class="source-inline">multi-user.target</strong></li>
+				<li><strong class="source-inline">graphical.target</strong> (if enabled)</li>
+			</ol>
+			<p>Okay—I know. You're now yelling: <em class="italic">But Donnie. You said that systemd starts its processes in parallel, not in sequence.</em> Indeed, <strong class="source-inline">systemd</strong> does start its bootup processes in parallel. Remember what I told you before. A target is a <em class="italic">collection</em> of other <strong class="source-inline">systemd</strong> units that are grouped together for a particular purpose. Within each target, processes start up in parallel.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">You can see a graphical representation of this bootup chain on the <strong class="source-inline">bootup</strong> man page.</p>
+			<p>I've also pointed out before that<a id="_idIndexMarker250"/> some of these targets are hardcoded into the <strong class="source-inline">systemd</strong> executable file. This means that some of these targets don't have their own <strong class="source-inline">.target</strong> files, and others have <strong class="source-inline">.target</strong> files that seem to not do anything. There are a few ways to see what's going on with these hardcoded targets. The first way is to look at a target with <strong class="source-inline">systemctl list-dependencies</strong>. Here's what we see when we look at the <strong class="source-inline">local-fs.target</strong> file:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl list-dependencies local-fs.target</p>
+			<p class="source-code">local-fs.target</p>
+			<p class="source-code">  ├─-.mount</p>
+			<p class="source-code">  ├─boot.mount</p>
+			<p class="source-code">  ├─ostree-remount.service</p>
+			<p class="source-code">  └─systemd-remount-fs.service</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>This target starts the services that mount the filesystems. We see that it mounts the <strong class="source-inline">boot</strong> partition, which is represented by <strong class="source-inline">boot.mount</strong>. It then mounts the <strong class="source-inline">root</strong> filesystem, which is represented by <strong class="source-inline">-.mount</strong>.</p>
+			<p>I showed you before how to look at a list of targets that are hardcoded into the <strong class="source-inline">systemd</strong> executable file. We can also look for information that's specific to just one target. Here's how that<a id="_idIndexMarker251"/> looks for the <strong class="source-inline">local-fs.target</strong> file:</p>
+			<p class="source-code">[donnie@localhost systemd]$ strings /lib/systemd/systemd | grep -A 100 'local-fs.target'</p>
+			<p class="source-code">local-fs.target</p>
+			<p class="source-code">options</p>
+			<p class="source-code">fstype</p>
+			<p class="source-code">Failed to parse /proc/self/mountinfo: %m</p>
+			<p class="source-code">Failed to get next entry from /proc/self/mountinfo: %m</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">mount_process_proc_self_mountinfo</p>
+			<p class="source-code">mount_dispatch_io</p>
+			<p class="source-code">mount_enumerate</p>
+			<p class="source-code">mount_enumerate</p>
+			<p class="source-code">mount_shutdown</p>
+			<p class="source-code">[donnie@localhost systemd]$</p>
+			<p>By default, <strong class="source-inline">grep</strong> only shows the line in which it finds the search term that you specify. The <strong class="source-inline">-A</strong> option makes it show a specified number of lines that come after the line in which the search term is found. The <strong class="source-inline">-A 100</strong> option that I'm using here tells <strong class="source-inline">grep</strong> to show me the next 100 lines that follow the line that contains <strong class="source-inline">local-fs.target</strong>. We don't see the exact program code like this, but the embedded text strings do give us some sense of what's going on. My choice of 100 lines was completely arbitrary, but you can keep increasing that if you like, until you start seeing lines that have nothing to do with mounting filesystems.</p>
+			<p>A third way to get information about these hardcoded targets is to look at the <strong class="source-inline">bootup</strong> and the <strong class="source-inline">systemd.special</strong> man pages. Neither of these man pages gives much detail, but you still might learn a little something from them.</p>
+			<p>Now, with this out of the<a id="_idIndexMarker252"/> way, let's look at how to analyze bootup problems.</p>
+			<h1 id="_idParaDest-111"><a id="_idTextAnchor112"/>Analyzing bootup performance</h1>
+			<p>Let's say that your<a id="_idIndexMarker253"/> server is taking longer than you think it should to boot up, and you want to know why. Fortunately, <strong class="source-inline">systemd</strong> comes with the built-in <strong class="source-inline">systemd-analyze</strong> tool that can help.</p>
+			<p>Let's start by looking here at how long it took to boot up my AlmaLinux machine with its GNOME 3 desktop:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemd-analyze</p>
+			<p class="source-code">Startup finished in 2.397s (kernel) + 19.023s (initrd) + 1min 26.269s (userspace) = 1min 47.690s</p>
+			<p class="source-code">graphical.target reached after 1min 25.920s in userspace</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>If you don't specify an option, <strong class="source-inline">systemd-analyze</strong> just uses the <strong class="source-inline">time</strong> option. (You can type in <strong class="source-inline">systemd-analyze time</strong> if you really want to, but you'll get the same results that you see here.) The first line of output shows how long it took for the kernel, the initial RAM disk image, and the user space to load. The second line shows how long it took for the graphical target to come up. In reality, the total bootup time doesn't look too bad, especially when you consider the age of the host machine that I'm using to run this VM. (This host machine is a 2009-or-so<a id="_idIndexMarker254"/> vintage Dell, running with an old-fashioned Core 2 Quad <strong class="bold">central processing unit</strong> (<strong class="bold">CPU</strong>).) If I were either running this VM on a newer model host or running Alma on bare metal, the bootup time could possibly be a bit quicker. There's also the fact that this VM is running with the GNOME 3 desktop environment, which is somewhat resource-intensive. I personally prefer lighter-weight desktops, which<a id="_idIndexMarker255"/> could possibly cut the bootup time down a bit. Unfortunately, <strong class="bold">Red Hat Enterprise Linux 8</strong> (<strong class="bold">RHEL 8</strong>) and all of its free-of-charge offspring only come with GNOME 3. (It is possible<a id="_idIndexMarker256"/> to install the lightweight <strong class="bold">XForms Common Environment</strong> (<strong class="bold">XFCE</strong>) desktop if you have the third-party <strong class="bold">Extra Packages for Enterprise Linux</strong> (<strong class="bold">EPEL</strong>) repository<a id="_idIndexMarker257"/> installed, but that's beyond the scope of this book.)</p>
+			<p>Now, let's say that the bootup process on this machine really is too slow, and you want to speed it up if possible. First, let's use the <strong class="source-inline">blame</strong> option to see who we want to <em class="italic">blame</em>:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemd-analyze blame</p>
+			<p class="source-code">     1min 4.543s plymouth-quit-wait.service</p>
+			<p class="source-code">         58.883s kdump.service</p>
+			<p class="source-code">         32.153s wordpress-container.service</p>
+			<p class="source-code">         32.102s wordpress2-container.service</p>
+			<p class="source-code">         18.200s systemd-udev-settle.service</p>
+			<p class="source-code">         14.690s dracut-initqueue.service</p>
+			<p class="source-code">         13.748s sssd.service</p>
+			<p class="source-code">         12.638s lvm2-monitor.service</p>
+			<p class="source-code">         10.781s NetworkManager-wait-online.service</p>
+			<p class="source-code">         10.156s tuned.service</p>
+			<p class="source-code">          9.504s firewalld.service</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>This <strong class="source-inline">blame</strong> option <a id="_idIndexMarker258"/>shows you all of the services that got started during the bootup, along with the time it took to start each service. The services are listed in descending order of how long it took each one to start. Look through the whole list, and see if there are any services that you can safely disable. For example, further down the list, you'll see that the <strong class="source-inline">wpa_supplicant.service</strong> is running, as I show you here:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemd-analyze blame | grep 'wpa_supplicant'</p>
+			<p class="source-code">           710ms wpa_supplicant.service</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>That's great if you're working with either a desktop machine or a laptop where you might need to use a wireless adapter, but it's not necessary on a server that doesn't have wireless. So, you might consider disabling this service. (Of course, this service only took 710 <strong class="bold">milliseconds</strong> (<strong class="bold">ms</strong>) to start, but that's still something.)</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Disabling unnecessary services is good for both performance and security. A basic tenet of security that's been around forever is that you should always minimize the number of running services on your system. This provides potential attackers with fewer attack vectors.</p>
+			<p>If you want to see how long<a id="_idIndexMarker259"/> it took for each target to start during bootup, use the <strong class="source-inline">critical-chain</strong> option, like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemd-analyze critical-chain</p>
+			<p class="source-code">The time after the unit is active or started is printed after the "@" character.</p>
+			<p class="source-code">The time the unit takes to start is printed after the "+" character.</p>
+			<p class="source-code">graphical.target @2min 1.450s</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">                    └─local-fs-pre.target @26.988s</p>
+			<p class="source-code">                      └─lvm2-monitor.service @4.022s +12.638s</p>
+			<p class="source-code">                                              └─dm-event.socket @3.973s</p>
+			<p class="source-code">                                                └─-.mount</p>
+			<p class="source-code">                                                  └─system.slice</p>
+			<p class="source-code">                                                    └─-.slice</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>For formatting reasons, I can only show you a small portion of the output, so try it for yourself to see how the whole thing looks.</p>
+			<p>These commands work the same on an Ubuntu machine as they do here on the Alma machine, but there are a few<a id="_idIndexMarker260"/> differences with how the default target is set up on Ubuntu Server 20.04. So, let's look at that.</p>
+			<h1 id="_idParaDest-112"><a id="_idTextAnchor113"/>Some differences on Ubuntu Server 20.04</h1>
+			<p>My Ubuntu Server <a id="_idIndexMarker261"/>20.04 machine, which runs purely in text mode, boots considerably faster, as you can see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ systemd-analyze</p>
+			<p class="source-code">Startup finished in 8.588s (kernel) + 44.944s (userspace) = 53.532s</p>
+			<p class="source-code">graphical.target reached after 38.913s in userspace</p>
+			<p class="source-code">donnie@ubuntu20-04:~$</p>
+			<p>I must confess that I haven't worked that much with Ubuntu Server 20.04 since it's been out, and I still encounter some new things about it that surprise me. Before I set up the VMs for this chapter, I had never before noticed that Ubuntu Server 20.04 comes with <strong class="source-inline">graphical.target</strong> as the default, even though no graphical interface is installed. The  explanation for that is that the <strong class="source-inline">accounts-daemon.service</strong> file gets started by the graphical target, not by the multi-user target, as we can see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:/etc/systemd/system/graphical.target.wants$ ls -l</p>
+			<p class="source-code">total 0</p>
+			<p class="source-code">lrwxrwxrwx 1 root 43 Feb  1 17:27 accounts-daemon.service -&gt; /lib/systemd/system/accounts-daemon.service</p>
+			<p class="source-code">donnie@ubuntu20-04:/etc/systemd/system/graphical.target.wants$</p>
+			<p>If you look in the <strong class="source-inline">graphical.target</strong> file, you'll see that it only <em class="italic">Wants</em> the <strong class="source-inline">display-manager.service</strong> file and doesn't <em class="italic">Require</em> it, as evidenced by this line:</p>
+			<p class="source-code">Wants=display-manager.service</p>
+			<p>So, even though the display <a id="_idIndexMarker262"/>manager doesn't exist on this VM, it still goes into the <strong class="source-inline">graphical.target</strong> just fine. But, let's get back to that <strong class="source-inline">accounts-daemon.service</strong> file. What is it, exactly? Well, according to the official documentation at <a href="https://www.freedesktop.org/wiki/Software/AccountsService/">https://www.freedesktop.org/wiki/Software/AccountsService/</a>, "<em class="italic">AccountsService is a D-Bus service for accessing the list of user accounts and information attached to those accounts.</em>" Yeah, I know—that isn't much of an explanation. A better explanation is that it's a service that allows you to manage users and user accounts from <strong class="bold">graphical user interface</strong> (<strong class="bold">GUI</strong>)-type utilities. So, why do <a id="_idIndexMarker263"/>we have it enabled on Ubuntu Server when there's no graphical interface? That's a good question, to which I don't have a good answer. It's not something that we need running on a text-mode server. That's okay, though. We'll take care of that in just a bit.</p>
+			<p>So now, what's D-Bus?</p>
+			<p><strong class="bold">D-Bus</strong>, which is short for <strong class="bold">Desktop Bus</strong>, is a messaging <a id="_idIndexMarker264"/>protocol that allows applications to communicate with each other. It also allows the system to launch daemons and applications <em class="italic">on demand</em>, whenever they're needed. Once the D-Bus protocol starts a service, the service continues to run until you either stop it manually or shut down the machine. The <strong class="source-inline">accounts-daemon.service</strong> file is one service that's meant to be started by D-Bus messages. We can see that here in the <strong class="source-inline">Type=dbus</strong> line of the <strong class="source-inline">[Service]</strong> section of the <strong class="source-inline">accounts-daemon.service</strong> file:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">Type=dbus</p>
+			<p class="source-code">BusName=org.freedesktop.Accounts</p>
+			<p class="source-code">ExecStart=/usr/lib/accountsservice/accounts-daemon</p>
+			<p class="source-code">Environment=GVFS_DISABLE_FUSE=1</p>
+			<p class="source-code">Environment=GIO_USE_VFS=local</p>
+			<p class="source-code">Environment=GVFS_REMOTE_VOLUME_MONITOR_IGNORE=1</p>
+			<p>However, we see here in the <strong class="source-inline">[Install]</strong> section that we're still going to start this service during the bootup process for performance reasons:</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code"># We pull this in by graphical.target instead of waiting for the bus</p>
+			<p class="source-code"># activation, to speed things up a little: gdm uses this anyway so it is nice</p>
+			<p class="source-code"># if it is already around when gdm wants to use it and doesn't have to wait for</p>
+			<p class="source-code"># it.</p>
+			<p class="source-code">WantedBy=graphical.target</p>
+			<p>(The <strong class="source-inline">gdm</strong> that's mentioned<a id="_idIndexMarker265"/> here stands for <strong class="bold">GNOME Display Manager</strong>, which handles user<a id="_idIndexMarker266"/> login operation for systems with the GNOME 3 desktop.)</p>
+			<p>As I said before, we don't need this <strong class="source-inline">accounts-daemon.service</strong> file to run on a text-mode server. So, let's set the <strong class="source-inline">default.target</strong> file to <strong class="source-inline">multi-user</strong> for this Ubuntu machine, which will prevent the <strong class="source-inline">accounts-daemon.service</strong> file from automatically starting when we boot up the machine. As you might remember, this is the command to do that:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo systemctl set-default multi-user</p>
+			<p>When you reboot the machine now, you should see it boot a bit faster. On the off-chance that the <strong class="source-inline">accounts-daemon.service</strong> ever is needed, a D-Bus message would start it.</p>
+			<p>Out of curiosity, I created a new AlmaLinux VM without the GNOME desktop, to see if it would also default to <strong class="source-inline">graphical.target</strong>. It turned out that that Alma without GNOME defaults to <strong class="source-inline">multi-user.target</strong> and doesn't even install the <strong class="source-inline">AccountsService</strong> package. (So, without GUI-type user management utilities, the <strong class="source-inline">accounts-daemon.service</strong> file isn't even needed.)</p>
+			<p>Next, let's <em class="italic">generate</em> some real excitement with <strong class="source-inline">systemd</strong> generators.</p>
+			<h1 id="_idParaDest-113"><a id="_idTextAnchor114"/>Understanding systemd generators</h1>
+			<p><strong class="source-inline">systemd</strong> generators can<a id="_idIndexMarker267"/> make life somewhat easier for a busy administrator and also provide some backward compatibility with legacy SysV stuff. Let's first look at how generators make disk and partition configuration easier.</p>
+			<h2 id="_idParaDest-114"><a id="_idTextAnchor115"/>Understanding mount units</h2>
+			<p>Look in the <strong class="source-inline">/lib/systemd/system/</strong> directory <a id="_idIndexMarker268"/>of either VM, and you'll see several mount<a id="_idIndexMarker269"/> unit files that got created when you installed the operating system, as shown here on this Alma machine:</p>
+			<p class="source-code">[donnie@localhost system]$ ls -l *.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root 750 Jun 22  2018 dev-hugepages.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root 665 Jun 22  2018 dev-mqueue.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root 655 Jun 22  2018 proc-sys-fs-binfmt_misc.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root root 795 Jun 22  2018 sys-fs-fuse-connections.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root root 767 Jun 22  2018 sys-kernel-config.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root root 710 Jun 22  2018 sys-kernel-debug.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root root 782 May 20 08:24 tmp.mount</p>
+			<p class="source-code">[donnie@localhost system]$</p>
+			<p>All of these mount units, except for the <strong class="source-inline">tmp.mount</strong> file, are for kernel functions and have nothing to do with the drives and partitions that we want to mount. Unlike Ubuntu, Alma mounts the <strong class="source-inline">/tmp/</strong> directory on its own partition, which is why you don't see the <strong class="source-inline">tmp.mount</strong> file on the Ubuntu machine. Let's peek inside the <strong class="source-inline">tmp.mount</strong> file to see what's there. Here's the <strong class="source-inline">[Unit]</strong> section:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Temporary Directory (/tmp)</p>
+			<p class="source-code">Documentation=man:hier(7)</p>
+			<p class="source-code">Documentation=https://www.freedesktop.org/wiki/Software/systemd/APIFileSystems</p>
+			<p class="source-code">ConditionPathIsSymbolicLink=!/tmp</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">Conflicts=umount.target</p>
+			<p class="source-code">Before=local-fs.target umount.target</p>
+			<p class="source-code">After=swap.target</p>
+			<p>The <strong class="source-inline">ConditionPathIsSymbolicLink=!/tmp</strong> line prevents the system from mounting <strong class="source-inline">/tmp/</strong> if <strong class="source-inline">/tmp</strong> is found to<a id="_idIndexMarker270"/> be a symbolic link instead of the actual <strong class="source-inline">mount </strong>point directory. (Remember that<a id="_idIndexMarker271"/> the <strong class="source-inline">!</strong> sign negates an operation.) We then see that this mount unit <strong class="source-inline">Conflicts</strong> with the <strong class="source-inline">umount.target</strong> file, which means that a <strong class="source-inline">umount</strong> operation will <em class="italic">unmount</em> <strong class="source-inline">/tmp/</strong>.</p>
+			<p>Next, let's see what's in the <strong class="source-inline">[Mount]</strong> section:</p>
+			<p class="source-code">[Mount]</p>
+			<p class="source-code">What=tmpfs</p>
+			<p class="source-code">Where=/tmp</p>
+			<p class="source-code">Type=tmpfs</p>
+			<p class="source-code">Options=mode=1777,strictatime,nosuid,nodev</p>
+			<p>The <strong class="source-inline">What=</strong> and <strong class="source-inline">Type=</strong> lines denote this as a <em class="italic">temporary filesystem</em>. The <strong class="source-inline">Where=</strong> line defines the mountpoint directory. Finally, there's the <strong class="source-inline">Options=</strong> line, with the following options:</p>
+			<ul>
+				<li><strong class="source-inline">mode=1777</strong>: This sets the permissions value for the mountpoint directory. The <strong class="source-inline">777</strong> part sets full read, write, and execute permissions for everybody. The <strong class="source-inline">1</strong> part sets the <em class="italic">sticky bit</em>, which prevents users from deleting each others' files.</li>
+				<li><strong class="source-inline">strictatime</strong>: This causes the kernel to maintain full access-time (<strong class="source-inline">atime</strong>) updates on all files on this partition.</li>
+				<li><strong class="source-inline">nosuid</strong>: If any files on this partition have the <strong class="bold">Set User ID</strong> (<strong class="bold">SUID</strong>) bit set, this option prevents <a id="_idIndexMarker272"/>SUID from doing anything. (The SUID bit is a way to escalate privileges for non-privileged users and can be a security problem if it's set on files that shouldn't have it.)</li>
+				<li><strong class="source-inline">nodev</strong>: This security feature<a id="_idIndexMarker273"/> prevents the system from recognizing <a id="_idIndexMarker274"/>any character device or block device files that might be on this partition. (You should only see device files in the <strong class="source-inline">/dev/</strong> directory.)</li>
+			</ul>
+			<p>Finally, we have the <strong class="source-inline">[Install]</strong> section, which looks like this:</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=local-fs.target</p>
+			<p>So, this partition gets mounted by the <strong class="source-inline">local-fs.target</strong> file, right at the beginning of the bootup process.</p>
+			<p>Okay—you now have a basic understanding of what a mount unit file looks like. You're now wondering: <em class="italic">Where are the mount unit files for our normal disk partitions?</em> Ah, I'm glad you asked.</p>
+			<p>It is possible to manually create mount unit files for your normal disk partitions, but it isn't necessary. In fact, the <strong class="source-inline">systemd.mount</strong> man page recommends against this. Under the <strong class="source-inline">FSTAB</strong> section of this man page, you'll see that it's both possible and <em class="italic">recommended</em> to configure partitions in the <strong class="source-inline">/etc/fstab</strong> file, just like you've always done. A <strong class="source-inline">systemd</strong> generator will dynamically create the appropriate mount unit files, based on the information that's in the <strong class="source-inline">fstab</strong> file. For example, here's the <strong class="source-inline">fstab</strong> file from the Alma machine:</p>
+			<p class="source-code">/dev/mapper/almalinux-root /      xfs     defaults        0 0</p>
+			<p class="source-code">UUID=42b88c40-693d-4a4b-ac60-ae042c742562 /boot  xfs     defaults        0 0</p>
+			<p class="source-code">/dev/mapper/almalinux-swap none   swap    defaults        0 0</p>
+			<p>The two <strong class="source-inline">/dev/mapper</strong> lines indicate that the root filesystem partition and the swap partition are mounted as logical volumes. We also see that the root partition is formatted as an <strong class="source-inline">xfs</strong> partition. The <strong class="source-inline">UUID=</strong> line indicates that the <strong class="source-inline">/boot/</strong> partition is mounted as a normal partition that's designated by its <strong class="bold">universally unique identifier</strong> (<strong class="bold">UUID</strong>) number. (That makes <a id="_idIndexMarker275"/>sense because Linux systems can't boot from a logical volume.) </p>
+			<p>Okay—the SysV system <a id="_idIndexMarker276"/>would just take the information from the <strong class="source-inline">fstab</strong> file and<a id="_idIndexMarker277"/> use it directly. As I've already indicated, <strong class="source-inline">systemd</strong> will take this information and use it to dynamically generate the mount unit files under the <strong class="source-inline">/run/systemd/generator/</strong> directory, as we see here:</p>
+			<p class="source-code">[donnie@localhost ~]$ cd /run/systemd/generator/</p>
+			<p class="source-code">[donnie@localhost generator]$ ls -l</p>
+			<p class="source-code">total 12</p>
+			<p class="source-code">-rw-r--r--. 1 root root 254 Jun 15 14:16  boot.mount</p>
+			<p class="source-code">-rw-r--r--. 1 root root 235 Jun 15 14:16 'dev-mapper-almalinux\x2dswap.swap'</p>
+			<p class="source-code">drwxr-xr-x. 2 root root  80 Jun 15 14:16  local-fs.target.requires</p>
+			<p class="source-code">-rw-r--r--. 1 root root 222 Jun 15 14:16  -.mount</p>
+			<p class="source-code">drwxr-xr-x. 2 root root  60 Jun 15 14:16  swap.target.requires</p>
+			<p class="source-code">[donnie@localhost generator]$</p>
+			<p>It's fairly obvious which of these files correspond to the <strong class="source-inline">/boot/</strong> and <strong class="source-inline">swap</strong> partitions. What isn't so obvious is that the <strong class="source-inline">-.mount</strong> file corresponds to the root filesystem partition. Let's peek into the <strong class="source-inline">boot.mount</strong> file to see what's there:</p>
+			<p class="source-code"># Automatically generated by systemd-fstab-generator</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">SourcePath=/etc/fstab</p>
+			<p class="source-code">Documentation=man:fstab(5) man:systemd-fstab-generator(8)</p>
+			<p class="source-code">Before=local-fs.target</p>
+			<p class="source-code">[Mount]</p>
+			<p class="source-code">Where=/boot</p>
+			<p class="source-code">What=/dev/disk/by-uuid/42b88c40-693d-4a4b-ac60-ae042c742562</p>
+			<p class="source-code">Type=xfs</p>
+			<p>From what you've already seen in the previous example and in the <strong class="source-inline">fstab</strong> file, you should be able to figure out what's going on here.</p>
+			<p>You might want to see <a id="_idIndexMarker278"/>what's in the <strong class="source-inline">-.mount</strong> file, but you can't do that the <a id="_idIndexMarker279"/>normal way. If you try it, you'll get this:</p>
+			<p class="source-code">[donnie@localhost generator]$ cat -.mount</p>
+			<p class="source-code">cat: invalid option -- '.'</p>
+			<p class="source-code">Try 'cat --help' for more information.</p>
+			<p class="source-code">[donnie@localhost generator]$</p>
+			<p>This will happen regardless of which command-line utility you try. That's because the <strong class="source-inline">–</strong> sign that's in the prefix of the filename makes the Bash shell think that we're dealing with an option switch. To make this work, just precede the filename with <strong class="source-inline">./</strong> so that you'll be working with an absolute path. The command will look like this:</p>
+			<p class="source-code">[donnie@localhost generator]$ cat ./-.mount</p>
+			<p class="source-code"># Automatically generated by systemd-fstab-generator</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">SourcePath=/etc/fstab</p>
+			<p class="source-code">Documentation=man:fstab(5) man:systemd-fstab-generator(8)</p>
+			<p class="source-code">Before=local-fs.target</p>
+			<p class="source-code">[Mount]</p>
+			<p class="source-code">Where=/</p>
+			<p class="source-code">What=/dev/mapper/almalinux-root</p>
+			<p class="source-code">Type=xfs</p>
+			<p class="source-code">[donnie@localhost generator]$</p>
+			<p>Okay—I think that covers<a id="_idIndexMarker280"/> it for<a id="_idIndexMarker281"/> the mount units. Let's shift over to the Ubuntu Server 20.04 machine and check out one of the backward-compatibility features of <strong class="source-inline">systemd</strong>.</p>
+			<h2 id="_idParaDest-115"><a id="_idTextAnchor116"/>Understanding backward compatibility</h2>
+			<p>You can also use <strong class="source-inline">systemd</strong> generators<a id="_idIndexMarker282"/> to control services from old-fashioned SysV <strong class="source-inline">init</strong> scripts. You won't see much of that with Red Hat-type systems, but you will with Debian and Ubuntu systems. (For some strange reason, the Debian and Ubuntu maintainers still haven't converted all of their services over to native <strong class="source-inline">systemd</strong> services.) To demonstrate, disable and stop the normal <strong class="source-inline">ssh</strong> service on the Ubuntu machine by doing:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo systemctl disable --now ssh</p>
+			<p>Next, install <strong class="source-inline">Dropbear</strong>, which is a lightweight replacement for the normal OpenSSH package. Do that with the following two commands:</p>
+			<p class="source-code">sudo apt update</p>
+			<p class="source-code">sudo apt install dropbear</p>
+			<p>When the installation completes, you should see that the Dropbear service is already enabled and running:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ systemctl status dropbear</p>
+			<p class="source-code">  dropbear.service - LSB: Lightweight SSH server</p>
+			<p class="source-code">     Loaded: loaded (/etc/init.d/dropbear; generated)</p>
+			<p class="source-code">     Active: active (running) since Tue 2021-06-15 16:15:40 UTC; 3h 40min ago</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>So far, everything looks normal, except for the part about how it loaded the service from the <strong class="source-inline">/etc/init.d/dropbear</strong> <strong class="source-inline">init</strong> script. If you look for a <strong class="source-inline">dropbear.service</strong> file in the <strong class="source-inline">/lib/systemd/system/</strong> directory, you won't find it. Instead, you'll see<a id="_idIndexMarker283"/> the <strong class="source-inline">dropbear</strong> <strong class="source-inline">init</strong> script in the <strong class="source-inline">/etc/init.d/</strong> directory:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ cd /etc/init.d</p>
+			<p class="source-code">donnie@ubuntu20-04:/etc/init.d$ ls -l dropbear</p>
+			<p class="source-code">-rwxr-xr-x 1 root root 2588 Jul 27  2019 dropbear</p>
+			<p class="source-code">donnie@ubuntu20-04:/etc/init.d$</p>
+			<p>When the Dropbear service starts, <strong class="source-inline">systemd</strong> will generate a <strong class="source-inline">dropbear.service</strong> file in the <strong class="source-inline">/run/systemd/generator.late/</strong> directory, as you see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:/run/systemd/generator.late$ ls -l dropbear.service</p>
+			<p class="source-code">-rw-r--r-- 1 root root 513 Jun 15 16:16 dropbear.service</p>
+			<p class="source-code">donnie@ubuntu20-04:/run/systemd/generator.late$</p>
+			<p>This file isn't permanently saved to disk and only lasts as long as the system is running. Look inside, and you'll see that it's just a normal service<a id="_idTextAnchor117"/><a id="_idTextAnchor118"/> unit file:</p>
+			<div>
+				<div id="_idContainer032" class="IMG---Figure">
+					<img src="image/Figure_8.1_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 8.1 – A generated service file for the Dropbear service</p>
+			<p>Okay—maybe it's not <em class="italic">completely</em> normal. (I have<a id="_idIndexMarker284"/> no idea why it lists the <strong class="source-inline">Before=multi-user.target</strong> line three different times.) Also, it's missing the <strong class="source-inline">[Install]</strong> section because this is actually meant to be a static service.</p>
+			<p>If you really want to, you can trick the system into creating a normal <strong class="source-inline">dropbear.service</strong> file in the <strong class="source-inline">/etc/systemd/system/</strong> directory, just by doing a normal <strong class="source-inline">sudo systemctl edit --full dropbear</strong> command. Delete the <strong class="source-inline">SourcePath=/etc/init.d/dropbear</strong> line from the <strong class="source-inline">[Unit]</strong> section because you no longer need it. Next, insert the following line into the <strong class="source-inline">[Service]</strong> section:</p>
+			<p class="source-code">EnvironmentFile=-/etc/default/dropbear</p>
+			<p>This will allow you to set certain Dropbear parameters in the <strong class="source-inline">/etc/default/dropbear</strong> file, which is already there. (Look at the <strong class="source-inline">Dropbear</strong> man page to see which options you can set.)</p>
+			<p>Then, add the <strong class="source-inline">[Install]</strong> section, which will look like this:</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=multi-user.target</p>
+			<p>Save the file and do a <strong class="source-inline">sudo systemctl daemon-reload</strong> command. Then, enable Dropbear and reboot the VM to verify that it works. Finally, look in the <strong class="source-inline">/run/systemd/generator.late/</strong> directory. You'll see that the <strong class="source-inline">dropbear.service</strong> file is no longer there because <strong class="source-inline">systemd</strong> is no longer using the <strong class="source-inline">dropbear</strong> <strong class="source-inline">init</strong> script. Instead, it's using the <strong class="source-inline">dropbear.service</strong> file that you just created in the <strong class="source-inline">/etc/systemd/system/</strong> directory. If you need to, you can now edit this service file the same <a id="_idIndexMarker285"/>way that you'd edit any other service file.</p>
+			<h1 id="_idParaDest-116"><a id="_idTextAnchor119"/>Summary</h1>
+			<p>Yes indeed, ladies and gents, we've once again covered a lot of ground and looked at some cool stuff. We started with an overview of the SysV and <strong class="source-inline">systemd</strong> boot processes, and then looked at some ways to analyze bootup performance. We then looked at an oddity about the Ubuntu Server bootup configuration. Finally, we wrapped things up by looking at two uses for <strong class="source-inline">systemd</strong> generators.</p>
+			<p>In the next chapter, we'll use some <strong class="source-inline">systemd</strong> utilities to set certain system parameters. I'll see you there.</p>
+			<h1 id="_idParaDest-117"><a id="_idTextAnchor120"/>Questions</h1>
+			<ol>
+				<li value="1">How does <strong class="source-inline">systemd</strong> handle a service that still uses an old-fashioned <strong class="source-inline">init</strong> script?<p>a. It just uses the <strong class="source-inline">init</strong> scripts directly.</p><p>b. It creates and saves a service unit file in the <strong class="source-inline">/etc/systemd/system/</strong> directory.</p><p>c. It dynamically generates a service unit file in the <strong class="source-inline">/run/systemd/generator.late/</strong> directory.</p><p>d. It won't run a service that only has an <strong class="source-inline">init</strong> script.</p></li>
+				<li>What is the recommended way of configuring disk partitions on a <strong class="source-inline">systemd </strong>machine?<p>a. Manually create a mount unit file for each partition.</p><p>b. Edit the <strong class="source-inline">/etc/fstab</strong> file as you normally would.</p><p>c. Manually create partition device files in the <strong class="source-inline">/dev/</strong> directory.</p><p>d. Use the <strong class="source-inline">mount</strong> utility.</p></li>
+				<li>Which of the following files represents the root filesystem?<p>a. <strong class="source-inline">root.mount</strong></p><p>b. <strong class="source-inline">-.mount</strong></p><p>c. <strong class="source-inline">/.mount</strong></p><p>d. <strong class="source-inline">rootfs.mount</strong></p></li>
+				<li>Which of the following commands would show you how long each service takes to start during bootup?<p>a. <strong class="source-inline">systemctl blame</strong></p><p>b. <strong class="source-inline">systemctl time</strong></p><p>c. <strong class="source-inline">systemd-analyze</strong></p><p>d. <strong class="source-inline">systemd-analyze time</strong></p><p>e. <strong class="source-inline">systemd-analyze blame</strong></p></li>
+			</ol>
+			<h1 id="_idParaDest-118"><a id="_idTextAnchor121"/>Answers</h1>
+			<ol>
+				<li value="1">c</li>
+				<li>b</li>
+				<li>b</li>
+				<li>e</li>
+			</ol>
+			<h1 id="_idParaDest-119"><a id="_idTextAnchor122"/>Further reading</h1>
+			<p>D-Bus documentation:</p>
+			<p><a href="https://www.freedesktop.org/wiki/Software/dbus/">https://www.freedesktop.org/wiki/Software/dbus/</a></p>
+			<p><strong class="source-inline">AccountsService</strong> documentation:</p>
+			<p><a href="https://www.freedesktop.org/wiki/Software/AccountsService/">https://www.freedesktop.org/wiki/Software/AccountsService/</a></p>
+			<p>Cleaning up the Linux startup process:</p>
+			<p><a href="https://www.linux.com/topic/desktop/cleaning-your-linux-startup-process/">https://www.linux.com/topic/desktop/cleaning-your-linux-startup-process/</a></p>
+		</div>
+	</body></html>

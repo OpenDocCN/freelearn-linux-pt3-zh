@@ -1,0 +1,444 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer087" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor258"/>8</h1>
+    <h1 id="_idParaDest-231" class="chapterTitle"><a id="_idTextAnchor259"/>Yocto under the Hood</h1>
+    <p class="normal">In this chapter, we’ll dive deeper<a id="_idIndexMarker529"/> into <strong class="keyWord">Yocto</strong>, embedded Linux’s premier build system. We will begin with a tour of Yocto’s architecture, taking you through the entire build workflow step by step. Next, we’ll look at Yocto’s multi-layer approach and why it is a good idea to separate metadata into different layers. As more and <a id="_idIndexMarker530"/>more <strong class="keyWord">BitBake</strong> layers stack up inside your projects, problems will inevitably arise. We will examine a number of ways to debug Yocto build failures, including task logs, <code class="inlineCode">devshell</code>, and dependency graphs.</p>
+    <p class="normal">After taking apart the build system, we’ll revisit the topic of BitBake from the previous chapter. This time around, we’ll cover more of the basic syntax and semantics so that you can write your own recipes from scratch. We’ll look at real-world examples of a BitBake shell and Python code from actual recipe, include, and configuration files so that you know what to expect when you begin to venture out into Yocto’s ocean of metadata.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Decomposing Yocto’s architecture and workflow</li>
+      <li class="bulletList">Separating metadata into layers</li>
+      <li class="bulletList">Troubleshooting build failures</li>
+      <li class="bulletList">Understanding BitBake’s syntax and semantics</li>
+    </ul>
+    <h1 id="_idParaDest-232" class="heading-1"><a id="_idTextAnchor260"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">A Linux-based host system with at least 90 GB of free disk space</li>
+      <li class="bulletList">Yocto 5.0 (scarthgap) LTS release</li>
+    </ul>
+    <p class="normal">You should have already built the 5.0 (scarthgap) LTS release of Yocto in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>. If you have not, then please refer to the <em class="italic">Compatible Linux Distribution</em> and <em class="italic">Build Host Packages</em> sections of the <em class="italic">Yocto Project Quick Build</em> guide (<a href="https://docs.yoctoproject.org/brief-yoctoprojectqs/"><span class="url">https://docs.yoctoproject.org/brief-yoctoprojectqs/</span></a><span class="url">)</span> before building Yocto on your Linux host according to the instructions in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>.</p>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development</span></a>.</p>
+    <h1 id="_idParaDest-233" class="heading-1"><a id="_idTextAnchor261"/>Decomposing Yocto’s architecture and workflow</h1>
+    <p class="normal">Yocto is a complex<a id="_idIndexMarker531"/> beast. Taking it apart is the first step toward understanding it. The architecture of a build system can be organized in terms of its workflow. Yocto gets its workflow from the <strong class="keyWord">OpenEmbedded</strong> project it is<a id="_idIndexMarker532"/> based on. Source materials feed into the system as inputs by way of metadata in the form of BitBake recipes. The build system uses this metadata to fetch, configure, and compile the source code into binary package feeds. These individual output packages are assembled inside a staging area before the finished Linux image and SDK are generated, complete with a manifest that includes a license for each package that’s on board:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_08_01.png" alt="Figure 8.1 – OpenEmbedded architecture workflow" width="1640" height="839"/></figure>
+    <p class="packt_figref">Figure 8.1 – OpenEmbedded architecture workflow</p>
+    <p class="normal">Here are the seven steps of Yocto’s build system workflow, as shown in the preceding diagram:</p>
+    <ol>
+      <li class="numberedList" value="1">Define layers for policy, machine, and software metadata.</li>
+      <li class="numberedList">Fetch sources from the source URI of a software project.</li>
+      <li class="numberedList">Extract the source code, apply any patches, and compile the software.</li>
+      <li class="numberedList">Install the build artifacts into a staging area for packaging.</li>
+      <li class="numberedList">Bundle the installed build artifacts into a package feed for the root filesystem.</li>
+      <li class="numberedList">Run QA checks on a binary package feed before submitting it.</li>
+      <li class="numberedList">Generate the finished Linux image and an SDK in parallel.</li>
+    </ol>
+    <p class="normal">Except for the first and last steps, all of the steps in this workflow are performed on a per-package basis. Code linting, sanitizing, and other forms of static analysis may occur before or after compilation. Unit and integration tests can run directly on the build machine, on a QEMU instance acting as a stand-in for the target SoC, or on the target itself. When a build completes, the finished image can then be deployed to a group of dedicated devices for further testing. As the gold standard for embedded Linux build systems, Yocto is a vital component of the software CI/CD pipeline for many products.</p>
+    <p class="normal">The packages Yocto generates can be in either <code class="inlineCode">rpm</code>, <code class="inlineCode">deb</code>, or <code class="inlineCode">ipk</code> format. In addition to the main binary package, the build system attempts to generate all of the following packages for a recipe by default:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">dbg</code>: Binary files, including debug symbols</li>
+      <li class="bulletList"><code class="inlineCode">static-dev</code>: Header files and static libraries</li>
+      <li class="bulletList"><code class="inlineCode">dev</code>: Header files and shared library symlinks</li>
+      <li class="bulletList"><code class="inlineCode">doc</code>: Documentation, including man pages</li>
+      <li class="bulletList"><code class="inlineCode">locale</code>: Language translation information</li>
+    </ul>
+    <p class="normal">Packages that would contain no files are not generated unless the <code class="inlineCode">ALLOW_EMPTY</code> variable is enabled. The set of packages to be generated by default is determined by the <code class="inlineCode">PACKAGES</code> variable. Both variables are defined in <code class="inlineCode">meta/classes-recipe/packagegroup.bbclass</code>, but their values can be overridden by package group recipes that inherit from that BitBake class.</p>
+    <p class="normal">Building an SDK enables a whole other development workflow for manipulating individual package recipes. In the <em class="italic">Capturing changes with devtool</em> section of the previous chapter, we learned how to <a id="_idIndexMarker533"/>use <code class="inlineCode">devtool</code> to add and modify SDK software packages so that we can integrate them back into an image.</p>
+    <h2 id="_idParaDest-234" class="heading-2"><a id="_idTextAnchor262"/>Metadata</h2>
+    <p class="normal"><strong class="keyWord">Metadata</strong> is the input that <a id="_idIndexMarker534"/>goes into the build system. It <a id="_idIndexMarker535"/>controls what gets built and how. Metadata is more than just recipes. BSPs, policies, patches, and other forms of configuration files are also metadata. Which version of a package to build and where to pull the source code from are certainly forms of metadata. A developer makes all these choices by naming files, setting variables, and running commands. These configuration actions, argument values, and their resulting artifacts are yet another form of metadata. Yocto parses all of these inputs and transforms them into a complete Linux image.</p>
+    <p class="normal">The first choice a developer makes with respect to building with Yocto is what machine architecture to target. You do this by setting the <code class="inlineCode">MACHINE</code> variable in the <code class="inlineCode">conf/local.conf</code> file for your project. When targeting QEMU, I like to use <code class="inlineCode">MACHINE ?= "qemuarm64"</code> to specify <code class="inlineCode">aarch64</code> as the machine architecture. Yocto ensures that the correct compiler flags propagate from a BSP down to the other build layers.</p>
+    <p class="normal">Architecture-specific settings are defined in files called <em class="italic">tunes</em>, which are located in Yocto’s <code class="inlineCode">meta/conf/machine/include</code> directory, and the individual BSP layers themselves. A number of BSP layers are included with every Yocto release. We worked extensively with the <code class="inlineCode">meta-raspberrypi</code> BSP layer in the previous chapter. The source for each BSP resides inside its own Git repository.</p>
+    <p class="normal">To clone Xilinx’s BSP layer, which contains support for their Zynq family of SoCs, use the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ git clone git://git.yoctoproject.org/meta-xilinx
+</code></pre>
+    <p class="normal">This is just one example of the many BSP layers that accompany Yocto. You won’t need this layer for any of the subsequent exercises, so feel free to discard it.</p>
+    <p class="normal">Metadata needs source code to act upon. BitBake’s <code class="inlineCode">do_fetch</code> task can obtain recipe source files in a number of different ways. Here are the two most prominent methods:</p>
+    <ul>
+      <li class="bulletList">When someone else develops some software that you need, the easiest way to get it is to tell BitBake to download a tarball release of the project.</li>
+      <li class="bulletList">To extend someone else’s open source software, simply fork the repository on GitHub. BitBake’s <code class="inlineCode">do_fetch</code> task can then use Git to clone the source files from a given <code class="inlineCode">SRC_URI</code>.</li>
+    </ul>
+    <p class="normal">If your team is responsible for the software, then you can choose to embed it into your work environment as a local project. You can do this either by nesting it as a subdirectory or defining it out-of-tree using the <code class="inlineCode">externalsrc</code> class. Embedding means that the sources are tied to your layer repository and can’t be easily used somewhere else. Out-of-tree projects that use <code class="inlineCode">externalsrc</code> require identical paths on all building instances and sabotage reproducibility. Both of these techniques are merely tools used to expedite development. Neither should be used in production.</p>
+    <p class="normal">Policies are properties that are bundled together as a distribution layer. These include things such as which features (<code class="inlineCode">systemd</code>, for example), C library implementation (<code class="inlineCode">glibc</code> or <code class="inlineCode">musl</code>), and package manager are required by a Linux distribution. Each distro layer has its own <code class="inlineCode">conf/distro</code> subdirectory. The <code class="inlineCode">.conf</code> files inside that directory define the top-level policies for a distribution or image. See the <code class="inlineCode">meta-poky</code> subdirectory for an example of a distro layer. This Poky reference <a id="_idIndexMarker536"/>distribution layer includes <code class="inlineCode">.conf</code> files for <a id="_idIndexMarker537"/>building default, tiny, bleeding-edge, and alternative flavors of Poky for your target device. We covered this in the previous chapter, in the <em class="italic">Building your own distro</em> section.</p>
+    <h2 id="_idParaDest-235" class="heading-2"><a id="_idTextAnchor263"/>Build tasks</h2>
+    <p class="normal">We already saw <a id="_idIndexMarker538"/>how BitBake’s <code class="inlineCode">do_fetch</code> task downloads the source for a recipe. The next steps in the build process are extracting, patching, configuring, and compiling said source code: <code class="inlineCode">do_unpack</code>, <code class="inlineCode">do_patch</code>, <code class="inlineCode">do_configure</code>, and <code class="inlineCode">do_compile</code>.</p>
+    <p class="normal">The <code class="inlineCode">do_patch</code> task uses the <code class="inlineCode">FILESPATH</code> variable and a recipe’s <code class="inlineCode">SRC_URI</code> variable to locate patch files and apply them to the intended source code. The <code class="inlineCode">FILESPATH</code> variable, found in <code class="inlineCode">meta/classes/base.bbclass</code>, defines the default set of directories that the build system uses to search for patch files (<em class="italic">Yocto Project Reference Manual</em>, <a href="https://docs.yoctoproject.org/ref-manual/index.html"><span class="url">https://docs.yoctoproject.org/ref-manual/index.html</span></a>). By convention, patch files have names ending in <code class="inlineCode">.diff</code> and <code class="inlineCode">.patch</code> and reside in a subdirectory below where the corresponding recipe file is located. This default behavior can be extended and overridden by defining a <code class="inlineCode">FILESEXTRAPATHS</code> variable and appending file pathnames to the recipe’s <code class="inlineCode">SRC_URI</code> variable. </p>
+    <p class="normal">After patching the source code, the <code class="inlineCode">do_configure</code> and <code class="inlineCode">do_compile</code> tasks configure, compile, and link it:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_08_02.png" alt="Figure 8.2 – Package feeds" width="1612" height="1235"/></figure>
+    <p class="packt_figref">Figure 8.2 – Package feeds</p>
+    <p class="normal">When <code class="inlineCode">do_compile</code> is done, the <code class="inlineCode">do_install</code> task copies the resulting files to a staging area where they are readied for packaging. There, the <code class="inlineCode">do_package</code> task processes the build artifacts and assembles them into one or more packages. Before they are submitted to the package feeds area, the <code class="inlineCode">do_package_qa</code> task subjects package artifacts to a battery of QA checks. These autogenerated QA checks are defined in <code class="inlineCode">meta/classes-global/insane.bbclass</code>. Lastly, the <code class="inlineCode">do_package_write_*</code> tasks create the individual packages and send them to the package feeds area. Once the <a id="_idIndexMarker539"/>package feeds area has been populated, BitBake is ready for image and SDK generation.</p>
+    <h2 id="_idParaDest-236" class="heading-2"><a id="_idTextAnchor264"/>Image generation</h2>
+    <p class="normal">Generating an image <a id="_idIndexMarker540"/>is a multi-stage process that relies on several variables to perform a series of tasks. The <code class="inlineCode">do_rootfs</code> task creates the root filesystem for an image. These variables determine what packages get installed onto the image:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">IMAGE_INSTALL</code>: Packages to install onto the image</li>
+      <li class="bulletList"><code class="inlineCode">PACKAGE_EXCLUDE</code>: Packages to omit from the image</li>
+      <li class="bulletList"><code class="inlineCode">IMAGE_FEATURES</code>: Additional packages to install onto the image</li>
+      <li class="bulletList"><code class="inlineCode">PACKAGE_CLASSES</code>: Package format (<code class="inlineCode">rpm</code>, <code class="inlineCode">deb</code>, or <code class="inlineCode">ipk</code>) to use</li>
+      <li class="bulletList"><code class="inlineCode">IMAGE_LINGUAS</code>: Languages (cultures) to include support packages for</li>
+    </ul>
+    <p class="normal">Recall that we added packages to the <code class="inlineCode">IMAGE_INSTALL</code> variable back in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a><em class="italic">,</em> as part of the <em class="italic">Writing an image recipe</em> section. The list of packages from the <code class="inlineCode">IMAGE_INSTALL</code> variable is passed to a package manager (<code class="inlineCode">dnf</code>, <code class="inlineCode">apt</code>, or <code class="inlineCode">opkg</code>) so that they can be installed on the image. Which package manager gets invoked depends on the format of the package feeds: <code class="inlineCode">do_package_write_rpm</code>, <code class="inlineCode">do_package_write_deb</code>, or <code class="inlineCode">do_package_write_ipk</code>. Package installation happens regardless of whether a runtime package manager is included on the target. If there is no package manager onboard, then installation scripts and package metadata get deleted from the image at the end of this phase for hygiene purposes and to save space.</p>
+    <p class="normal">Once package installation is complete, the package’s post-installation scripts are run. These post-installation scripts come included with the packages. If all the post-installation scripts run successfully, a manifest is written and optimizations are performed on the root filesystem image. This top-level <code class="inlineCode">.manifest</code> file lists all the packages that have been installed on the image. The default library size and executable startup time optimizations are defined by the <code class="inlineCode">ROOTFS_POSTPROCESS_COMMAND</code> variable.</p>
+    <p class="normal">Now that the root filesystem has been fully populated, the <code class="inlineCode">do_image</code> task can begin image processing. First, all the pre-processing commands defined by the <code class="inlineCode">IMAGE_PREPROCESS_COMMAND</code> variable get executed. Next, the process creates the final image output files. It does this by launching a <code class="inlineCode">do_image_*</code> task for every image type (for example, <code class="inlineCode">cpio.lz4</code>, <code class="inlineCode">ext4</code>, and <code class="inlineCode">squashfs-lzo</code>) specified in the <code class="inlineCode">IMAGE_FSTYPES</code> variable. The build system then takes the contents of the <code class="inlineCode">IMAGE_ROOTFS</code> directory and converts it into one or more image files. These output image files are compressed when the specified filesystem format allows for it. Lastly, the <code class="inlineCode">do_image_complete</code> task finishes the image by executing every post-processing command defined by the <code class="inlineCode">IMAGE_POSTPROCESS_COMMAND</code> variable.</p>
+    <p class="normal">Now that we have <a id="_idIndexMarker541"/>traced through Yocto’s entire build workflow from end to end, let’s look at some best practices for structuring large projects.</p>
+    <h1 id="_idParaDest-237" class="heading-1"><a id="_idTextAnchor265"/>Separating metadata into layers</h1>
+    <p class="normal">Yocto metadata is <a id="_idIndexMarker542"/>organized around the following concepts:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">distro</strong>: OS features, including choice of C library, init system, and window manager</li>
+      <li class="bulletList"><strong class="keyWord">machine</strong>: CPU architecture, kernel, drivers, and bootloader</li>
+      <li class="bulletList"><strong class="keyWord">recipe</strong>: Application binaries and/or scripts</li>
+      <li class="bulletList"><strong class="keyWord">image</strong>: Development, manufacturing, or production</li>
+    </ul>
+    <p class="normal">These concepts map directly to actual byproducts of the build system, thus offering us guidance when designing our projects. We could rush to assemble everything inside a single layer, but that would likely result in a project that is inflexible and unmaintainable. Hardware inevitably gets revised, and one successful consumer device quickly multiplies into a series of products. For these reasons, it is better to adopt a multi-layered approach early on so that we end up with software components that we can easily modify, swap out, and reuse.</p>
+    <p class="normal">At a minimum, you should create individual distribution, BSP, and application layers for every major project that you start with Yocto. The distribution layer builds the target OS (Linux distro) that your application(s) will run on. Frame buffer and window manager configuration files belong in the distribution layer. The BSP layer specifies the bootloader, kernel, and device tree needed for the hardware to operate. The application layer contains the recipes needed to build all the packages that comprise your custom application(s).</p>
+    <p class="normal">We first encountered the <code class="inlineCode">MACHINE</code> variable back in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a><em class="italic">,</em> when we performed our first builds with Yocto. We looked at the <code class="inlineCode">DISTRO</code> variable toward the end of the previous chapter when we created our own distribution layer. The other Yocto exercises in this book rely on <code class="inlineCode">meta-poky</code> for their distro layer. Layers are added to your build by inserting them into the <code class="inlineCode">BBLAYERS</code> variable within the <code class="inlineCode">conf/bblayers.conf</code> file in your active build directory. Here is an example of Poky’s default <code class="inlineCode">BBLAYERS</code> definition:</p>
+    <pre class="programlisting con"><code class="hljs-con">BBLAYERS ?= " \
+  /home/frank/poky/meta \
+  /home/frank/poky/meta-poky \
+  /home/frank/poky/meta-yocto-bsp \
+  "
+</code></pre>
+    <p class="normal">Rather than edit <code class="inlineCode">bblayers.conf</code> directly, use the <code class="inlineCode">bitbake-layers</code> command-line tool to work with project layers. Resist the temptation to modify the Poky source tree directly. Always create your own layer (for example, <code class="inlineCode">meta-mine</code>) above Poky and make your changes there. </p>
+    <p class="normal">Here is what the <code class="inlineCode">BBLAYERS</code> variable should look like within the <code class="inlineCode">conf/bblayers.conf</code> file in your active build directory (for example, <code class="inlineCode">build-mine</code>) during development:</p>
+    <pre class="programlisting con"><code class="hljs-con">BBLAYERS ?= " \
+  /home/frank/poky/meta \
+  /home/frank/poky/meta-poky \
+  /home/frank/poky/meta-yocto-bsp \
+  /home/frank/meta-mine \
+  /home/frank/build-mine/workspace \
+  "
+</code></pre>
+    <p class="normal"><code class="inlineCode">workspace</code> is a special temporary layer we encountered in the previous chapter when we experimented with <code class="inlineCode">devtool</code>. Every BitBake layer has the same basic directory structure regardless of what <a id="_idIndexMarker543"/>type of layer it is. Layer directory names typically start with the <code class="inlineCode">meta</code> prefix by convention. Take the following dummy layer:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ tree meta-example
+meta-example
+├── classes
+│ ├── class-a.bbclass
+│ ├── ...
+│ └── class-z.bbclass
+├── conf
+│ └── layer.conf
+├── COPYING.MIT
+├── README
+├── recipes-a
+│ ├── package-a
+│ │ └── package-a_0.1.bb
+│ ├── ...
+│ └── package-z
+│ └── package-z_0.1.bb
+├── recipes-b
+│ └── ...
+└── recipes-c
+ └── ...
+</code></pre>
+    <p class="normal">Every layer must have a conf directory with a <code class="inlineCode">layer.conf</code> file so that BitBake can set up paths and search patterns for metadata files. We looked closely at the contents of <code class="inlineCode">layer.conf</code> back in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a><em class="italic">,</em> when we created a meta-nova layer for our Nova board. BSP and distribution layers may also have a <code class="inlineCode">machine</code> or <code class="inlineCode">distro</code> subdirectory under the <code class="inlineCode">conf</code> directory with more <code class="inlineCode">.conf</code> files. We examined the structure of the machine and distro layers in the previous chapter when we built on top of the <code class="inlineCode">meta-raspberrypi</code> layer and created our own <code class="inlineCode">meta-mackerel</code> distro layer.</p>
+    <p class="normal">The <code class="inlineCode">classes</code> subdirectory is only needed for layers that define their own BitBake classes. Recipes are organized by category, such as <em class="italic">connectivity</em>, so <code class="inlineCode">recipes-a</code> is actually a placeholder for <code class="inlineCode">recipes-connectivity</code> and so on. A category can contain one or more packages each with its own set of BitBake recipe files (<code class="inlineCode">.bb</code>). The recipe files are versioned by package release number. Again, names such as <code class="inlineCode">package-a</code> and <code class="inlineCode">package-z</code> are merely placeholders for real packages.</p>
+    <p class="normal">It’s very easy to get lost in all these different layers. Even as you become more proficient with Yocto, there will be many times when you find yourself asking how a particular file ended up on your image. Or, more likely, where are the recipe files you need to modify or extend to do what you need to do? Luckily, Yocto<a id="_idIndexMarker544"/> provides some command-line tools to help you answer these questions. I recommend that you explore <code class="inlineCode">recipetool</code>, <code class="inlineCode">oe-pkgdata-util</code>, and <code class="inlineCode">oe-pkgdata-browser</code> and familiarize yourself with them. You could save yourself many hours of frustration.</p>
+    <h1 id="_idParaDest-238" class="heading-1"><a id="_idTextAnchor266"/>Troubleshooting build failures</h1>
+    <p class="normal">In the two preceding<a id="_idIndexMarker545"/> chapters, we learned how to build bootable images for QEMU, our Nova board, and Raspberry Pi 4. But what happens when things go wrong? In this section, we will cover a number of useful debugging techniques that should make the prospect of wrangling Yocto build failures less intimidating.</p>
+    <p class="normal">To execute the commands in the subsequent exercises, you need to activate a BitBake environment:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned Yocto.</li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">This sets a bunch of environment variables and puts you back in the <code class="inlineCode">build-rpi</code> directory that we created in the previous chapter.</p>
+    <h2 id="_idParaDest-239" class="heading-2"><a id="_idTextAnchor267"/>Isolating errors</h2>
+    <p class="normal">So, your build failed, but<a id="_idIndexMarker546"/> where did it fail? You have an error message, but what does it mean and where did it come from? Do not despair. The first step in debugging is reproducing the bug. Once you can reproduce the bug, you can narrow the problem down to a series of known steps. Retracing those steps is how you spot the malfunction:</p>
+    <ol>
+      <li class="numberedList" value="1">First, look at the BitBake build error message and see if you recognize any package or task names. If you’re not sure what packages are in your workspace, you can use the following command to get a list of them:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-recipes
+</code></pre>
+      </li>
+      <li class="numberedList">Once you have identified which package failed to build, then search your current layers for any recipe or appends files related to that package like so:
+        <pre class="programlisting con"><code class="hljs-con">$ find ../poky -name "*connman*.bb*"
+</code></pre>
+      </li>
+      <li class="numberedList">The package to search for is <code class="inlineCode">connman</code> in this instance. The <code class="inlineCode">../poky</code> argument in the preceding find command assumes your build directory is adjacent to <code class="inlineCode">poky</code> like <code class="inlineCode">build-rpi</code> from the previous chapter.</li>
+      <li class="numberedList">Next, list all the tasks available for the <code class="inlineCode">connman</code> recipe:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake -c listtasks connman
+</code></pre>
+      </li>
+      <li class="numberedList">To reproduce the error, you can rebuild <code class="inlineCode">connman</code> as follows:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake -c clean connman &amp;&amp; bitbake connman
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Now that you know the recipe and task where your build failed, you are ready to move on to the next stage of debugging.</p>
+    <h2 id="_idParaDest-240" class="heading-2"><a id="_idTextAnchor268"/>Dumping the environment</h2>
+    <p class="normal">While you are <a id="_idIndexMarker547"/>debugging a build failure, you are going to want to see the current values of the variables within BitBake’s environment. Let’s start from the top and work our way down:</p>
+    <ol>
+      <li class="numberedList" value="1">First, dump the global environment and search for the value of <code class="inlineCode">DISTRO_FEATURES</code>:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake -e | less
+</code></pre>
+      </li>
+      <li class="numberedList">Enter <code class="inlineCode">/DISTRO_FEATURES=</code> (note the leading forward slash); <code class="inlineCode">less</code> should jump to a line that looks kind of like this:
+        <pre class="programlisting con"><code class="hljs-con">DISTRO_FEATURES="acl alsa argp bluetooth ext2 ipv4 ipv6 largefile pcmcia usbgadget usbhost wifi xattr nfs zeroconf pci 3g nfc x11 vfat largefile opengl ptest multiarch wayland vulkan pulseaudio sysvinit gobject-introspection-data ldconfig"
+</code></pre>
+      </li>
+      <li class="numberedList">To dump BusyBox’s package environment and locate its source directory, use the following command:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake -e busybox | grep ^S=
+</code></pre>
+      </li>
+      <li class="numberedList">To locate ConnMan’s working directory, use the following command:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-getvar -r connman WORKDIR
+</code></pre>
+      </li>
+      <li class="numberedList">A package’s working directory is where its recipe task logs are saved during BitBake builds.</li>
+    </ol>
+    <p class="normal">In <em class="italic">step 1</em>, we could have piped the output from <code class="inlineCode">bitbake -e</code> into <code class="inlineCode">grep</code>, but <code class="inlineCode">less</code> allows us to trace the evaluation of the variable more easily. Enter <code class="inlineCode">/DISTRO_FEATURES</code> without the trailing equal sign in less to search for more occurrences of the variable. Hit <em class="italic">n</em> to jump forward to the next occurrence and <em class="italic">N</em> to jump back to the previous occurrence.</p>
+    <p class="normal">The same commands work for image as well as package recipes:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ bitbake -e core-image-minimal | grep ^S=
+</code></pre>
+    <p class="normal">In this case, the<a id="_idIndexMarker548"/> target environment to dump belongs to <code class="inlineCode">core-image-minimal</code>.</p>
+    <p class="normal">Now that you know where the source and task log files are, let’s look at some task logs.</p>
+    <h2 id="_idParaDest-241" class="heading-2"><a id="_idTextAnchor269"/>Reading the task log</h2>
+    <p class="normal">BitBake <a id="_idIndexMarker549"/>creates a log file for every shell task and saves it to a temp folder in the package’s working directory. In the case of ConnMan, the path to that temp folder looks sort of like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ./tmp-glibc/work/cortexa72-oe-linux/connman/1.42/temp
+</code></pre>
+    <p class="normal">The format of the log filenames is <code class="inlineCode">log.do_&lt;task&gt;.&lt;pid&gt;</code>. There are also symlinks with no <code class="inlineCode">&lt;pid&gt;</code> at the end of their names, which point to the latest log files for each task. The log files contain the output of the task run, which in most cases is all the information you need to debug the problem. If not, guess what you can do?</p>
+    <h2 id="_idParaDest-242" class="heading-2"><a id="_idTextAnchor270"/>Adding more logging</h2>
+    <p class="normal">Logging from <a id="_idIndexMarker550"/>Python is different from logging from shell in BitBake. To log from Python, you can use BitBake’s <code class="inlineCode">bb</code> module, which calls out to Python’s standard <code class="inlineCode">logger</code> module, as shown here:</p>
+    <pre class="programlisting code"><code class="hljs-code">bb.plain -&gt; none; Output: logs console
+bb.note -&gt; logger.info; Output: logs
+bb.warn -&gt; logger.warning; Output: logs console
+bb.error -&gt; logger.error; Output: logs console
+bb.fatal -&gt; logger.critical; Output: logs console
+bb.debug -&gt; logger.debug; Output: logs console
+</code></pre>
+    <p class="normal">To log from shell, you can use BitBake’s <code class="inlineCode">logging</code> class, whose source can be found at <code class="inlineCode">meta/classes-global/logging.bbclass</code>. All recipes that inherit <code class="inlineCode">base.bbclass</code> automatically inherit <code class="inlineCode">logging.bbclass</code>. This means that all of the following logging functions should already be available to you from most shell recipe files:</p>
+    <pre class="programlisting code"><code class="hljs-code">bbplain -&gt; Prints exactly what is passed in. Use sparingly.
+bbnote -&gt; Prints noteworthy conditions with the NOTE prefix.
+bbwarn -&gt; Prints a non-fatal warning with the WARNING prefix.
+bberror -&gt; Prints a non-fatal error with the ERROR prefix.
+bbfatal -&gt; Prints a fatal error and halts the build.
+bbdebug -&gt; Prints debug messages depending on log level.
+</code></pre>
+    <p class="normal">According to the <code class="inlineCode">logging.bbclass</code> source, the <code class="inlineCode">bbdebug</code> function takes an integer debug log level as its first argument:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-comment"># Usage: bbdebug 1 "first level debug message"</span>
+<span class="hljs-comment"># bbdebug 2 "second level debug message</span>
+<span class="hljs-attribute">bbdebug</span> () {
+    <span class="hljs-attribute">USAGE</span> = <span class="hljs-string">'Usage: bbdebug [123] "message"'</span>
+    …
+}
+</code></pre>
+    <p class="normal">Depending on the debug log level, a <code class="inlineCode">bbdebug</code> message may or may not go to the console.</p>
+    <h2 id="_idParaDest-243" class="heading-2"><a id="_idTextAnchor271"/>Running commands from devshell</h2>
+    <p class="normal">BitBake provides <a id="_idIndexMarker551"/>a development <a id="_idIndexMarker552"/>shell so that you can run build commands manually in a more interactive environment. Spawning a <code class="inlineCode">devshell</code> requires a terminal multiplexer like <code class="inlineCode">tmux</code>. To install <code class="inlineCode">tmux</code>, use the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo apt install tmux
+</code></pre>
+    <p class="normal">To get into a <code class="inlineCode">devshell</code> for building ConnMan, use the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ bitbake -c devshell connman
+</code></pre>
+    <p class="normal">First, this command extracts and patches the source code for ConnMan. Next, it opens a new terminal in ConnMan’s source directory with the environment correctly set up for building. Once inside a <code class="inlineCode">devshell</code>, you can run commands such as <code class="inlineCode">./configure</code> and <code class="inlineCode">make</code> or invoke the cross-compiler directly using <code class="inlineCode">$CC</code>. <code class="inlineCode">devshell</code> is perfect for experimenting with values such as <code class="inlineCode">CFLAGS</code> or <code class="inlineCode">LDFLAGS</code>, which get passed to tools such as CMake and Autotools as command-line arguments or<a id="_idIndexMarker553"/> environment <a id="_idIndexMarker554"/>variables. At the very least, you can increase the verbosity level of build commands if the error messages you are reading aren’t meaningful.</p>
+    <h2 id="_idParaDest-244" class="heading-2"><a id="_idTextAnchor272"/>Graphing dependencies</h2>
+    <p class="normal">Sometimes, the cause of the build error cannot be located inside the package recipe files because the error <a id="_idIndexMarker555"/>actually occurred when building one of the package’s dependencies. To get a list of dependencies for the ConnMan package, use the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ bitbake -v connman
+</code></pre>
+    <p class="normal">We can use BitBake’s built-in task explorer to display and navigate dependencies:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ bitbake -g connman -u taskexp
+</code></pre>
+    <p class="normal">The preceding command launches the task explorer’s graphical UI after analyzing ConnMan:</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">Some larger images like core-image-x11 have complex package dependency trees that will likely crash the task explorer.</p>
+    </div>
+    <figure class="mediaobject"><img src="../Images/B18466_08_03.png" alt="" role="presentation" width="1256" height="1500"/></figure>
+    <p class="packt_figref">Figure 8.3 – Task explorer</p>
+    <p class="normal">Now, let’s move away from the topic of builds and build failures and immerse ourselves in the raw materials of The Yocto Project. I am talking about BitBake metadata.</p>
+    <h1 id="_idParaDest-245" class="heading-1"><a id="_idTextAnchor273"/>Understanding BitBake syntax and semantics</h1>
+    <p class="normal">BitBake is a task <a id="_idIndexMarker556"/>runner. It is similar to GNU Make in that respect, except that it operates on recipes instead of makefiles. The metadata in these recipes defines tasks in shell and Python. BitBake itself is written in Python. The OpenEmbedded project that Yocto is based on consists of BitBake and a large collection of recipes for building embedded Linux distributions. BitBake’s power lies in its ability to run tasks in parallel while still satisfying inter-task dependencies. Its layered and inheritance-based approach to metadata enables Yocto to scale in ways Buildroot-based build systems simply cannot.</p>
+    <p class="normal">In <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>, we learned about the five types of BitBake metadata files: <code class="inlineCode">.bb</code>, <code class="inlineCode">.bbappend</code>, <code class="inlineCode">.inc</code>, <code class="inlineCode">.bbclass</code>, and <code class="inlineCode">.conf</code>. We also wrote BitBake recipes for building a basic <code class="inlineCode">helloworld</code> program and <code class="inlineCode">nova-image</code> image. Now, we will look more closely at the contents of BitBake metadata files. We know that tasks are written in a mix of shell and Python, but what goes where and why? What language constructs are available to us and what can we do with them? How do we compose metadata to build our applications? Before you can harness the full power of Yocto, you need to learn to read and write BitBake metadata. To do that, you need to learn<a id="_idIndexMarker557"/> BitBake’s syntax and semantics.</p>
+    <h2 id="_idParaDest-246" class="heading-2"><a id="_idTextAnchor274"/>Tasks</h2>
+    <p class="normal">Tasks are functions<a id="_idIndexMarker558"/> that BitBake needs to run in sequence to execute a recipe. Recall that task names start with the <code class="inlineCode">do_</code> prefix. Here is a task from <code class="inlineCode">recipes-core/systemd</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-attribute">do_deploy</span> () {
+    <span class="hljs-attribute">install</span> <span class="hljs-variable">${B}</span>/src/boot/efi/systemd-boot<span class="hljs-regexp">*.efi</span> <span class="hljs-variable">${DEPLOYDIR}</span>
+}
+addtask deploy before do_build after do_compile
+</code></pre>
+    <p class="normal">In this example, a function named <code class="inlineCode">do_deploy</code> is defined and immediately elevated to a task using the <code class="inlineCode">addtask</code> command. The <code class="inlineCode">addtask</code> command also specifies inter-task dependencies. For instance, this <code class="inlineCode">do_deploy</code> task depends on the <code class="inlineCode">do_compile</code> task completing, while the <code class="inlineCode">do_build</code> task depends on the <code class="inlineCode">do_deploy</code> task completing. The dependencies expressed by <code class="inlineCode">addtask</code> can only be internal to the recipe file.</p>
+    <p class="normal">Tasks can also be deleted using the <code class="inlineCode">deltask</code> command. This stops BitBake from executing the task as part of the recipe. To delete the preceding <code class="inlineCode">do_deploy</code> task, use the following command:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-attribute">deltask do_deploy</span>
+</code></pre>
+    <p class="normal">This deletes the task from the recipe, but the original <code class="inlineCode">do_deploy</code> function definition remains and can still be called.</p>
+    <h2 id="_idParaDest-247" class="heading-2"><a id="_idTextAnchor275"/>Dependencies</h2>
+    <p class="normal">To ensure efficient<a id="_idIndexMarker559"/> parallel processing, BitBake handles dependencies at the task level. We saw just how <code class="inlineCode">addtask</code> can be used to express dependencies between tasks within a single recipe file. Dependencies between tasks in different recipes also exist. In fact, these inter-task dependencies are what we usually think of when we consider build-time and runtime dependencies between packages.</p>
+    <h3 id="_idParaDest-248" class="heading-3"><a id="_idTextAnchor276"/>Inter-task dependencies</h3>
+    <p class="normal">Variable flags (<strong class="keyWord">varflags</strong>) are <a id="_idIndexMarker560"/>a means of attaching<a id="_idIndexMarker561"/> properties or <a id="_idIndexMarker562"/>attributes to variables. They behave like keys in a hash map in the sense that they let you set keys to values and retrieve values by their keys. BitBake defines a large set of varflags for use in recipes and classes. These varflags indicate what the components and dependencies of a task are. Here are some examples of varflags:</p>
+    <pre class="programlisting code"><code class="hljs-code">do_patch[postfuncs] += <span class="hljs-string">"copy_sources"</span>
+do_package_index[depends] += <span class="hljs-string">"signing-keys:do_deploy"</span>
+do_rootfs[recrdeptask] += <span class="hljs-string">"do_package_write_deb do_package_qa"</span>
+</code></pre>
+    <p class="normal">The value that’s assigned to a varflag’s key is often one or more other tasks. This means that BitBake varflags offer us another way of expressing inter-task dependencies, different from <code class="inlineCode">addtask</code>. The <code class="inlineCode">addtask</code> command specifies when a task gets executed (e.g., <code class="inlineCode">before do_build after do_compile</code>). Most embedded Linux developers will probably never need to touch varflags in their day-to-day work. I have introduced them here so that we can make sense of the following <code class="inlineCode">DEPENDS</code> and <code class="inlineCode">RDEPENDS</code> examples.</p>
+    <h3 id="_idParaDest-249" class="heading-3"><a id="_idTextAnchor277"/>Build-time dependencies</h3>
+    <p class="normal">BitBake <a id="_idIndexMarker563"/>uses <a id="_idIndexMarker564"/>the <code class="inlineCode">DEPENDS</code> variable to manage build-time dependencies. The <code class="inlineCode">deptask</code> varflag for a task signifies the task that must be completed for each item in <code class="inlineCode">DEPENDS</code> before that task can be executed (<em class="italic">BitBake User Manual</em>, <a href="https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies"><span class="url">https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies</span></a>):</p>
+    <pre class="programlisting code"><code class="hljs-code">do_package[deptask] += <span class="hljs-string">"do_packagedata"</span>
+</code></pre>
+    <p class="normal">In this example, the <code class="inlineCode">do_packagedata</code> task of each item in <code class="inlineCode">DEPENDS</code> must complete before <code class="inlineCode">do_package</code> can execute.</p>
+    <p class="normal">Alternatively, you can bypass the <code class="inlineCode">DEPENDS</code> variable and define your build-time dependencies explicitly using the <code class="inlineCode">depends</code> flag:</p>
+    <pre class="programlisting code"><code class="hljs-code">do_<span class="hljs-keyword">patch</span>[depends] += <span class="hljs-string">"quilt-native:do_populate_sysroot"</span>
+</code></pre>
+    <p class="normal">In this example, the <code class="inlineCode">do_populate_sysroot</code> task belonging to the <code class="inlineCode">quilt-native</code> namespace must be completed before <code class="inlineCode">do_patch</code> can execute. A recipe’s tasks are often grouped together inside their own namespace to enable this sort of direct access.</p>
+    <h3 id="_idParaDest-250" class="heading-3"><a id="_idTextAnchor278"/>Runtime dependencies</h3>
+    <p class="normal">BitBake <a id="_idIndexMarker565"/>uses<a id="_idIndexMarker566"/> the <code class="inlineCode">PACKAGES</code> and <code class="inlineCode">RDEPENDS</code> variables to manage runtime dependencies. The <code class="inlineCode">PACKAGES</code> variable lists all the runtime packages a recipe creates. Each of those packages can have <code class="inlineCode">RDEPENDS</code> runtime dependencies. These are packages that must be installed for a given package to run. The <code class="inlineCode">rdeptask</code> varflag for a task specifies which tasks must be completed for every runtime dependency before that task can be executed (<em class="italic">BitBake User Manual</em>, <a href="https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies"><span class="url">https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies</span></a>):</p>
+    <pre class="programlisting code"><code class="hljs-code">do_package_qa[rdeptask] <span class="hljs-operator">=</span> <span class="hljs-string">"do_packagedata"</span>
+</code></pre>
+    <p class="normal">In this example, the <code class="inlineCode">do_package_data</code> task of each item in <code class="inlineCode">RDEPENDS</code> must complete before <code class="inlineCode">do_package_qa</code> can execute.</p>
+    <p class="normal">Similarly, the <code class="inlineCode">rdepends</code> flag works much like the <code class="inlineCode">depends</code> flag by allowing you to bypass the <code class="inlineCode">RDEPENDS</code> variable. The <a id="_idIndexMarker567"/>only difference is that <code class="inlineCode">rdepends</code> is <a id="_idIndexMarker568"/>enforced at runtime instead of build time.</p>
+    <h2 id="_idParaDest-251" class="heading-2"><a id="_idTextAnchor279"/>Variables</h2>
+    <p class="normal">BitBake variable syntax<a id="_idIndexMarker569"/> resembles the Make variable syntax. The scope of a variable in BitBake depends on the type of metadata file where a variable was defined. Every variable declared in a recipe file (<code class="inlineCode">.bb</code>) is local. Every variable declared in a configuration file (<code class="inlineCode">.conf</code>) is global. An image is just a recipe, so an image cannot affect what happens in another recipe.</p>
+    <h3 id="_idParaDest-252" class="heading-3"><a id="_idTextAnchor280"/>Assignment and expansion</h3>
+    <p class="normal">Variable assignment <a id="_idIndexMarker570"/>and expansion work like they do in shell. By default, the assignment occurs as soon as the statement is parsed and is unconditional. The <code class="inlineCode">$</code> character triggers variable expansion. Enclosing braces are optional and serve to protect the variable from being expanded from characters immediately following it. Expanded variables are usually wrapped in double quotes to prevent accidental word splitting and globbing:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-attribute">OLDPKGNAME</span> = <span class="hljs-string">"dbus-x11"</span>
+PROVIDES:<span class="hljs-variable">${PN}</span> = <span class="hljs-string">"</span><span class="hljs-variable">${OLDPKGNAME}</span><span class="hljs-string">"</span>
+</code></pre>
+    <p class="normal">Variables are mutable and normally evaluated at the time of reference, not assignment, like in Make. This means that if a variable is referenced on the right-hand side of an assignment, then that referenced variable is not evaluated until the variable on the left-hand side is expanded. So, if a value on the right-hand side changes over time, then so does the value of the variable on the left-hand side.</p>
+    <p class="normal">Conditional assignment only defines a variable if it is undefined at the time of parsing. This prevents reassignment when you don’t want that behavior:</p>
+    <pre class="programlisting code"><code class="hljs-code">PREFERRED_PROVIDER_virtual/kernel ?= <span class="hljs-string">"linux-yocto"</span>
+</code></pre>
+    <p class="normal">Conditional assignment is employed at the top of makefiles to prevent variables that may have already been set by the build system (for example, <code class="inlineCode">CC</code>, <code class="inlineCode">CFLAGS</code>, and <code class="inlineCode">LDFLAGS</code>) from being overwritten. Conditional assignment ensures that we don’t append or prepend to an undefined variable later on in a recipe.</p>
+    <p class="normal">Lazy assignment using ??= behaves identically to ?= except that the assignment is made at the end of the parsing process rather than immediately (BitBake User Manual, HYPERLINK “<a href="https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html"><span class="url">https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html</span></a>#setting-a-weak-default-value”):</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-variable">TOOLCHAIN_TEST_HOST</span> <span class="hljs-string">??</span>= <span class="hljs-string">"localhost"</span>
+</code></pre>
+    <p class="normal">What that means is that if a variable name is on the left-hand side of multiple lazy assignments, then the last lazy assignment statement wins.</p>
+    <p class="normal">Another form of variable assignment forces the right-hand side of the assignment to be evaluated <a id="_idIndexMarker571"/>immediately at the time of parsing:</p>
+    <pre class="programlisting code"><code class="hljs-code">target_datadir := <span class="hljs-string">"${datadir}"</span>
+</code></pre>
+    <p class="normal">Note that the<code class="inlineCode">:=</code> operator for immediate assignment comes from Make not shell.</p>
+    <h3 id="_idParaDest-253" class="heading-3"><a id="_idTextAnchor281"/>Appending and prepending</h3>
+    <p class="normal">Appending or <a id="_idIndexMarker572"/>prepending to a variable or variable flags in BitBake is easy. The following two operators insert a single space in between the value on the left-hand side and the value being appended or prepended from the right-hand side:</p>
+    <pre class="programlisting code"><code class="hljs-code">CXXFLAGS += <span class="hljs-string">"-std=c++11"</span>
+PACKAGES =+ <span class="hljs-string">"gdbserver"</span>
+</code></pre>
+    <p class="normal">Note that the <code class="inlineCode">+=</code> operator means increment not append when applied to an integer as opposed to string values.</p>
+    <p class="normal">If you wish to omit the single space, there are assignment operators that do that as well:</p>
+    <pre class="programlisting code"><code class="hljs-code">BBPATH .<span class="hljs-operator">=</span> <span class="hljs-string">":${LAYERDIR}"</span>
+FILESEXTRAPATHS <span class="hljs-operator">=</span>. <span class="hljs-string">"${FILE_DIRNAME}/systemd:"</span>
+</code></pre>
+    <p class="normal">The single-space versions of the appending and prepending assignment operators are used throughout BitBake metadata files.</p>
+    <h3 id="_idParaDest-254" class="heading-3"><a id="_idTextAnchor282"/>Overrides</h3>
+    <p class="normal">BitBake offers an<a id="_idIndexMarker573"/> alternative syntax for appending and prepending to variables. This style of concatenating is known as override syntax:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-attr">CFLAGS</span><span class="hljs-attr">:</span><span class="hljs-attr">append</span> = <span class="hljs-string">" -DSQLITE_ENABLE_COLUMN_METADATA"</span>
+<span class="hljs-attr">PROVIDES</span><span class="hljs-attr">:</span><span class="hljs-attr">prepend</span> = <span class="hljs-string">"</span><span class="hljs-string">${PN}"</span>
+</code></pre>
+    <p class="normal">While it may not be obvious at first glance, the two preceding lines are not defining new variables. The <code class="inlineCode">:append</code> and <code class="inlineCode">:prepend</code> suffixes modify or override the values of existing variables. They function more like BitBake’s <code class="inlineCode">.=</code> and <code class="inlineCode">=.</code> than the <code class="inlineCode">+=</code> and <code class="inlineCode">=+</code> operators in the sense that they omit the single space when combining strings. Unlike those operators, overrides are lazy, so assignment does not take place until all parsing has completed.</p>
+    <p class="normal">Finally, let’s look at a more advanced form of conditional assignment involving the <code class="inlineCode">OVERRIDES</code> variable defined in <code class="inlineCode">meta/conf/bitbake.conf</code>. The <code class="inlineCode">OVERRIDES</code> variable is a colon-separated list of conditions that you want satisfied. This list is used to select between multiple versions of the same variable, each of which is distinguished by a different suffix. The various suffixes match the names of the conditions. Let’s say the <code class="inlineCode">OVERRIDES</code> list contains <code class="inlineCode">${TRANSLATED_TARGET_ARCH}</code> as a condition. Now, you can define a version of a variable that is conditional on a target CPU architecture of <code class="inlineCode">aarch64</code>, such as the <code class="inlineCode">VALGRINDARCH:aarch64</code> variable:</p>
+    <pre class="programlisting code"><code class="hljs-code">VALGRINDARCH ?= <span class="hljs-string">"${TARGET_ARCH}"</span>
+VALGRINDARCH:aarch64 = <span class="hljs-string">"arm64"</span>
+VALGRINDARCH:x86-64 = <span class="hljs-string">"amd64"</span>
+</code></pre>
+    <p class="normal">When the <code class="inlineCode">TRANSLATED_TARGET_ARCH</code> variable expands to <code class="inlineCode">aarch64</code>, the V<code class="inlineCode">ALGRINDARCH:aarch64</code> version of the <code class="inlineCode">VALGRINDARCH</code> variable is selected over all the other overrides. Selecting <a id="_idIndexMarker574"/>variable values based on <code class="inlineCode">OVERRIDES</code> is cleaner and less brittle than other methods of conditional assignment, such as <code class="inlineCode">#ifdef</code> directives in C.</p>
+    <p class="normal">BitBake also supports appending and prepending operations to variable values based on whether a specific item is listed in <code class="inlineCode">OVERRIDES</code> (<em class="italic">BitBake User Manual</em>, <a href="https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html"><span class="url">https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html</span></a><span class="url">#conditional-metadata</span>). Here are various real-world examples:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-attr">EXTRA_OEMAKE</span>:<span class="hljs-attr">prepend</span>:<span class="hljs-attr">task-compile</span> = <span class="hljs-string">"${PARALLEL_MAKE} "</span>
+<span class="hljs-attr">EXTRA_OEMAKE</span>:<span class="hljs-attr">prepend</span>:<span class="hljs-attr">task-install</span> = <span class="hljs-string">"${PARALLEL_MAKEINST} "</span>
+<span class="hljs-attr">DEPENDS</span> = <span class="hljs-string">"attr libaio libcap acl openssl zip-native"</span>
+<span class="hljs-attr">DEPENDS</span>:<span class="hljs-attr">append</span>:<span class="hljs-attr">libc-musl</span> = <span class="hljs-string">" fts "</span>
+<span class="hljs-attr">EXTRA_OECONF</span>:<span class="hljs-attr">append</span>:<span class="hljs-attr">libc-musl</span> = <span class="hljs-string">" LIBS=-lfts "</span>
+<span class="hljs-attr">EXTRA_OEMAKE</span>:<span class="hljs-attr">append</span>:<span class="hljs-attr">libc-musl</span> = <span class="hljs-string">" LIBC=musl "</span>
+</code></pre>
+    <p class="normal">Notice how <code class="inlineCode">libc-musl</code> is a condition for appending string values to the <code class="inlineCode">DEPENDS</code>, <code class="inlineCode">EXTRA_OECONF</code>, and <code class="inlineCode">EXTRA_OEMAKE</code> variables. Like the earlier unconditional override syntax for appending and prepending to variables, this conditional syntax is also lazy. Assignment does not occur until after the recipes and configuration files have been parsed.</p>
+    <p class="normal">Conditionally appending and prepending to variables based on the contents of <code class="inlineCode">OVERRIDES</code> is complicated and can <a id="_idIndexMarker575"/>result in unwanted surprises. I recommend getting lots of practice with conditional assignments based on <code class="inlineCode">OVERRIDES</code> before adopting these advanced BitBake features.</p>
+    <h3 id="_idParaDest-255" class="heading-3"><a id="_idTextAnchor283"/>Inline Python</h3>
+    <p class="normal">The <code class="inlineCode">@</code> symbol in BitBake<a id="_idIndexMarker576"/> lets us inject and execute Python code inside variables. An inline Python expression gets evaluated each time the variable on the left-hand side of the <code class="inlineCode">=</code> operator is expanded. An inline Python expression on the right-hand side of the <code class="inlineCode">:=</code> operator is evaluated only once at parse time. Here are some examples of inline Python variable expansion:</p>
+    <pre class="programlisting code"><code class="hljs-code">PV = <span class="hljs-string">"</span><span class="hljs-subst">${@bb.parse.vars_from_file(d.getVar(</span><span class="hljs-string">'FILE'</span><span class="hljs-subst">, False),d)[</span><span class="hljs-number">1</span><span class="hljs-subst">] or </span><span class="hljs-string">'1.0'</span><span class="hljs-subst">}</span><span class="hljs-string">"</span>
+BOOST_MAJ = <span class="hljs-string">"</span><span class="hljs-subst">${@</span><span class="hljs-string">"_"</span><span class="hljs-subst">.join(d.getVar(</span><span class="hljs-string">"PV"</span><span class="hljs-subst">).split(</span><span class="hljs-string">"."</span><span class="hljs-subst">)[</span><span class="hljs-number">0</span><span class="hljs-subst">:</span><span class="hljs-number">2</span><span class="hljs-subst">])}</span><span class="hljs-string">"</span>
+GO_PARALLEL_BUILD ?= <span class="hljs-string">"</span><span class="hljs-subst">${@oe.utils.parallel_make_argument(d, </span><span class="hljs-string">'-p %d'</span><span class="hljs-subst">)}</span><span class="hljs-string">"</span>
+</code></pre>
+    <p class="normal">Notice that <code class="inlineCode">bb</code> and <code class="inlineCode">oe</code> are aliases for BitBake and OpenEmbedded’s Python modules. Also, notice that <code class="inlineCode">d.getVar("PV")</code> is used to retrieve the value of the <code class="inlineCode">PV</code> variable from the task’s runtime environment. The <code class="inlineCode">d</code> variable refers to a datastore object that BitBake saves a copy of the original execution environment to. This is largely how a BitBake shell and Python code interoperate.</p>
+    <h2 id="_idParaDest-256" class="heading-2"><a id="_idTextAnchor284"/>Functions</h2>
+    <p class="normal">Functions<a id="_idIndexMarker577"/> are the stuff that BitBake tasks are made of. They are written in either shell or Python and defined inside the <code class="inlineCode">.bbclass</code>, <code class="inlineCode">.bb</code>, and <code class="inlineCode">.inc</code> files.</p>
+    <h3 id="_idParaDest-257" class="heading-3"><a id="_idTextAnchor285"/>Shell</h3>
+    <p class="normal">Functions written in shell are executed as functions or tasks. Functions that run as tasks usually have names that start with the <code class="inlineCode">do_</code> prefix. This is what a function looks like in shell:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-title">meson_do_install</span><span class="hljs-params">()</span> {
+    DESTDIR=<span class="hljs-string">'${D}'</span> ninja -v ${PARALLEL_MAKEINST} install
+}
+</code></pre>
+    <p class="normal">Remember to remain shell-agnostic when writing your functions. BitBake executes shell snippets with <code class="inlineCode">/bin/sh</code>, which may or may not be a Bash shell, depending on the host distro. Avoid Bashisms by running the <code class="inlineCode">scripts/verify-bashisms</code> linter against your shell scripts.</p>
+    <h3 id="_idParaDest-258" class="heading-3"><a id="_idTextAnchor286"/>Python</h3>
+    <p class="normal">BitBake<a id="_idIndexMarker578"/> understands <a id="_idIndexMarker579"/>three types of Python functions: pure, BitBake style, and anonymous.</p>
+    <h4 class="heading-4">Pure Python functions</h4>
+    <p class="normal">A <strong class="keyWord">pure Python function</strong> is written <a id="_idIndexMarker580"/>in regular Python and called by <a id="_idIndexMarker581"/>other Python code. By pure, I mean that the function lives exclusively within the realm of the Python interpreter’s execution environment, not pure in the functional programming sense. Here is an example from <code class="inlineCode">meta/recipes-connectivity/bluez5/bluez5.inc</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">def get_noinst_tools_paths (d, bb, tools):
+    s = <span class="hljs-built_in">list</span>()
+    bindir = d.<span class="hljs-built_in">getVar</span>(<span class="hljs-string">"bindir"</span>)
+    for bdp in tools.<span class="hljs-built_in">split</span>():
+        f = os.path.<span class="hljs-built_in">basename</span>(bdp)
+        s.<span class="hljs-built_in">append</span>(<span class="hljs-string">"%s/%s"</span> % (bindir, f))
+    return <span class="hljs-string">"\n"</span>.<span class="hljs-built_in">join</span>(s)
+</code></pre>
+    <p class="normal">Notice that this function takes parameters just like a real Python function. There are a couple more noteworthy things I would also like to point out about this function. First, the datastore object is unavailable, so you need to pass it in as a function parameter (the <code class="inlineCode">d</code> variable in this instance). Second, the <code class="inlineCode">os</code> module is automatically available, so there is no need to import or pass it in.</p>
+    <p class="normal">Pure Python functions can be called by inline Python assigned to shell variables using the <code class="inlineCode">@</code> symbol. In fact, that is precisely what happens on the next line of this include file:</p>
+    <pre class="programlisting code"><code class="hljs-code">FILES:<span class="hljs-variable">${PN}</span>-noinst-tools = \
+<span class="hljs-string">"</span><span class="hljs-subst">${</span><span class="hljs-variable">@get_noinst_tools_paths</span><span class="hljs-subst">(d, bb, d.getVar(</span><span class="hljs-string">'NOINST_TOOLS'</span><span class="hljs-subst">))}</span><span class="hljs-string">"</span>
+</code></pre>
+    <p class="normal">Notice that both<a id="_idIndexMarker582"/> the <code class="inlineCode">d</code> datastore object and the <code class="inlineCode">bb</code> module are automatically available inside the inline Python scope after the <code class="inlineCode">@</code> symbol.</p>
+    <h4 class="heading-4">BitBake-style Python functions</h4>
+    <p class="normal">A <strong class="keyWord">BitBake-style Python</strong> function <a id="_idIndexMarker583"/>definition is <a id="_idIndexMarker584"/>denoted by the <code class="inlineCode">python</code> keyword instead of Python’s native <code class="inlineCode">def</code> keyword. These functions are executed by invoking <code class="inlineCode">bb.build.exec_func()</code> from other Python functions, including BitBake’s own internal ones. Unlike pure Python functions, BitBake-style functions do not take parameters. The absence of parameters isn’t much of a problem since the datastore object is always available as a global variable (<code class="inlineCode">d</code>, that is). While not as Pythonic, the BitBake style of defining functions is predominant throughout Yocto. Here is a BitBake-style Python function definition from <code class="inlineCode">meta/classes/sign_rpm.bbclass</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">python sign_rpm () {
+    import glob
+    from oe<span class="hljs-selector-class">.gpg_sign</span> import get_signer
+    signer = <span class="hljs-built_in">get_signer</span>(d, d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_GPG_BACKEND'</span>))
+    rpms = glob<span class="hljs-selector-class">.glob</span>(d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_PKGWRITEDIR'</span>) + <span class="hljs-string">'/*'</span>)
+    signer<span class="hljs-selector-class">.sign_rpms</span>(rpms,
+                     d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_GPG_NAME'</span>),
+                     d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_GPG_PASSPHRASE'</span>),
+                     d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_FILE_CHECKSUM_DIGEST'</span>),
+                     <span class="hljs-built_in">int</span>(d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_GPG_SIGN_CHUNK'</span>)),
+                     d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_FSK_PATH'</span>),
+                     d<span class="hljs-selector-class">.getVar</span>(<span class="hljs-string">'RPM_FSK_PASSWORD'</span>))
+}
+</code></pre>
+    <h4 class="heading-4">Anonymous Python functions</h4>
+    <p class="normal">An <strong class="keyWord">anonymous Python function</strong> looks much like a BitBake-style Python function, but it executes<a id="_idIndexMarker585"/> during<a id="_idIndexMarker586"/> parsing. Because they run first, anonymous functions are good for operations that can be done at parse time, such as initializing variables and other forms of setup. Anonymous function<a id="_idIndexMarker587"/> definitions can be written with or without the <code class="inlineCode">__anonymous</code> function name:</p>
+    <pre class="programlisting code"><code class="hljs-code">python __anonymous () {
+    systemd_packages = <span class="hljs-string">"${PN} ${PN}-wait-online"</span>
+    pkgconfig = d.get<span class="hljs-meta">Var</span>(<span class="hljs-string">'PACKAGECONFIG'</span>)
+    <span class="hljs-keyword">if</span> (<span class="hljs-string">'openvpn'</span> <span class="hljs-keyword">or</span> <span class="hljs-string">'vpnc'</span> <span class="hljs-keyword">or</span> <span class="hljs-string">'l2tp'</span> <span class="hljs-keyword">or</span> <span class="hljs-string">'pptp'</span>) <span class="hljs-keyword">in</span> pkgconfig.split():
+        systemd_packages += <span class="hljs-string">" ${PN}-vpn"</span>
+    d.<span class="hljs-keyword">set</span><span class="hljs-meta">Var</span>(<span class="hljs-string">'SYSTEMD_PACKAGES'</span>, systemd_packages)
+}
+python () {
+    packages = d.get<span class="hljs-meta">Var</span>(<span class="hljs-string">'PACKAGES'</span>).split()
+    <span class="hljs-keyword">if</span> d.get<span class="hljs-meta">Var</span>(<span class="hljs-string">'PACKAGEGROUP_DISABLE_COMPLEMENTARY'</span>) != <span class="hljs-string">'1'</span>:
+        types = [<span class="hljs-string">''</span>, <span class="hljs-string">'-dbg'</span>, <span class="hljs-string">'-dev'</span>]
+        <span class="hljs-keyword">if</span> bb.utils.contains(<span class="hljs-string">'DISTRO_FEATURES'</span>, <span class="hljs-string">'ptest'</span>, True, False, d):
+            types.append(<span class="hljs-string">'-ptest'</span>)
+        packages = [pkg + suffix for pkg <span class="hljs-keyword">in</span> packages
+                    for suffix <span class="hljs-keyword">in</span> types]
+        d.<span class="hljs-keyword">set</span><span class="hljs-meta">Var</span>(<span class="hljs-string">'PACKAGES'</span>, <span class="hljs-string">' '</span>.joi<span class="hljs-meta">n</span>(packages))
+    for pkg <span class="hljs-keyword">in</span> packages:
+        d.<span class="hljs-keyword">set</span><span class="hljs-meta">Var</span>(<span class="hljs-string">'ALLOW_EMPTY_%s'</span> % pkg, <span class="hljs-string">'1'</span>)
+}
+</code></pre>
+    <p class="normal">The <code class="inlineCode">d</code> variable within an anonymous Python function represents the datastore for the entire recipe (<em class="italic">BitBake User Manual</em>, <a href="https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html"><span class="url">https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html</span></a><span class="url">#anonymous-python-functions</span>). So, when you set a variable inside an anonymous function scope, that value will be available to other functions by <a id="_idIndexMarker588"/>way <a id="_idIndexMarker589"/>of the <a id="_idIndexMarker590"/>global datastore object when they run.</p>
+    <h2 id="_idParaDest-259" class="heading-2"><a id="_idTextAnchor287"/>RDEPENDS revisited</h2>
+    <p class="normal">Let’s return to<a id="_idIndexMarker591"/> the<a id="_idIndexMarker592"/> subject of runtime dependencies. These are packages that must be installed for a given package to run. This list is defined in the package’s <code class="inlineCode">RDEPENDS</code> variable. Here is an interesting excerpt from <code class="inlineCode">populate_sdk_base.bbclass</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">do_sdk_depends[rdepends] = <span class="hljs-string">"</span><span class="hljs-subst">${</span><span class="hljs-variable">@get_sdk_ext_rdepends</span><span class="hljs-subst">(d)}</span><span class="hljs-string">"</span>
+</code></pre>
+    <p class="normal">And here is the definition of the corresponding inline Python function:</p>
+    <pre class="programlisting code"><code class="hljs-code">def <span class="hljs-built_in">get_sdk_ext_rdepends</span>(d):
+    localdata = d.<span class="hljs-built_in">createCopy</span>()
+    localdata.<span class="hljs-built_in">appendVar</span>(<span class="hljs-string">'OVERRIDES'</span>, <span class="hljs-string">':task-populate-sdk-ext'</span>)
+    return localdata.<span class="hljs-built_in">getVarFlag</span>(<span class="hljs-string">'do_populate_sdk'</span>, <span class="hljs-string">'rdepends'</span>)
+</code></pre>
+    <p class="normal">There is quite a bit to unpack here. First, the function makes a copy of the datastore object so as not to modify the task runtime environment. Recall that the <code class="inlineCode">OVERRIDES</code> variable is a list of conditions used to select between multiple versions of a variable. The next line adds a condition of <code class="inlineCode">task-populate-sdk-ext</code> to the <code class="inlineCode">OVERRIDES</code> list in the local copy of the datastore. Lastly, the function returns the value of the <code class="inlineCode">rdepends varflag</code> for the <code class="inlineCode">do_populate_sdk</code> task. The difference now is that <code class="inlineCode">rdepends</code> is evaluated using the <code class="inlineCode">_task-populate-sdk-ext</code> versions of variables like the following:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-attr">SDK_EXT</span><span class="hljs-attr">:</span><span class="hljs-attr">task-populate-sdk-ext</span> = <span class="hljs-string">"</span><span class="hljs-string">-ext"</span>
+<span class="hljs-attr">SDK_DIR</span><span class="hljs-attr">:</span><span class="hljs-attr">task-populate-sdk-ext</span> = <span class="hljs-string">"${WORKDIR}/sdk-ext"</span>
+</code></pre>
+    <p class="normal">I find this use of temporary <code class="inlineCode">OVERRIDES</code> to be both clever and terrifying.</p>
+    <p class="normal">BitBake syntax and semantics can seem daunting. Combining shell and Python makes for an interesting mix of language features. Not only do we now know how to define variables and functions, but we can also inherit from class files, override variables, and change conditions programmatically. These advanced concepts appear again and again in the <code class="inlineCode">.bb</code>, <code class="inlineCode">.bbappend</code>, <code class="inlineCode">.inc</code>, <code class="inlineCode">.bbclass</code>, and <code class="inlineCode">.conf</code> files and will become increasingly recognizable over time. As we strive to achieve <a id="_idIndexMarker593"/>proficiency<a id="_idIndexMarker594"/> in BitBake and begin to stretch our newfound abilities, mistakes are bound to occur.</p>
+    <h1 id="_idParaDest-260" class="heading-1"><a id="_idTextAnchor288"/>Summary</h1>
+    <p class="normal">Even though you can build just about anything with Yocto, it’s not always easy to tell what the build system is doing or how. There is hope for us, though. There are command-line tools to help us find where something came from and how to change it. There are task logs we can read from and write to. There is also <code class="inlineCode">devshell</code>, which we can use to configure and compile individual things from the command line. And if we divide our projects into multiple layers from the outset, we are likely to get much more mileage out of the work we do.</p>
+    <p class="normal">BitBake’s mix of shell and Python supports some powerful language constructs, such as inheritance, overrides, and conditional variable selection. That’s both good and bad. It’s good in the sense that layers and recipes are completely composable and customizable. </p>
+    <p class="normal">It’s bad in the sense that metadata in different recipe files and different layers can interact in strange and unexpected ways. Combine those powerful language features with the datastore object’s ability to act as a portal between the shell and Python execution environments and you have a recipe for countless hours of fun.</p>
+    <p class="normal">This concludes our in-depth exploration of The Yocto Project and the second section of this book, <em class="italic">Building Embedded Linux Images</em>. In the next section of this book, we switch gears and examine <em class="italic">System Architecture and Design Decisions</em>, beginning with <a href="Chapter_09.xhtml#_idTextAnchor293"><em class="italic">Chapter 9</em></a>. We will get a chance to use Yocto again in <a href="Chapter_10.xhtml#_idTextAnchor341"><em class="italic">Chapter 10</em></a>, when we evaluate Mender.</p>
+    <h1 id="_idParaDest-261" class="heading-1"><a id="_idTextAnchor289"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">Yocto Project Overview and Concepts Manual</em>, Yocto Project – <a href="https://docs.yoctoproject.org/overview-manual/"><span class="url">https://docs.yoctoproject.org/overview-manual/</span></a></li>
+      <li class="bulletList"><em class="italic">What I wish I’d known about Yocto Project</em>, Yocto Project – <a href="https://docs.yoctoproject.org/what-i-wish-id-known.html"><span class="url">https://docs.yoctoproject.org/what-i-wish-id-known.html</span></a></li>
+      <li class="bulletList"><em class="italic">BitBake User Manual</em>, by Richard Purdie, Chris Larson, and Phil Blundell – <a href="https://docs.yoctoproject.org/bitbake/"><span class="url">https://docs.yoctoproject.org/bitbake/</span></a></li>
+      <li class="bulletList"><em class="italic">Embedded Linux Development Using Yocto Project Cookbook</em>, by Alex Gonzalez</li>
+    </ul>
+    <h1 id="_idParaDest-262" class="heading-1"><a id="_idTextAnchor290"/>Join our community on Discord</h1>
+    <p class="normal">Join our community’s Discord space for discussions with the authors and other readers: <span class="url">https://packt.link/embeddedsystems</span></p>
+    <p class="normal"><img src="../Images/QR_Code12308107448340296.png" alt="" role="presentation" width="354" height="354"/></p>
+  </div>
+</div></div></body></html>

@@ -1,0 +1,370 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div class="Basic-Text-Frame" id="_idContainer141">
+<h1 class="chapterNumber">11</h1>
+<h1 class="chapterTitle" id="_idParaDest-160">Setting Up Network Services</h1>
+<p class="normal">In <em class="chapterRef">Chapter 10</em>, <em class="italic">Connecting to Networks</em>, we went over some important foundational topics related to networking. We saw how to set the hostname, manage network interfaces, configure connections, and more. In this chapter, we’ll revisit networking, specifically to set up the <a id="_idIndexMarker582"/>resources that will serve as the foundation of our network. The majority of this chapter will focus on setting up the DHCP and DNS servers, which are very important components of any network. In addition, we’ll even take a look at setting up a server to act as an internet gateway for the rest of our network.</p>
+<p class="normal">Along the way, we’ll cover the following topics:</p>
+<ul>
+<li class="bulletList">Planning your IP address scheme</li>
+<li class="bulletList">Serving IP addresses with <code class="inlineCode">isc-dhcp-server</code></li>
+<li class="bulletList">Setting up DNS with <code class="inlineCode">bind</code></li>
+<li class="bulletList">Setting up an internet gateway</li>
+</ul>
+<p class="normal">As a Linux administrator, you may or may not be tasked with designing the entire network layout of your organization; often there will be an already-existing network to manage. In the next section, we’ll discuss creating such a layout, even if only to understand what goes into such a plan.</p>
+<h1 class="heading-1" id="_idParaDest-161">Planning your IP address scheme</h1>
+<p class="normal">Designing the <a id="_idIndexMarker583"/>overall layout of your network is an incredibly important process that sets the stage for success or failure later on. This design must take into consideration the needs of the organization, the need for efficient methods of communication, and the segregation of network services to ensure that your servers can only communicate with the resources that they are supposed to. As a Linux administrator<a id="_idIndexMarker584"/> that manages a fleet of Ubuntu servers, it’s not always the case that you’ll even have a say in the network layout at all. It’s quite common that you “inherit” a network designed by a previous administrator, or your job is siloed such that you only manage the servers and someone else is responsible for the network.</p>
+<p class="normal">Since this is primarily a book that focuses on teaching you how to manage Ubuntu servers, we aren’t going to cover all of the things that a network administrator would need to know, but there’s a bit of overlap between the two roles. As a Linux administrator, you may or may not be tasked with the designing of your network, but at a minimum, you do need to understand the overall layout and how your servers will fit within it.</p>
+<p class="normal">In this section, we’ll discuss the most important part of a network layout—the IP address scheme. Planning the IP scheme is an important task that sets the foundation for many other things. Even if it’s not up to you to design this layout, knowing the finer details of an existing layout can help you better understand how servers you maintain might communicate with other devices. Planning your IP layout involves estimating how many devices will need to connect to your network and being able to support them. In addition, a good plan will account for potential growth and allow expansion as well. The main thing that factors into this is the size of your user base. Perhaps you are working in a small office with only a handful of people, or a large corporation with thousands of users and hundreds of virtual machines. Even if your organization is only a small office, I always recommend making the assumption that your company will explode in popularity someday and designing your network to have the growth potential to accommodate that.</p>
+<p class="normal">Typically, most <a id="_idIndexMarker585"/>off-the-shelf routers and network equipment come with an integrated <strong class="keyWord">Dynamic Host Control Protocol</strong> (<strong class="keyWord">DHCP</strong>) server, with a default class C (<code class="inlineCode">/24</code>) network. Essentially, this means that if you do not perform any configuration at all, you’re limited to 254 addresses. For a small office, this may seem like plenty. After all, if you don’t even have 254 employees at your company, that number may seem like overkill. As I mentioned before, potential growth is always something to keep in mind. But even if we remove that from the equation, IP addresses are used up quicker than you’d think nowadays—even when it comes to internal addressing. Average users may consume three IP addresses each, and sometimes more.</p>
+<p class="normal">For example, perhaps a user not only has a laptop (which itself can have both a wired and wireless interface, both consuming an IP address), but perhaps they also have a mobile phone (which likely features Wi-Fi), and<a id="_idIndexMarker586"/> a <strong class="keyWord">Voice over IP</strong> (<strong class="keyWord">VoIP</strong>) phone (there goes another address). If that user somehow manages to convince their supervisor that they also need a desktop computer as well as their laptop, there will be a total of five IP addresses for that one user. Suddenly, 254 addresses don’t seem like all that many.</p>
+<p class="normal">Perhaps <a id="_idIndexMarker587"/>a really good real-world example of the number of available IP addresses potentially being a problem is a small restaurant in a busy city that offers free Wi-Fi to its customers. The person designing the guest network for their customers may assume that a <code class="inlineCode">/24</code> network is more than enough if they only have one hundred customers or so each day. While that logic may seem sound, consider that if the restaurant is next to a busy street, people that have Wi-Fi enabled on their phone may snag an address as they pass by, and if the DHCP addresses are configured to expire in 24 hours, then there will often be no available IP addresses for actual customers most of the time. If you’ve ever attempted to connect to a restaurant Wi-Fi network and found yourself unable to access the internet after connecting, this could be a real-world example of a pain point of not designing a network layout effectively.</p>
+<p class="normal">The obvious answer to this problem is splitting up your <a id="_idIndexMarker588"/>network into <strong class="keyWord">subnets</strong>. Although I won’t go into the details of how to subnet your network (which would be beyond the scope of this book), I mention it here because it’s definitely something you should take into consideration. In the next section, I’ll explain how to set up your own DHCP server with a single network. However, if you need to expand your address space, you can easily do so by updating your DHCP configuration. When coming up with an IP address layout, always assume the worst and plan ahead. While it may be a simple task to expand your DHCP server, planning a new IP scheme rollout is very time-consuming, and to be honest, annoying.</p>
+<p class="normal">When I set up a new network, I like to divide the address space into several categories. First, I’ll usually set aside a group of IP addresses specifically for DHCP. These addresses will get assigned to clients as they connect, and I’ll usually have them expire and need to be renewed in about one day. Then, I’ll set aside a block of IP addresses for network appliances, another block for servers, and so on. In the case of a typical <code class="inlineCode">/24</code>, I might decide on a scheme such as the following (assuming it’s a small office with no growth planned):</p>
+<pre class="programlisting code"><code class="hljs-code">Network: 192.168.1.0/24 
+Network equipment: 192.168.1.1 - 192.168.1.10 
+Servers: 192.168.1.11 - 192.168.1.99 
+DHCP: 192.168.1.100 - 192.168.1.240 
+Reservations: 192.168.1.241 - 192.168.1.254 
+</code></pre>
+<p class="normal">Since I mentioned it’s a good idea to plan for future growth, the <code class="inlineCode">/24</code> would be potentially constrained and wouldn’t accommodate much growth. I chose that scheme to keep everything in this chapter simple for the sake of easy explanation. But in a real company network, you may want to consider a larger number of IP addresses than what the above would give you.</p>
+<p class="normal">How do you<a id="_idIndexMarker589"/> get more IP addresses? Take a look at the number after the network address, which is <code class="inlineCode">/24</code> on the first line. With that number, we’re configuring how large the IP address space is, which essentially correlates to how many IP addresses we have available. That number is known as a <strong class="keyWord">CIDR</strong> notation, which<a id="_idIndexMarker590"/> stands for <strong class="keyWord">Classless Inter-Domain Routing</strong>. Similar to a subnet mask, changing that number results in a different number of IP addresses. For example, if you change the <code class="inlineCode">/24</code> portion of the network to <code class="inlineCode">/22</code>, you instantly have 1,022 possible addresses to work with, rather than 254. If you lower it again to <code class="inlineCode">/20</code>, the number jumps to 4,094. For now, don’t worry too much about this. You can focus on remembering that the higher the number, the fewer IP addresses you have. It can go up to <code class="inlineCode">/32</code>, which only gives you one IP address. If you’d like to experiment further with subnetting, we’ve provided a subnet calculator in the <em class="italic">Further reading</em> section.</p>
+<p class="normal">The following is a list of common CIDR values and their impact on the number of available IP addresses:</p>
+<table class="table-container" id="table001-4">
+<tbody>
+<tr>
+<td class="table-cell">
+<p class="normal"><strong class="keyWord">CIDR</strong></p>
+</td>
+<td class="table-cell">
+<p class="normal"><strong class="keyWord">Total Usable IP Addresses</strong></p>
+</td>
+</tr>
+<tr>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">/32</code></p>
+</td>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">1</code></p>
+</td>
+</tr>
+<tr>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">/24</code></p>
+</td>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">254</code></p>
+</td>
+</tr>
+<tr>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">/16</code></p>
+</td>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">65,534</code></p>
+</td>
+</tr>
+<tr>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">/8</code></p>
+</td>
+<td class="table-cell">
+<p class="normal"><code class="inlineCode">16,777,214</code></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="normal">Of course, no single IP address scheme is right for everyone. The scheme I provided earlier is simply a hypothetical example, so you shouldn’t copy mine and use it on your network unless it matches your needs. I’ll use this scheme for the remainder of this chapter, since it works fine as an example. To explain my sample rollout, we start off with a 24-bit network, <code class="inlineCode">192.168.1.0/24</code>. The address <code class="inlineCode">192.168.1.0</code> refers to the network itself, and that IP address is not assignable to clients. The first usable IP address in this subnet will be <code class="inlineCode">192.168.1.1</code>. The last IP address in this block (<code class="inlineCode">192.168.1.255</code>) is not assignable either, since that is known <a id="_idIndexMarker591"/>as the <strong class="keyWord">broadcast address</strong>. Anything that’s sent to the broadcast address is effectively sent to every IP in the block, so we can’t really use it for anything<a id="_idIndexMarker592"/> but broadcasts. In summary, keep in mind that an IP address ending in <code class="inlineCode">.0</code> can’t be used, and neither can an IP address that ends in <code class="inlineCode">.255</code>.</p>
+<div class="note">
+<p class="normal">Technically, you <em class="italic">can</em> assign IP addresses ending in <code class="inlineCode">.0</code> or <code class="inlineCode">.255</code>, depending on the CIDR value. However, since those ending values are most often used to refer to the network itself and the broadcast address respectively, some applications and pieces of hardware may not accept these values so for all intents and purposes, you should consider those ending values as unassignable.</p>
+</div>
+<p class="normal">Going back to the example IP layout mentioned earlier in this section, I set aside a group of IP addresses starting with <code class="inlineCode">192.168.1.1</code> through <code class="inlineCode">192.168.1.10</code> for use by network appliances. Typical devices that would fit into this category would be managed switches, routers, wireless access points, and so on. These devices typically have an integrated web console for remote management, so it would be best to have a static IP address assignment. That way, I’ll have an IP address available that I can use to access these devices. I like to set up network appliances as the first devices so that they all get the lowest numbers when it comes to the last number of each IP address. This is just personal preference.</p>
+<p class="normal">Next in the example layout, we define IP addresses <code class="inlineCode">192.168.1.11</code> through <code class="inlineCode">192.168.1.99</code> for servers. This may seem like quite a few addresses for servers, and it is. However, with the rise of virtualization and how simple it has become to spin up a server, this block could get used up faster than you’d think. Feel free to adjust accordingly.</p>
+<p class="normal">Now we have our DHCP pool, which consists of addresses <code class="inlineCode">192.168.1.101</code> through <code class="inlineCode">192.168.1.240</code>. These IP addresses are assignable to any devices that connect to our network. Typically, I like to have these assignments expire in one day to prevent one-off devices from claiming and holding onto an IP address for too long, which can lead to devices fighting over a DHCP lease. In this situation, you’d have to clear your DHCP leases to reset everything, and I find that to be too much of a hassle. When we get to the section on setting up a DHCP server, I’ll show you how to set the expiration time.</p>
+<p class="normal">Finally, we have addresses <code class="inlineCode">192.168.1.241</code> through <code class="inlineCode">192.168.1.254</code> for the purposes of DHCP reservations. I generally refer to reserved DHCP addresses as <em class="italic">static leases</em>, but both terms mean the same thing. These addresses will be assigned by DHCP, but each device with a static lease will be given the same IP address each time. You don’t have to separate these into their own pool, since DHCP will not assign the same address twice. It may still be a good idea to separate them though, if only to be able to tell from looking at an IP address that it’s a static lease, due to it being within a particular hypothetical block. Static leases are good for devices that aren’t necessarily a server but still need a predictable IP address. </p>
+<p class="normal">An example of this may be an administrator’s desktop PC. Perhaps they <a id="_idIndexMarker593"/>want to be able to connect to the office via VPN and be able to easily find their computer on the network and connect to it. If the IP was dynamically assigned instead of statically assigned, it would be harder for them to find it.</p>
+<p class="normal">After you carve up your IP addresses, the next thing is to make sure that they’re accurately documented. If you don’t focus on documentation now while designing services, you will definitely regret it later. You can consider setting up a private wiki server, for example.</p>
+<p class="normal">Another method is creating a spreadsheet to keep track of your static IP assignments. This is acceptable if you don’t have a better solution; it doesn’t have to be anything fancy. Among the usual components, such as the device info and IP address, I also include the MAC address of each device on the spreadsheet, which will come in handy when we set up our DHCP server in the next section:</p>
+<figure class="mediaobject"><img alt="Table  Description automatically generated" height="167" src="../Images/B18425_11_01.png" width="652"/></figure>
+<p class="packt_figref">Figure 11.1: An example IP address layout spreadsheet</p>
+<p class="normal">As you can see from my example layout, our number of available addresses is rather limited with a 24-bit network. However, this layout will serve as an example we can follow that’s good enough for the remainder of the chapter. At this point, just think about the factors that are important to your organization, and ensure that any networks you create are scalable <a id="_idIndexMarker594"/>and accommodate your needs.</p>
+<p class="normal">Now that we have an IP layout (if we didn’t have one already), we can take a look at setting up a DHCP server, which will be the service that will ultimately be assigning these IPs.</p>
+<h1 class="heading-1" id="_idParaDest-162">Setting up a DHCP server for serving IP addresses</h1>
+<p class="normal">Most network <a id="_idIndexMarker595"/>appliances you purchase nowadays often come with their own DHCP server and allow you to configure it via a web console. Often, this is totally fine and meets your needs. In my experience though, network appliances you purchase can be very hit and miss. Some <a id="_idIndexMarker596"/>of them are great, while others are not so impressive. One of the main problems is that manufacturers will often stop supporting the hardware prematurely, exposing your network to unpatched vulnerabilities. It’s important to always purchase network hardware that’s as future-proof as possible. Or, you can set up your own router with the features that you need. Although the burden of management is placed on you, this gives you ultimate flexibility. Ubuntu servers make great DHCP servers, and rolling your own server is actually easier than it sounds. And that’s exactly what we’re going to work through in this section.</p>
+<p class="normal">First, the server that serves DHCP will definitely need a static IP address. This means you’ll need to configure Netplan with a static IP assignment. A static lease won’t work here, since the DHCP server can’t assign an IP address to itself. </p>
+<p class="normal">Also, the IP address that you designate for your server’s static IP must be in the same network as the addresses that you plan to serve. Otherwise, the service will fail to start even after we configure it.</p>
+<p class="normal">If you have yet to set a static IP address, <em class="chapterRef">Chapter 10</em>, <em class="italic">Connecting to Networks</em>, has a section that will walk you through the process.</p>
+<p class="normal">Once you assign a static IP address, the next step is to install the <code class="inlineCode">isc-dhcp-server</code> package:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo apt install isc-dhcp-server
+</code></pre>
+<p class="normal">Check the status of the daemon after installing the <code class="inlineCode">isc-dhcp-server</code> package, using the following command:</p>
+<pre class="programlisting con"><code class="hljs-con">systemctl status isc-dhcp-server 
+</code></pre>
+<p class="normal">You’ll likely notice that it failed:</p>
+<figure class="mediaobject"><img alt="" height="347" src="../Images/B18425_11_02.png" width="875"/></figure>
+<p class="packt_figref">Figure 11.2: isc-dhcp-server failing by default</p>
+<p class="normal">If it did fail to <a id="_idIndexMarker597"/>start, there’s no need to be concerned. Ubuntu, by default, starts most of the services that are<a id="_idIndexMarker598"/> installed via packages. Sometimes, a service needs to be configured before it can run. In the case of the <code class="inlineCode">isc-dhcp-server</code>, it needs a valid configuration in order to start, but we have yet to configure anything. We need to configure the <code class="inlineCode">isc-dhcp-server</code> service for it to be useful, so let’s stop the service for now.</p>
+<p class="normal">We can start it as soon as we’ve finished adding our configuration:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo systemctl stop isc-dhcp-server
+</code></pre>
+<p class="normal">Configuring an IPv6 network isn’t something we’ll be getting into, but the DHCP server package we’ve just installed also comes with an IPv6 equivalent. Let’s stop and disable this service, since we won’t be using it:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo systemctl stop isc-dhcp-server6
+sudo systemctl disable isc-dhcp-server6
+</code></pre>
+<p class="normal">Now that you’ve installed the <code class="inlineCode">isc-dhcp-server</code> package, you’ll have a default configuration file for it at <code class="inlineCode">/etc/dhcp/dhcpd.conf</code>. This file will contain some default configuration, with some example settings that are commented out. Feel free to take a look at this file to get an idea of some of the settings you can configure. We’ll create our own <code class="inlineCode">dhcpd.conf</code> file from scratch. So when you’re done looking at it, move the existing file with a new name so we can refer to it later if we ever need to:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo mv /etc/dhcp/dhcpd.conf /etc/dhcp/dhcpd.conf.orig 
+</code></pre>
+<p class="normal">Now, we’re ready to create our own <code class="inlineCode">dhcpd.conf</code> file. Open <code class="inlineCode">/etc/dhcp/dhcpd.conf</code> in your preferred<a id="_idIndexMarker599"/> text editor. Since <a id="_idIndexMarker600"/>the file no longer exists (we moved it), we should start with an empty file. Here’s an example <code class="inlineCode">dhcpd.conf</code> file that I will explain so that you understand how it works:</p>
+<pre class="programlisting code"><code class="hljs-code">default-lease-time 43200; 
+max-lease-time 86400; 
+option subnet-mask 255.255.255.0; 
+option broadcast-address 192.168.1.255; 
+option domain-name "local.lan"; 
+authoritative; 
+subnet 192.168.1.0 netmask 255.255.255.0 { 
+    range 192.168.1.100 192.168.1.240; 
+    option routers 192.168.1.1;   
+    option domain-name-servers 192.168.1.1; 
+} 
+</code></pre>
+<p class="normal">As always, change the values I’ve used to those that match your network. I’ll explain each line so that you’ll understand how it affects the configuration of your DHCP server.</p>
+<pre class="programlisting code"><code class="hljs-code">default-lease-time 43200; 
+</code></pre>
+<p class="normal">When a device connects to your network and requests an IP address, the expiration of the lease will be set to the number of seconds in <code class="inlineCode">default-lease-time</code> if the device doesn’t explicitly ask for a longer lease time. Here, I’m setting that to <code class="inlineCode">43200</code> seconds, which is equivalent to half a day. This basically means that the device will need to renew its IP address every <code class="inlineCode">43200</code> seconds unless it asks for a longer duration.</p>
+<pre class="programlisting code"><code class="hljs-code">max-lease-time 86400; 
+</code></pre>
+<p class="normal">While the previous setting dictated the default lease time for devices that don’t ask for a specific lease time, <code class="inlineCode">max-lease-time</code> is the most that the device is allowed to have. In this case, I set this to one day (<code class="inlineCode">86400</code> seconds). Therefore, no device that receives an IP address from this DHCP server is allowed to hold onto its lease for longer than this without first renewing it.</p>
+<pre class="programlisting code"><code class="hljs-code">option subnet-mask 255.255.255.0; 
+</code></pre>
+<p class="normal">With this setting, we’re informing clients that their subnet mask should be set to <code class="inlineCode">255.255.255.0</code>, which is for a default 24-bit network. If you plan to subnet your network, you’ll put in a different value here. <code class="inlineCode">255.255.255.0</code> is fine if all you need is a 24-bit network.</p>
+<pre class="programlisting code"><code class="hljs-code">option broadcast-address 192.168.1.255; 
+</code></pre>
+<p class="normal">With this setting, we’re <a id="_idIndexMarker601"/>telling the client to use <code class="inlineCode">192.168.1.255</code> as the broadcast address, which is the last address in the subnet and cannot be assigned to a host.</p>
+<pre class="programlisting code"><code class="hljs-code">option domain-name "local.lan"; 
+</code></pre>
+<p class="normal">Here, we’re setting<a id="_idIndexMarker602"/> the domain names of all hosts that connect to the server to include <code class="inlineCode">local.lan</code>. The domain name is added to the end of the hostname. For example, if a workstation with a hostname of <code class="inlineCode">muffin</code> receives an IP address from our DHCP server, it will be referred to as <code class="inlineCode">muffin.local.lan</code>. Feel free to change this to the domain name of your organization, or you can leave it as is if you don’t have one.</p>
+<pre class="programlisting code"><code class="hljs-code">authoritative;
+</code></pre>
+<p class="normal">With the <code class="inlineCode">authoritative</code> setting (the opposite is <code class="inlineCode">not authoritative</code>), we’re declaring our DHCP server as authoritative to our network. Unless you are planning to have multiple DHCP servers, the <code class="inlineCode">authoritative;</code> option should be included in your <code class="inlineCode">config</code> file. We won’t use the <code class="inlineCode">not authoritative;</code> option as it’s beyond the scope of this chapter.</p>
+<p class="normal">Now, we get to the most important part of our configuration file for DHCP. The following block details the specific information that will be provided to clients:</p>
+<pre class="programlisting code"><code class="hljs-code">subnet 192.168.1.0 netmask 255.255.255.0 { 
+    range 192.168.1.100 192.168.1.240; 
+    option routers 192.168.1.1; 
+    option domain-name-servers 192.168.1.1; 
+} 
+</code></pre>
+<p class="normal">This block is probably self-explanatory, but we’re basically declaring our pool of addresses for the <code class="inlineCode">192.168.1.0</code> network. We’re declaring a range of IPs from <code class="inlineCode">192.168.1.100</code> through <code class="inlineCode">192.168.1.240</code> to be available for clients. Now when our DHCP server provides an address to clients, it will choose one from this pool. For the address pool (<code class="inlineCode">range</code>), feel free to expand it or shrink it accordingly. For example, you might need more addresses than the 140 that are allowed in my sample range, so you may change it to something like <code class="inlineCode">192.168.1.50</code> through <code class="inlineCode">192.168.1.250</code>. Feel free to experiment.</p>
+<p class="normal">We’re also<a id="_idIndexMarker603"/> providing a default gateway (<code class="inlineCode">option routers</code>) and DNS server (<code class="inlineCode">option domain-name-servers</code>) of <code class="inlineCode">192.168.1.1</code>. This is assuming that your router and local DNS server are both<a id="_idIndexMarker604"/> listed at that address, so make sure that you change it accordingly. Otherwise, anyone who receives a DHCP lease from your server will not be able to connect to anything.</p>
+<p class="normal">Now we have our configuration file in place, but the DHCP server will likely still not start until we declare an interface for it to listen for requests on. You can do that by editing the <code class="inlineCode">/etc/default/isc-dhcp-server</code> file, where you’ll see a line toward the bottom similar to the following:</p>
+<pre class="programlisting code"><code class="hljs-code">INTERFACESv4="" 
+</code></pre>
+<p class="normal">Simply type the name of the interface within the quotes:</p>
+<pre class="programlisting code"><code class="hljs-code">INTERFACESv4="enp0s3" 
+</code></pre>
+<p class="normal">In case you forgot, the command to list the details of the interfaces on your server is <code class="inlineCode">ip addr show</code>, or the shortened version, <code class="inlineCode">ip a</code>.</p>
+<p class="normal">Now that we have our DHCP server configured, we should be able to start it:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo systemctl start isc-dhcp-server 
+</code></pre>
+<p class="normal">Next, double-check that there were no errors by running the following command:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo systemctl status isc-dhcp-server 
+</code></pre>
+<p class="normal">The daemon should report that it’s <code class="inlineCode">active (running)</code>, similar to what’s shown in the following screenshot:</p>
+<figure class="mediaobject"><img alt="" height="344" src="../Images/B18425_11_03.png" width="875"/></figure>
+<p class="packt_figref">Figure 11.3: Checking the status of the isc-dhcp-server process after a successful start</p>
+<p class="normal">Assuming <a id="_idIndexMarker605"/>all went <a id="_idIndexMarker606"/>well, your DHCP server should be running. When an IP lease is assigned to a client, it will be recorded in the <code class="inlineCode">/var/lib/dhcp/dhcpd.leases</code> file. While your DHCP server runs, it will also record information to your server’s system log, located at <code class="inlineCode">/var/log/syslog</code>. To see your DHCP server function in all its glory, you can follow the log as it gets written to with the following:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo tail -f /var/log/syslog 
+</code></pre>
+<p class="normal">We’ve discussed the <code class="inlineCode">-f</code> flag of the <code class="inlineCode">tail</code> command earlier in the book. This option is indispensable, and it’s something you’ll likely use quite often as a server administrator. With the <code class="inlineCode">-f</code> option, you’ll watch the log as it gets written to, rather than needing to refresh it manually. You can press <em class="keystroke">Ctrl + c</em> to break out of the file.</p>
+<p class="normal">While your DHCP server runs, you’ll see notices appear within the <code class="inlineCode">syslog</code> file whenever a DHCP request was received and when a lease is offered to a client. A typical DHCP request will appear in the log similar to the following:</p>
+<pre class="programlisting con"><code class="hljs-con">Oct  5 22:07:36 myserver dhcpd: DHCPDISCOVER from 52:54:00:88:f8:bc via enp0s3 
+Oct  5 22:07:36 myserver dhcpd: DHCPOFFER on 192.168.1.103 to 51:52:01:87:f7:bc via enp0s3 
+</code></pre>
+<p class="normal">Active and previous DHCP leases are stored in the <code class="inlineCode">/var/lib/dhcp/dhcpd.leases</code> file, and a typical lease entry in that file would look similar to the following:</p>
+<pre class="programlisting code"><code class="hljs-code">lease 192.168.1.138 { 
+  starts 0 2022/10/05 16:37:30; 
+  ends 0 2022/10/06 16:42:30; 
+  cltt 0 2022/20/06 16:37:30; 
+  binding state active; 
+  next binding state free; 
+  rewind binding state free; 
+  hardware ethernet 32:6e:92:01:1f:7f; 
+} 
+</code></pre>
+<p class="normal">When a <a id="_idIndexMarker607"/>new device is<a id="_idIndexMarker608"/> added to your network and receives an IP address from your new DHCP server, you should see the lease information populate that file. This file can be incredibly helpful, because whenever you connect a new device, you won’t have to interrogate the device itself to find out what its IP address is. You can just check the <code class="inlineCode">/var/lib/dhcp/dhcpd.leases</code> file. If the device advertises its hostname, you’ll see it within its lease entry. A good example of how this can be useful is connecting a Raspberry Pi to your network. Once you plug it in and turn it on, you’ll see its IP address in the <code class="inlineCode">dhcpcd.leases</code> file, and then you can connect to it via SSH with the IP without having to plug a monitor into it to find out which IP it was given. Similarly, you can view the temporary IP address of a new network appliance that you plug in so that you can connect to it and configure it.</p>
+<p class="normal">If you have any trouble setting up the <code class="inlineCode">isc-dhcp-server</code> daemon, double-check that you have set all the correct and matching values within your static IP assignment, as well as within your <code class="inlineCode">/etc/dhcp/dhcpd.conf</code> file. For example, your server must be within the same network as the IPs you’re assigning to clients. As long as everything matches, you should be fine and it should start properly.</p>
+<p class="normal">Next, let’s take a look at another important service within a network—DNS.</p>
+<h1 class="heading-1" id="_idParaDest-163">Adding a DNS server</h1>
+<p class="normal">I’m sure<a id="_idIndexMarker609"/> most of you are familiar with the purpose of a <strong class="keyWord">Domain Name System</strong> (<strong class="keyWord">DNS</strong>) server. Its simplest definition is that it’s a service that’s responsible for matching an IP address to a domain or hostname. When you’re connected to the internet, name-to-IP matching happens constantly as you browse. After all, it’s much easier to connect to <a href="https://www.google.com/"><span class="url">https://www.google.com/</span></a> using its domain name than it is to remember its IP address. </p>
+<p class="normal">When you connect to the internet, your workstation or server will connect to an external DNS server in order to figure out the IP addresses for the websites you attempt to visit.</p>
+<p class="normal">It’s also very <a id="_idIndexMarker610"/>common to run a local DNS server internally in your organization. The benefit is that you’ll be able to resolve your local hostnames as well, something that an external DNS server would know nothing about. For example, if you have an intranet site that you intend to make available to your co-workers, it would be easier to give everyone a local domain that they can access than it would be to make everyone memorize its IP address. With a local DNS server, you would create what is known as a <strong class="keyWord">zone file</strong>, which <a id="_idIndexMarker611"/>would contain information regarding the hosts and IP addresses in use within your network so that local devices would be able to resolve them. In the event that your local DNS server is unable to fulfill your request (such as a request for an external website), the server would pass the request along to an external DNS server, which would then carry out the request.</p>
+<p class="normal">While DNS is an extensive topic that can take a while to master, a basic understanding is really all you need in order to make use of a custom DNS server within your network. In this section, I’ll show you how to set up your very own DNS server to allow your devices to resolve local hostnames, which should greatly enhance your network.</p>
+<h2 class="heading-2" id="_idParaDest-164">Setting up external DNS with bind</h2>
+<p class="normal">To set up <a id="_idIndexMarker612"/>your very own DNS server, we’ll first <a id="_idIndexMarker613"/>need to install the <strong class="keyWord">Berkeley Internet Name Daemon</strong> (<strong class="keyWord">BIND</strong>) package on our server:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo apt install bind9
+</code></pre>
+<p class="normal">Now, we should have the <code class="inlineCode">bind9</code> service running on our server, though it’s not actually configured to do much at this point. The most basic function of <code class="inlineCode">bind</code> is to act as what’s called a <strong class="keyWord">Caching Name Server</strong>, which<a id="_idIndexMarker614"/> means that the server doesn’t actually match any names itself. Instead, it caches responses from an external server – which can actually increase the performance of your network in some cases. We’ll configure <code class="inlineCode">bind</code> with actual hosts later, but setting up a caching name server is a good way to get started.</p>
+<p class="normal">To do so, open the <code class="inlineCode">/etc/bind/named.conf.options</code> file in your favorite text editor.</p>
+<p class="normal">Within the file, you should see a block of text that looks similar to the following:</p>
+<pre class="programlisting code"><code class="hljs-code">// forwarders { 
+//      0.0.0.0; 
+// }; 
+</code></pre>
+<p class="normal">Uncomment these lines. The <em class="italic">forward slashes</em> are comment marks as far as this configuration file is <a id="_idIndexMarker615"/>concerned, so remove them. Then, we can add a few external DNS server IP addresses. For these, you can use the IP addresses <a id="_idIndexMarker616"/>for <a id="_idIndexMarker617"/>your <strong class="keyWord">Internet Service Provider</strong> (<strong class="keyWord">ISP</strong>)’s DNS servers, or you could simply use Google’s DNS servers (<code class="inlineCode">8.8.8.8</code> and <code class="inlineCode">8.8.4.4</code>) instead:</p>
+<pre class="programlisting code"><code class="hljs-code">forwarders { 
+  8.8.8.8; 
+  8.8.4.4; 
+}; 
+</code></pre>
+<p class="normal">After you save the file, restart the <code class="inlineCode">bind9</code> service:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo systemctl restart bind9 
+</code></pre>
+<p class="normal">To be sure that everything is running smoothly, check the status of the service:</p>
+<pre class="programlisting con"><code class="hljs-con">systemctl status bind9 
+</code></pre>
+<p class="normal">It should report that it’s <code class="inlineCode">active (running)</code>. As long as you’ve entered everything correctly, you should now have a working DNS server. Of course, we haven’t added any DNS names for it to resolve, but we’ll get to that. Now, all you should need to do is configure other devices on your network to use your new DNS server. The easiest way to do this is to reconfigure the <code class="inlineCode">isc-dhcp-server</code> service we set up in the previous section. Remember the section that designates a pool of addresses from the server to the clients? It also contained a section to declare the DNS server your clients will use as well. Here’s that section again, with the relevant line in bold:</p>
+<pre class="programlisting code"><code class="hljs-code">subnet 192.168.1.0 netmask 255.255.255.0 { 
+  range 192.168.1.100 192.168.1.240; 
+  option routers 192.168.1.1; 
+<span class="code-highlight"><strong class="hljs-slc">  option domain-name-servers 192.168.1.1; </strong></span>
+} 
+</code></pre>
+<p class="normal">To configure the devices on your network to use your new DNS server, all you should need to do is change the configuration <code class="inlineCode">option domain-name-servers 192.168.1.1;</code> to point to the IP address of the new DNS server that we’re in the process of setting up. When clients request a DHCP lease (or attempt to renew an existing lease), they will be configured with the new DNS server automatically.</p>
+<p class="normal">With the <a id="_idIndexMarker618"/>caching name server we just set up, hosts that utilize it will check it first for any hostnames they attempt to look up. If they look up a website or host that is not within your local network, their requests will be forwarded to the forwarding addresses you configured for <code class="inlineCode">bind</code>.</p>
+<p class="normal">In my example, I used Google’s DNS servers, so if you used my configuration, your hosts will first check your <a id="_idIndexMarker619"/>local server and then check Google’s servers when resolving external names. Depending on your network hardware and configuration, you might even see a slight performance boost. This is because the DNS server you just set up is caching any lookups done against it. For example, if a client looks up <a href="https://www.packtpub.com"><span class="url">https://www.packtpub.com</span></a> in a web browser, your DNS server will forward the request along since that site doesn’t exist locally and it will also remember the result. The next time a client within your network looks up that site, the response will be much quicker because your DNS server cached it.</p>
+<p class="normal">To see this yourself, execute the following command twice on a node (device) that is utilizing your new DNS server:</p>
+<pre class="programlisting con"><code class="hljs-con">dig www.packtpub.com 
+</code></pre>
+<p class="normal">If <code class="inlineCode">dig</code> isn’t available in your installation, you can install it as part of the <code class="inlineCode">dnsutils</code> package:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo apt install dnsutils
+</code></pre>
+<p class="normal">In the response, look for a line toward the end that gives you your query time. It will look similar to the following:</p>
+<pre class="programlisting con"><code class="hljs-con">;; Query time: 98 msec 
+</code></pre>
+<p class="normal">When you run it again, the query time should be much lower:</p>
+<pre class="programlisting con"><code class="hljs-con">;; Query time: 1 msec 
+</code></pre>
+<p class="normal">This is your caching name server in action! Even though we haven’t even set up any zone files to resolve your internal servers, your DNS server is already adding value to your network. You just laid the groundwork we’ll use for the rest of our configuration.</p>
+<h2 class="heading-2" id="_idParaDest-165">Setting up internal DNS and adding hosts</h2>
+<p class="normal">Now, let’s add <a id="_idIndexMarker620"/>some hosts to our DNS server so we can start fully utilizing it. The configuration file for <code class="inlineCode">bind</code> is located at <code class="inlineCode">/etc/bind/named.conf</code>. In addition<a id="_idIndexMarker621"/> to some commented lines, it will have the following three lines of configuration within it:</p>
+<pre class="programlisting code"><code class="hljs-code">include "/etc/bind/named.conf.options"; 
+include "/etc/bind/named.conf.local"; 
+include "/etc/bind/named.conf.default-zones"; 
+</code></pre>
+<p class="normal">As you can see, the default <code class="inlineCode">bind</code> configuration is split among several configuration files. Here, it includes three others: <code class="inlineCode">named.conf.options</code>, <code class="inlineCode">named.conf.local</code>, and <code class="inlineCode">named.conf.default-zones</code> (the first of which we already took care of editing). In order to resolve local names, we need to create <a id="_idIndexMarker622"/>a <strong class="keyWord">zone file</strong>, which is essentially a text file that includes some configuration, a list of hosts, and their IP addresses. In order to do this, we need to tell <code class="inlineCode">bind</code> where to find the zone file we’re about to create. Within <code class="inlineCode">/etc/bind/named.conf.local</code>, we need to add a block of code like the following to the end of the file:</p>
+<pre class="programlisting con"><code class="hljs-con">zone "local.lan" IN { 
+    type master; 
+    file "/etc/bind/net.local.lan"; 
+}; 
+</code></pre>
+<p class="normal">Notice that the zone is named <code class="inlineCode">local.lan</code>, which is the same name I gave our domain in our DHCP server configuration. It’s best to keep everything consistent when we can. If you use a different domain name than the one I used in my example, make sure that it matches here as well. Within the block, we’re creating a <code class="inlineCode">master</code> zone file and informing <code class="inlineCode">bind</code> that it can find a file named <code class="inlineCode">net.local.lan</code>, stored in the <code class="inlineCode">/etc/bind</code> directory. This should be the only change we’ll need to make to the <code class="inlineCode">named.conf.local</code> file; we’ll only create a single zone file (for the purpose of this section). Once you save this file, you’ll need to create the <code class="inlineCode">/etc/bind/net.local.lan</code> file. So, go ahead and open that file in a text editor. Since we haven’t created it yet, it should be blank. Here’s an example of this zone file, completely filled out with some sample configuration:</p>
+<pre class="programlisting code"><code class="hljs-code">$TTL 1D 
+@ IN SOA local.lan. hostmaster.local.lan. ( 
+ 
+202208161; serial 
+ 
+8H ; refresh 
+4H ; retry 
+4W ; expire 
+1D ) ; minimum 
+IN A 192.168.1.1 
+; 
+@ IN NS hermes.local.lan. 
+fileserv        IN  A   192.168.1.3 
+hermes          IN  A    192.168.1.1 
+mailserv        IN  A   192.168.1.5 
+mail            IN  CNAME   mailserv. 
+web01           IN  A   192.168.1.7 
+</code></pre>
+<p class="normal">Feel free to <a id="_idIndexMarker623"/>edit this file to match your configuration. You <a id="_idIndexMarker624"/>can edit the list of hosts at the end of the file to match your hosts within your network, as the ones I included are merely examples. You should also ensure that the file matches the IP scheme for your network. Next, I’ll go over each line in order to give you a deeper understanding of what each line of this configuration file is responsible for:</p>
+<pre class="programlisting code"><code class="hljs-code">$TTL 1D 
+</code></pre>
+<p class="normal">The <strong class="keyWord">Time to Live</strong> (<strong class="keyWord">TTL</strong>) determines<a id="_idIndexMarker625"/> how long a record may be cached within a DNS server. If you recall from earlier, where we practiced with the <code class="inlineCode">dig</code> command, you saw that the second time you queried a domain with <code class="inlineCode">dig</code>, the query time was less than the first time you ran the command. This is because your DNS server cached the result, but it won’t hold onto it forever. At some point, the lookup will expire. The next time you look up that same domain after the cached result has expired, your server will go out and fetch the result from the DNS server again. In my examples, I used Google’s DNS servers. That means at some point, your server will query those servers again once the record times out.</p>
+<p class="normal">With <a id="_idIndexMarker626"/>the <strong class="keyWord">Start of Authority</strong> (<strong class="keyWord">SOA</strong>) line, we’re establishing that our DNS server is authoritative over the <code class="inlineCode">local.lan</code> domain:</p>
+<pre class="programlisting code"><code class="hljs-code">@ IN SOA local.lan. hostmaster.local.lan. ( 
+</code></pre>
+<p class="normal">We also set <code class="inlineCode">hostmaster@local.lan</code> as the email address of the responsible party for this server, but we enter it here in a different format for <code class="inlineCode">bind</code> (<code class="inlineCode">hostmaster.local.lan</code>). This is obviously a fake address, but for the purposes of an internal DNS server, its validity is of no concern.</p>
+<p class="normal">Of all the lines of configuration within a zone file, <code class="inlineCode">serial</code> is by far the one that will frustrate us the most:</p>
+<pre class="programlisting code"><code class="hljs-code">202208161; serial 
+</code></pre>
+<p class="normal">This is<a id="_idIndexMarker627"/> because it’s not enough to simply update the zone file any time we make a change to it (change an IP address, add or remove a host, and so on); we also need to remember to increase the serial number by at least one. If we don’t, <code class="inlineCode">bind</code> won’t be aware that we’ve made any changes, as it will look at the serial number <a id="_idIndexMarker628"/>before the rest of the file. </p>
+<p class="normal">The problem with this is that you and I are both human, and we’re prone to forgetting things. I’ve forgotten to update <code class="inlineCode">serial</code> many times and have become frustrated when the DNS server refused to resolve new hosts that were recently added. Once I remembered that I didn’t increment the serial number, the issue was resolved after I did. Therefore, it’s very important for you to remember that any time you make a change to any zone file, you’ll need to also increment the serial number.</p>
+<p class="normal">The format doesn’t really matter; I used <code class="inlineCode">202208161</code>, which is simply the year, two-digit month, two-digit day, and an extra number to cover us if we make more than one change in a day (which can sometimes happen). As long as you increment the serial number by one every time you modify your zone file, you’ll be in good shape—regardless of what format you use. However, the sample format I gave here is actually quite common in the field.</p>
+<p class="normal">These values control how often secondary DNS servers will be instructed to check in for updates:</p>
+<pre class="programlisting code"><code class="hljs-code">8H ; refresh 
+4H ; retry 
+4W ; expire 
+1D ) ; minimum
+</code></pre>
+<p class="normal">With the example refresh value, we’re instructing any secondary DNS servers to check in every eight hours to see whether or not the zone records were updated. The <code class="inlineCode">retry</code> field dictates how long the secondary will wait to check in, in case there was an error doing so the last time. The last two options in this section, <code class="inlineCode">expire</code> and <code class="inlineCode">minimum</code>, set the minimum and maximum age of the zone file, respectively. As I mentioned though, a full discussion of DNS with <code class="inlineCode">bind</code> could constitute an entire book on its own. For now, I would just use these values until you have a reason to need to experiment. Here, we identify the name server itself:</p>
+<pre class="programlisting code"><code class="hljs-code">IN A 192.168.1.1 
+@ IN NS hermes.local.lan. 
+</code></pre>
+<p class="normal">In my case, the server is called <code class="inlineCode">hermes</code> and it’s located at <code class="inlineCode">192.168.1.1</code>.</p>
+<p class="normal">Next, in our file, we’ll <a id="_idIndexMarker629"/>have several host entries to allow <a id="_idIndexMarker630"/>our resources to be resolved on our network by name:</p>
+<pre class="programlisting code"><code class="hljs-code">fileserv        IN  A   192.168.1.3 
+hermes          IN  A    192.168.1.1 
+mailserv        IN  A   192.168.1.5 
+mail            IN  CNAME   mailserv. 
+web01           IN  A   192.168.1.7 
+</code></pre>
+<p class="normal">In that example, I have three hosts: <code class="inlineCode">fileserv</code>, <code class="inlineCode">mailserv</code>, and <code class="inlineCode">web01</code>. In the example, these are all address records, which means that any time our server is asked to resolve one of these names, it will respond with the corresponding IP address. If our DNS server is set as a machine’s primary DNS server, it will respond with <code class="inlineCode">192.168.1.3</code> when asked for <code class="inlineCode">fileserv</code> and <code class="inlineCode">192.168.1.7</code> when asked for <code class="inlineCode">web01</code>.</p>
+<p class="normal">The entry for <code class="inlineCode">mail</code> is special as it is not an address record, but instead a <strong class="keyWord">Canonical Name</strong> (<strong class="keyWord">CNAME</strong>) record. In <a id="_idIndexMarker631"/>this case, it just points back to <code class="inlineCode">mailserv</code>. Essentially, that’s what a CNAME record does: it creates a pointer to another resource. In this case, if someone tries to access a server named <code class="inlineCode">mail</code>, we redirect them to the actual server <code class="inlineCode">mailserv</code>. Notice that on the CNAME record, we’re not inputting an IP address, but instead the hostname of the resource it’s linked to.</p>
+<p class="normal">In addition, you should also notice that I added the DNS server itself (<code class="inlineCode">hermes</code>) to the file as well. You can see it on the second line above. I’ve found that if you don’t do this, the DNS server may complain and refuse to load the file.</p>
+<p class="normal">Now that we have a zone file in place, we should be able to start using it. First, we’ll need to restart the <code class="inlineCode">bind9</code> service:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo systemctl restart bind9 
+</code></pre>
+<p class="normal">After the command finishes, check to see if there are any errors:</p>
+<pre class="programlisting con"><code class="hljs-con">systemctl status bind9 
+</code></pre>
+<p class="normal">You should see that the service state is <code class="inlineCode">active (running)</code>, and in addition, you should see a line telling you that the serial number for your zone file was loaded. If you see that the service is not running and/or your zone file was not loaded, you should see specific information in the output while checking the status that should point you in the right direction. If not, you can also check the system log for clues regarding <code class="inlineCode">bind</code> as well:</p>
+<pre class="programlisting con"><code class="hljs-con">cat /var/log/syslog | grep bind9
+</code></pre>
+<p class="normal">The most<a id="_idIndexMarker632"/> common mistakes I’ve seen typically result from not being consistent within the file. For example, if you’re using a different IP scheme (such as <code class="inlineCode">10.10.10.0/24</code>), you’ll want to make sure you didn’t forget to replace any of <a id="_idIndexMarker633"/>my example IP addresses with the proper scheme. Assuming that everything went smoothly, you should be able to point devices on your network to use this new DNS server. Make sure you test not only pinging devices local to your network but outside resources as well, such as websites. If the DNS server is working properly, it should resolve your local names, and then forward your requests to your external DNS servers (the two we set as forwarders) if it doesn’t find what you’re looking for locally. In addition, you’ll also want to make sure that port <code class="inlineCode">53</code> (UDP) is open in your network’s firewall, which is the port that DNS uses. It’s extremely rare that this would be an issue, but I have seen it happen.</p>
+<p class="normal">To further test our DNS server, we can use the <code class="inlineCode">dig</code> command, as we did before while we were experimenting with caching. Try <code class="inlineCode">dig</code> against a local server on your LAN, as well as a DNS address that’s not located on your LAN (change the first domain to an actual domain on your LAN):</p>
+<pre class="programlisting con"><code class="hljs-con">dig webserv.local.lan 
+dig www.packtpub.com 
+</code></pre>
+<p class="normal">You should see a response similar to the following:</p>
+<pre class="programlisting con"><code class="hljs-con">;; Query time: 1 msec 
+;; SERVER: 127.0.0.53#53(127.0.0.53) 
+;; WHEN: Sat Feb 10 10:00:59 EST 2022 
+;; MSG SIZE  rcvd: 83 
+</code></pre>
+<p class="normal">What you’re looking for here is for both local resources and external websites to be resolvable now. You’ll probably notice that the DNS server used in the output will most likely show up as a localhost address, as it did in my output, and not the address of the DNS server we just set up. Actually, you can ignore this. Most distributions of Linux nowadays use local resolvers, which essentially cache DNS lookup results on your local computer. Your computer is still using the DNS server we set up, but there’s just an additional layer in between your computer and the DNS server. You can verify this with the following command:</p>
+<pre class="programlisting con"><code class="hljs-con">resolvectl
+</code></pre>
+<p class="normal">The output <a id="_idIndexMarker634"/>will <a id="_idIndexMarker635"/>show you the IP address of the actual server that’s responding to your DNS lookups.</p>
+<p class="normal">Next, let’s take a look at the process of setting up an internet gateway, which is an option to consider if you don’t already have a router or firewall on your network that acts as a device between your internet connection and your internal network.</p>
+<h1 class="heading-1" id="_idParaDest-166">Setting up an internet gateway</h1>
+<p class="normal">As long as we’re setting up network services, we may as well go all the way and set up a router to act as a <strong class="keyWord">gateway</strong> for our network. A gateway <a id="_idIndexMarker636"/>within a network is the device you go through to route from one network to another. In this context, the <strong class="keyWord">internet gateway</strong> will <a id="_idIndexMarker637"/>be the device that sits between your local network and the device that provides your internet connection (such as a cable modem). The gateway in a typical network is usually a commercial router or firewall, which often also provides DNS, DHCP, and routing services as well.</p>
+<p class="normal">If you already have such a device on your network providing these services, then there’s nothing for you to do. You can skip this section. But if you’d like to set up your own router, then feel free to proceed.</p>
+<p class="normal">If you’d like to proceed and set up a router, then the first order of business is to decide which device on your network will serve that purpose. Often, administrators will build DNS, DHCP, and routing services all into the same server, so you can even use the same device you’ve used earlier to work through the DNS and DHCP examples for our purposes in this section. In order for a device to function as a gateway, it should have at least two network interfaces, one to your ISP device (such as a cable modem) and another interface connected to a network switch that your other servers will connect to. The interface connected to your ISP device should use DHCP, so it will obtain an IP address directly from your ISP. This interface may need a static IP with details provided from the ISP, if relevant.</p>
+<p class="normal">Depending on <a id="_idIndexMarker638"/>what kind of internet connection you have, Linux itself can likely replace whatever device your internet modem connects to. A good example of this is a cable modem that your office or home router may utilize. In this case, the modem provides your internet connection, and then your router allows other devices on your network to access it. In some cases, your modem and router may even be the same device. Therefore, depending on the hardware you have, this method of setting up your networking may or may not be efficient. But if you do have the hardware available, you’ll be able to manage the entire networking stack with Ubuntu Server quite easily.</p>
+<p class="normal">Why might you want to create your own internet gateway? One potential reason is that it’s often the case that security patches aren’t provided for commercial routers and firewall devices. New vulnerabilities are discovered all the time, and if your router or firewall is no longer supported by the manufacturer, it may allow outside threats into your network. By setting up an internet gateway with Ubuntu, you’ll benefit from the regular updates that Canonical provides. As long as you’re using a version of Ubuntu that’s still supported (such as an LTS release, as is the case with Ubuntu 22.04), you’ll benefit from a more secure platform. If nothing else, a physical server that we can install Ubuntu on will usually have a more powerful CPU than a commercial device would have, which would mean that CPU bottlenecks slowing down network performance would be less likely to happen.</p>
+<p class="normal">Thankfully, setting up an internet gateway is easy. In fact, we’ll only need to execute a single command to set up routing between interfaces, which is technically all that’s required in order to set up an internet gateway. But before we get into that, it’s also important to keep in mind that if you do set up an internet gateway, you’ll need to pay special attention to security. The device that sits between your network and your modem will be a constant attack target, just like any other gateway device would be. When it comes to commercial routers, they’re also attacked constantly.</p>
+<p class="normal">However, in most cases, they’ll have some sort of default security or firewall built in. In all honesty, the security features built into common routing equipment are extremely poor and most of them are easy to hack when someone wants to badly enough. The point is that these devices have some sort of security to begin with (regardless of how good or bad), whereas a custom internet gateway of your own won’t have any security at all until you add it.</p>
+<p class="normal">When you set <a id="_idIndexMarker639"/>up an internet gateway, you’ll want to pay special attention to setting up the firewall, restricting access to SSH, using very strong passwords, keeping up to date on security patches, and installing an authentication monitor such as <code class="inlineCode">fail2ban</code>. We’ll get into those topics in <em class="chapterRef">Chapter 21</em>, <em class="italic">Securing Your Server</em>. The reason I bring this up now, though, is that if you do set up an internet gateway, you’ll probably want to take a detour and read that chapter right away, just to make sure that you secure it properly.</p>
+<p class="normal">Anyway, let’s move on. A proper internet gateway, as I’ve mentioned, will have two Ethernet ports. On the first, you’ll plug in your cable modem or internet device, and you’ll connect a switch to the second. By default though, routing between these interfaces will be disabled, so traffic won’t be able to move from one Ethernet port to the other. To rectify this, use the following command:</p>
+<pre class="programlisting con"><code class="hljs-con">echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward 
+</code></pre>
+<p class="normal">That’s actually it. With that single command, you’ve just made your server into a router. However, that change will not survive a reboot. To make it permanent, open the <code class="inlineCode">/etc/sysctl.conf</code> file in your editor:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo nano /etc/sysctl.conf 
+</code></pre>
+<p class="normal">Look for the following line:</p>
+<pre class="programlisting code"><code class="hljs-code">#net.ipv4.ip_forward=1 
+</code></pre>
+<p class="normal">Uncomment the line by removing the hash symbol in front of it, and save the file. With that change made, your server will allow routing between interfaces even after a reboot. Of all the topics we’ve covered in this chapter, that one was probably the simplest. However, I must remind you again to definitely secure your server if it’s your frontend device to the internet, as computer security students always enjoy practicing on a real-life Linux server. With good security practices, you’ll help ensure that they’ll leave you alone, or at least have a harder time breaking in.</p>
+<p class="normal">From here, all you should need to do is attach a network switch to your other network interface, and then you can attach your other wired Ethernet devices and wireless access point to the switch. Now, Ubuntu Server is managing your entire network!</p>
+<h1 class="heading-1" id="_idParaDest-167">Summary</h1>
+<p class="normal">In this chapter, we explored additional networking topics. We started off with some notes on planning an IP address scheme for your network so that you could create groups for the different types of nodes, such as servers and network equipment, and plan a pool of addresses for DHCP. We also worked through the process of setting up a DHCP and DNS server, which gives us additional flexibility when configuring the services we run on our network, such as when defining a custom IP scheme for DHCP, as well as giving us the ability to resolve the hostnames of devices on our network by name. We closed off this chapter with a discussion on setting up an internet gateway to serve as our internet-facing router.</p>
+<p class="normal">In the next chapter, we’ll take a look at sharing and transferring files over the network. This will include covering NFS and Samba shares, as well as using <code class="inlineCode">scp</code>, <code class="inlineCode">rsync</code>, and <code class="inlineCode">sshfs</code>. Stay tuned!</p>
+<h1 class="heading-1" id="_idParaDest-168">Further reading</h1>
+<ul>
+<li class="bulletList">8 Steps to Understanding IP Subnetting: <a href="https://learnlinux.link/8-ip-sub"><span class="url">https://learnlinux.link/8-ip-sub</span></a></li>
+<li class="bulletList">IP Subnet Calculator: <a href="https://learnlinux.link/s-calc"><span class="url">https://learnlinux.link/s-calc</span></a></li>
+</ul>
+<h1 class="heading-1">Join our community on Discord</h1>
+<p class="normal">Join our community’s Discord space for discussions with the author and other readers: </p>
+<p class="normal"><a href="https://packt.link/LWaZ0"><span class="url">https://packt.link/LWaZ0</span></a></p>
+<p class="normal"><img alt="" height="177" src="../Images/QR_Code50046724-1955875156.png" width="177"/></p>
+</div>
+</div></body></html>

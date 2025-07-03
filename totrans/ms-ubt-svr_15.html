@@ -1,0 +1,384 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div class="Basic-Text-Frame" id="_idContainer167">
+<h1 class="chapterNumber">15</h1>
+<h1 class="chapterTitle" id="_idParaDest-195">Automating Server Configuration with Ansible</h1>
+<p class="normal">Nowadays, it’s not uncommon to have hundreds of servers that make up your organization’s infrastructure. As our user base grows, we’re able to scale our environment to meet the demands of our customers. As we scale our resources and add additional servers, the amount of time we spend configuring them and setting them up increases considerably. The time spent setting up new servers can be a major burden—especially if we need to create hundreds of servers within a small window of time. As workload demands increase, we need to have a solution in place to manage our infrastructure and quickly deploy new resources with as small a workload as possible. In this chapter, we explore the concept of configuration management along with automated deployments. This sure sounds complicated, but it’s not—you’ll be surprised how easy it is to automate your configuration.</p>
+<p class="normal">In this chapter, we will cover:</p>
+<ul>
+<li class="bulletList">Understanding the need for configuration management</li>
+<li class="bulletList">Why Ansible?</li>
+<li class="bulletList">Creating a Git repository</li>
+<li class="bulletList">Getting started with Ansible</li>
+<li class="bulletList">Making your servers do your bidding</li>
+<li class="bulletList">Putting it all together – automating web server deployment</li>
+<li class="bulletList">Using Ansible’s pull method</li>
+</ul>
+<p class="normal">In the introduction, I’ve already given you some examples of why you might want to consider building automation into your workflow and implement an effective solution in your environment. In the next section, we’ll explore the need for automation in more detail before we actually get started.</p>
+<h1 class="heading-1" id="_idParaDest-196">Understanding the need for configuration management</h1>
+<p class="normal">When I first started <a id="_idIndexMarker810"/>working in the IT industry, it was a much different landscape than it is today. Servers were all physical, and any time you needed a new server, you literally needed to call a vendor and order one. </p>
+<p class="normal">You waited for a week or two for the server to be built and sent to you. When it arrived, you installed it in a rack, set up an operating system, and then installed whatever applications you needed. You then tested the server for a while to make sure the combination of software, hardware, and drivers was stable and reliable. After some time, you’d deploy the new server into production.</p>
+<p class="normal">Nowadays, it’s still the case that system administrators often need to purchase and install hardware, much like the process I mentioned in the previous paragraph. However, with virtual machines and containers, the physical hardware we install is commonly just a catalyst to host virtual resources. In the past, we had one physical server for each use case, which meant we needed to have very large server rooms. But in modern times, you may have a server with dozens of cores that are capable of running hundreds of virtual machines. But the problem of configuration remains—the process of setting up an operating system and applications is a very time-consuming endeavor.</p>
+<p class="normal">As the landscape changed, the need for automation increased. Servers needed to be deployed quickly and efficiently. With the large number of servers in a typical data center, it became less and less practical to connect to each of them and configure them one by one every time a change was necessary. For example, when a security vulnerability hit the news, the typical administrator would need to manually install a patch on every server. This could take days or even weeks. That’s not very efficient.</p>
+<p class="normal">To better deal with this issue, the concept of configuration management has become very popular. With configuration management, an administrator can write some sort of code (such as a script) and then use a utility to execute it across every server. Configuration management is also known <a id="_idIndexMarker811"/>as <strong class="keyWord">Infrastructure as Code</strong> (<strong class="keyWord">IaC</strong>) and basically lets the administrator define a set of guidelines for servers of various types and have them automatically be provisioned to meet those requirements. This automation saves a ton of work.</p>
+<p class="normal">Configuration management also comes into play while provisioning a new server. Imagine defining some rules for a specific type of server, and having it come to life meeting those exact specifications. The applications you want it to have are installed during the provisioning process, configuration files are copied over, users are created, and firewall rules are put in place, all automatically as defined in your specification. Put even more simply, imagine setting up something like a web server with just a single command. No need to install Apache or do any of that manual work. You simply request a server, and the configuration management solution you have in place will take care of the rest.</p>
+<p class="normal">IaC, which is basically a fancy term for configuration management, is essentially just the automated running of scripts on your servers. In this book, we’ve looked at automation already. In <em class="chapterRef">Chapter 6</em>, <em class="italic">Boosting Your Command-line Efficiency</em>, we wrote a simple script that we could use to back up a server. That same mentality can be used for provisioning servers as well, by simply having a server run a script when it comes online. For existing servers, you can make a change once and apply that change to every server you manage, or even just a subset.</p>
+<p class="normal">This is where configuration management utilities, such as Chef, Puppet, and others, come into play. Each of these solutions features a specific type of scripting language that is designed from the ground up to facilitate the provisioning of resources. With such utilities, there is typically some sort of program (or locally installed agent) that interprets the instructions from a central server and runs them on its clients. Each solution is relatively smart; it will determine what needs to be done and perform the steps. </p>
+<p class="normal">If a requirement is met, the<a id="_idIndexMarker812"/> instruction is skipped. If a required resource is not present, it will be configured appropriately. One such configuration management solution is Ansible, which we will use in this chapter.</p>
+<h1 class="heading-1" id="_idParaDest-197">Why Ansible?</h1>
+<p class="normal">In this chapter, I will <a id="_idIndexMarker813"/>show you how to set up Ansible, and then we will use it to automate some configuration tasks. By the end of this chapter, you’ll understand the basic concepts you can use to start the process of automating deployments in your organization. You may be wondering, then, why Ansible and not one of the other solutions, such as Chef or Puppet?</p>
+<p class="normal">Some configuration management solutions are relatively heavy from a resource perspective. With other solutions, you’ll generally have a central server, which will run a master program. This program will periodically <em class="italic">check in</em> with each server under its control by communicating with the agent installed on each server. Then, the agent will receive instructions from the central server and carry them out.</p>
+<p class="normal">This means that you’ll need to maintain a server with modest CPU and RAM requirements, and the agent on the client side of the communication will also spend valuable CPU in order to carry out the instructions. This resource utilization can be very heavy on both the primary and client servers.</p>
+<p class="normal">Ansible is very different than the other solutions in that there is no agent at all. There is typically a server, but it’s not required to run any resource-intensive software. The entire configuration process happens via SSH, so you can even carry out the instructions from your workstation if you want to skip having to maintain a central server. Typically, the administrator will create a user account on each server, and then the central Ansible server (or workstation) will execute commands over SSH to update the configuration on each machine. Since there is no agent installed on each server, the process takes a lot less CPU. Of course, the instructions that Ansible gives your servers will definitely result in CPU usage, but certainly a lot less than the other solutions.</p>
+<p class="normal">Ansible is typically set up <a id="_idIndexMarker814"/>by creating <a id="_idIndexMarker815"/>an <strong class="keyWord">inventory file</strong>, which contains a list of resources (servers) (in the form of hostnames or IP addresses that Ansible will be instructed to connect to and configure). If you want to add a new server, you simply make sure that a specific user account exists on that server, then you add it to the inventory list. If you want to remove it, you delete the line in the inventory file corresponding to that server. It’s very easy.</p>
+<p class="normal">However, something that’s magical about Ansible is that you don’t even have to run a central server at all if you don’t want to. You can store your Ansible configuration in a Git repository, and have each server download code from the repository and run it locally. This means that if you do have a dynamic environment where servers come and go all the time (which is very common in cloud deployments), you don’t have to worry about maintaining an inventory file. Just instruct each server to download the code and provision themselves. This is known<a id="_idIndexMarker816"/> as the <strong class="keyWord">pull method</strong> of Ansible, which I will also show you.</p>
+<p class="normal">While solutions such as Chef and Puppet have their merits and are definitely fun to use, I think you’ll find that Ansible scales better and gives you far more control over how these hosts are configured. While it’s up to you to figure out exactly how you want to implement Ansible, the creative freedom it gives you is second to none. I’ve been using Ansible for quite a while now, and I’m still finding new ways to use it. It’s a technology that will grow with you.</p>
+<h1 class="heading-1" id="_idParaDest-198">Creating a Git repository</h1>
+<p class="normal">For the examples in<a id="_idIndexMarker817"/> this chapter, it’s recommended that you create a Git repository to store your Ansible code. This isn’t required, as you can find other ways of hosting your code, but it’s highly recommended. This is especially true when we get to the pull method of Ansible at the end of this chapter. In this section, I’ll walk you through creating a repository. If you already know how to use GitHub, you can skip this section.</p>
+<p class="normal">While a full walkthrough of Git is beyond the scope of this book, the basics are more than enough for following along here. When it comes to Git, you can simply install the <code class="inlineCode">git</code> package on a server to have it host your code, but GitHub is probably the easiest way to get started. An added bonus is that GitHub is home to a lot of great projects you can benefit from, and browsing the code of these projects is a great way to become more accustomed to syntax rules with different scripting and programming languages. For our purposes, we’re going to use GitHub as a central place to store our Ansible code.</p>
+<p class="normal">It probably goes without saying, but GitHub is a public resource. Any code you upload to the service will be available for all to see by default. Therefore, be mindful of the information you commit to your repository. Make sure you don’t include any personally identifiable information, passwords, blueprints, API keys, or anything else you don’t want the public to know about you or your organization. You can create a private repository to hide confidential information, but it’s still safer to not upload protected information at all (whether the repository is private or not).</p>
+<p class="normal">To get started, create an account at <a href="https://www.github.com"><span class="url">https://www.github.com</span></a> if you don’t already have one. This is a free process. Make sure you create a reasonably secure password here. After you have created an account, click on <strong class="screenText">New repository</strong>, and then give it a name (simply calling it <code class="inlineCode">ansible</code> is fine):</p>
+<figure class="mediaobject"><img alt="" height="852" src="../Images/B18425_15_01.png" width="736"/></figure>
+<p class="packt_figref">Figure 15.1: Creating an Ansible repository on GitHub</p>
+<p class="normal">In the example<a id="_idIndexMarker818"/> screenshot, I created a repository that is <strong class="screenText">Public</strong>, which means exactly that—anyone will be able to view the code. You can create <strong class="screenText">Private</strong> repositories as well, if you prefer. Since we’re not going to include confidential information in the repository during the examples in this book, we don’t need to worry about that right now.</p>
+<p class="normal">Once the repository is created using <strong class="screenText">Create repository</strong>, we’ll need to download it locally. For that, we’ll need to install the <code class="inlineCode">git</code> package:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo apt install git
+</code></pre>
+<p class="normal">Next, we should set up our local Git client so that we can fill out our name and email address, otherwise Git will most likely complain. To do this, we can issue the following commands, substituting the content in the quotes with your information:</p>
+<pre class="programlisting con"><code class="hljs-con">git config user.email "you@example.com"
+git config user.name "John Doe"
+</code></pre>
+<p class="normal">To download our repository, the following will do the trick (ignore the warning about the repository being empty if you see such a message):</p>
+<pre class="programlisting con"><code class="hljs-con">git clone https://github.com/myusername/ansible.git
+</code></pre>
+<p class="normal">Now you have the Git repository downloaded locally. Right now, the repository doesn’t include anything useful. To create a file within the repository, you simply change your working directory to be inside the repository folder that was downloaded when you cloned it, and create whatever files you want inside. By default, Git doesn’t care about any files you create inside the repository until you add them. For example, we can create a test file and<a id="_idIndexMarker819"/> commit it to the repository with the following commands:</p>
+<pre class="programlisting con"><code class="hljs-con">echo "this is a test" &gt; testfile.txt
+git add testfile.txt
+git commit -m "initial commit"
+</code></pre>
+<p class="normal">With these commands, we used <code class="inlineCode">echo</code> to create a test file with some text in it. Then, we used the <code class="inlineCode">git add</code> command to tell Git that we want the file to be a part of our repository. Finally, we finalized our changes by using <code class="inlineCode">git commit</code>, along with the <code class="inlineCode">-m</code> flag and a message about the commit. At this point, the changes only exist locally. To push our changes back to GitHub, we use the following command from inside the repository directory:</p>
+<pre class="programlisting con"><code class="hljs-con">git push origin main
+</code></pre>
+<p class="normal">By following the on-screen prompts (GitHub username and password), our changes will be placed inside our actual repository.</p>
+<p class="normal">So, how does this help us when it comes to configuration management? Typically, the code that administrators use to provision servers will be placed inside a repository for safekeeping. If the local copy of the code is lost, it can simply be cloned again from the repository. GitHub is a safe place to put our code, since we can be reasonably sure that our code won’t disappear as the service is very stable (you still may want to create a local backup to be safe). Whether you’re using Ansible, Chef, Puppet, or another utility, it’s common practice to keep the code in a Git repository. With regard to Ansible, this will directly impact us in the last section of this chapter since we’ll be using the <code class="inlineCode">ansible-pull</code> command, which expects a repository URL.</p>
+<p class="normal">In practice, when we create Ansible playbooks, you should commit those changes back to the repository. I won’t specifically call on you to do that, so go ahead and keep that in mind as we go. When you create a new playbook, add it to the repository, then commit it. If you make changes to existing files, commit those changes. Be sure to use the <code class="inlineCode">git push</code> command to push your changes back to the repository. For example, if you created a file inside the repository named <code class="inlineCode">myplaybook.yml</code>, you would execute commands such as these:</p>
+<pre class="programlisting con"><code class="hljs-con">git add myplaybook.yml
+git commit -m "insert message about the commit here"
+git push origin main
+</code></pre>
+<p class="normal">Go ahead and <a id="_idIndexMarker820"/>practice this a bit before you move on. Even if you don’t use Ansible in production, understanding the basics of Git is invaluable, as you’ll almost definitely need it at some point in your career.</p>
+<h1 class="heading-1" id="_idParaDest-199">Getting started with Ansible</h1>
+<p class="normal">The first thing to<a id="_idIndexMarker821"/> know about Ansible is that it changes constantly. New versions with exciting features are released regularly, and it shows no sign of slowing down whatsoever. There is a lot of excitement around this technology, so it’s regularly improving.</p>
+<p class="normal">The reason I’m bringing this up is that although the examples in this book have been written for (and tested on) Ubuntu 22.04, new versions of Ansible are released regularly outside of Ubuntu’s repositories, and not only include new features but syntax changes as well. For our needs in this book, the version of Ansible included in the repositories should be more than fine. However, if you were to look at examples of Ansible playbooks online, they might be written for a newer version (or even an older version). If for any reason you have an issue with a particular example written for Ansible, a good first step in terms of troubleshooting is to compare the version of Ansible the tutorial was written for against the version installed. When it comes to Ubuntu 22.04, the version of Ansible that’s made available is 2.10.x. You can install a newer version of Ansible from the official website, but for the purposes of this book, we’ll use the version that’s in the default repositories.</p>
+<p class="normal">Go ahead and install <code class="inlineCode">ansible</code> via <code class="inlineCode">apt</code>:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo apt install ansible
+</code></pre>
+<p class="normal">Now you should have the <code class="inlineCode">ansible-playbook</code> command available, which is the main binary that we’ll be using as we explore Ansible. There are other commands that Ansible provides us, but we’re not concerned with them.</p>
+<p class="normal">In order to follow along with the remainder of this chapter, it’s recommended that you have at least two servers to work with; the more the better. If you have a <strong class="keyWord">Virtual Machine</strong> (<strong class="keyWord">VM</strong>) solution<a id="_idIndexMarker822"/> such as VirtualBox available, simply create additional VMs. To save time, consider cloning an existing VM a few times (just make sure you don’t overload your computer/server by over-allocating resources).</p>
+<p class="normal">The most common workflow of Ansible works something like this: you have a main server or workstation, on which Ansible is installed. While you don’t need an agent on the clients, they<a id="_idIndexMarker823"/> will, however, need OpenSSH installed and configured as that’s how Ansible communicates. To make things easy, it’s recommended to have a dedicated Ansible user on each machine, and the Ansible user on the server should be able to connect to each machine without a password. It doesn’t matter what you call the Ansible user; you can simply use <code class="inlineCode">ansible</code> or something clever. We covered how to create SSH keys in <em class="chapterRef">Chapter 10</em>, <em class="italic">Connecting to Networks</em>, so refer to that if you need a reminder. Creating users was covered in <em class="chapterRef">Chapter 2</em>, <em class="italic">Managing Users and Permissions</em>. In a nutshell, here are the things you should work on in order to set up your environment for Ansible:</p>
+<ol class="numberedList" style="list-style-type: decimal;">
+<li class="numberedList" value="1">Install Ansible on a central server or workstation</li>
+<li class="numberedList">Create a user for Ansible on each machine you want to manage configuration on</li>
+<li class="numberedList">Create the same user on your central server or your local machine</li>
+<li class="numberedList">Set up the Ansible user on the server so that it can connect to clients via SSH without a password</li>
+<li class="numberedList">Configure <code class="inlineCode">sudo</code> on the client machines so that the Ansible user can execute commands with <code class="inlineCode">sudo</code> with no password</li>
+</ol>
+<p class="normal">In previous chapters, we covered how to create users and SSH keys, but we have yet to cover the last point. Assuming you named your Ansible user <code class="inlineCode">ansible</code>, create the following file:</p>
+<pre class="programlisting code"><code class="hljs-code">/etc/sudoers.d/ansible
+</code></pre>
+<p class="normal">Inside that file, place the following text:</p>
+<pre class="programlisting code"><code class="hljs-code">ansible ALL=(ALL) NOPASSWD: ALL
+</code></pre>
+<p class="normal">Next, we need to ensure that the file is owned by <code class="inlineCode">root</code>:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo chown root:root /etc/sudoers.d/ansible
+</code></pre>
+<p class="normal">Finally, we need to adjust the permissions of the file:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo chmod 440 /etc/sudoers.d/ansible
+</code></pre>
+<p class="normal">Go ahead and test this out. On the server, switch to the <code class="inlineCode">ansible</code> user:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo su - ansible
+</code></pre>
+<p class="normal">Then, to test <a id="_idIndexMarker824"/>this out, use SSH to execute a command on a remote machine:</p>
+<pre class="programlisting con"><code class="hljs-con">ssh 192.168.1.123 sudo ls /etc
+</code></pre>
+<p class="normal">How does this work? You may or may not know this, but if you use SSH to execute just one command, you don’t necessarily need to set up a persistent connection. In this example, we first switch to the <code class="inlineCode">ansible</code> user. Then, we connect to <code class="inlineCode">192.168.1.123</code> (or whatever the IP address of the client is) and tell it to execute <code class="inlineCode">sudo ls /etc</code>. Executing an <code class="inlineCode">ls</code> command with <code class="inlineCode">sudo</code> may seem like a silly thing to do, but it’s great—it allows you to test whether or not <code class="inlineCode">sudo</code> works without doing anything potentially dangerous. Listing the contents of a directory is about as innocent as you can get.</p>
+<p class="normal">It may seem like an awful lot of steps in order to get configuration management working. But make sure you think with a system administrator’s mindset—these setup tips can be automated. In my case, I have a Bash script that I run on each of my servers that sets up the required user, keys, and <code class="inlineCode">sudo</code> access specifically for Ansible. Anytime I want to add a new server to Ansible, I simply run that script on the machine just once, and from that point forward Ansible will take care of the rest.</p>
+<p class="normal">What should have happened is that the command should have executed and printed the contents of <code class="inlineCode">/etc</code> without prompting you for a password. If this doesn’t work, make sure you have completed each of the recommended steps. You should have an <code class="inlineCode">ansible</code> user on each machine, and that user should have access to <code class="inlineCode">sudo</code> without a password since we created a file for <a id="_idIndexMarker825"/>that user in <code class="inlineCode">/etc/sudoers.d</code>. If the SSH portion fails, check the log file at <code class="inlineCode">/var/log/auth.log</code> for clues, as that is where related errors will be saved. Once you have met these requirements, we can get automating with Ansible!</p>
+<h1 class="heading-1" id="_idParaDest-200">Making your servers do your bidding</h1>
+<p class="normal">As server administrators, we’re control freaks. There are few things more exciting than executing a command and having every single server obey it and carry it out. Now that we have Ansible set up, that’s exactly what we’re going to do. I’m assuming by now you have some machines you want to configure, and they’re all set up to communicate via SSH with your central server. Also, as I mentioned before, I highly recommend you utilize something like Git to store your configuration files, but that’s not required for this section.</p>
+<h2 class="heading-2" id="_idParaDest-201">Setting up an inventory file and configuring Ansible settings</h2>
+<p class="normal">First, we’ll need<a id="_idIndexMarker826"/> an<a id="_idIndexMarker827"/> inventory file, which is a special text file Ansible expects to find that tells it where to find servers to connect to. In previous versions, the process of installing the <code class="inlineCode">ansible</code> package would provide you with some default configuration, located in <code class="inlineCode">/etc/ansible</code>. In Ubuntu 22.04, at least with the version of Ansible that’s offered in the default repositories, this is no longer the case. For our purposes, that’s fine, though – we were going to create an empty configuration anyway.</p>
+<p class="normal">First, let’s create the directory that we’ll be using for the configuration on our “controller” server (the one we’ll be using to control, or “configure,” other nodes):</p>
+<pre class="programlisting con"><code class="hljs-con">sudo mkdir /etc/ansible
+</code></pre>
+<p class="normal">After that, we can create an empty inventory file:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo touch /etc/ansible/hosts
+</code></pre>
+<p class="normal">There’s actually a way to avoid needing to create an inventory file, which we’ll get into later in this chapter.</p>
+<p class="normal">We should also make sure that only the Ansible user account can read it. Execute the following command to change ownership (replace <code class="inlineCode">ansible</code> with whatever user account you chose as your Ansible account if you’re using something different):</p>
+<pre class="programlisting con"><code class="hljs-con">sudo chown ansible /etc/ansible/hosts
+</code></pre>
+<p class="normal">Next, modify the permissions such that only the owner can view or change the file:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo chmod 600 /etc/ansible/hosts
+</code></pre>
+<p class="normal">Next, let’s edit the <code class="inlineCode">/etc/ansible/hosts</code> file and populate it. If you did end up having a default <code class="inlineCode">hosts</code> file created for you when you installed Ansible, you can simply empty the file since we’ll be creating our own anyway. What we’ll do with this file is populate it with the IP addresses of the servers we wish to manage. Feel free to make a backup of the original host file, if it already exists. For right now, we’re only including the IP addresses of the <a id="_idIndexMarker828"/>nodes<a id="_idIndexMarker829"/> we want to control with Ansible, so the file will end up looking similar to the following:</p>
+<pre class="programlisting code"><code class="hljs-code">192.168.1.145
+192.168.1.125
+192.168.1.166
+</code></pre>
+<p class="normal">That’s it; it’s simply just a list of IP addresses. I bet you were expecting some long configuration with all kinds of syntax requirements? Sorry to disappoint. All you need to do is copy a list of IP addresses of the servers you want to manage into this file. If you have DNS names set up for the machines you want to configure, you can use them instead:</p>
+<pre class="programlisting code"><code class="hljs-code">myhost1.mydomain.com
+myhost2.mydomain.com
+myhost3.mydomain.com
+</code></pre>
+<p class="normal">Since Ansible understands IP addresses as well as DNS names, we can use either or a combination of both in order to set up our inventory file. We can also split up our hosts within the inventory file between different roles, but that is outside the scope of this book. I do recommend learning about roles in Ansible if you wish to take your knowledge further (see the <em class="italic">Relevant videos</em> section for more information).</p>
+<p class="normal">If you decide not to store your inventory file at <code class="inlineCode">/etc/ansible/hosts</code>, you must tell Ansible where to find it. There is another important file to Ansible, and that is its configuration file, located at <code class="inlineCode">/etc/ansible/ansible.cfg</code>. Inside this file, we can fine-tune Ansible to get the best performance possible. While we won’t go over this file in detail, just know that you can seriously increase the performance of Ansible by fine-tuning its settings, and Ansible will read settings from its configuration file every time it runs. In our case, if we wish to store our inventory file somewhere other than <code class="inlineCode">/etc/ansible/hosts</code>, we will need to add the following two lines to this file (most likely, you’ll need to create this file since it probably doesn’t already exist at this point):</p>
+<pre class="programlisting code"><code class="hljs-code">[defaults]
+inventory = /path/to/hosts
+remote_user = jay
+</code></pre>
+<p class="normal">With the first setting, we’re basically telling Ansible where to find its inventory file. There are many more configuration items we can place in the <code class="inlineCode">ansible.cfg</code> file to configure it further, but that’s all we need to configure right now. With the second line, we’re setting a<a id="_idIndexMarker830"/> default <a id="_idIndexMarker831"/>user to use for Ansible playbooks, which must exist on any servers you wish to manage with it.</p>
+<p class="normal">Similar to the inventory file, Ansible also checks the local directory for a file named <code class="inlineCode">ansible.cfg</code> to fetch its configuration, so you could actually include the configuration file in the Git repository as well, and then execute Ansible commands from within the repository directory. This works because Ansible will check for the existence of a configuration file in your current working directory, and use it if it’s found there. You may want to be careful about including your configuration file in your Git directory, though. While it’s not as private as the inventory file, it can potentially contain privileged information. Therefore, you may want to keep the file at <code class="inlineCode">/etc/ansible/ansible.cfg</code> and manage it outside of the Git repository if you include anything private in the file (for example, encryption keys).</p>
+<p class="normal">Now we can test out whether or not Ansible is working at this point. Thankfully, this is also easy. Just simply execute the following command:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible all -m ping
+</code></pre>
+<p class="normal">The results should look similar to this:</p>
+<figure class="mediaobject"><img alt="" height="305" src="../Images/B18425_15_02.png" width="800"/></figure>
+<p class="packt_figref">Figure 15.2: Testing Ansible</p>
+<p class="normal">Depending on how many servers you have set up, you should see that output one or more times. You may think that all that command has done is a simple ping test, but <code class="inlineCode">ping</code> means something different to Ansible than usual. It’s actually attempting to make a connection to the server, to test its availability. If it fails, double-check that the hosts are available over SSH. Success<a id="_idIndexMarker832"/> here simply means that Ansible is able to <a id="_idIndexMarker833"/>communicate with your hosts via SSH. Now that the communication exists, we can build some actual configuration.</p>
+<h2 class="heading-2" id="_idParaDest-202">Configuring client servers</h2>
+<p class="normal">Ansible uses<a id="_idIndexMarker834"/> something<a id="_idIndexMarker835"/> called a <strong class="keyWord">playbook</strong> in order to store configuration. A playbook is essentially a file in the YAML format with instructions that Ansible understands, that are interpreted as a set of tasks run against hosts A full guide on YAML isn’t something we’ll be covering here – you don’t have to master this format or even fully understand it to use it with Ansible. That will automatically come in time. The takeaway here is that YAML is simply the format that Ansible uses, and it’s a file format that’s not specific to Ansible itself. A playbook is basically just a collection of instructions written in YAML format, and each individual instruction is known as a play. </p>
+<p class="normal">You can think of this with the analogy of a sport, like football. Although I don’t know the first thing about football, I do know that football coaches have playbooks containing things that they want their players to do, and each action by a player is a play. It’s the same concept here.</p>
+<p class="normal">Let’s write our first playbook. Create a file called <code class="inlineCode">packages.yml</code> in your local Ansible directory. You can fill it with this content (make sure you include the hyphens):</p>
+<pre class="programlisting code"><code class="hljs-code">---
+- hosts: all
+  become: true
+  tasks:
+  - name: Install htop
+    ansible.builtin.apt:
+      name: htop
+</code></pre>
+<p class="normal">We can run this playbook with the following command:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible-playbook packages.yml
+</code></pre>
+<p class="normal">This will produce an output that looks something like the following:</p>
+<figure class="mediaobject"><img alt="" height="348" src="../Images/B18425_15_03.png" width="884"/></figure>
+<p class="packt_figref">Figure 15.3: Ansible in action</p>
+<p class="normal">Just like that, all of the <a id="_idIndexMarker836"/>hosts in your inventory file will have the <code class="inlineCode">htop</code> package installed. It really doesn’t matter which package you install, so long as it exists in the repositories; I just used <code class="inlineCode">htop</code> as a simple example. But once you run it, you should see an overview of what was changed. Ansible will tell you how many items your hosts updated, how many tasks have failed, and how many targets weren’t reachable at the time the playbook was run.</p>
+<p class="normal">Let’s take a closer look at what the instructions in this sample playbook do. The hyphens at the beginning are part of the YAML format, so we really don’t need to get into that. Spacing is very important with the YAML format, as you need to be consistent throughout. </p>
+<p class="normal">In my examples, I am inserting two spaces underneath each heading. A heading starts with a hyphen:</p>
+<pre class="programlisting code"><code class="hljs-code">- hosts: all
+</code></pre>
+<p class="normal">Here, we declare which hosts we want to have the commands apply to. I added <code class="inlineCode">all</code> here, which basically runs the configuration against every host in the inventory file. With advanced usage, you can actually create <code class="inlineCode">roles</code> in Ansible and divide your hosts between them, such as a web server, database server, and so on. Then, you can apply configuration only to hosts inside a particular role. We’re not going to get into that in this chapter, but just know that it is possible.</p>
+<p class="normal">The next line is <code class="inlineCode">become</code>:</p>
+<pre class="programlisting code"><code class="hljs-code">become: true
+</code></pre>
+<p class="normal">This line is basically Ansible’s term for describing <code class="inlineCode">sudo</code>. We’re telling Ansible to use <code class="inlineCode">sudo</code> to execute the commands, since installing packages requires <code class="inlineCode">root</code> privileges. The next part of the playbook is as follows:</p>
+<pre class="programlisting code"><code class="hljs-code">tasks:
+</code></pre>
+<p class="normal">This line starts the next section, which is where we place our individual tasks. Next, we name our new task (Ansible refers to a “task” as a “play”):</p>
+<pre class="programlisting code"><code class="hljs-code">- name: Install htop
+</code></pre>
+<p class="normal">With <code class="inlineCode">name</code>, we give the<a id="_idIndexMarker837"/> play a name. This isn’t required but you should always include it. The importance of this is that whatever we type here is what is going to show up in the logs if we enable logging, and will also print to the terminal as the play runs. We should be descriptive here, as it will certainly help if a play fails and we need to locate it in a log file that has hundreds of lines. Next, we utilize the <code class="inlineCode">apt</code> module and tell it to install a package, <code class="inlineCode">htop</code> in this case:</p>
+<pre class="programlisting code"><code class="hljs-code">ansible.builtin.apt:
+  name: htop
+</code></pre>
+<p class="normal">We use the <code class="inlineCode">ansible.builtin.apt</code> module simply because Ubuntu uses the <code class="inlineCode">apt</code> command to manage packages, but modules exist for all of the popular Linux distributions. Ansible’s support of package managers among various distributions is actually fairly extensive. All of the major distributions, such as Red Hat, Fedora, openSUSE, Arch Linux, and Debian, are supported (and those are just the ones I’ve used in my lab off the top of my head). If you want to execute a play against a server that’s running a distribution other than Ubuntu, simply adjust <code class="inlineCode">ansible.builtin.apt</code> to something else, such as <code class="inlineCode">ansible.builtin.dnf</code>.</p>
+<p class="normal">Since Ansible allows you to use additional resources from Galaxy, a site that’s specific to Ansible that gives you access to additional capabilities, we use <code class="inlineCode">ansible.builtin.apt</code> instead of simply <code class="inlineCode">apt</code> in order to clarify that we’re using a built-in module, not something we’re using from an external resource.</p>
+<p class="normal">This new naming scheme is new since the previous edition of this book was published. The older versions of the playbooks should still work just fine, but since the naming scheme has changed since then, we’ll use the new naming style going forward.</p>
+<p class="normal">You can, of course, add <a id="_idIndexMarker838"/>additional packages by simply adding more plays to the existing playbook:</p>
+<pre class="programlisting code"><code class="hljs-code">---
+- hosts: all
+  become: true
+  tasks:
+  - name: Install htop
+    ansible.builtin.apt:
+      name: htop
+  - name: Install git
+    ansible.builtin.apt:
+      name: git
+  - name: Install vim-nox
+    ansible.builtin.apt:
+      name: vim-nox
+</code></pre>
+<p class="normal">However, that’s not an extremely efficient method. I’ll show you how we can combine multiple similar plays in one play. Sure, you don’t have to, but I think you’ll agree that this method looks cleaner:</p>
+<pre class="programlisting code"><code class="hljs-code">---
+- hosts: all
+  become: true
+  tasks:
+  - name: Install packages
+    ansible.builtin.apt:
+      name:
+        - git 
+        - htop
+        - vim-nox
+</code></pre>
+<p class="normal">With the new format, we include just one play to install multiple packages. This is similar to the concept of a <em class="italic">for loop</em> if you have programming knowledge. For every package we list, it will run the <code class="inlineCode">ansible.builtin.apt</code> module against it. If we want to add additional packages, we just add a new one to the list. Simple.</p>
+<p class="normal">We can also copy files to our hosts. Consider the following example playbook, which I will call <code class="inlineCode">copy_files.yml</code>:</p>
+<pre class="programlisting code"><code class="hljs-code">---
+- hosts: all
+  become: true
+  tasks:
+  - name: copy SSH motd
+    ansible.builtin.copy:
+      src: motd
+      dest: /etc/motd
+</code></pre>
+<p class="normal">Then, you can run this <a id="_idIndexMarker839"/>playbook with the following command:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible-playbook copy_files.yml
+</code></pre>
+<p class="normal">Inside the same directory, create a file called <code class="inlineCode">motd</code> and place any text in it. It doesn’t really matter what you type into the file, but this file in particular acts as a message that is printed any time a user logs into a server. When you run the playbook, it will copy that file over to the server at the destination you configured. Since we created a message of the day (<code class="inlineCode">motd</code>), we should see the new message the next time we log in to the server.</p>
+<p class="normal">By now, you’re probably seeing just how useful Ansible can be. Sure, we only installed a few packages and copied one file. We could’ve performed those tasks easily ourselves without Ansible, but this is only a start. Ansible lets you automate everything, and we have to start somewhere. You can tell it to not only install packages and copy files, but you can also use it to start services, apply configuration file templates, and much more—it will surprise you. In fact, you can go as far as to automate the setup of a web server, a user’s workstation... you name it!</p>
+<h1 class="heading-1" id="_idParaDest-203">Putting it all together – automating web server deployment</h1>
+<p class="normal">Speaking of<a id="_idIndexMarker840"/> automating the setup of a web server, why don’t we go ahead and do exactly that? It’ll be another simple example, but it will serve you well if we demonstrate more of what Ansible can do. We will set up a playbook to perform the following tasks:</p>
+<ol class="numberedList" style="list-style-type: decimal;">
+<li class="numberedList" value="1">Install Apache</li>
+<li class="numberedList">Start the <code class="inlineCode">apache2</code> service</li>
+<li class="numberedList">Copy an HTML file for the new site</li>
+</ol>
+<p class="normal">First, let’s set up the playbook to simply install Apache. I called mine <code class="inlineCode">apache.yml</code>, but the name is arbitrary:</p>
+<pre class="programlisting code"><code class="hljs-code">---
+- hosts: all
+  become: true
+  tasks:
+  - name: Install Apache
+    ansible.builtin.apt:
+      name: apache2
+</code></pre>
+<p class="normal">No surprises here; we’ve already installed a package at this point. Let’s add an additional instruction to start the <code class="inlineCode">apache2</code> service:</p>
+<pre class="programlisting code"><code class="hljs-code">---
+- hosts: all
+  become: true
+  tasks:
+  - name: Install Apache
+    ansible.builtin.apt:
+      name: apache2
+  <span class="code-highlight"><strong class="hljs-slc">- name: Start the apache2 services</strong></span>
+    <span class="code-highlight"><strong class="hljs-slc">ansible.builtin.service:</strong></span>
+      <span class="code-highlight"><strong class="hljs-slc">name: apache2</strong></span>
+      <span class="code-highlight"><strong class="hljs-slc">state: started</strong></span>
+</code></pre>
+<p class="normal">So far, the syntax should be self-explanatory. Ansible has a <code class="inlineCode">service</code> module, which can be used to start a service on a host. In this case, we start the <code class="inlineCode">apache2</code> service (the service would’ve already been started when <code class="inlineCode">apache2</code> was installed, but at least this way we can make sure it’s started). You do have to know the service name ahead of time, but you don’t have to pay attention to what utility needs to be used in the background to start the service. Ansible already knows how to start services on all the popular distributions and takes care of the specifics for you in the background.</p>
+<p class="normal">Having a play that starts <code class="inlineCode">apache2</code> may seem a bit redundant since most packages you install on an Ubuntu server will automatically start the associated service as soon as it’s installed (and <code class="inlineCode">apache2</code> is no exception). But when we write automation code, it’s important to be clear and explicit about what the desired end result is supposed to be. Even though <code class="inlineCode">apache2</code> will automatically start once Ansible installs the package, we’re adding a <code class="inlineCode">service</code> play to clarify the fact that it needs to be running, so anyone looking at it will know what’s expected. Also, we can make sure <code class="inlineCode">apache2</code> is <code class="inlineCode">enabled</code> by adding one more line to that section of the code (note the bold line):</p>
+<pre class="programlisting code"><code class="hljs-code">- name: Start the apache2 services
+    ansible.builtin.service:
+    name: apache2
+    state: started
+    <span class="code-highlight"><strong class="hljs-slc">enabled: true</strong></span>
+</code></pre>
+<p class="normal">I’ll leave it up to you whether or not to include that extra line, but the takeaway is to be as clear and direct as<a id="_idIndexMarker841"/> you can when writing automation, so there’s no confusion about what the end result is supposed to be.</p>
+<p class="normal">Well, that was easy. Let’s create a simple web page for Apache to serve for us. It doesn’t need to be fancy, we just want to see that it works. Create the following content inside a file named <code class="inlineCode">index.xhtml</code> in the same working directory as the other Ansible files:</p>
+<pre class="programlisting code"><code class="hljs-code"><span class="hljs-tag">&lt;</span><span class="hljs-name">html</span><span class="hljs-tag">&gt;</span>
+<span class="hljs-tag">&lt;</span><span class="hljs-name">title</span><span class="hljs-tag">&gt;</span>Ansible is awesome!<span class="hljs-tag">&lt;/</span><span class="hljs-name">title</span><span class="hljs-tag">&gt;</span>
+<span class="hljs-tag">&lt;</span><span class="hljs-name">body</span><span class="hljs-tag">&gt;</span>
+    <span class="hljs-tag">&lt;</span><span class="hljs-name">p</span><span class="hljs-tag">&gt;</span>Ansible is amazing. With just a small text file, we automated the setup of a web server!<span class="hljs-tag">&lt;/</span><span class="hljs-name">p</span><span class="hljs-tag">&gt;</span>
+<span class="hljs-tag">&lt;/</span><span class="hljs-name">body</span><span class="hljs-tag">&gt;</span>
+<span class="hljs-tag">&lt;/</span><span class="hljs-name">html</span><span class="hljs-tag">&gt;</span>
+</code></pre>
+<p class="normal">As you can see, that HTML file is fairly lame, but it will work just fine for what we need. Next, let’s add another instruction to our Apache playbook:</p>
+<pre class="programlisting code"><code class="hljs-code">---
+- hosts: all
+  become: true
+  tasks:
+  - name: Install Apache
+    ansible.builtin.apt:
+     name: apache2
+  - name: Start the apache2 services
+    ansible.builtin.service:
+      name: apache2
+      state: started
+      
+  <span class="code-highlight"><strong class="hljs-slc">- name: Copy index.xhtml</strong></span>
+    <span class="code-highlight"><strong class="hljs-slc">ansible.builtin.copy:</strong></span>
+      <span class="code-highlight"><strong class="hljs-slc">src: index.xhtml</strong></span>
+      <span class="code-highlight"><strong class="hljs-slc">dest: /var/www/html/index.xhtml</strong></span>
+</code></pre>
+<p class="normal">With the <code class="inlineCode">copy</code> module, we can copy a file from our local Ansible directory to the server. All we need to do is provide it with a source (<code class="inlineCode">src</code>) and destination (<code class="inlineCode">dest</code>).</p>
+<p class="normal">Let’s go ahead and run the new playbook:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible-playbook apache.yml
+</code></pre>
+<p class="normal">This will produce<a id="_idIndexMarker842"/> an output like the following:</p>
+<figure class="mediaobject"><img alt="" height="306" src="../Images/B18425_15_04.png" width="884"/></figure>
+<p class="packt_figref">Figure 15.4: Installing Apache and copying a default site file with Ansible</p>
+<p class="normal">Within a few minutes, you should have at least one web server configured by Ansible. In a real production environment, you would’ve only run this on servers within a specific role, but roles are beyond the scope of this chapter. But from the simple playbook we created, you should be able to see the power of this amazing piece of software:</p>
+<figure class="mediaobject"><img alt="" height="265" src="../Images/B18425_15_05.png" width="704"/></figure>
+<p class="packt_figref">Figure 15.5: An example of a web page provisioned by Ansible</p>
+<p class="normal">At this point in our exploration into configuration management with Ansible, we’ve installed packages, started services, and copied files. Admittedly, this isn’t much, but it’s really all you need in order to practice the basics. The documentation for Ansible includes guides on how to do all sorts of things, and you’ll be able to utilize the various modules it provides to perform many different tasks.</p>
+<p class="normal">To explore Ansible<a id="_idIndexMarker843"/> further, I recommend that you think about things you do on a regular basis that you would benefit from automating. Things like installing security updates, creating user accounts, setting passwords, and enabling services to automatically start at boot time are tasks that are easy to get started with.</p>
+<p class="normal">In addition, you may want to consider adding a <a id="_idIndexMarker844"/>simple <strong class="keyWord">cron job</strong> to run under your <code class="inlineCode">ansible</code> user, to run the playbook every hour or so. We covered cron jobs in <em class="chapterRef">Chapter 7</em>, <em class="italic">Controlling and Managing Processes</em>. Adding a cron job shouldn’t add any overhead from a resource perspective, since Ansible won’t actually be doing much unless you add a new command. In more advanced usage, you’ll want to have Ansible check out code from a repository and then apply the configuration if it has changed. This way, all you have to do is commit to a Git repository and all of your servers will download the configuration and run it at the next scheduled time. One of the things I love most about Ansible is that it’s easy to get started, but you’ll continue to find new ways to use it and <a id="_idIndexMarker845"/>benefit from it.</p>
+<h1 class="heading-1" id="_idParaDest-204">Using Ansible’s pull method</h1>
+<p class="normal">The way we set up <a id="_idIndexMarker846"/>our Ansible configuration in the previous section works very well if we have a list of specific servers that we want it to manage. To add a new server, we create the user account and set up the SSH configuration on the new host, and then add it to the inventory file. If we decommission that server, we simply remove it from the inventory file. This works well in a static environment, where servers you deploy typically stay around for a while. In a dynamic environment, though, this may not work as well.</p>
+<p class="normal">Dynamic environments are very typical in the cloud. With cloud computing, you typically have one or more virtual servers that provide a service to your company or users. These servers may come and go at any time. With dynamic environments, servers will come online as needed to handle load and will also get decommissioned automatically as load decreases. Therefore, you never really know when a server is going to come online, and having to manually provision a server in such an environment is inefficient.</p>
+<p class="normal">For this reason, Ansible’s inventory file may not be a good fit for dynamic infrastructure. There certainly are ways to make Ansible’s inventory work in such an environment, as you can actually replace the inventory file with an executable script that can make API calls and customize itself for your infrastructure if you so desire. However, that’s out of the scope of this book, and there’s an easier method anyway.</p>
+<p class="normal">As we’ve seen, Ansible uses an inventory file and connects to every server listed in that file. However, Ansible also features a <strong class="screenText">pull mode</strong>, where instead of having a central server that connects to other machines, each server in pull mode will actually run Ansible against itself. In my opinion, this is a great way to use Ansible and it doesn’t seem to get the attention it deserves. First, I’ll explain the theory of how it works, and then we can work through an actual example.</p>
+<p class="normal">With pull mode, you’ll want to have your Ansible playbooks inside a Git repository. This repository must be accessible from the servers you will manage. For example, if you store the Git repository on GitHub, you’ll want to make sure the servers can access GitHub externally. If you host your own Git server internally, you’ll want to make sure your servers are able to access it through your firewall or any security rules you may have in place.</p>
+<p class="normal">Pull mode is used with the <code class="inlineCode">ansible-pull</code> command, which comes bundled with Ansible. The syntax looks like the following:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible-pull -U https://github.com/myusername/ansible.git
+</code></pre>
+<p class="normal">Of course, you’d replace the URL with the actual HTTP or HTTPS URL to your Git repository. However, that’s basically it. The <code class="inlineCode">ansible-pull</code> command simply expects the <code class="inlineCode">-U</code> option (short for URL) along with the URL to a Git repository.</p>
+<p class="normal">In order for this to work, you’ll need a playbook inside the repository with a special name, <code class="inlineCode">local.yml</code>. If you don’t declare a specific playbook with Ansible, it will expect to find a playbook with that name inside the root of the repository. If you choose to use a name for the main playbook that’s something other than <code class="inlineCode">local.yml</code>, you’ll need to specify it:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible-pull -U https://github.com/myusername/ansible.git myplaybook.yml
+</code></pre>
+<p class="normal">In this example, the <code class="inlineCode">ansible-pull</code> command will cache the Git repository located at the specified URL locally, and run the playbook <code class="inlineCode">myplaybook.yml</code> that you would have inside the repository. One <a id="_idIndexMarker847"/>thing you may find is that Ansible might complain about not finding an inventory file, even though that’s the entire point of the <code class="inlineCode">ansible-pull</code> command. You can ignore this error. This will likely be fixed in Ansible at some point in the future, but as of the time of this writing, it will print a warning if it doesn’t detect an inventory file.</p>
+<p class="normal">With the theory out of the way, let’s work through an actual example. If you’ve been following along so far, we created a playbook in the previous section that automates the deployment of a hypothetical web server. We can reuse that code. However, it’s best practice to have a file with the name <code class="inlineCode">local.yml</code>, so you can simply rename the <code class="inlineCode">apache.yml</code> playbook we created earlier to <code class="inlineCode">local.yml</code>. There’s one small change we need to make to the file, which I’ve highlighted here:</p>
+<pre class="programlisting code"><code class="hljs-code">---
+<span class="code-highlight"><strong class="hljs-slc">- hosts: localhost</strong></span>
+  become: true
+  tasks:
+  - name: Install Apache
+    ansible.builtin.apt: name=apache2
+  - name: Start the apache2 services
+    ansible.builtin.service:
+      name: apache2
+      state: started
+  - name: Copy index.xhtml
+    ansible.builtin.copy:
+      src: index.xhtml
+      dest: /var/www/html/index.xhtml
+</code></pre>
+<p class="normal">Since we’re executing the playbook locally (without SSH) we changed the <code class="inlineCode">hosts</code>: line to point to <code class="inlineCode">localhost</code>, to instruct Ansible that we want to execute the commands locally rather than remotely. Now, we can push this playbook to our Git repository and execute it directly from the repository URL.</p>
+<p class="normal">Pay careful attention to the <code class="inlineCode">hosts:</code> line of any playbook you intend to run. If you are using the pull method, this line will need to be changed from <code class="inlineCode">hosts: all</code> to <code class="inlineCode">hosts: localhost</code>, the reason being, we are executing the playbooks directly on localhost, rather than from a remote SSH connection. If you don’t make this change, you’ll see an error similar to the following:</p>
+<pre class="programlisting code"><code class="hljs-code">ERROR! Specified hosts and/or --limit does not match any hosts
+</code></pre>
+<p class="normal">Before you run the playbook, you’ll want to first switch to your Ansible user, since the playbook will need to be <a id="_idIndexMarker848"/>run as a user with <code class="inlineCode">sudo</code> privileges since it will execute system-level commands:</p>
+<pre class="programlisting con"><code class="hljs-con">sudo su - ansible
+</code></pre>
+<p class="normal">Then, execute the playbook:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible-pull -U https://github.com/myusername/ansible.git
+</code></pre>
+<p class="normal">If we kept the name as <code class="inlineCode">apache.yml</code>, we would just specify that:</p>
+<pre class="programlisting con"><code class="hljs-con">ansible-pull -U https://github.com/myusername/ansible.git apache.yml
+</code></pre>
+<p class="normal">Keep in mind that since <code class="inlineCode">ansible-pull</code> executes playbooks directly on localhost, the playbook must be executed by a user that has access to <code class="inlineCode">sudo</code>. If <code class="inlineCode">sudo</code> is not configured to run as that user without a password, the playbook will fail as it’s not interactive (it won’t ask for the password). You can also use <code class="inlineCode">sudo</code> in front of the <code class="inlineCode">ansible-pull</code> command and provide the password before it runs, but that won’t work if you set it up to run automatically via cron.</p>
+<p class="normal">If all goes according to plan, the playbook repository should be cached to the server, and the instructions carried out. If there is an error, Ansible is fairly good about presenting logical error messages. As long as the user has permission to execute privileged commands on the server, the required files are present in the repository, and the server has access to download the repository (a firewall isn’t blocking it), then the playbook will run properly.</p>
+<p class="normal">When it comes to implementing the pull method in production across various server types, there are several ways we can go about this. One way is to have a separate playbook per server type. For example, perhaps you’d have an Apache playbook, as well as playbooks specific to database servers, file servers, user workstations, and so on. Then, depending on the type of server you’re deploying, you’d specify the appropriate playbook when you called the <code class="inlineCode">ansible-pull</code> command. If you’re using a service such as cloud computing, you can actually provide a script for each server to execute upon creation. You can then instruct the service to automatically run the <code class="inlineCode">ansible-pull</code> command any time a new server is created. In AWS, for example, you can use a feature known as user data to place a script for a server to execute when it’s launched for the first time. This saves you from having to provision anything manually. For this to work, you would first include a command for the server to install Ansible itself, and then the next command would be the <code class="inlineCode">ansible-pull</code> command along with the URL to the repository. Just those two lines <a id="_idIndexMarker849"/>would completely automate the installation of Ansible and the application of your playbook. Try to think of the possibilities ahead of time so you can understand the many ways that automation can benefit you.</p>
+<p class="normal">While provisioning new servers properly and efficiently is very important, so too is maintaining your existing servers. When you need to install a new package or apply a security update, the last thing you want to do is connect to all of your servers manually and update them one by one. The <code class="inlineCode">ansible-pull</code> command allows simple management as well; you just simply run the command again. Every time you run <code class="inlineCode">ansible-pull</code>, it will download the latest version of the code within your repository and run it. If there are any changes, they will be applied, while things that have already been applied will be skipped. For example, if you include a play to install the <code class="inlineCode">apache2</code> package, Ansible won’t reinstall the package if you run the playbook a second time; it will skip that play since that requirement has already been met.</p>
+<p class="normal">One trick worth knowing with <code class="inlineCode">ansible-pull</code> is the <code class="inlineCode">-o</code> option. This option will ensure that the playbook inside the repository is only run if there have been any actual changes to the repository. If you haven’t committed any changes to the repository, it will skip the entire thing. This is very useful if you set up the <code class="inlineCode">ansible-pull</code> command syntax to be run periodically via cron, for example, every hour.</p>
+<p class="normal">If you don’t include the <code class="inlineCode">-o</code> option, Ansible will run the entire playbook every hour. This will consume valuable CPU resources for no good reason at all. With the <code class="inlineCode">-o</code> option, Ansible will only use as much CPU as required for simply checking the repository for changes. The playbook will only be run if you actually commit changes to the repository.</p>
+<p class="normal">The introduction to Ansible within this chapter has been very basic, as we’ve only used the very core of the required components. By looking deeper into Ansible, you’ll find more advanced techniques, and some more clever ways to implement it. Examples include automating firewall rules, security patches, and user passwords, as well as having Ansible send you an email any time a server is successfully provisioned (or even when that fails). Basically, just<a id="_idIndexMarker850"/> about anything you can do manually, you can automate with Ansible. In the future, I recommend looking at server administration with an automation mindset. As I’ve mentioned several times before, if you will need to perform a task more than once, automate it. Ansible is one of the best ways of automating server administration.</p>
+<h1 class="heading-1" id="_idParaDest-205">Summary</h1>
+<p class="normal">In this chapter, we took a look at configuration management using Ansible. Ansible is an exciting technology that is exploding in popularity. It gives you the full power of configuration management utilities such as Chef or Puppet, without all the resource overhead. It allows you to automate just about everything. During our exploration, we walked through installing packages, copying files, and starting services. Near the end of the chapter, we worked through an example of using Ansible to provision a simple web server, and we even explored the pull method, which is very useful in dynamic environments. These concepts form the basis of knowledge that can be expanded to automate more complex rollouts.</p>
+<p class="normal">The next chapter will be fun: we’ll set up our very own virtualization server with KVM. This is one of my favorite topics, and I’m sure you’ll enjoy it too. See you there!</p>
+<h1 class="heading-1" id="_idParaDest-206">Relevant videos</h1>
+<ul>
+<li class="bulletList">Git Essentials (LearnLinuxTV): <a href="https://linux.video/git-essentials"><span class="url">https://linux.video/git-essentials</span></a></li>
+<li class="bulletList">Getting Started with Ansible (LearnLinuxTV): <a href="https://linux.video/learn-ansible"><span class="url">https://linux.video/learn-ansible</span></a> </li>
+<li class="bulletList">Ansible workstation/laptop configuration (LearnLinuxTV): <a href="https://linux.video/ansible-workstation"><span class="url">https://linux.video/ansible-workstation</span></a></li>
+<li class="bulletList">Ansible Vault (LearnLinuxTV): <a href="https://linux.video/ansible-vault"><span class="url">https://linux.video/ansible-vault</span></a></li>
+<li class="bulletList">Ansible Pull (LearnLinuxTV): <a href="https://linux.video/ansible-pull"><span class="url">https://linux.video/ansible-pull</span></a></li>
+</ul>
+<h1 class="heading-1" id="_idParaDest-207">Further reading</h1>
+<ul>
+<li class="bulletList">Ansible documentation: <a href="https://learnlinux.link/ansible-docs"><span class="url">https://learnlinux.link/ansible-docs</span></a></li>
+<li class="bulletList">Ansible Roles documentation: <a href="https://learnlinux.link/reuse-roles"><span class="url">https://learnlinux.link/reuse-roles</span></a></li>
+<li class="bulletList">Ansible config file documentation article: <a href="https://learnlinux.link/a-config"><span class="url">https://learnlinux.link/a-config</span></a></li>
+<li class="bulletList"><code class="inlineCode">ansible-pull</code> documentation: <a href="https://learnlinux.link/a-pull"><span class="url">https://learnlinux.link/a-pull</span></a></li>
+<li class="bulletList">How to manage your workstation configuration with Ansible: <a href="https://learnlinux.link/a-ws"><span class="url">https://learnlinux.link/a-ws</span></a></li>
+<li class="bulletList">Git basics: <a href="https://learnlinux.link/git-book"><span class="url">https://learnlinux.link/git-book</span></a></li>
+<li class="bulletList">Setting up Git (GitHub): <a href="https://learnlinux.link/setup-git"><span class="url">https://learnlinux.link/setup-git</span></a></li>
+</ul>
+<h1 class="heading-1">Join our community on Discord</h1>
+<p class="normal">Join our community’s Discord space for discussions with the author and other readers: </p>
+<p class="normal"><a href="https://packt.link/LWaZ0"><span class="url">https://packt.link/LWaZ0</span></a></p>
+<p class="normal"><img alt="" height="177" src="../Images/QR_Code50046724-1955875156.png" width="177"/></p>
+</div>
+</div></body></html>

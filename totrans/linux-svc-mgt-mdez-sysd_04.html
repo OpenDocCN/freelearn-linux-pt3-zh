@@ -1,0 +1,243 @@
+<html><head></head><body>
+		<div id="_idContainer011">
+			<h1 id="_idParaDest-40"><em class="italic"><a id="_idTextAnchor039"/>Chapter 3</em>: Understanding S<a id="_idTextAnchor040"/>ervice, Path, and Socket Units</h1>
+			<p>In this chapter, we'll examine the inner workings of the service, path, and socket unit files. We'll examine the parts that are in each and look at some of the parameters that you can set. Along the way, I'll give you some pointers about how to find information about what the various parameters are doing for you. </p>
+			<p>In this chapter, we will cover the following topics:</p>
+			<ul>
+				<li>Understanding service units</li>
+				<li>Understanding socket units</li>
+				<li>Understanding path units</li>
+			</ul>
+			<p>At some point in your Linux administrator career, you could be tasked with modifying existing units or creating new ones. The knowledge in this chapter can help you with that. So, if you're ready, let's go. </p>
+			<h1 id="_idParaDest-41"><a id="_idTextAnchor041"/>Technical requirements</h1>
+			<p>As always, I'll be doing the demos on an Ubuntu Server 20.04 virtual machine and an Alma Linux 8 virtual machine. Feel free to fire up your own virtual machines to follow along.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/2ZQBHh6">https://bit.ly/2ZQBHh6</a></p>
+			<h1 id="_idParaDest-42"><a id="_idTextAnchor042"/>Understanding service units</h1>
+			<p>Service units<a id="_idIndexMarker043"/> are the equivalent of init scripts on old SysV systems. We'll use them to configure our various services, which we used to call <em class="italic">daemons</em> in the old days. A service can be pretty much anything that you want to start automatically and run in the background. Examples of services include Secure Shell, your web server of choice, a mail server, and various services that are required for proper system operation. While some service files can be short and sweet, others can be fairly lengthy, with more options enabled. To read about all of these options, just type the following:</p>
+			<p class="source-code">man systemd.directives</p>
+			<p>The descriptions<a id="_idIndexMarker044"/> for all of the parameters that you can set are spread over several different man pages. This <strong class="source-inline">systemd.directives</strong> man page is an index that will direct you to the proper man page for each parameter.</p>
+			<p>Rather than trying to explain every parameter that service files can use, let's look through a few example files and explain what they're doing.</p>
+			<h2 id="_idParaDest-43"><a id="_idTextAnchor043"/>Understanding the Apache service file</h2>
+			<p>We'll start with the service file for the Apache web server<a id="_idIndexMarker045"/>. On my Ubuntu Server 20.04 virtual machine, it is the <strong class="source-inline">/lib/systemd/system/apache2.service</strong> file. The first thing to note<a id="_idIndexMarker046"/> is that service unit files are divided into three sections. The top section is the <strong class="source-inline">[Unit]</strong> section, which contains parameters that can be placed in any type of unit file. It looks like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=The Apache HTTP Server</p>
+			<p class="source-code">After=network.target remote-fs.target nss-lookup.target</p>
+			<p class="source-code">Documentation=https://httpd.apache.org/docs/2.4/ </p>
+			<p>Here, we see these three parameters:</p>
+			<ul>
+				<li><strong class="source-inline">Description=</strong>: Okay, this one should be fairly self-explanatory. All it does is tell the human user what the service is. The <strong class="source-inline">systemctl status</strong> command pulls its description information from this line.</li>
+				<li><strong class="source-inline">After=</strong>: We don't want Apache to start until certain other things have happened. We haven't talked about <strong class="source-inline">target</strong> files yet, but that's okay. For now, just know that we want to prevent Apache from starting until after the network, any possible attached remote filesystems, and the Name Switch Service are available.</li>
+				<li><strong class="source-inline">Documentation=</strong>: Here's another one that's self-explanatory. It just shows where to find the Apache documentation.</li>
+			</ul>
+			<p>To read about the options that you can place in the <strong class="source-inline">[Unit]</strong> section of any unit file, just type the following:</p>
+			<p class="source-code">man systemd.unit</p>
+			<p>Next, we have the <strong class="source-inline">[Service]</strong> section, where things get a bit more interesting<a id="_idIndexMarker047"/>. It contains parameters that can only be placed in a service unit file, and looks like this:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">Type=forking</p>
+			<p class="source-code">Environment=APACHE_STARTED_BY_SYSTEMD=true</p>
+			<p class="source-code">ExecStart=/usr/sbin/apachectl start</p>
+			<p class="source-code">ExecStop=/usr/sbin/apachectl stop</p>
+			<p class="source-code">ExecReload=/usr/sbin/apachectl graceful</p>
+			<p class="source-code">PrivateTmp=true</p>
+			<p class="source-code">Restart=on-abort</p>
+			<p>In this particular file, we see these parameters:</p>
+			<ul>
+				<li><strong class="source-inline">Type=</strong>: There are several different service types that you'll see described in the <strong class="source-inline">systemd.service</strong> man<a id="_idIndexMarker048"/> page. In this case, we have the <strong class="source-inline">forking</strong> type, which means that the first Apache process that starts will spawn a child process. When Apache startup is complete and the proper communication channels have been set up, the original process—the <em class="italic">parent</em> process—will exit and the child process will carry on as the main service process. When the parent process exits, the <strong class="source-inline">systemd</strong> service manager will finally recognize the service as having fully started. According to the man page, this is the traditional behavior for Unix services, and <strong class="source-inline">systemd</strong> just carries on the tradition. </li>
+				<li><strong class="source-inline">Environment=</strong>: This sets an environmental variable that affects the behavior of the service. In this case, it tells Apache that it was started by <strong class="source-inline">systemd</strong>.</li>
+				<li><strong class="source-inline">ExecStart=</strong>, <strong class="source-inline">ExecStop=</strong>, and <strong class="source-inline">ExecReload=</strong>: These three lines just point the way to the Apache executable file, and specify the command arguments for starting, stopping, and reloading the service.</li>
+				<li><strong class="source-inline">PrivateTmp=</strong>: Many services write temporary files for various reasons, and you're probably used to seeing them in the <strong class="source-inline">/tmp/</strong> directory that everyone can access. Here though, we see a cool <strong class="source-inline">systemd</strong> security feature. When set to <strong class="source-inline">true</strong>, this parameter forces the Apache service to write its temporary files to a private <strong class="source-inline">/tmp/</strong> directory<a id="_idIndexMarker049"/> that nobody else can access. So, if you're concerned that Apache might write sensitive information to its temporary files, you'll want to use this feature. (You can read more about this feature, as well as other security features, on the <strong class="source-inline">systemd.exec</strong> man page.) Also, note that if you leave this parameter out altogether, it will default to <strong class="source-inline">false</strong>, which means<a id="_idIndexMarker050"/> that you won't have this protection.</li>
+				<li><strong class="source-inline">Restart=</strong>: Sometimes, you might want a service to automatically restart if it stops. In this case, we're using the <strong class="source-inline">on-abort</strong> parameter, which just means that if the Apache service were to crash with an unclean signal, <strong class="source-inline">systemd</strong> would automatically restart it.</li>
+			</ul>
+			<p>Okay, that's it for the <strong class="source-inline">[Service]</strong> section. Let's move on to the <strong class="source-inline">[Install]</strong> section, which looks like this:</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=multi-user.target</p>
+			<p>The nomenclature for this seems a bit weird because it doesn't seem like we're installing anything here. What this actually does is control what happens when you enable or disable a unit. In this case, we're saying that we want the Apache service to be enabled for the <strong class="source-inline">multi-user.target</strong> unit, which will cause the service to automatically start when the machine boots into the multi-user target. (We'll cover targets and the boot-up process later. For now, just understand that the multi-user target is when the machine is fully booted<a id="_idIndexMarker051"/> and ready for use. For you SysV veterans, the target in this case is akin to a SysV runlevel.) </p>
+			<h2 id="_idParaDest-44"><a id="_idTextAnchor044"/>Understanding the Secure Shell service file</h2>
+			<p>For something a bit different, let's look at the service file for the Secure Shell service<a id="_idIndexMarker052"/>, which on this Ubuntu machine<a id="_idIndexMarker053"/> is the <strong class="source-inline">/lib/systemd/system/ssh.service</strong> file. Here's the <strong class="source-inline">[Unit]</strong> section:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=OpenBSD Secure Shell server</p>
+			<p class="source-code">Documentation=man:sshd(8) man:sshd_config(5)</p>
+			<p class="source-code">After=network.target auditd.service</p>
+			<p class="source-code">ConditionPathExists=!/etc/ssh/sshd_not_to_be_run</p>
+			<p>In the <strong class="source-inline">[Unit]</strong> section, we see the <strong class="source-inline">ConditionPathExists=</strong> parameter, which we didn't see before. It checks for either the existence or non-existence of a file. In this case, we see an exclamation point (<strong class="source-inline">!</strong>) in front of the path to the file, which means that we're checking for the non-existence of the named file. If <strong class="source-inline">systemd</strong> finds it there, it won't start the Secure Shell service. If we were to remove the exclamation point, then <strong class="source-inline">systemd</strong> would only start the service if the file <em class="italic">were</em> there. So, if we wanted to prevent the Secure Shell service from starting, all we'd have to do is create a dummy file in the <strong class="source-inline">/etc/ssh/</strong> directory, like so:</p>
+			<p class="source-code">sudo touch /etc/ssh/sshd_not_to_be_run</p>
+			<p>I'm not sure how useful this feature really is, because it's just as easy to simply disable the service if you don't want it to run. But, if you think that you might ever need this, it's there for you.</p>
+			<p>Next up is the <strong class="source-inline">[Service]</strong> section:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">EnvironmentFile=-/etc/default/ssh</p>
+			<p class="source-code">ExecStartPre=/usr/sbin/sshd -t</p>
+			<p class="source-code">ExecStart=/usr/sbin/sshd -D $SSHD_OPTS</p>
+			<p class="source-code">ExecReload=/usr/sbin/sshd -t</p>
+			<p class="source-code">ExecReload=/bin/kill -HUP $MAINPID</p>
+			<p class="source-code">KillMode=process</p>
+			<p class="source-code">Restart=on-failure</p>
+			<p class="source-code">RestartPreventExitStatus=255</p>
+			<p class="source-code">Type=notify</p>
+			<p class="source-code">RuntimeDirectory=sshd</p>
+			<p class="source-code">RuntimeDirectoryMode=0755</p>
+			<p>In the <strong class="source-inline">[Service]</strong> section<a id="_idIndexMarker054"/>, we see a few new parameters: </p>
+			<ul>
+				<li><strong class="source-inline">EnvironmentFile=</strong>: This parameter causes <strong class="source-inline">systemd</strong> to read a list of environmental variables from the specified file. The minus sign (<strong class="source-inline">-</strong>) in front of the path to the file tells <strong class="source-inline">systemd</strong> that if the file doesn't exist, don't worry about it and start the service anyway.</li>
+				<li><strong class="source-inline">ExecStartPre=</strong>: This tells <strong class="source-inline">systemd</strong> to run a specified command before it starts the service with the <strong class="source-inline">ExecStart=</strong> parameter. In this case, we want to run the <strong class="source-inline">sshd -t</strong> command, which tests the Secure Shell configuration to ensure that it's valid.</li>
+				<li><strong class="source-inline">KillMode=</strong>: I've already<a id="_idIndexMarker055"/> told you that one of the beauties of <strong class="source-inline">systemd</strong> is its ability to stop all processes of a service if you have to send a kill signal to it. That's the default behavior if you don't include this parameter in your service file. Sometimes though, you might not want that. By setting this parameter to <strong class="source-inline">process</strong>, a kill signal will only kill the main process for the service. All other associated processes will remain running. (You can read more about this parameter on the <strong class="source-inline">systemd.kill</strong> man page.)</li>
+				<li><strong class="source-inline">Restart=</strong>: This time, instead of automatically restarting a stopped service <strong class="source-inline">on-abort</strong>, it will now restart it <strong class="source-inline">on-failure</strong>. So, in addition to restarting the service because of an unclean signal, <strong class="source-inline">systemd</strong> will also restart this service because of an unclean exit code, a timeout, or a watchdog event. (A watchdog, in case you're wondering, is a kernel feature that can restart a service upon some sort of unrecoverable error.)</li>
+				<li><strong class="source-inline">RestartPreventExitStatus=</strong>: This prevents the service from automatically restarting if a certain exit code is received. In this case, we don't want the service to restart if the exit code is <strong class="source-inline">255</strong>. (For more information about exit codes, see the <strong class="source-inline">$EXIT_CODE, $EXIT_STATUS_</strong> <span class="P---Regular-Char">section of the </span><strong class="source-inline">systemd.exec</strong><span class="P---Regular-Char"> man page.)</span></li>
+				<li><strong class="source-inline">Type=</strong>: For this service, the type is <strong class="source-inline">notify</strong>, instead of <strong class="source-inline">forking</strong> as we saw in the previous example. This means that the service will send a notification message when the service has finished<a id="_idIndexMarker056"/> starting. After it sends the notification message, <strong class="source-inline">systemd</strong> will continue loading the follow-up units. </li>
+				<li><strong class="source-inline">RuntimeDirectory=</strong> and <strong class="source-inline">RuntimeDirectoryMode=</strong>: These two directives create a runtime directory under the <strong class="source-inline">/run/</strong> directory, and then set the permissions value for that directory. In this case, we're setting the <strong class="source-inline">0755</strong> permission on the directory<a id="_idIndexMarker057"/>, which means that it will have read, write, and execute permissions for the directory's owner. Everyone else will only have read and execute permissions. </li>
+			</ul>
+			<p>Finally, here's the <strong class="source-inline">[Install]</strong> section:</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=multi-user.target</p>
+			<p class="source-code">Alias=sshd.service</p>
+			<p>In the <strong class="source-inline">[Install]</strong> section, we see the <strong class="source-inline">Alias=</strong> parameter, which can be quite handy. That's because certain services can have different names on different Linux distros. For example, the Secure Shell service is <strong class="source-inline">sshd</strong> on Red Hat-type systems and just <strong class="source-inline">ssh</strong> on Debian/Ubuntu systems<a id="_idIndexMarker058"/>. By including this <strong class="source-inline">Alias=sshd.service</strong> line, we can control the service by specifying either name.</p>
+			<h2 id="_idParaDest-45"><a id="_idTextAnchor045"/>Understanding the timesyncd service file</h2>
+			<p>For the last example, I want to show you the service<a id="_idIndexMarker059"/> file for the <strong class="source-inline">timesyncd</strong> service<a id="_idIndexMarker060"/>. This is the <strong class="source-inline">/lib/systemd/system/systemd-timesyncd.service</strong> file. First, the <strong class="source-inline">[Unit]</strong> section:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Network Time Synchronization</p>
+			<p class="source-code">Documentation=man:systemd-timesyncd.service(8)</p>
+			<p class="source-code">ConditionCapability=CAP_SYS_TIME</p>
+			<p class="source-code">ConditionVirtualization=!container</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">After=systemd-sysusers.service</p>
+			<p class="source-code">Before=time-set.target sysinit.target shutdown.target</p>
+			<p class="source-code">Conflicts=shutdown.target</p>
+			<p class="source-code">Wants=time-set.target time-sync.target</p>
+			<p>For this file, I mainly just want to focus on the security-related parameters. In the <strong class="source-inline">[Unit]</strong> section, there's the <strong class="source-inline">ConditionCapability=</strong> parameter, which I'll explain in a moment. The <strong class="source-inline">Wants=</strong> line, which isn't security-related, defines the dependency units for this service. If these dependency units<a id="_idIndexMarker061"/> aren't running when this service gets started, then <strong class="source-inline">systemd</strong> will attempt to start them. If they fail to start, this service will still go ahead and start anyway. </p>
+			<p>Next, we'll look at the <strong class="source-inline">[Service]</strong> section, where we'll see more security-related parameters. (For space reasons, I can only place part of the file here, so feel free to view it on your own virtual machine.):</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">AmbientCapabilities=CAP_SYS_TIME</p>
+			<p class="source-code">CapabilityBoundingSet=CAP_SYS_TIME</p>
+			<p class="source-code">ExecStart=!!/lib/systemd/systemd-timesyncd</p>
+			<p class="source-code">LockPersonality=yes</p>
+			<p class="source-code">MemoryDenyWriteExecute=yes</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">ProtectSystem=strict</p>
+			<p class="source-code">Restart=always</p>
+			<p class="source-code">RestartSec=0</p>
+			<p class="source-code">RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6</p>
+			<p class="source-code">RestrictNamespaces=yes</p>
+			<p class="source-code">RestrictRealtime=yes</p>
+			<p class="source-code">RestrictSUIDSGID=yes</p>
+			<p class="source-code">RuntimeDirectory=systemd/timesync</p>
+			<p class="source-code">StateDirectory=systemd/timesync</p>
+			<p class="source-code">SystemCallArchitectures=native</p>
+			<p class="source-code">SystemCallErrorNumber=EPERM</p>
+			<p class="source-code">SystemCallFilter=@system-service @clock</p>
+			<p class="source-code">Type=notify</p>
+			<p class="source-code">User=systemd-timesync</p>
+			<p class="source-code">WatchdogSec=3min </p>
+			<p>The <strong class="source-inline">AmbientCapabilities=</strong> and the <strong class="source-inline">CapabilityBoundingSet=</strong> parameters are all set to <strong class="source-inline">CAP_SYS_TIME</strong>, as is the <strong class="source-inline">ConditionCapability=</strong> parameter in the <strong class="source-inline">[Unit]</strong> section. Toward the end of the <strong class="source-inline">[Service]</strong> section, we see the <strong class="source-inline">User=systemd-timesync</strong> line<a id="_idIndexMarker062"/>, which tells <strong class="source-inline">systemd</strong> to run this service under a non-privileged account. But, setting the system<a id="_idIndexMarker063"/> time requires root privileges, which the <strong class="source-inline">systemd-timesync</strong> user doesn't have. We can fix that by assigning a root-level kernel<a id="_idIndexMarker064"/> capability to this user. In this case, we're allowing this user to set the system time, but nothing else. Some systems though, might not be able to implement the <strong class="source-inline">AmbientCapabilities=</strong> directive. So, the double-exclamation points (<strong class="source-inline">!!</strong>) in the <strong class="source-inline">ExecStart=</strong> line tell <strong class="source-inline">systemd</strong> to run the indicated service with minimum privileges. Be aware that this double-exclamation point option only takes effect if the system can't deal with the <strong class="source-inline">AmbientCapabilities=</strong> directive.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">You can read more about kernel capabilities by typing <strong class="source-inline">man capabilities</strong>. An important thing to understand about kernel capabilities is that they can vary across different CPU architectures. So, the set of capabilities that can be used with an ARM CPU won't be the same as the set of capabilities on an x86_64 CPU.</p>
+			<p>Read down through the rest of the <strong class="source-inline">[Service]</strong> section, and you'll see a lot of parameters that are obviously for enhancing security. I'm not going to go over all of them, because for most of them, you can tell what they're doing just by looking at their names. For the few that aren't so obvious, I would encourage you to consult the man pages. These security settings<a id="_idIndexMarker065"/> are a powerful feature, and you can see here that they're pretty much doing the same job as a mandatory access control system.</p>
+			<p>And finally, we have the <strong class="source-inline">[Install]</strong> section:</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=sysinit.target</p>
+			<p class="source-code">Alias=dbus-org.freedesktop.timesync1.service</p>
+			<p>The main thing to see here is that this service is wanted by the <strong class="source-inline">sysinit.target</strong>, which means that it will come up during the system initialization process. </p>
+			<p>We've only scratched the surface for what we can do with service files. But there are so many different parameters that scratching the surface is all we can reasonably expect to do. Your best bet is to skim over<a id="_idIndexMarker066"/> the man pages to get a good feel for things and to consult the man pages whenever you have questions. </p>
+			<p>Next, we'll cover socket units. (Fortunately, that section won't need to be quite as long.)</p>
+			<h1 id="_idParaDest-46"><a id="_idTextAnchor046"/>Understanding socket units</h1>
+			<p>The socket unit<a id="_idIndexMarker067"/> files are also in the <strong class="source-inline">/lib/systemd/system/</strong> directory, and their filenames end with <strong class="source-inline">.socket</strong>. Here's a partial list of them on one of my Ubuntu Server machines:</p>
+			<p class="source-code">donnie@ubuntu20-10:/lib/systemd/system$ ls -l *.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  246 Jun  1  2020 apport-forward.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  102 Sep 10  2020 dbus.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  248 May 30  2020 dm-event.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  197 Sep 16 16:52 docker.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  175 Feb 26  2020 iscsid.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  239 May 30  2020 lvm2-lvmpolld.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  186 Sep 11  2020 multipathd.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  281 Feb  2 08:21 snapd.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  216 Jun  7  2020 ssh.socket</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">-rw-r--r-- 1 root root  610 Sep 20 10:16 systemd-udevd-kernel.socket</p>
+			<p class="source-code">-rw-r--r-- 1 root root  126 Aug 30  2020 uuidd.socket</p>
+			<p class="source-code">donnie@ubuntu20-10:/lib/systemd/system$</p>
+			<p>The socket units can do a couple of things for us. First, they can take the place of the legacy <strong class="source-inline">inetd</strong> and <strong class="source-inline">xinetd</strong> <em class="italic">superserver</em> daemons that were on the old SysV systems. This means that instead of having a server daemon run full-time, even when it isn't needed, we can leave<a id="_idIndexMarker068"/> it shut down most of the time, and only start it when the system detects an incoming network request for it. For a simple example, let's look at the <strong class="source-inline">ssh.socket</strong> file on an Ubuntu machine:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=OpenBSD Secure Shell server socket</p>
+			<p class="source-code">Before=ssh.service</p>
+			<p class="source-code">Conflicts=ssh.service</p>
+			<p class="source-code">ConditionPathExists=!/etc/ssh/sshd_not_to_be_run</p>
+			<p class="source-code">[Socket]</p>
+			<p class="source-code">ListenStream=22</p>
+			<p class="source-code">Accept=yes</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=sockets.target</p>
+			<p>Even though this socket file gets installed by default, it's not enabled by default. On a default configuration of Ubuntu, the Secure Shell service runs all the time. In the <strong class="source-inline">[Unit]</strong> section, we see these two interesting directives:</p>
+			<ul>
+				<li><strong class="source-inline">Before=ssh.service</strong>: This tells <strong class="source-inline">systemd</strong> to start the socket before starting the Secure Shell service.</li>
+				<li><strong class="source-inline">Conflicts=ssh.service</strong>: This tells <strong class="source-inline">systemd</strong> to not allow the Secure Shell service to run normally if this socket is enabled. If you were to enable this socket, the normal SSH service would get shut down.</li>
+			</ul>
+			<p>In the <strong class="source-inline">[Socket]</strong> section, we see that the socket listens on port <strong class="source-inline">22/tcp</strong>, which is the default port for Secure Shell<a id="_idIndexMarker069"/>. The <strong class="source-inline">Accept=yes</strong> line is a bit deceiving because it doesn't mean exactly what you would think. It really means that the service will spawn a new instance for every incoming connection. According to the <strong class="source-inline">systemd.socket</strong> man page, this setting should only be used for services that were designed to work under the old <strong class="source-inline">inetd</strong> and <strong class="source-inline">xinetd</strong> schemes. For better performance, new services should be designed to not behave like this.</p>
+			<p>To demonstrate how this works, I first want to show you that the <strong class="source-inline">ssh</strong> service on my Ubuntu VM is running normally:</p>
+			<p class="source-code">donnie@ubuntu20-10:~$ sudo systemctl is-active ssh</p>
+			<p class="source-code">active</p>
+			<p class="source-code">donnie@ubuntu20-10:~$</p>
+			<p>So, it's <strong class="source-inline">active</strong>, which means that it's running as a normal daemon. Now, let's enable <strong class="source-inline">ssh.socket</strong>, and then look at the difference:</p>
+			<p class="source-code">donnie@ubuntu20-10:~$ sudo systemctl enable --now ssh.socket</p>
+			<p class="source-code">Created symlink /etc/systemd/system/sockets.target.wants/ssh.socket → /lib/systemd/system/ssh.socket.</p>
+			<p class="source-code">donnie@ubuntu20-10:~$ sudo systemctl is-active ssh</p>
+			<p class="source-code">inactive</p>
+			<p class="source-code">donnie@ubuntu20-10:~$</p>
+			<p>So, as soon as I enable this socket, the <strong class="source-inline">Conflicts=</strong> line automatically shuts down the <strong class="source-inline">ssh</strong> service. But I can still connect<a id="_idIndexMarker070"/> to this machine because the socket will automatically start the SSH service just long enough to service the connection request. When the service is no longer needed, it will automatically go back to sleep. </p>
+			<p>Secondly, note that this socket doesn't mention which service to start, or where its executable file is. That's because the socket, when activated, will just pull that information from the <strong class="source-inline">ssh.service</strong> file. You don't have to tell it to do that, because the default behavior for any socket file is to get its information from a service file that has the same prefix in the filename.</p>
+			<p>Finally, socket units can enable<a id="_idIndexMarker071"/> communication between operating system processes. For example, a socket can take messages from various system processes and pass them to the logging system, as we see here in this <strong class="source-inline">systemd-journald.socket</strong> file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Journal Socket</p>
+			<p class="source-code">Documentation=man:systemd-journald.service(8) man:journald.conf(5)</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">Before=sockets.target</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">IgnoreOnIsolate=yes</p>
+			<p class="source-code">[Socket]</p>
+			<p class="source-code">ListenStream=/run/systemd/journal/stdout</p>
+			<p class="source-code">ListenDatagram=/run/systemd/journal/socket</p>
+			<p class="source-code">SocketMode=0666</p>
+			<p class="source-code">PassCredentials=yes</p>
+			<p class="source-code">PassSecurity=yes</p>
+			<p class="source-code">ReceiveBuffer=8M</p>
+			<p class="source-code">Service=systemd-journald.service </p>
+			<p>We see here that instead of listening to a network port, this socket listens for TCP output from <strong class="source-inline">/run/systemd/journal/stdout</strong>, and for UDP output from <strong class="source-inline">/run/systemd/journal/socket</strong>. (The <strong class="source-inline">ListenStream=</strong> directive is for TCP sources, and the <strong class="source-inline">ListenDatagram=</strong> directive is for UDP sources. The <strong class="source-inline">systemd.socket</strong> man page doesn't make that clear, so you have to do some DuckDuckGo searching to find this out.)</p>
+			<p>There's no <strong class="source-inline">Accept=yes</strong> directive here, because, unlike the Secure Shell service that we saw earlier, the <strong class="source-inline">journald</strong> service doesn't need to spawn a new instance for every incoming connection. By leaving this setting out, it defaults to a value of <strong class="source-inline">no</strong>.</p>
+			<p>The <strong class="source-inline">PassCredentials=yes</strong> line and the <strong class="source-inline">PassSecurity=yes</strong> line cause the sending process<a id="_idIndexMarker072"/> to pass security credentials and security context information to the receiving socket. These parameters also default to <strong class="source-inline">no</strong> if you leave them out. To enhance performance, the <strong class="source-inline">ReceiveBuffer=</strong> line sets aside 8 MB of buffer memory.</p>
+			<p>Finally, the <strong class="source-inline">Service=</strong> line specifies the service. According to the <strong class="source-inline">systemd.socket</strong> man page, this can only be used if <strong class="source-inline">Accept=no</strong> is set. The man page also says that this usually isn't needed, because by default the socket will still reference the service file that has the same name as the socket. But if you do use this, it might pull in some extra dependencies that it might not otherwise pull in.</p>
+			<h1 id="_idParaDest-47"><a id="_idTextAnchor047"/>Understanding path units</h1>
+			<p>You can use a path unit to have <strong class="source-inline">systemd</strong> monitor a certain file or directory to see when it changes<a id="_idIndexMarker073"/>. When <strong class="source-inline">systemd</strong> detects that the file or directory has changed, it will activate the specified service. We'll use the <strong class="bold">Common Unix Printing System</strong> (<strong class="bold">CUPS</strong>)<a id="_idIndexMarker074"/> as an example.</p>
+			<p>In the <strong class="source-inline">/lib/systemd/system/cups.path</strong> file, we see this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=CUPS Scheduler</p>
+			<p class="source-code">PartOf=cups.service</p>
+			<p class="source-code">[Path]</p>
+			<p class="source-code">PathExists=/var/cache/cups/org.cups.cupsd</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=multi-user.target</p>
+			<p>The <strong class="source-inline">PathExists=</strong> line tells <strong class="source-inline">systemd</strong> to monitor a specific file for changes, which in this case is the <strong class="source-inline">/var/cache/cups/org.cups.cupsd</strong> file. If <strong class="source-inline">systemd</strong> detects any changes to this file, it will activate the printing service. </p>
+			<h1 id="_idParaDest-48"><a id="_idTextAnchor048"/>Summary</h1>
+			<p>All right, we've made it through another chapter, which is a good thing. In this chapter, we examined the structure of the service, socket, and path unit files. We saw the three sections of each type of unit and looked at some of the parameters that we can define for each of those sections. Of course, it's pretty much impossible to explain every single available parameter, so I've just shown you a few examples. And I'll show you more examples in the next few chapters.</p>
+			<p>An important skill for any IT administrator is knowing how to look up things that you don't know. That can be a bit of a challenge with <strong class="source-inline">systemd</strong>, because things are spread out over quite a few man pages. I've given you some tips on how to use the man pages to find what you need, which will hopefully be of some help.</p>
+			<p>The next skill you'll want to acquire is that of controlling service units, which is the topic of the next chapter. I'll see you there.</p>
+			<h1 id="_idParaDest-49"><a id="_idTextAnchor049"/>Questions</h1>
+			<ol>
+				<li>Which kind of unit monitors files and directories for changes?<p>a. system</p><p>b. file</p><p>c. path</p><p>d. timer</p><p>e. service</p></li>
+				<li>A socket unit can: <p>a. automatically notify the user if a network request comes in</p><p>b. automatically set up communication between Linux and Windows machines</p><p>c. listen for network connections, and act as a firewall</p><p>d. automatically start a network service when it detects a connection request for that service</p></li>
+				<li>What is the purpose of the <strong class="source-inline">[Install]</strong> section?<p>a. It defines what other packages are to be installed when you install a service.</p><p>b. It defines what happens when you enable or disable a unit.</p><p>c. It defines parameters that are specific to an install unit.</p><p>d. It defines parameters that are specific to a service unit.</p></li>
+			</ol>
+			<h1 id="_idParaDest-50"><a id="_idTextAnchor050"/>Answers</h1>
+			<ol>
+				<li value="1">c</li>
+				<li>d</li>
+				<li>b</li>
+			</ol>
+			<h1 id="_idParaDest-51"><a id="_idTextAnchor051"/>Further reading</h1>
+			<p><strong class="source-inline">Systemd</strong> socket units:</p>
+			<p class="Normal" lang="en-US" xml:lang="en-US"><a href="https://www.linux.com/training-tutorials/end-road-systemds-socket-units/">https://www.linux.com/training-tutorials/end-road-systemds-socket-units/</a></p>
+			<p>The difference between <strong class="source-inline">ListenStream</strong><strong class="bold">=</strong> and <strong class="source-inline">ListenDatagram=</strong>:</p>
+			<p class="Normal" lang="en-US" xml:lang="en-US"><a href="https://unix.stackexchange.com/questions/517240/systemd-socket-listendatagram-vs-listenstream">https://unix.stackexchange.com/questions/517240/systemd-socket-listendatagram-vs-listenstream</a></p>
+			<p>Monitoring paths and directories:</p>
+			<p><a href="https://www.linux.com/topic/desktop/systemd-services-monitoring-files-and-directories/">https://www.linux.com/topic/desktop/systemd-services-monitoring-files-and-directories/</a></p>
+		</div>
+	</body></html>

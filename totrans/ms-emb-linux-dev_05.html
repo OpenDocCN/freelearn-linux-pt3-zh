@@ -1,0 +1,747 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer051" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor096"/>4</h1>
+    <h1 id="_idParaDest-90" class="chapterTitle"><a id="_idTextAnchor097"/>Configuring and Building the Kernel</h1>
+    <p class="normal">The kernel is the third element of embedded Linux. It is the component that is responsible for managing resources and interfacing with hardware. As such, it affects almost every aspect of your final software build. Each finished kernel is usually configured for some specific hardware. However, device trees enable us to employ a generic kernel and tailor it for our custom hardware using the contents of the DTB, as we saw in <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a>.</p>
+    <p class="normal">In this chapter, we will look at how to get a kernel for a board and how to configure and compile it. We will look again at Bootstrap, this time, focusing on the part the kernel plays. We will also look at device drivers and how they pick up information from the device tree.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">What does the kernel do?</li>
+      <li class="bulletList">Choosing a kernel</li>
+      <li class="bulletList">Configuring the kernel</li>
+      <li class="bulletList">Compiling with <code class="inlineCode">Kbuild</code></li>
+      <li class="bulletList">Building and booting the kernel</li>
+      <li class="bulletList">Observing the kernel boot process</li>
+      <li class="bulletList">Porting Linux to a new board</li>
+    </ul>
+    <h1 id="_idParaDest-91" class="heading-1"><a id="_idTextAnchor098"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">An Ubuntu 24.04 or later LTS-based host system</li>
+      <li class="bulletList">A Bootlin <code class="inlineCode">aarch64</code> toolchain from <a href="Chapter_01.xhtml#_idTextAnchor028"><em class="italic">Chapter 2</em></a></li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">A microSD card with U-Boot installed from <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a></li>
+      <li class="bulletList">A USB to TTL serial cable with 3.3V logic level</li>
+      <li class="bulletList">The Raspberry Pi 4</li>
+      <li class="bulletList">The BeaglePlay</li>
+      <li class="bulletList">A 5V USB-C power supply capable of delivering 3A</li>
+    </ul>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter04"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter04</span></a>.</p>
+    <h1 id="_idParaDest-92" class="heading-1"><a id="_idTextAnchor099"/>What does the kernel do?</h1>
+    <p class="normal">Linux began in 1991 when Linus Torvalds started writing an operating system for Intel 386- and 486-based personal computers. He was inspired by the MINIX operating system written by Andrew S. Tanenbaum four years earlier. Linux differed in many ways from MINIX; the main differences being that it was a 32-bit virtual memory kernel, and the code was open source, later released under the GPL v2 license. He announced it on 25th August 1991 on the <code class="inlineCode">comp.os.minix</code> newsgroup in a famous post that began with:</p>
+    <blockquote class="packt_quote">
+      <p class="quote">Hello everybody out there using minix—I’m doing a (free) operating system (just a hobby, won’t be big and professional like GNU) for 386(486) AT clones. This has been brewing since April, and is starting to get ready. I’d like any feedback on things people like/dislike in minix, as my OS resembles it somewhat (same physical layout of the filesystem (due to practical reasons) among other things).</p>
+    </blockquote>
+    <p class="normal">To be strictly accurate, Linus did not write an operating system. He wrote a kernel, which is only one component of an operating system. To create a complete operating system with user space commands and a shell command interpreter, he used components from the GNU project, especially the toolchain, the C library, and basic command-line tools. That distinction remains today and gives Linux a lot of flexibility in the way it is used.</p>
+    <p class="normal"><strong class="keyWord">Berkeley Software Distribution</strong> (<strong class="keyWord">BSD</strong>) predates Linux by many years. BSD began as a research project at the University of California, Berkeley’s renowned Computer Systems Research Group sometime in the late 1970s. Originally known as Berkeley Unix, BSD was based on the original Unix source code developed at Bell Labs. Now a defunct operating system, BSD lives on in the form of its open source descendants including FreeBSD, OpenBSD, and NetBSD. Most notably, the Darwin open source operating system used in Apple’s macOS and iOS is a derivative of BSD.</p>
+    <p class="normal">The Linux kernel can be combined with a GNU user space to create a full Linux distribution that runs on desktops and servers, which is sometimes called GNU/Linux. It can be combined with an Android user space to create the well-known mobile operating system, or it can be combined with a small BusyBox-based user space to create a compact embedded system.</p>
+    <p class="normal">Contrast this with the BSD operating systems (FreeBSD, OpenBSD, and NetBSD) in which the kernel, toolchain, and user space are combined into a single code base. By removing the toolchain, you can deploy slimmer runtime images without a compiler or header files. By decoupling user space from the kernel, you gain options in terms of init systems (<code class="inlineCode">runit</code> vs <code class="inlineCode">systemd</code>), C libraries (<code class="inlineCode">musl</code> vs <code class="inlineCode">glibc</code>) and package formats (<code class="inlineCode">.apk</code> vs <code class="inlineCode">.deb</code>).</p>
+    <p class="normal">The kernel has three main jobs – to manage resources, to interface with hardware, and to provide an API that offers a useful level of abstraction to user space programs, as summarized in the following diagram:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_04_01.png" alt="Figure 4.1 − User space, kernel space, and hardware" width="998" height="802"/></figure>
+    <p class="packt_figref">Figure 4.1 − User space, kernel space, and hardware</p>
+    <p class="normal">Applications running in <strong class="keyWord">user space</strong> run at a low CPU privilege level. They can do very little other than make library calls. The primary interface between user space and <strong class="keyWord">kernel space</strong> is the <strong class="keyWord">C library, </strong>which translates user-level functions, such as those defined by POSIX, into kernel system calls. The system call interface uses an architecture-specific method, such as a trap or a software interrupt, to switch the CPU from low-privilege user mode to high-privilege kernel mode. A CPU running in kernel mode has access to all memory addresses and CPU registers.</p>
+    <p class="normal">The system call handler dispatches the call to the appropriate kernel subsystem. Memory allocation calls go to the memory manager, filesystem calls to the filesystem code, and so on. Some of those calls require input from the underlying hardware and will be passed down to a device driver. In some cases, the hardware itself invokes a kernel function by raising an interrupt.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">The diagram in <em class="italic">Figure 4.1</em> shows that there is a second entry point into kernel code: hardware interrupts. Interrupts can only be handled in a device driver, never by a user space application.</p>
+    </div>
+    <p class="normal">In other words, all the useful things that your application does are done through the kernel. The kernel is therefore one of the most important elements in the system. So, it is important to understand how to choose one.</p>
+    <h1 id="_idParaDest-93" class="heading-1"><a id="_idTextAnchor100"/>Choosing a kernel</h1>
+    <p class="normal">The next step is to choose the kernel for your project. It is important to balance your desire to always use the latest version of software against the need for vendor-specific additions and an interest in the long-term support of the code base.</p>
+    <h2 id="_idParaDest-94" class="heading-2"><a id="_idTextAnchor101"/>Kernel development cycle</h2>
+    <p class="normal">Linux is developed at a fast pace with a new version being released every 8 to 12 weeks. The way that the version numbers are constructed has changed over the years. Before July 2011, there was a three-number version scheme with version numbers that looked like 2.6.39. The middle number indicated whether it was a developer or stable release. Odd numbers (2.1.x, 2.3.x, 2.5.x) were for developers. Even numbers were for end users.</p>
+    <p class="normal">From version 2.6 onward, the idea of a long-lived development branch (the odd numbers) was dropped, as it slowed down the rate at which new features were made available to the users. The change in numbering from 2.6.39 to 3.0 in July 2011 was purely because Linus felt that the numbers were becoming too large. </p>
+    <p class="normal">There was no huge leap in the features or architecture of Linux between those two versions. He also took the opportunity to drop the middle number. Since then, Linus has bumped the major version three more times: next in April 2015 (3 to 4), again in March 2019 (4 to 5), and most recently, in October 2022 (5 to 6). Each time, he did this purely for neatness, not because of any large architectural shift.</p>
+    <p class="normal">Linus manages the development kernel tree. You can follow him by cloning the Git tree like so:</p>
+    <pre class="programlisting con"><code class="hljs-con"><span class="hljs-con-meta">$ </span>git <span class="hljs-con-built_in">clone</span> git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+</code></pre>
+    <p class="normal">This will check the source out into a subdirectory named <code class="inlineCode">linux</code>. You can keep up to date by running the command <code class="inlineCode">git pull</code> in that directory from time to time.</p>
+    <p class="normal">A full cycle of kernel development begins with a merge window of two weeks during which Linus will accept patches for new features. At the end of the merge window, a stabilization phase begins. Once the merge window closes, Linus will produce weekly release candidates with version numbers ending in <code class="inlineCode">-rc1</code>, <code class="inlineCode">-rc2</code>, and so on, usually up to <code class="inlineCode">-rc7</code> or <code class="inlineCode">-rc8</code>. During this time, people test the candidates and submit bug reports and fixes. When all significant bugs have been fixed, the kernel is released.</p>
+    <p class="normal">The code incorporated during the merge window needs to be fairly mature already. Usually, it is pulled from the repositories of the many subsystems and architecture maintainers of the kernel. By keeping to a short development cycle, features can be merged when they are ready. If a feature is deemed not sufficiently stable or well developed by the kernel maintainers, it can simply be delayed until the next release.</p>
+    <p class="normal">Keeping track of what has changed from release to release is not easy. You can read the commit log in Linus’ Git repository but, with so many entries, it is not easy to get an overview. Thankfully, there is the Linux <strong class="keyWord">Kernel Newbies</strong> website (<a href="https://kernelnewbies.org"><span class="url">https://kernelnewbies.org</span></a>) where you can find a succinct overview of each version at <a href="https://kernelnewbies.org/LinuxVersions"><span class="url">https://kernelnewbies.org/LinuxVersions</span></a>.</p>
+    <h2 id="_idParaDest-95" class="heading-2"><a id="_idTextAnchor102"/>Stable and long-term support releases</h2>
+    <p class="normal">The rapid rate of change of Linux is a good thing in that it brings new features into the mainline code base, but it does not fit very well with the longer life cycle of embedded projects. Kernel developers address this in two ways: stable releases and long-term releases. After the release of a mainline kernel (maintained by Linus Torvalds), it is moved to the <strong class="keyWord">stable</strong> tree (maintained by Greg Kroah-Hartman). Bug fixes are applied to the stable kernel while the mainline kernel begins the next development cycle. </p>
+    <p class="normal">Point releases of the stable kernel are marked by a third number (3.18.1, 3.18.2, and so on). Before version 3, there were four release numbers (2.6.29.1, 2.6.39.2, and so on).</p>
+    <p class="normal">You can get the stable tree by using the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con"><span class="hljs-con-meta">$ </span><span class="hljs-con-built_in">cd</span> ~
+<span class="hljs-con-meta">$ </span>git <span class="hljs-con-built_in">clone</span> git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
+</code></pre>
+    <p class="normal">You can use <code class="inlineCode">git</code> <code class="inlineCode">checkout</code> to get a particular version like 6.6.46:</p>
+    <pre class="programlisting con"><code class="hljs-con"><span class="hljs-con-meta">$ </span><span class="hljs-con-built_in">cd</span> linux-stable
+<span class="hljs-con-meta">$ </span>git checkout v6.6.46
+</code></pre>
+    <p class="normal">The stable kernel is usually updated only until the next mainline release (8 to 12 weeks later) so you will see that there are just one or sometimes two stable kernels at <a href="https://www.kernel.org/"><span class="url">https://www.kernel.org/</span></a>. To cater to those users who would like updates for longer, some kernels are labeled <strong class="keyWord">long-term</strong> and maintained for two or more years. Long-term kernels come with the assurance that any bugs will be found and fixed. There is at least one long-term kernel release each year.</p>
+    <p class="normal">Looking at <a href="https://www.kernel.org/"><span class="url">https://www.kernel.org/</span></a> in August of 2024, there are a total of six long-term kernels: 6.6, 6.1, 5.15, 5.10, 5.4, and 4.19. The oldest has been maintained for nearly six years and is at version 4.19.319. If you are building a product that you will have to maintain for this length of time, then the latest long-term kernel might well be a good choice.</p>
+    <h2 id="_idParaDest-96" class="heading-2"><a id="_idTextAnchor103"/>Vendor support</h2>
+    <p class="normal">In an ideal world, you would be able to download a kernel from <a href="https://www.kernel.org/"><span class="url">https://www.kernel.org/</span></a> and configure it for any device that claims to support Linux. However, that is not always possible. In fact, mainline Linux has solid support for only a small subset of the many devices that can run Linux. You may find support for your board or SoC from independent open source projects like Linaro (<a href="https://www.linaro.org/"><span class="url">https://www.linaro.org/</span></a>) or The Yocto Project (<a href="https://www.yoctoproject.org/"><span class="url">https://www.yoctoproject.org/</span></a>). There are some companies that offer paid third-party support for embedded Linux. But in many cases, you will be obliged to look to the vendor of your SoC or board for a working kernel.</p>
+    <p class="normal">As we know, some vendors are better at supporting Linux than others. My advice at this point is to choose vendors who give good support or, even better, who take the trouble to get their kernel changes into the mainline. Search the Linux kernel mailing list or commit history for recent activity around a candidate SoC or board. When upstream changes are absent from the mainline kernel, the verdict as to whether a vendor offers good support is largely based on word of mouth. Some vendors are notorious for releasing only one kernel code drop before redirecting all their energies toward their newer SoCs.</p>
+    <h2 id="_idParaDest-97" class="heading-2"><a id="_idTextAnchor104"/>Licensing</h2>
+    <p class="normal">The Linux source code is licensed under GPL v2. That means you must make the source code of your kernel available in one of the ways specified in the license.</p>
+    <p class="normal">The actual text of the license for the kernel is in the file <code class="inlineCode">COPYING</code>. It begins with an addendum written by Linus that states that code calling the kernel from user space via the system call interface is not considered a derivative work of the kernel and so is not covered by the license. Hence, there is no problem with proprietary applications running on top of Linux.</p>
+    <p class="normal">However, there is one area of Linux licensing that causes endless confusion and debate: kernel modules. A <strong class="keyWord">kernel module</strong> is simply a piece of code that is dynamically linked with the kernel at runtime thereby extending the functionality of the kernel. The <strong class="keyWord">General Public License </strong>(<strong class="keyWord">GPL</strong>) makes no distinction between static and dynamic linking, so it would appear that the source for kernel modules is covered by the GPL. In the early days of Linux, there were debates about exceptions to this rule, for example, in connection with the <strong class="keyWord">Andrew File System</strong> (<strong class="keyWord">AFS</strong>). This code predates Linux and, therefore (it was argued), is not a derivative work so the license does not apply.</p>
+    <p class="normal">Similar discussions took place over the years with respect to other pieces of code with the result that it is now accepted practice that the GPL does not necessarily apply to kernel modules. This is codified by the kernel <code class="inlineCode">MODULE_LICENSE</code> macro, which may take the value <code class="inlineCode">Proprietary</code> to indicate that it is not released under the GPL. If you plan to use the same arguments yourself, you may want to read through an oft-quoted email thread titled <em class="italic">Linux GPL and binary module exception clause?</em>, which is archived at <a href="https://yarchive.net/comp/linux/gpl_modules.html"><span class="url">https://yarchive.net/comp/linux/gpl_modules.html</span></a>.</p>
+    <p class="normal">The GPL should be considered a good thing because it guarantees that when we are working on embedded projects, we can always get the source code for the kernel. Without it, embedded Linux would be much harder to use and more fragmented.</p>
+    <h2 id="_idParaDest-98" class="heading-2"><a id="_idTextAnchor105"/>Best practices</h2>
+    <p class="normal">That said, to choose a kernel, you need to weigh the benefits of using the latest version against the need for vendor-specific enhancements and driver stability. Also, the rapid Linux development cycle allows features to be integrated quickly, with stable and long-term support releases available for extended maintenance. The long-term kernels, which receive updates for over two years, are ideal for long-term projects. Vendor support is also crucial, so make sure to choose vendors who actively support Linux and contribute to the mainline kernel. Lastly, licensing under GPL v2 ensures access to the kernel source code, which makes it easier to use and maintain for embedded projects.</p>
+    <h1 id="_idParaDest-99" class="heading-1"><a id="_idTextAnchor106"/>Configuring the kernel</h1>
+    <p class="normal">Having decided which kernel to base your image on, the next step is configuring the kernel.</p>
+    <h2 id="_idParaDest-100" class="heading-2"><a id="_idTextAnchor107"/>Getting the source</h2>
+    <p class="normal">All three of the targets used in this book (Raspberry Pi 4, BeaglePlay, and QEMU) are well supported by the mainline kernel. Therefore, it makes sense to use the latest long-term kernel available from <a href="https://www.kernel.org/"><span class="url">https://www.kernel.org/</span></a>, which, at the time of writing, was 6.6.46. When you come to do this for yourself, you should check to see if there is a later version of the 6.6 kernel and use that instead since it will have fixes for bugs found after 6.6.46 was released.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">If there is a later long-term release, you may want to consider using that one. However, be aware that there may have been changes that mean that the following sequence of commands does not work exactly as given.</p>
+    </div>
+    <p class="normal">To fetch and extract a release tarball of the 6.6.46 Linux kernel, use the following:</p>
+    <pre class="programlisting con"><code class="hljs-con"><span class="hljs-con-meta">$ </span><span class="hljs-con-built_in">cd</span> ~
+<span class="hljs-con-meta">$ </span>wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.46.tar.xz
+<span class="hljs-con-meta">$ </span>tar xf linux-6.6.46.tar.xz
+<span class="hljs-con-meta">$ </span><span class="hljs-con-built_in">mv</span> linux-6.6.46 linux-stable
+</code></pre>
+    <p class="normal">To fetch a later version, replace <code class="inlineCode">6.6.46</code> after <code class="inlineCode">linux-</code> with the desired long-term release.</p>
+    <p class="normal">There is a lot of code here. There are over 81,000 files in the 6.6 kernel containing C source code, header files, and assembly code amounting to a total of over 24 million lines of code as measured by the SLOCCount utility. Nevertheless, it is worth knowing the basic layout of the code and approximately where to look for a particular component. The main directories of interest are:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">arch</code>: Contains architecture-specific files. There is one subdirectory per architecture.</li>
+      <li class="bulletList"><code class="inlineCode">Documentation</code>: Contains kernel documentation. Always look here first if you want to find more information about an aspect of Linux.</li>
+      <li class="bulletList"><code class="inlineCode">drivers</code>: Contains device drivers, thousands of them. There is a subdirectory for each type of driver.</li>
+      <li class="bulletList"><code class="inlineCode">fs</code>: Contains filesystem code.</li>
+      <li class="bulletList"><code class="inlineCode">include</code>: Contains kernel header files including those required when building the toolchain.</li>
+      <li class="bulletList"><code class="inlineCode">init</code>: Contains the kernel start-up code.</li>
+      <li class="bulletList"><code class="inlineCode">kernel</code>: Contains core functions including scheduling, locking, timers, power management, and debug/trace code.</li>
+      <li class="bulletList"><code class="inlineCode">mm</code>: Contains memory management.</li>
+      <li class="bulletList"><code class="inlineCode">net</code>: Contains network protocols.</li>
+      <li class="bulletList"><code class="inlineCode">scripts</code>: Contains many useful scripts including the device tree compiler, which I described in <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a>.</li>
+      <li class="bulletList"><code class="inlineCode">tools</code>: Contains many useful tools including the Linux performance counters tool (<code class="inlineCode">perf</code>), which I will describe in <a href="Chapter_16.xhtml#_idTextAnchor538"><em class="italic">Chapter 20</em></a>.</li>
+    </ul>
+    <p class="normal">Over time, you will become familiar with this structure and realize that if you are looking for the serial port code of a particular SoC, you will find it in <code class="inlineCode">drivers/tty/serial</code> and not in <code class="inlineCode">arch/$ARCH/mach-foo</code> because it is a device driver and not something CPU architecture-specific.</p>
+    <h2 id="_idParaDest-101" class="heading-2"><a id="_idTextAnchor108"/>Understanding kernel configuration– Kconfig</h2>
+    <p class="normal">One of the strengths of Linux is the degree to which you can configure the kernel to suit different jobs, from a small, dedicated device such as a smart thermostat to a complex mobile handset. In current versions, there are many thousands of configuration options. Getting the configuration right is a task in itself, but before we get into that, I want to show you how it works so that you can better understand what is going on.</p>
+    <p class="normal">The configuration mechanism is called <code class="inlineCode">Kconfig</code>, and the build system that it integrates with is called <code class="inlineCode">Kbuild</code>. Both are documented in <code class="inlineCode">Documentation/kbuild</code>. <code class="inlineCode">Kconfig</code>/<code class="inlineCode">Kbuild</code> is used in a number of other projects besides the kernel including Crosstool-NG, U-Boot, Barebox, and BusyBox.</p>
+    <p class="normal">The configuration options are declared in a hierarchy of files named <code class="inlineCode">Kconfig</code> using a syntax described in <code class="inlineCode">Documentation/kbuild/kconfig-language.rst</code>.</p>
+    <p class="normal">In Linux, the top-level <code class="inlineCode">Kconfig</code> looks like this:</p>
+    <pre class="programlisting code"><code class="hljs-code">mainmenu "Linux/$(ARCH) $(KERNELVERSION) Kernel Configuration"
+comment "Compiler: $(CC<span class="hljs-emphasis">_</span>VERSION<span class="hljs-emphasis">_</span>TEXT)"
+source "scripts/Kconfig.include"
+&lt;…&gt;
+</code></pre>
+    <p class="normal">And the first line of <code class="inlineCode">arch/Kconfig</code> is:</p>
+    <pre class="programlisting code"><code class="hljs-code">source "arch/$(SRCARCH)/Kconfig"
+</code></pre>
+    <p class="normal">That line includes the architecture-dependent configuration file, which sources other <code class="inlineCode">Kconfig</code> files depending on which options are enabled.</p>
+    <p class="normal">Having the architecture play such a prominent role has three implications:</p>
+    <ul>
+      <li class="bulletList">First, you must specify an architecture when configuring Linux by setting <code class="inlineCode">ARCH=&lt;architecture&gt;</code>; otherwise, it will default to the local machine architecture.</li>
+      <li class="bulletList">Second, the value you set for <code class="inlineCode">ARCH</code> usually determines the value of <code class="inlineCode">SRCARCH</code> so you rarely need to set <code class="inlineCode">SRCARCH</code> explicitly.</li>
+      <li class="bulletList">Third, the layout of the top-level menu is different for each architecture.</li>
+    </ul>
+    <p class="normal">The value you put into <code class="inlineCode">ARCH</code> is one of the subdirectories you find in the directory <code class="inlineCode">arch</code> with the oddity that <code class="inlineCode">ARCH=i386</code> and <code class="inlineCode">ARCH=x86_64</code> both source <code class="inlineCode">arch/x86/Kconfig</code>.</p>
+    <p class="normal">The <code class="inlineCode">Kconfig</code> files consist largely of menus delineated by the <code class="inlineCode">menu</code> and <code class="inlineCode">endmenu</code> keywords. Menu items are marked<a id="_idIndexMarker256"/> by the keyword <code class="inlineCode">config</code>.</p>
+    <p class="normal">Here is an example taken from <code class="inlineCode">drivers/char/Kconfig</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">menu "Character devices"
+&lt;…&gt;
+config DEVMEM
+    bool "/dev/mem virtual device support"
+    default y
+    help
+      Say Y here if you want to support the /dev/mem device.
+      The /dev/mem device is used to access areas of physical memory.
+      When in doubt, say "Y".
+&lt;…&gt;
+endmenu
+</code></pre>
+    <p class="normal">The parameter following <code class="inlineCode">config</code> names a variable, which, in this case, is <code class="inlineCode">DEVMEM</code>. Since this option is a <code class="inlineCode">bool</code> (Boolean), it can only have two values: if it is enabled, it is assigned <code class="inlineCode">y</code>, and if it is not enabled, the variable is not defined at all. The name of the menu item that is displayed on the screen is the string following the <code class="inlineCode">bool</code> keyword.</p>
+    <p class="normal">This configuration item, along with all the others, is stored in a file named <code class="inlineCode">.config</code>.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">The leading dot (<code class="inlineCode">.</code>) in <code class="inlineCode">.config</code> means that it is a hidden file that will not be shown by the <code class="inlineCode">ls</code> command unless you type <code class="inlineCode">ls -a</code> to show all files.</p>
+    </div>
+    <p class="normal">The line corresponding to this configuration item reads:</p>
+    <pre class="programlisting code"><code class="hljs-code">CONFIG_DEVMEM=y
+</code></pre>
+    <p class="normal">There are several other data types in addition to <code class="inlineCode">bool</code>. Here is the complete list:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">bool</code>: Either <code class="inlineCode">y</code> or not defined.</li>
+      <li class="bulletList"><code class="inlineCode">tristate</code>: Used where a feature can be built as a kernel module or built into the main kernel image. The values are <code class="inlineCode">m</code> for a module, <code class="inlineCode">y</code> to be built in, and not defined if the feature is not enabled.</li>
+      <li class="bulletList"><code class="inlineCode">int</code>: An integer value using decimal notation.</li>
+      <li class="bulletList"><code class="inlineCode">hex</code>: An unsigned integer value using hexadecimal notation.</li>
+      <li class="bulletList"><code class="inlineCode">string</code>: A string value.</li>
+    </ul>
+    <p class="normal">There may be dependencies between items expressed by the <code class="inlineCode">depends on</code> construct, as shown here:</p>
+    <pre class="programlisting code"><code class="hljs-code">config MTD_CMDLINE_PARTS
+    tristate "Command line partition table parsing"
+    depends on MTD
+</code></pre>
+    <p class="normal">If <code class="inlineCode">CONFIG_MTD</code> has not been enabled elsewhere, this menu option is not shown and so cannot be selected.</p>
+    <p class="normal">There are also reverse dependencies. The <code class="inlineCode">select</code> keyword enables other options if this one is enabled. The <code class="inlineCode">Kconfig</code> file in <code class="inlineCode">arch/$ARCH</code> has numerous <code class="inlineCode">select</code> statements that enable features specific to the architecture, as seen here for Arm:</p>
+    <pre class="programlisting code"><code class="hljs-code">config ARM
+    bool
+    default y
+    select ARCH_CLOCKSOURCE_DATA
+    select ARCH_HAS_DEVMEM_IS_ALLOWED
+&lt;…&gt;
+</code></pre>
+    <p class="normal">By selecting <code class="inlineCode">ARCH_CLOCKSOURCE_DATA</code> and <code class="inlineCode">ARCH_HAS_DEVMEM_IS_ALLOWED</code>, we are assigning a value of <code class="inlineCode">y</code> to these variables so that these features are built statically into the kernel.</p>
+    <p class="normal">There are several configuration utilities that can read the <code class="inlineCode">Kconfig</code> files and produce a <code class="inlineCode">.config</code> file. Some of them display the menus on the screen and allow you to make choices interactively. <code class="inlineCode">menuconfig</code> is probably the one most people are familiar with but there are also <code class="inlineCode">xconfig</code> and <code class="inlineCode">gconfig</code>.</p>
+    <p class="normal">To use <code class="inlineCode">menuconfig</code>, you first need to have <code class="inlineCode">ncurses</code>, <code class="inlineCode">flex</code>, and <code class="inlineCode">bison</code> installed. The following command installs all these prerequisites on Ubuntu:</p>
+    <pre class="programlisting con"><code class="hljs-con"><span class="hljs-con-meta">$ </span>sudo apt install libncurses5-dev flex bison
+</code></pre>
+    <p class="normal">You launch <code class="inlineCode">menuconfig</code> via the <code class="inlineCode">make</code> command, remembering that, in the case of the kernel, you need to supply an architecture, as illustrated here:</p>
+    <pre class="programlisting con"><code class="hljs-con"><span class="hljs-con-meta">$ </span><span class="hljs-con-built_in">cd</span> ~
+<span class="hljs-con-meta">$ export PATH=${HOME}/aarch64--glibc--stable-2024.02-1/bin/:$PATH</span>
+<span class="hljs-con-meta">$ export CROSS_COMPILE=aarch64-buildroot-linux-gnu-</span>
+<span class="hljs-con-meta">$ </span><span class="hljs-con-built_in">cd</span> linux-stable
+<span class="hljs-con-meta">$ </span><span class="hljs-con-built_in">mkdir</span> ../build_arm64
+<span class="hljs-con-meta">$ </span>make ARCH=arm64 menuconfig O=../build_arm64
+</code></pre>
+    <p class="normal">Make sure that your <code class="inlineCode">PATH</code> variable points to the 64-bit toolchain you downloaded back in <a href="Chapter_01.xhtml#_idTextAnchor028"><em class="italic">Chapter 2</em></a>.</p>
+    <p class="normal">Here you can see <code class="inlineCode">menuconfig</code> with the <code class="inlineCode">DEVMEM</code> config option highlighted previously:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_04_02.png" alt="Figure 4.2 − Selecting DEVMEM" width="1280" height="800"/></figure>
+    <p class="packt_figref">Figure 4.2 − Selecting DEVMEM</p>
+    <p class="normal">The star (<code class="inlineCode">*</code>) to the left of an item means that the driver has been selected to be built statically into the kernel. If it is an <code class="inlineCode">M</code>, then it has been selected to be built as a kernel module for insertion into the kernel at runtime.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">You often see instructions like enable <code class="inlineCode">CONFIG_BLK_DEV_INITRD</code> but, with so many menus to browse through, it can take a while to find the place where that configuration is set. All configuration editors have a search function. You can access it in <code class="inlineCode">menuconfig</code> by pressing the forward slash key <em class="italic">/</em>. In <code class="inlineCode">xconfig</code>, it is in the <strong class="screenText">Edit</strong> menu but make sure you leave off the <code class="inlineCode">CONFIG_</code> part of the configuration item you are searching for.</p>
+    </div>
+    <p class="normal">With so many things to configure, it is unreasonable to start with a clean sheet each time you want to build a kernel, so there are a set of known working configuration files in <code class="inlineCode">arch/$ARCH/configs</code>, each containing suitable configuration values for a single SoC or a group of SoCs.</p>
+    <p class="normal">You can select one with the <code class="inlineCode">make &lt;configuration file name&gt;</code> command. For example, to configure Linux to run on a wide range of 64-bit Arm SoCs, you would type:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 defconfig O=../build_arm64
+</code></pre>
+    <p class="normal">This is a generic kernel that runs on various boards. For a more specialized application, like when using a vendor-supplied kernel, the default configuration file is part of the board support package. You will need to find out which one to use before you can build the kernel.</p>
+    <p class="normal">There is another useful configuration target named <code class="inlineCode">oldconfig</code>. You use it when moving a configuration to a new kernel version. This target takes an existing <code class="inlineCode">.config</code> file and prompts you with questions about new configuration options. Copy <code class="inlineCode">.config</code> from the old kernel to the new source directory and run the <code class="inlineCode">make ARCH=arm64 oldconfig</code> command to bring it up to date.</p>
+    <p class="normal">The <code class="inlineCode">oldconfig</code> target can also be used to validate a <code class="inlineCode">.config</code> file that you have edited manually (ignoring the text <em class="italic">Automatically generated file; DO NOT EDIT</em> that occurs at the top).</p>
+    <p class="normal">If you do make changes to the configuration, then the modified <code class="inlineCode">.config</code> file becomes part of your board support package and needs to be placed under source code control.</p>
+    <p class="normal">When you start the kernel build, a header file named <code class="inlineCode">include/generated/autoconf.h</code> is generated. This header file contains a <code class="inlineCode">#define</code> for each configuration value so that it can be included in the kernel source.</p>
+    <p class="normal">Now that we have settled on a kernel and learned how to configure it, we will identify it.</p>
+    <h2 id="_idParaDest-102" class="heading-2"><a id="_idTextAnchor109"/>Using LOCALVERSION to identify your kernel</h2>
+    <p class="normal">You can discover the kernel <a id="_idIndexMarker257"/>version and release that you have built using the <code class="inlineCode">make kernelversion</code> and <code class="inlineCode">make kernelrelease</code> targets:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 kernelversion
+<a id="_idTextAnchor110"/>6.6.46
+$ make ARCH=arm64 kernelrelease O=../build_arm64
+6.6.46
+</code></pre>
+    <p class="normal">This is reported at runtime through the <code class="inlineCode">uname</code> command and is also used in naming the directory where kernel modules are stored.</p>
+    <p class="normal">If you change the configuration from the default, it is advisable to append your version information, which you can configure by setting <code class="inlineCode">CONFIG_LOCALVERSION</code> using <code class="inlineCode">menuconfig</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 menuconfig O=../build_arm64
+</code></pre>
+    <p class="normal">For example, if I wanted to mark the kernel I am building with the identifier <code class="inlineCode">meld</code> and version <code class="inlineCode">1.0</code>, then I would define the local version in <code class="inlineCode">menuconfig</code> like this:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_04_03.png" alt="Figure 4.3 – Appending to kernel release version" width="1422" height="889"/></figure>
+    <p class="packt_figref">Figure 4.3 – Appending to kernel release version</p>
+    <p class="normal">Exit out of <code class="inlineCode">menuconfig</code> and choose <strong class="screenText">Yes</strong> when asked to save your new configuration.</p>
+    <p class="normal">Run <code class="inlineCode">make prepare</code> to refresh the <code class="inlineCode">Makefile</code> with the new <code class="inlineCode">kernelrelease</code> version:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 prepare O=../build_arm64
+</code></pre>
+    <p class="normal">Running <code class="inlineCode">make kernelversion</code> produces the same output as before, but if I run <code class="inlineCode">make kernelrelease</code> now, I see:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 kernelrelease O=../build_arm64
+6.6.46-meld-v1.0
+</code></pre>
+    <p class="normal">That was a pleasant detour into kernel versioning, but now let’s get back to the business of configuring our kernel for compilation.</p>
+    <h2 id="_idParaDest-103" class="heading-2"><a id="_idTextAnchor111"/>When to use kernel modules</h2>
+    <p class="normal">I have mentioned kernel modules several times already. Desktop Linux distributions use them extensively so that the correct device and kernel functions can be loaded at runtime depending on the hardware detected and features required. Without them, every single driver and feature would have to be statically linked into the kernel, making it infeasibly large.</p>
+    <p class="normal">On the other hand, with embedded devices, the hardware and kernel configuration is usually known at the time the kernel is built; therefore, modules are not so useful. In fact, they cause a problem because they create a version dependency between the kernel and the root filesystem, which can cause boot failures if one is updated but not the other. Consequently, it is quite common for embedded kernels to be built without any modules at all.</p>
+    <p class="normal">Here are a few cases where kernel modules are a good idea in embedded systems:</p>
+    <ul>
+      <li class="bulletList">When you have proprietary modules, for the licensing reasons given in the preceding section.</li>
+      <li class="bulletList">To reduce boot time by deferring the loading of non-essential drivers.</li>
+      <li class="bulletList">When there are several drivers to potentially load and it would take up too much memory to compile them statically. For example, you have a USB interface that supports a range of devices. This is essentially the same argument used in desktop distributions.</li>
+      <li class="bulletList">Next, let’s learn how to compile a kernel image with or without kernel modules using <code class="inlineCode">Kbuild</code>.</li>
+    </ul>
+    <h1 id="_idParaDest-104" class="heading-1"><a id="_idTextAnchor112"/>Compiling with Kbuild</h1>
+    <p class="normal">The kernel build system (<code class="inlineCode">Kbuild</code>) is a set of <code class="inlineCode">make</code> scripts that take the configuration information from the <code class="inlineCode">.config</code> file, work out the dependencies, and compile everything necessary to produce a kernel image. This kernel image contains all the statically linked components, an optional device tree binary, and any kernel modules. The dependencies are expressed within Makefiles inside each directory with buildable components. For instance, the following two lines are taken from <code class="inlineCode">drivers/char/Makefile</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">obj-y += mem.o random.o
+obj-$(CONFIG_TTY_PRINTK) += ttyprintk.o
+</code></pre>
+    <p class="normal">The <code class="inlineCode">obj-y</code> rule unconditionally compiles a file to produce the target, so <code class="inlineCode">mem.c</code> and <code class="inlineCode">random.c</code> are always part of the kernel. In the second line, <code class="inlineCode">ttyprintk.c</code> is dependent on a configuration parameter. If <code class="inlineCode">CONFIG_TTY_PRINTK</code> is <code class="inlineCode">y</code>, then it is compiled as a built-in. If it is <code class="inlineCode">m</code>, then it is built as a module. If the parameter is undefined, then it is not compiled at all.</p>
+    <p class="normal">For most targets, just typing <code class="inlineCode">make</code> (with the appropriate <code class="inlineCode">ARCH</code> and <code class="inlineCode">CROSS_COMPILE</code>) will do the job, but it is instructive to take it one step at a time. See the last section of <a href="Chapter_01.xhtml#_idTextAnchor028"><em class="italic">Chapter 2</em></a> for the meaning of the <code class="inlineCode">CROSS_COMPILE</code> <code class="inlineCode">make</code> variable.</p>
+    <h2 id="_idParaDest-105" class="heading-2"><a id="_idTextAnchor113"/>Finding out which kernel target to build</h2>
+    <p class="normal">To build a kernel <a id="_idIndexMarker258"/>image, you need to know what your bootloader expects. This is a rough guide:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">U-Boot</strong>: Can load a compressed <code class="inlineCode">Image.gz</code> file for 64-bit Arm. Can also load a self-extracting <code class="inlineCode">zImage</code> file for 32-bit Arm using<a id="_idIndexMarker259"/> the <code class="inlineCode">bootz</code> command.</li>
+      <li class="bulletList"><strong class="keyWord">x86 targets</strong>: Require a <code class="inlineCode">bzImage</code> file.</li>
+      <li class="bulletList"><strong class="keyWord">Most other bootloaders</strong>: Require a <code class="inlineCode">zImage</code> file.</li>
+    </ul>
+    <p class="normal">Here is an example of building an <code class="inlineCode">Image.gz</code> file for 64-bit Arm:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo apt install libssl-dev
+$ PATH=~/aarch64--glibc--stable-2024.02-1/bin/:$PATH
+$ cd ~
+$ cd linux-stable
+$ make -j&lt;n&gt; ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- Image.gz O=../build_arm64
+</code></pre>
+    <p class="normal">Make sure that your <code class="inlineCode">PATH</code> variable points to the 64-bit toolchain you downloaded back in <a href="Chapter_01.xhtml#_idTextAnchor028"><em class="italic">Chapter 2</em></a>.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">The first time you run <code class="inlineCode">make</code> on the kernel source tree, you may be prompted to include or omit various features, options, and plugins. Most of these features and options offer increased security so there is no harm in adding them. There is one notable exception. When prompted for GCC plugins, make sure to enter <code class="inlineCode">n</code> for no as shown:</p>
+      <pre class="programlisting con"><code class="hljs-con">*
+* GCC plugins
+*
+GCC plugins (GCC_PLUGINS) [Y/n/?] (NEW) n
+</code></pre>
+      <p class="normal">Otherwise, the build will fail because <code class="inlineCode">make</code> cannot find <code class="inlineCode">g++</code>.</p>
+    </div>
+    <p class="normal">Remember to replace <code class="inlineCode">&lt;n&gt;</code> after <code class="inlineCode">make -j</code> with the number of CPU cores available on your host machine to speed up your build.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">The <code class="inlineCode">-j&lt;n&gt;</code> option tells <code class="inlineCode">make</code> how many jobs to run in parallel, which reduces the time it takes to build. <code class="inlineCode">make -j4</code> runs four jobs. A rough guide is to run as many jobs as you have CPU cores.</p>
+    </div>
+    <p class="normal">The AArch64 kernel does not currently provide a decompressor and, therefore, requires decompression (<code class="inlineCode">gzip</code>, etc.) to be performed by the bootloader if a compressed <code class="inlineCode">Image</code> target (e.g., <code class="inlineCode">Image.gz</code>) is used.</p>
+    <p class="normal">Regardless of which kernel image format we target, the same two build artifacts (<code class="inlineCode">vmlinux</code> and <code class="inlineCode">System.map</code>) are first created before the bootable image is generated.</p>
+    <h2 id="_idParaDest-106" class="heading-2"><a id="_idTextAnchor114"/>Build artifacts</h2>
+    <p class="normal">A kernel build generates two files in the top-level directory: <code class="inlineCode">vmlinux</code> and <code class="inlineCode">System.map</code>. The first, <code class="inlineCode">vmlinux</code>, is the kernel as an ELF binary. If you have compiled your kernel with debug enabled (<code class="inlineCode">CONFIG_DEBUG_INFO=y</code>), it will contain debug symbols that can be used with debuggers like <code class="inlineCode">kgdb</code>. You can also use other ELF binary tools, such as <code class="inlineCode">size</code> to measure the length of each segment (<code class="inlineCode">text</code>, <code class="inlineCode">data</code>, and <code class="inlineCode">bss</code>) that comprises the <code class="inlineCode">vmlinux</code> executable:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cd build_arm64
+$ aarch64-buildroot-linux-gnu-size vmlinux
+   text    data     bss     dec     hex filename
+25923719        15631632         620032 42175383        2838b97 vmlinux
+</code></pre>
+    <p class="normal">A program like the kernel is divided into segments in memory. The <code class="inlineCode">text</code> segment contains executable instructions (code). The <code class="inlineCode">data</code> segment contains initialized global and static variables. The <code class="inlineCode">bss</code> segment contains uninitialized global and static variables. The <code class="inlineCode">dec</code> and <code class="inlineCode">hex</code> values are the total file size in decimal and hexadecimal, respectively.</p>
+    <p class="normal"><code class="inlineCode">System.map</code> contains the symbol table in human-readable form.</p>
+    <p class="normal">Most bootloaders cannot handle ELF code directly. There is a further stage of processing that takes <code class="inlineCode">vmlinux</code> and places binaries that are suitable for the various bootloaders in <code class="inlineCode">arch/$ARCH/boot</code>:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">Image</code>: <code class="inlineCode">vmlinux</code> converted to raw binary format.</li>
+      <li class="bulletList"><code class="inlineCode">zImage</code>: For the PowerPC architecture, this is just a compressed version of <code class="inlineCode">Image</code>, implying that the bootloader must do the decompression. For all other architectures, the compressed <code class="inlineCode">Image</code> is piggybacked onto a stub of code that decompresses and relocates it.</li>
+      <li class="bulletList"><code class="inlineCode">uImage</code>: <code class="inlineCode">zImage</code> plus a 64-byte U-Boot header.</li>
+    </ul>
+    <p class="normal">While the build is running, you will see a summary of the commands being executed:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make -j&lt;n&gt; ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- Image.gz O=../build_arm64
+&lt;…&gt;
+  CC      scripts/mod/empty.o
+  HOSTCC  scripts/mod/mk_elfconfig
+  CC      scripts/mod/devicetable-offsets.s
+  UPD     scripts/mod/devicetable-offsets.h
+  MKELF   scripts/mod/elfconfig.h
+  HOSTCC  scripts/mod/modpost.o
+  HOSTCC  scripts/mod/file2alias.o
+  HOSTCC  scripts/mod/sumversion.o
+&lt;…&gt;
+</code></pre>
+    <p class="normal">When the kernel build fails, it is sometimes useful to see the actual commands being executed. To do that, add <code class="inlineCode">V=1</code> to the command line:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make -j&lt;n&gt; ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- V=1 Image.gz O=../build_arm64
+</code></pre>
+    <p class="normal">In this section, we learned how <code class="inlineCode">Kbuild</code> takes a precompiled <code class="inlineCode">vmlinux</code> ELF binary and converts it into a bootable kernel image. Next, we will look at how we can compile device trees.</p>
+    <h2 id="_idParaDest-107" class="heading-2"><a id="_idTextAnchor115"/>Compiling device trees</h2>
+    <p class="normal">The next step is to<a id="_idIndexMarker260"/> build the device tree, or trees if you have a multi-platform build. The <code class="inlineCode">dtbs</code> target builds device trees according to the rules in <code class="inlineCode">arch/$ARCH/boot/dts/Makefile</code> using the device tree source files in that directory. The following is a snippet from building the <code class="inlineCode">dtbs</code> target for <code class="inlineCode">arch/arm64/configs/defconfig</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 dtbs CROSS_COMPILE=aarch64-buildroot-linux-gnu-  O=../build_arm64
+  &lt;…&gt;
+  DTC     arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-phyboard-lyra-rdk.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-sk.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-verdin-nonwifi-dahlia.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-verdin-nonwifi-dev.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-verdin-nonwifi-yavia.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-verdin-wifi-dahlia.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-verdin-wifi-dev.dtb
+  DTC     arch/arm64/boot/dts/ti/k3-am625-verdin-wifi-yavia.dtb
+  &lt;…&gt;
+</code></pre>
+    <p class="normal">The compiled <code class="inlineCode">.dtb</code> files are generated in the <code class="inlineCode">../build_arm64</code> output directory.</p>
+    <h2 id="_idParaDest-108" class="heading-2"><a id="_idTextAnchor116"/>Compiling modules</h2>
+    <p class="normal">If you have <a id="_idIndexMarker261"/>configured some features to be built as modules, then you can build them separately using the <code class="inlineCode">modules</code> target:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make -j&lt;n&gt; ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- modules O=../build_arm64
+</code></pre>
+    <p class="normal">Replace <code class="inlineCode">&lt;n&gt;</code> after <code class="inlineCode">make -j</code> with the number of CPU cores available on your host machine to speed up your build.</p>
+    <p class="normal">The compiled modules have a <code class="inlineCode">.ko</code> suffix and are generated in the same directory as the source code, meaning that they are scattered all around the kernel source tree. Finding them is a little tricky, but you can use the <code class="inlineCode">modules_install</code> target to install them in the right place. </p>
+    <p class="normal">The default location is <code class="inlineCode">/lib/modules</code> in your development system, which is almost certainly not what you want. To install <a id="_idIndexMarker262"/>them into the staging area of your root filesystem, provide the path using <code class="inlineCode">INSTALL_MOD_PATH</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ mkdir ~/rootfs
+$ make -j&lt;n&gt; ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- INSTALL_MOD_PATH=$HOME/rootfs modules_install O=../build_arm64
+</code></pre>
+    <p class="normal">Kernel modules are put into the directory <code class="inlineCode">/lib/modules/&lt;kernel version&gt;</code> relative to the root of the filesystem.</p>
+    <h2 id="_idParaDest-109" class="heading-2"><a id="_idTextAnchor117"/>Cleaning kernel sources</h2>
+    <p class="normal">There are three make targets for cleaning the kernel source tree:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">clean</strong>: Removes object files and most intermediates.</li>
+      <li class="bulletList"><strong class="keyWord">mrproper</strong>: Removes all intermediate files including the <code class="inlineCode">.config</code> file. Use this target to return the source tree to the state it was in immediately after cloning or extracting the source code. Mr. Proper is a cleaning product common in some parts of the world. The purpose of <code class="inlineCode">make mrproper</code> is to give the kernel sources a really good scrub.</li>
+      <li class="bulletList"><strong class="keyWord">distclean</strong>: This is the same as <code class="inlineCode">mrproper</code> but also deletes editor backup files, patch files, and other artifacts of software development.</li>
+    </ul>
+    <h1 id="_idParaDest-110" class="heading-1"><a id="_idTextAnchor118"/>Building and booting the kernel</h1>
+    <p class="normal">Building and booting Linux is highly device-dependent. In this section, I will show you how it works for the Raspberry Pi 4, BeaglePlay, and QEMU. For other target boards, you must consult the information from the vendor or from the community project if there is one.</p>
+    <h2 id="_idParaDest-111" class="heading-2"><a id="_idTextAnchor119"/>Building a kernel for the Raspberry Pi 4</h2>
+    <p class="normal">Even though there is support for the Raspberry Pi 4 in the mainline kernel, I prefer to use the Raspberry Pi Foundation’s fork of Linux (<a href="https://github.com/raspberrypi/linux"><span class="url">https://github.com/raspberrypi/linux</span></a>) for stability. 6.6 was the latest long-term kernel supported by that fork in August 2024, so that is the version we shall build.</p>
+    <p class="normal">Since the Raspberry Pi 4 has a 64-bit quad-core Arm Cortex-A72 CPU, we will use the Bootlin toolchain from <a href="Chapter_01.xhtml#_idTextAnchor028"><em class="italic">Chapter 2</em></a><em class="italic">,</em> to cross-compile a 64-bit kernel for it.</p>
+    <p class="normal">Install a package we need to build the kernel:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo apt install libssl-dev
+</code></pre>
+    <p class="normal">Now that you have the requisite<a id="_idIndexMarker263"/> toolchain and packages installed, clone the <code class="inlineCode">6.6.y</code> branch of the kernel repo one-level deep to a directory named <code class="inlineCode">linux-rpi</code> and export some prebuilt binaries to a <code class="inlineCode">boot</code> subdirectory:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ git clone --depth=1 -b rpi-6.6.y https://github.com/raspberrypi/linux.git linux-rpi
+$ git clone --depth=1 -b 1.20240529 https://github.com/raspberrypi/firmware.git firmware-rpi
+$ mv firmware-rpi/boot .
+$ rm -rf firmware-rpi
+$ rm boot/kernel*
+$ rm boot/*.dtb
+$ rm boot/overlays/*.dtbo
+</code></pre>
+    <p class="normal">The <code class="inlineCode">--depth=n</code> argument instructs Git to fetch only the last <code class="inlineCode">n</code> commits when cloning.</p>
+    <p class="normal">Navigate to the newly cloned <code class="inlineCode">linux-rpi</code> directory and build the kernel:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ PATH=~/aarch64--glibc--stable-2024.02-1/bin/:$PATH
+$ cd ~
+$ cd linux-rpi
+$ make ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- bcm2711_defconfig O=../build_rpi
+$ make -j&lt;n&gt; ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- O=../build_rpi
+</code></pre>
+    <p class="normal">Replace <code class="inlineCode">&lt;n&gt;</code> after <code class="inlineCode">make -j</code> with the number of CPU cores available on your host machine to speed up your build.</p>
+    <p class="normal">When the build finishes, copy the kernel image, device tree blobs, and boot parameters to the boot subdirectory:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cp ../build_rpi/arch/arm64/boot/Image ../boot/kernel8.img<a id="_idTextAnchor120"/><a id="_idTextAnchor121"/>
+$ cp ../build_rpi/arch/arm64/boot/dts/overlays/*.dtbo ../boot/overlays/
+$ cp ../build_rpi/arch/arm64/boot/dts/broadcom/*.dtb ../boot/
+$ cat &lt;&lt; EOF &gt; ../boot/config.txt
+enable_uart=1
+arm_64bit=1
+EOF
+$ cat &lt;&lt; EOF &gt; ../boot/cmdline.txt
+console=serial0,115200 console=tty1 root=/dev/mmcblk0p2 rootwait
+EOF
+</code></pre>
+    <p class="normal">The preceding commands are all found in the script <code class="inlineCode">MELD/Chapter04/build-linux-rpi4.sh</code>. Note that the kernel command line written to <code class="inlineCode">cmdline.txt</code> must be all on one line. Let’s break these steps down into stages:</p>
+    <ol>
+      <li class="numberedList" value="1">Clone the <code class="inlineCode">rpi-6.6.y</code> branch of the Raspberry Pi Foundation’s kernel fork into a <code class="inlineCode">linux-rpi</code> directory.</li>
+      <li class="numberedList">Clone the <code class="inlineCode">1.20240529</code> tag of the Raspberry Pi Foundation’s firmware rep into a <code class="inlineCode">firmware-rpi</code> directory.</li>
+      <li class="numberedList">Move the <code class="inlineCode">boot</code> subdirectory from the Raspberry Pi Foundation’s <code class="inlineCode">firmware</code> repo to a <code class="inlineCode">boot</code> directory.</li>
+      <li class="numberedList">Delete the existing kernel image[s], device tree blobs, and device tree overlays from the <code class="inlineCode">boot</code> directory.</li>
+      <li class="numberedList">From the <code class="inlineCode">linux-rpi</code> directory, build the 64-bit kernel, modules, and device tree for the Raspberry Pi 4.</li>
+      <li class="numberedList">Copy the newly-built kernel image, device tree blobs, and device tree overlays from ./build_rpi/<code class="inlineCode">arch/arm64/boot</code> to the <code class="inlineCode">boot</code> directory.</li>
+      <li class="numberedList">Write <code class="inlineCode">config.txt</code> and <code class="inlineCode">cmdline.txt</code> files out to the <code class="inlineCode">boot</code> directory for the Raspberry Pi 4’s bootloader to read and pass to the kernel.</li>
+    </ol>
+    <p class="normal">Let’s look at the settings in <code class="inlineCode">config.txt</code>. The <code class="inlineCode">enable_uart=1</code> line enables the serial console during boot, which is disabled by default. The <code class="inlineCode">arm_64bit=1</code> line instructs the Raspberry Pi 4’s bootloader to start the CPU in 64-bit mode and load the kernel image from a file named <code class="inlineCode">kernel8.img</code>.</p>
+    <p class="normal">Now, let’s look at <code class="inlineCode">cmdline.txt</code>. The <code class="inlineCode">console=serial0,115200</code> and <code class="inlineCode">console=tty1</code> kernel command-line parameters instruct the kernel to output log messages to the serial console as our kernel boots.</p>
+    <h2 id="_idParaDest-112" class="heading-2"><a id="_idTextAnchor122"/>Booting the Raspberry Pi 4</h2>
+    <p class="normal">Raspberry Pi devices use a proprietary bootloader provided by Broadcom instead of U-Boot. Unlike previous Raspberry Pi models, the Raspberry Pi 4’s bootloader resides on an onboard SPI EEPROM rather than on a microSD card. We still need to put the kernel image and device tree blobs for the Raspberry Pi 4 on a microSD to boot our 64-bit kernel.</p>
+    <p class="normal">Before proceeding, you need a microSD card with a FAT32 <code class="inlineCode">boot</code> partition large enough to hold the necessary kernel build artifacts. The <code class="inlineCode">boot</code> partition needs to be the first partition on the microSD card. A partition size of 1 GB is sufficient. </p>
+    <p class="normal">For guidance on connecting a USB-to-TTL serial cable to the Raspberry Pi 4, see <a href="https://learn.adafruit.com/adafruits-raspberry-pi-lesson-5-using-a-console-cable/connect-the-lead"><span class="url">https://learn.adafruit.com/adafruits-raspberry-pi-lesson-5-using-a-console-cable/connect-the-lead</span></a>.</p>
+    <p class="normal">To prepare a microSD card with your newly built kernel image and boot it on your Raspberry Pi 4:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the <code class="inlineCode">boot</code> directory:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+</code></pre>
+      </li>
+      <li class="numberedList">Next, insert the microSD card into your card reader and copy the entire contents of the <code class="inlineCode">boot</code> directory to the <code class="inlineCode">boot</code> partition.</li>
+      <li class="numberedList">Unmount the card and insert it into the Raspberry Pi 4.</li>
+      <li class="numberedList">Connect your USB-to-TTL serial cable to the GND, TXD, and RXD pins on the 40-pin GPIO header.</li>
+      <li class="numberedList">Start a terminal emulator like <code class="inlineCode">gtkterm</code>.</li>
+      <li class="numberedList">Lastly, power on the Raspberry Pi 4.</li>
+    </ol>
+    <p class="normal">You should see the following output on the serial console:</p>
+    <pre class="programlisting con"><code class="hljs-con">[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x410fd083]
+[    0.000000] Linux version 6.6.45-v8+ (frank@frank-nuc) (aarch64-buildroot-linux-gnu-gcc.br_real (Buildroot 2021.11-11272-ge2962af) 12.3.0, GNU ld (GNU Binutils) 2.41) #1 SMP PREEMPT Mon Aug 19 08:51:43 PDT 2024
+[    0.000000] KASLR enabled
+[    0.000000] random: crng init done
+[    0.000000] Machine model: Raspberry Pi 4 Model B Rev 1.1
+[    0.000000] efi: UEFI not found.
+[    0.000000] Reserved memory: created CMA memory pool at 0x000000002ac00000, size 64 MiB
+&lt;…&gt;
+</code></pre>
+    <p class="normal">The sequence will end in a kernel panic because the kernel cannot locate a root filesystem on the microSD card. I’ll explain what a kernel panic is later in this chapter.</p>
+    <h2 id="_idParaDest-113" class="heading-2"><a id="_idTextAnchor123"/>Building a kernel for the BeaglePlay</h2>
+    <p class="normal">Here is the sequence of commands to build a kernel, modules, and device tree for the BeaglePlay:</p>
+    <ol>
+      <li class="numberedList" value="1">First, add the 64-bit Arm toolchain to your <code class="inlineCode">PATH</code> if you haven’t already:
+        <pre class="programlisting con"><code class="hljs-con">$ PATH=~/aarch64--glibc--stable-2024.02-1/bin/:$PATH
+</code></pre>
+      </li>
+      <li class="numberedList">Next, navigate back to the mainline Linux source tree:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cd linux-stable
+$ mkdir ../build_beagleplay
+</code></pre>
+      </li>
+      <li class="numberedList">Set the <code class="inlineCode">ARCH</code> and <code class="inlineCode">CROSS_COMPILE</code> environment variables for 64-bit Arm:
+        <pre class="programlisting con"><code class="hljs-con">$ export ARCH=arm64
+$ export CROSS_COMPILE=aarch64-buildroot-linux-gnu-
+</code></pre>
+      </li>
+      <li class="numberedList">Run <code class="inlineCode">make defconfig</code> to configure a kernel suitable for most 64-bit Arm SoCs:
+        <pre class="programlisting con"><code class="hljs-con">$ make defconfig O=../build_beagleplay
+</code></pre>
+      </li>
+      <li class="numberedList">Run <code class="inlineCode">make menuconfig</code> to continue configuring the kernel:
+        <pre class="programlisting con"><code class="hljs-con">$ make menuconfig O=../build_beagleplay
+</code></pre>
+      </li>
+      <li class="numberedList">Drill down into the <strong class="screenText">General architecture-dependent options</strong> submenu.</li>
+      <li class="numberedList">Deselect <strong class="screenText">GCC plugins</strong> if it is set.</li>
+      <li class="numberedList">Back out of the <strong class="screenText">General architecture-dependent options</strong> submenu.</li>
+      <li class="numberedList">Drill down into the <strong class="screenText">Platform selection</strong> submenu.</li>
+      <li class="numberedList">Deselect support for all SoCs except for <strong class="screenText">Texas Instruments Inc. K3 multicore SoC architecture</strong>.</li>
+      <li class="numberedList">Back out of the <strong class="screenText">Platform selection</strong> submenu.</li>
+      <li class="numberedList">Drill down into the <strong class="screenText">Device drivers</strong> | <strong class="screenText">Graphics support</strong> submenu</li>
+      <li class="numberedList">Deselect <strong class="screenText">Direct Rendering Manager</strong>.</li>
+      <li class="numberedList">Back out of the <strong class="screenText">Graphics support</strong> and <strong class="screenText">Device drivers</strong> submenus.</li>
+      <li class="numberedList">Exit out of <code class="inlineCode">menuconfig</code> and choose <strong class="screenText">Yes</strong> when asked to save your new configuration.</li>
+      <li class="numberedList">Lastly, build a kernel, modules, and device tree for the BeaglePlay:
+        <pre class="programlisting con"><code class="hljs-con">$ make -j&lt;n&gt; O=../build_beagleplay
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Replace <code class="inlineCode">&lt;n&gt;</code> after <code class="inlineCode">make -j</code> with the number of CPU cores available on your host machine to speed up your build.</p>
+    <h2 id="_idParaDest-114" class="heading-2"><a id="_idTextAnchor124"/>Booting the BeaglePlay</h2>
+    <p class="normal">Before proceeding, you need a <a id="_idTextAnchor125"/>microSD card with U-Boot installed, as described in the section titled <em class="italic">Installing U-Boot</em> from <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a>:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the <code class="inlineCode">build_beagleplay</code> directory:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+</code></pre>
+      </li>
+      <li class="numberedList">Next, insert the microSD card into your card reader and copy the <code class="inlineCode">build_beagleplay/arch/arm64/boot/Image.gz</code> and <code class="inlineCode">build_beagleplay/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb</code> files to the FAT32 <code class="inlineCode">boot</code> partition.</li>
+      <li class="numberedList">Unmount the card and insert it into the BeaglePlay.</li>
+      <li class="numberedList">Start a terminal emulator like <code class="inlineCode">gtkterm</code> and be prepared to press the spacebar as soon as you see the U-Boot messages appear.</li>
+      <li class="numberedList">Power on the BeaglePlay while holding down the USR button and press the spacebar.</li>
+      <li class="numberedList">Lastly, enter the following commands at the U-Boot prompt:
+        <pre class="programlisting con"><code class="hljs-con">nova!&gt; setenv bootargs console=ttyS2,115200n8
+nova!&gt; fatload mmc 1 0x80000000 Image.gz
+nova!&gt; fatload mmc 1 0x82000000 k3-am625-beagleplay.dtb
+nova!&gt; setenv kernel_comp_addr_r 0x85000000
+nova!&gt; setenv kernel_comp_size 0x2000000
+nova!&gt; booti 0x80000000 - 0x82000000
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">You should see the following output on the serial console:</p>
+    <pre class="programlisting con"><code class="hljs-con">Starting kernel ...
+[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x410fd034]
+[    0.000000] Linux version 6.6.46 (frank@frank-nuc) (aarch64-buildroot-linux-gnu-gcc.br_real (Buildroot 2021.11-11272-ge2962af)
+<a id="_idTextAnchor126"/> 12.3.0, GNU ld (GNU Binutils) 2.41) #1 SMP PREEMPT Mon Aug 19 11:24:56 PDT 2024
+[    0.000000] KASLR disabled due to lack of seed
+[    0.000000] Machine model: BeagleBoard.org BeaglePlay
+[    0.000000] efi: UEFI not found.
+&lt;…&gt;
+</code></pre>
+    <p class="normal">Note that we set the kernel command line to <code class="inlineCode">console=ttyS2</code>. That tells Linux which UART device to use for console output. Without this, we would not see any messages after <code class="inlineCode">Starting the kernel...</code> and so would be unable to tell if it was working or not. The sequence ends in a kernel panic, just as it did for the Raspberry Pi 4.</p>
+    <h2 id="_idParaDest-115" class="heading-2"><a id="_idTextAnchor127"/>Building a kernel for QEMU</h2>
+    <p class="normal">Here is the sequence of commands to build Linux for the <code class="inlineCode">virt</code> generic virtual platform emulated by QEMU:</p>
+    <ol>
+      <li class="numberedList" value="1">First, add the 64-bit Arm toolchain to your <code class="inlineCode">PATH</code> if you haven’t already:
+        <pre class="programlisting con"><code class="hljs-con">$ PATH=~/aarch64--glibc--stable-2024.02-1/bin/:$PATH
+</code></pre>
+      </li>
+      <li class="numberedList">Next, navigate back to the mainline Linux source tree:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cd linux-stable
+$ mkdir ../build_qemu
+</code></pre>
+      </li>
+      <li class="numberedList">Set the <code class="inlineCode">ARCH</code> and <code class="inlineCode">CROSS_COMPILE</code> environment variables for 64-bit Arm:
+        <pre class="programlisting con"><code class="hljs-con">$ export ARCH=arm64
+$ export CROSS_COMPILE=aarch64-buildroot-linux-gnu-
+</code></pre>
+      </li>
+      <li class="numberedList">Run <code class="inlineCode">make defconfig</code> to configure a kernel suitable for most 64-bit Arm SoCs:
+        <pre class="programlisting con"><code class="hljs-con">$ make defconfig O=../build_qemu
+</code></pre>
+      </li>
+      <li class="numberedList">Run <code class="inlineCode">make menuconfig</code> to continue configuring the kernel:
+        <pre class="programlisting con"><code class="hljs-con">$ make menuconfig O=../build_qemu
+</code></pre>
+      </li>
+      <li class="numberedList">Drill down into the <strong class="screenText">Platform selection</strong> submenu.</li>
+      <li class="numberedList">Deselect support for all SoCs except for <strong class="screenText">ARMv8 software model (Versatile Express)</strong>.</li>
+      <li class="numberedList">Back out of the <strong class="screenText">Platform selection</strong> submenu.</li>
+      <li class="numberedList">Select <strong class="screenText">ACPI (Advanced Configuration and Power Interface) Support</strong>.</li>
+      <li class="numberedList">Exit out of <code class="inlineCode">menuconfig</code> and choose <strong class="screenText">Yes</strong> when asked to save your new configuration.</li>
+      <li class="numberedList">Lastly, build a kernel, modules, and device tree for QEMU:
+        <pre class="programlisting con"><code class="hljs-con">$ make -j&lt;n&gt; O=../build_qemu
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Replace <code class="inlineCode">&lt;n&gt;</code> after <code class="inlineCode">make -j</code> with the number of CPU cores available on your host machine to speed up your build.</p>
+    <h2 id="_idParaDest-116" class="heading-2"><a id="_idTextAnchor128"/>Booting QEMU</h2>
+    <p class="normal">Assuming that you have already installed <code class="inlineCode">qemu-system-aarch64</code>, you can launch QEMU from the mainline kernel source tree as follows:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -smp 1 -kernel ../build_qemu/arch/arm64/boot/Image -append "console=ttyAMA0"
+</code></pre>
+    <p class="normal">As with the Raspberry Pi 4 and BeaglePlay, this will end with a kernel panic and the system will halt. To exit from QEMU, type <em class="italic">Ctrl + A</em> and then <em class="italic">x</em> (two separate keystrokes).</p>
+    <h1 id="_idParaDest-117" class="heading-1"><a id="_idTextAnchor129"/>Observing the kernel boot process</h1>
+    <p class="normal">At this point, you should have the kernel image files and the device tree blobs for the Raspberry Pi 4, BeaglePlay, and QEMU. Let’s start by looking at a kernel panic.</p>
+    <h2 id="_idParaDest-118" class="heading-2"><a id="_idTextAnchor130"/>Kernel panic</h2>
+    <p class="normal">While things started off well on QEMU, they ended badly:</p>
+    <pre class="programlisting con"><code class="hljs-con">[    0.393978] Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,0)
+[    0.394269] CPU: 0 PID: 1 Comm: swapper/0 Not tainted 6.6.46 #2
+[    0.394443] Hardware name: linux,dummy-virt (DT)
+&lt;…&gt;
+[    0.396719] ---[ end Kernel panic - not syncing: VFS: Unable to mount root fs on unknown-block(0,0) ]---
+</code></pre>
+    <p class="normal">This is a good example of a kernel panic. A panic occurs when the kernel encounters an unrecoverable error. By default, it will print out a message to the console and then halt. You can set the panic command-line parameter to allow a few seconds before reboots following a panic. In this case, the unrecoverable error is no root filesystem, illustrating that a kernel is useless without a user space to control it. You can supply a user space by providing a root filesystem, either as a RAM disk or on a mountable mass storage device. We will talk about how to create a root filesystem in the next chapter, but first, I want to describe the sequence of events that leads up to panic.</p>
+    <h2 id="_idParaDest-119" class="heading-2"><a id="_idTextAnchor131"/>Early user space</h2>
+    <p class="normal">To transition from kernel initialization to user space, the kernel has to mount a root filesystem and execute a program in that root filesystem. This can be achieved via a RAM disk or by mounting a real filesystem on a block device. The code for all of this is in <code class="inlineCode">init/main.c</code> starting with the function <code class="inlineCode">rest_init()</code>, which creates the first thread with PID 1 and runs the code in <code class="inlineCode">kernel_init()</code>. If there is a RAM disk, it will try to execute the program <code class="inlineCode">/init</code>, which will take on the task of setting up the user space.</p>
+    <p class="normal">If the kernel fails to find and run <code class="inlineCode">/init</code>, it tries to mount a filesystem by calling the function <code class="inlineCode">prepare_namespace()</code> in <code class="inlineCode">init/do_mounts.c</code>. This requires a <code class="inlineCode">root=</code> command line to give the name of the block device to use for mounting usually in the form:</p>
+    <pre class="programlisting con"><code class="hljs-con">root=/dev/&lt;disk name&gt;&lt;partition number&gt;
+</code></pre>
+    <p class="normal">Or for SD cards and eMMC:</p>
+    <pre class="programlisting con"><code class="hljs-con">root=/dev/&lt;disk name&gt;p&lt;partition number&gt;
+</code></pre>
+    <p class="normal">For example, for the first partition on an SD card, that would be <code class="inlineCode">root=/dev/mmcblk0p1</code>. If the mount succeeds, it will try to execute <code class="inlineCode">/sbin/init</code>, followed by <code class="inlineCode">/etc/init</code>, <code class="inlineCode">/bin/init</code>, and then <code class="inlineCode">/bin/sh</code>, stopping at the first one that works. The program can be overridden on the command line. For a RAM disk, use <code class="inlineCode">rdinit=</code>. For a filesystem, use <code class="inlineCode">init=</code>.</p>
+    <h2 id="_idParaDest-120" class="heading-2"><a id="_idTextAnchor132"/>Kernel messages</h2>
+    <p class="normal">Kernel developers are fond of printing out useful information through the liberal use of <code class="inlineCode">printk()</code> and similar functions. The messages are categorized according to importance, with <code class="inlineCode">0</code> being the highest:</p>
+    <table id="table001" class="table-container">
+      <tbody>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Level</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Value</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Meaning</strong></p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_EMERG</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">0</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">The system is unusable</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_ALERT</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">1</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Action must be taken immediately</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_CRIT</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">2</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Critical conditions</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_ERR</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">3</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Error conditions</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_WARNING</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">4</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Warning conditions</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_NOTICE</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">5</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Normal but significant conditions</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_INFO</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">6</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Informational</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">KERN_DEBUG</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><code class="inlineCode">7</code></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Debug-level messages</p>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="packt_figref">Table 4.1 – List of kernel messages</p>
+    <p class="normal">They are first written to a buffer named <code class="inlineCode">__log_buf</code>, the size of which is two to the power of <code class="inlineCode">CONFIG_LOG_BUF_SHIFT</code>. For example, if <code class="inlineCode">CONFIG_LOG_BUF_SHIFT</code> is <code class="inlineCode">16</code>, then <code class="inlineCode">__log_buf</code> is 64 KB. You can dump the entire buffer using the command <code class="inlineCode">dmesg</code>.</p>
+    <p class="normal">If the level of a message is less than the console log level, it is displayed on the console as well as placed in <code class="inlineCode">__log_buf</code>. The default console log level is <code class="inlineCode">7</code>. This means that messages of level <code class="inlineCode">6</code> and lower are displayed while filtering out <code class="inlineCode">KERN_DEBUG</code>, which is level <code class="inlineCode">7</code>. </p>
+    <p class="normal">You can change the console log level in several ways, including by using the kernel parameter <code class="inlineCode">loglevel=&lt;level&gt;</code> or the command <code class="inlineCode">dmesg -n &lt;level&gt;</code>.</p>
+    <h2 id="_idParaDest-121" class="heading-2"><a id="_idTextAnchor133"/>Kernel command line</h2>
+    <p class="normal">The kernel command line is a string that is passed to the kernel by the bootloader via the <code class="inlineCode">bootargs</code> variable in the case of U-Boot. It can also be defined in the device tree or set as part of the kernel configuration in <code class="inlineCode">CONFIG_CMDLINE</code>.</p>
+    <p class="normal">We have seen some examples of the kernel command line already but there are many more. There is a complete list in <code class="inlineCode">Documentation/admin-guide/kernel-parameters.txt</code>. Here is a smaller list of the most useful ones:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">debug</code>: Sets the console log level to the highest level (<code class="inlineCode">8</code>) to ensure that you see all the kernel messages on the console.</li>
+      <li class="bulletList"><code class="inlineCode">init=</code>: The <code class="inlineCode">init</code> program to run from a mounted root filesystem. Defaults to <code class="inlineCode">/sbin/init</code>.</li>
+      <li class="bulletList"><code class="inlineCode">lpj=</code>: Sets <code class="inlineCode">loops_per_jiffy</code> to a given constant. There is a description of the significance of this in the paragraph following this list.</li>
+      <li class="bulletList"><code class="inlineCode">panic=</code>: Behavior when the kernel panics. If it is greater than zero, it gives the number of seconds before rebooting; if it is zero, it waits forever (default); or if it is less than zero, it reboots without any delay.</li>
+      <li class="bulletList"><code class="inlineCode">quiet</code>: Sets the console log level to silent, suppressing all but emergency messages. Since most devices have a serial console, it takes time to output all those strings. Consequently, reducing the number of messages using this option reduces boot time.</li>
+      <li class="bulletList"><code class="inlineCode">rdinit=</code>: The init program to run from a RAM disk. Defaults to <code class="inlineCode">/init</code>.</li>
+      <li class="bulletList"><code class="inlineCode">ro</code>: Mounts the root device as read-only. Has no effect on a RAM disk, which is always read/write.</li>
+      <li class="bulletList"><code class="inlineCode">root=</code>: Device to mount the root filesystem.</li>
+      <li class="bulletList"><code class="inlineCode">rootdelay=</code>: Number of seconds to wait before trying to mount the root device. Defaults to zero. Useful if the device takes time to probe the hardware. Also see <code class="inlineCode">rootwait</code>.</li>
+      <li class="bulletList"><code class="inlineCode">rootfstype=</code>: Filesystem type for the root device. In many cases, it is auto-detected during mount, although it is required for jffs2 filesystems.</li>
+      <li class="bulletList"><code class="inlineCode">rootwait</code>: Waits indefinitely for the root device to be detected, usually necessary with MMC devices.</li>
+      <li class="bulletList"><code class="inlineCode">rw</code>: Mounts the root device as read-write (default).</li>
+    </ul>
+    <p class="normal">The <code class="inlineCode">lpj</code> parameter is often mentioned in connection with reducing the kernel boot time. During initialization, the kernel loops for approximately 250 ms to calibrate a delay loop. The value is stored in the variable <code class="inlineCode">loops_per_jiffy</code> and reported like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">Calibrating delay loop... 996.14 BogoMIPS (lpj=4980736)
+</code></pre>
+    <p class="normal">If the kernel always runs on the same hardware, it will always calculate the same value. You can shave 250 ms off the boot time by adding <code class="inlineCode">lpj=4980736</code> to the command line.</p>
+    <p class="normal">In the next section, we will learn how to port Linux to a new board based on the BeaglePlay, our hypothetical Nova board.</p>
+    <h1 id="_idParaDest-122" class="heading-1"><a id="_idTextAnchor134"/>Porting Linux to a new board</h1>
+    <p class="normal">Porting Linux to a new board can be easy or difficult, depending on how similar your board is to an existing development board. In <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a><em class="italic">,</em> we ported U-Boot to a new board named Nova based on the BeaglePlay. Very few changes need to be made to the kernel code, so it is very easy. If you are porting to completely new and innovative hardware, then there will be more to do. I am only going to consider the simple case. We will delve deeper into the topic of additional hardware peripherals throughout <a href="#_idTextAnchor126"><em class="italic">Chapter 12</em></a>.</p>
+    <p class="normal">The organization of architecture-specific code in <code class="inlineCode">arch/$ARCH</code> differs from one system to another. The x86 architecture is fairly clean because most hardware details are detected at runtime. The PowerPC architecture organizes SoC- and board-specific files into subdirectories under <code class="inlineCode">platforms</code>. The 32-bit Arm architecture, on the other hand, is quite messy because there is a lot of variability between the many Arm-based SoCs. Platform-dependent code is put in directories named <code class="inlineCode">mach-*</code>, approximately one per SoC. There are other directories named <code class="inlineCode">plat-*</code>, which contain code common to several versions of an SoC.</p>
+    <p class="normal">In the following sections, I am <a id="_idIndexMarker264"/>going to explain how to create a device tree for a new 64-bit Arm board.</p>
+    <h2 id="_idParaDest-123" class="heading-2"><a id="_idTextAnchor135"/>A new device tree</h2>
+    <p class="normal">The first thing to do is create a device tree for the board and modify it to describe the additional or changed hardware of the Nova board. In this simple case, we just copy <code class="inlineCode">k3-am625-beagleplay</code>.<code class="inlineCode">dts</code> to <code class="inlineCode">nova.dts</code> and change the model name to Nova, as shown here:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-keyword">/dts-v1/</span><span class="hljs-punctuation">;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;dt-bindings/leds/common.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;dt-bindings/gpio/gpio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;dt-bindings/input/input.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">"k3-am625.dtsi"</span>
+<span class="hljs-title">/</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">compatible</span> <span class="hljs-operator">=</span> <span class="hljs-string">"beagle,am625-beagleplay"</span>, <span class="hljs-string">"ti,am625"</span><span class="hljs-punctuation">;</span>
+    <span class="hljs-attr">model</span> <span class="hljs-operator">=</span> <span class="hljs-string">"Nova"</span><span class="hljs-punctuation">;</span>
+<span class="hljs-params">&lt;…&gt;</span>
+</code></pre>
+    <p class="normal">Complete all the steps from <em class="italic">Building a kernel for the BeaglePlay</em>.</p>
+    <p class="normal">Add the following dependency to <code class="inlineCode">linux-stable/arch/arm64/boot/dts/ti/Makefile</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">dtb-$(CONFIG_ARCH_K3) += nova.dtb
+</code></pre>
+    <p class="normal">This entry ensures that the device tree for Nova is compiled whenever an AM62x target is selected.</p>
+    <p class="normal">Build the Nova device tree binary like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 dtbs O=../build_beagleplay
+  DTC     arch/arm64/boot/dts/ti/nova.dtb
+</code></pre>
+    <p class="normal">We can see the effect of using the Nova device tree by booting the BeaglePlay. Follow the same procedure as in <em class="italic">Booting the BeaglePlay</em>. Insert the same microSD card into your card reader and copy the <code class="inlineCode">build_beagleplay/arch/arm64/boot/dts/ti/nova.dtb</code> file to the FAT32 <code class="inlineCode">boot</code> partition. Use the same <code class="inlineCode">Image.gz</code> file as before but load <code class="inlineCode">nova.dtb</code> in place of <code class="inlineCode">k3-am625-beagleplay</code>.<code class="inlineCode">dtb</code>. The following output is the point at which the machine model is printed out:</p>
+    <pre class="programlisting con"><code class="hljs-con">Starting kernel ...
+[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x410fd034]
+[    0.000000] Linux version 6.6.46 (frank@frank-nuc) (aarch64-buildroot-linux-gnu-gcc.br_real (Buildroot 2021.11-11272-ge2962af)
+ 12.3.0, GNU ld (GNU Binutils) 2.41) #1 SMP PREEMPT Mon Aug 19 11:24:56 PDT 2024
+[    0.000000] KASLR disabled due to lack of seed
+[    0.000000] Machine model: Nova
+&lt;…&gt;
+</code></pre>
+    <p class="normal">Now that we have a device tree specifically for the Nova board, we could modify it to describe the hardware differences between Nova and BeaglePlay. There are quite likely to be changes to the kernel configuration as well. In that case, you would create a custom configuration file based on a copy of <code class="inlineCode">arch/arm64/configs/defconfig</code>.</p>
+    <h1 id="_idParaDest-124" class="heading-1"><a id="_idTextAnchor136"/>Summary</h1>
+    <p class="normal">What makes Linux so powerful is the ability to configure the kernel however we need to. The definitive place to get the kernel source code is <a href="https://www.kernel.org/"><span class="url">https://www.kernel.org/</span></a>, but you will probably need to get the source for a particular SoC or board from the vendor of that device or a third party that supports that device. The customization of the kernel for a particular target may consist of changes to the core kernel code, additional drivers for devices that are not in mainline Linux, a default kernel configuration file, and a device tree source file.</p>
+    <p class="normal">Normally, you start with the default configuration for your target board and then tweak it by running one of the configuration tools such as <code class="inlineCode">menuconfig</code>. One of the things you should consider at this point is whether the kernel features and drivers should be disabled, compiled as modules, or built-in. Kernel modules are usually no great advantage for embedded systems where the feature set and hardware are usually well defined. However, modules offer a way to import proprietary code into the kernel and reduce boot times by loading non-essential drivers after booting. Disabling unused kernel features and drivers altogether reduces compile times as well as boot times.</p>
+    <p class="normal">Building the kernel produces a compressed kernel image file named <code class="inlineCode">zImage</code>, <code class="inlineCode">Image.gz</code>, or <code class="inlineCode">bzImage</code>, depending on the bootloader you will be using and the target architecture. A kernel build will also generate any kernel modules (<code class="inlineCode">.ko</code> files) that you have configured and device tree binaries (<code class="inlineCode">.dtb</code> files) if your target requires them.</p>
+    <p class="normal">Porting Linux to a new target board can be quite simple or very difficult, depending on how different the hardware is from that in the mainline or vendor-supplied kernel. If your hardware is based on a well-known reference design, then it may be just a question of making changes to the device tree or the platform data. You may well need to add device drivers, which we’ll discuss in <a href="Chapter_11.xhtml#_idTextAnchor373"><em class="italic">Chapter 11</em></a>. However, if the hardware is radically different from a reference design, you may need additional core support, which is outside the scope of this book.</p>
+    <p class="normal">The kernel is the core of a Linux-based system but it cannot work by itself. It requires a root filesystem that contains the user space components. The root filesystem can be a RAM disk or a filesystem accessed via a block device, which will be the subject of the next chapter. As we have seen, booting a kernel without a root filesystem results in kernel panic.</p>
+    <h1 id="_idParaDest-125" class="heading-1"><a id="_idTextAnchor137"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">So You Want to Build an Embedded Linux System?</em> by Jay Carlson – <a href="https://jaycarlson.net/embedded-linux/"><span class="url">https://jaycarlson.net/embedded-linux/</span></a></li>
+      <li class="bulletList"><em class="italic">Embedded Linux training</em> – <a href="https://bootlin.com/training/embedded-linux/%0D%0A"><span class="url">https://bootlin.com/training/embedded-linux/</span></a></li>
+      <li class="bulletList"><em class="italic">Linux Weekly News</em> – <a href="https://lwn.net/"><span class="url">https://lwn.net/</span></a></li>
+      <li class="bulletList"><em class="italic">Raspberry Pi Forums</em> – <a href="https://forums.raspberrypi.com/"><span class="url">https://forums.raspberrypi.com/</span></a></li>
+      <li class="bulletList"><em class="italic">Linux Kernel Development, Third Edition</em>, by Robert Love</li>
+    </ul>
+  </div>
+</div></div></body></html>

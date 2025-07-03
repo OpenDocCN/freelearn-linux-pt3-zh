@@ -1,0 +1,493 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Database Management</h1>
+                </header>
+            
+            <article>
+                
+<p>No application stack is complete without data, and this is commonly stored in a database. There is a myriad of databases to choose from when your platform is Linux, and the whole topic of database management and administration often warrants entire books by itself—in fact, normally one book per database technology. In spite of the vastness of this topic, a little knowledge of Ansible can assist greatly when it comes to database administration.</p>
+<p>Indeed, whether you are installing a new database server, or performing maintenance or administration tasks on an existing one, our original principles discussed in <a href="c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml" target="_blank">Chapter 1</a>, <em>Building a Standard Operating Environment on Linux</em> still apply. Indeed, why would you go to all the trouble of standardizing your Linux environment and ensuring all changes are automated, only to insist on manual management of the database tier? This could easily result in a lack of standardization, auditability, and even traceability (for example, who made which changes, and when?). Ansible can perform database operations and configuration via modules. It is perhaps not a replacement for some of the more advanced database management tools available on the market, but if these can be driven through the command line, it can execute these on your behalf, as well as taking care of many tasks itself. Ultimately, you want all changes to be documented (or self-documented) and auditable, and Ansible (combined with Ansible Tower, or AWX) can help you achieve this. This chapter explores methods that will help you with this.</p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li><span>Installing databases with Ansible</span></li>
+<li>Importing and exporting data</li>
+<li>Performing routine maintenance</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter includes examples, based on the following technologies:</p>
+<ul>
+<li class="mce-root">Ubuntu Server 18.04 LTS</li>
+<li class="mce-root">CentOS 7.6</li>
+<li class="mce-root">Ansible 2.8</li>
+</ul>
+<p>To run through these examples, you will need access to two servers or virtual machines running one each of the operating systems just listed, and also, Ansible. Note that the examples given in this chapter may be destructive in nature (for example, they add and remove databases and tables, and change database configuration) and, if run as is, are only intended to be run in an isolated test environment. Once you are satisfied that you have a safe environment in which to operate, let's get started on looking at the installation of new software packages with Ansible. All example code discussed in this chapter is available from GitHub, at the following URL: <a href="https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter11">https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter11</a>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing databases with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="200bea26-7066-4feb-a571-481a5f047ae4.xhtml" target="_blank">Chapter 7</a>, <em>Configuration Management with Ansible</em>, we explored a few examples of package installation and used MariaDB server in some of our examples. Of course, MariaDB is only one of a myriad of databases available on Linux, and there are too many to cover in detail here. Nonetheless, Ansible can help you install just about any database server on Linux, and in this chapter, we will proceed through a series of examples that will provide you with the tools and techniques to install your own database server, no matter what it is.</p>
+<p>Let's get started in the next section, by building on our example of installing MariaDB.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing MariaDB server with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>Although earlier in the book, we installed the native <kbd>mariadb-server</kbd> package that ships with CentOS 7, most enterprises that need a MariaDB server would choose to standardize on a specific release directly from MariaDB. This is often more up to date than the version shipped with a given Linux release, and hence provides newer features and, sometimes, performance improvements. In addition, standardizing on a release directly from MariaDB ensures consistency of your platform, a principle we have kept to throughout this book.</p>
+<p>Let's take a simple example—suppose you are running your infrastructure on <strong>Red Hat Enterprise</strong> <strong>Linux</strong> (<strong>RHEL</strong>) 7. This ships with MariaDB version 5.5.64. Now, suppose you want to standardize your infrastructure on the newly released RHEL 8—if you are relying on the packages supplied by Red Hat, this suddenly moves you to version 10.3.11 of MariaDB, meaning not only an upgrade to your Linux infrastructure but also to your databases, too.</p>
+<p>Instead, it would be better to standardize upfront on a release directly from MariaDB itself. At the time of writing, the latest stable release of MariaDB is 10.4—but let us suppose that you have standardized on the 10.3 release, as it is known, and tested successfully in your environment.</p>
+<p>The installation process is quite straightforward and is well documented on the MariaDB website—see <a href="https://mariadb.com/kb/en/library/yum/">https://mariadb.com/kb/en/library/yum/</a> for CentOS- and Red Hat-specific examples. However, this details the manual installation process, and we wish to automate this with Ansible. Let's now build this into a real, working Ansible example.</p>
+<div class="packt_tip">In this example, we will follow the instructions from MariaDB, which includes downloading the packages from their repository. Although for simplicity we will follow this example through, you could mirror the MariaDB package repositories into Pulp or Katello, as detailed in <a href="56007c92-a39b-4e56-9b01-a137eab2369d.xhtml" target="_blank">Chapter 8</a>, <em>Enterprise Repository Management</em> <em>with Pulp</em> and <a href="f5ffd33a-aabf-419c-95b2-c5a308f24b2f.xhtml">Chapter 9</a>, <em>Patching with Katello</em>.</div>
+<ol>
+<li>First of all, we can see from the installation documentation that we need to create a <kbd>.repo</kbd> file, to tell <kbd>yum</kbd> where to download the packages from. We can use a template to provide this, such that the MariaDB version can be defined by a variable and thus changed in the future when migration to version 10.4 (or indeed, any other future version) is deemed necessary.</li>
+</ol>
+<p style="padding-left: 60px">Thus, our template file, defined in <kbd>roles/installmariadb/templates/mariadb.repo.j2</kbd>, would look like this:</p>
+<pre class="fixed" style="padding-left: 60px"><span class="k">[mariadb]</span>
+<span class="na">name</span> <span class="o">=</span> <span class="s">MariaDB</span>
+<span class="na">baseurl</span> <span class="o">=</span> <span class="s">http://yum.mariadb.org/{{ mariadb_version }}/centos7-amd64</span>
+<span class="na">gpgkey</span><span class="o">=</span><span class="s">https://yum.mariadb.org/RPM-GPG-KEY-MariaDB</span>
+<span class="na">gpgcheck</span><span class="o">=</span><span class="s">1</span></pre>
+<ol start="2">
+<li>Once we have created this, we should also create a default for this variable, to prevent any issues or errors if it is not specified when the role is run—this will be defined in <span><kbd>roles/installmariadb/defaults/main.yml</kbd>. Ordinarily, this variable would be provided in the inventory file for a given server or group of servers, or by one of the many other supported methods in Ansible, but the <kbd>defaults</kbd> file provides a catch-all, in case it gets overlooked. Run the following code:</span></li>
+</ol>
+<pre style="padding-left: 60px">---<br/>mariadb_version: "10.3"</pre>
+<ol start="3">
+<li>With this defined, we can now begin to build up the tasks in our role in <span><kbd>roles/installmariadb/tasks/main.yml</kbd>, as follows:</span></li>
+</ol>
+<pre style="padding-left: 60px">---<br/><span class="p p-Indicator">-</span> <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">Populate MariaDB yum template on target host</span>
+  <span class="nt">template</span><span class="p">:</span>
+    <span class="nt">src</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">templates/mariadb.repo.j2</span>
+    <span class="nt">dest</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">/etc/yum.repos.d/mariadb.repo</span>
+    <span class="nt">owner</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">root</span>
+    <span class="nt">group</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">root</span>
+    <span class="nt">mode</span><span class="p">:</span> <span class="s">'0644'</span></pre>
+<p style="padding-left: 60px">This will ensure that the correct repository file is written to the server, and if it is ever incorrectly modified, restored to its original, desired state.</p>
+<div class="packt_infobox">On CentOS or RHEL, you could also use the <kbd>yum_repository</kbd> Ansible module to perform this task—however, this has the disadvantage of being unable to modify an existing repository definition, and so, in a scenario where we might wish to change the repository version in future, we are better off using a template.</div>
+<ol start="4">
+<li>Next, we should clean out the <kbd>yum</kbd> cache—this is especially important when upgrading MariaDB to a new version, as package names will be the same, and cached information could cause issues with the installation. At present, cleaning the <kbd>yum</kbd> cache is achieved using the <kbd>shell</kbd> module, to run the <kbd>yum clean all</kbd> command. However, as this is a shell command, it will always run, and this could be considered inefficient—especially as this command being run would result in any future package operations needing to update the yum cache again, even if we didn't modify the MariaDB repository definition. Thus, we want to run it only when the <kbd>template</kbd> module task results in a changed state.</li>
+</ol>
+<p style="padding-left: 60px">To do this, we must first add this line to our <kbd>template</kbd> task, to store the results of the task:</p>
+<pre style="padding-left: 60px">  register: mariadbtemplate</pre>
+<ol start="5">
+<li>Now, when we define our shell command, we can tell Ansible to only run it if the <kbd>template</kbd> task resulted in a <kbd>changed</kbd> state, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Clean out yum cache only if template was changed<br/>  shell: "yum clean all"<br/>  when: mariadbtemplate.changed</pre>
+<ol start="6">
+<li>With our cache appropriately cleared out, we can then install the required MariaDB packages—the list used in the task shown in the following code block is taken from the MariaDB documentation referenced earlier in this section, but you should tailor it to your exact requirements:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Install MariaDB packages<br/>  yum:<br/>    name:<br/>      - MariaDB-server<br/>      - galera<br/>      - MariaDB-client<br/>      - MariaDB-shared<br/>      - MariaDB-backup<br/>      - MariaDB-common<br/>    state: latest</pre>
+<p style="padding-left: 60px">The use of <kbd>state: latest</kbd> ensures that we always install the latest packages from the repository file created by our <kbd>template</kbd> task. Thus, this role can be used equally for initial installation and upgrade to the latest version. However, if you do not want this behavior, change this statement to <kbd>state: present</kbd>—this simply ensures that the packages listed are installed on our target host. If they are, it does not update them to the latest version—it simply returns an <kbd>ok</kbd> status and proceeds to the next task, even if updates are available.</p>
+<ol start="7">
+<li>With the packages installed, we must ensure that the server service is then started at boot time. We would probably also want to start it now so that we can perform any initial configuration work on it. Thus, we will add a final task to our <kbd>installmariadb</kbd> role that looks like this:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Ensure mariadb-server service starts on boot and is started now<br/>  service:<br/>    name: mariadb<br/>    state: started<br/>    enabled: yes</pre>
+<ol start="8">
+<li>Also, we know that CentOS 7 has a firewall enabled by default—as such, we must change the firewall rules to ensure that our newly installed MariaDB server can be accessed. The task to perform this would look something like this:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Open firewall port for MariaDB server<br/>  firewalld:<br/>    service: mysql<br/>    permanent: yes<br/>    state: enabled<br/>    immediate: yes</pre>
+<ol start="9">
+<li>Let's now run this role and see it in action—the output should look something like this:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/7a175122-a7c8-46f2-918f-9c66561bb41e.png" style="width:43.17em;height:24.42em;"/></p>
+<p>The output has been truncated to conserve space, but clearly shows the installation in progress. Note that the warning can safely be ignored—the Ansible engine has detected our <kbd>yum clean all</kbd> command and is helpfully advising us to use the <kbd>yum</kbd> module—however, the <kbd>yum</kbd> module in this instance does not provide the function we need, and hence, we used the <kbd>shell</kbd> module instead.</p>
+<p>With the database installed and running, we have the following three high-level tasks to perform next:</p>
+<ul>
+<li>Update the MariaDB configuration.</li>
+<li>Secure the MariaDB installation.</li>
+<li>Load initial data (or schemas) into the database.</li>
+</ul>
+<p>Of these tasks, we explored, in detail, methods to use the Ansible <kbd>template</kbd> module effectively to manage the MariaDB configuration in <a href="200bea26-7066-4feb-a571-481a5f047ae4.xhtml" target="_blank">Chapter 7</a>, <em>Configuration Management with Ansible</em> (see the <em>Making scalable dynamic configuration changes</em> section<em>)</em>. As such, we will not go into detail on this here—however, check the configuration file structure for your chosen version of MariaDB, as it might differ from that shown in the aforementioned chapter.</p>
+<div class="packt_tip">If you have installed MariaDB RPMs on a platform such as CentOS, you can find out where the configuration files live, by running the command <kbd>rpm -qc MariaDB-server</kbd> in a root shell. </div>
+<p>Thus, assuming that you have the installation and configuration of the database server in hand, let us proceed to secure it. This, at a bare minimum, will entail changing the <kbd>root</kbd> password, though good practice states that you should also remove remote root access, the <kbd>test</kbd> database, and the anonymous user accounts that come with a default MariaDB installation.</p>
+<div class="packt_tip">MariaDB comes with a command-line utility called <kbd>mysql_secure_installation</kbd>, to perform exactly these tasks—however, it is an interactive tool and does not lend itself to automation with Ansible. Luckily, Ansible provides modules for interacting with the database that can assist us in performing exactly these tasks.</div>
+<p>To separate out these tasks from the installation, we'll create a new role called <kbd>securemariadb</kbd>. Before we can define the tasks, we must define a variable to contain the root password for the MariaDB installation. Note that normally, you would provide this in a more secure manner—perhaps through an Ansible Vault file, or using some of the advanced features in AWX or Ansible Tower. For simplicity, in this example, we will define a variables file in the role (in <kbd>roles/securemariadb/vars/main.yml</kbd>), as follows:</p>
+<pre>---<br/>mariadb_root_password: "securepw"</pre>
+<p>Now, let's build up the tasks for the role. Ansible includes a few native modules for use in database management, and we can make use of these here, to make the required changes to our MariaDB database.</p>
+<div class="packt_infobox">Note, however, that some modules have certain Python requirements, and in the case of our example system—MariaDB on CentOS 7—we must install the <kbd>MySQL-python</kbd> package.</div>
+<p>Knowing this, the first step in building up our role is to install the prerequisite Python package, as follows:</p>
+<pre>---<br/>- name: Install the MariaDB Python module required by Ansible<br/>  yum:<br/>    name: MySQL-python<br/>    state: latest</pre>
+<p>Our most immediate task, once this is installed, is to set the password on the local root account, and prevent anyone from logging in without authentication. Run the following code:</p>
+<pre>- name: Set the local root password<br/>  mysql_user:<br/>    user: root<br/>    password: "{{ mariadb_root_password }}"<br/>    host: "localhost"</pre>
+<p>So far, this is a textbook example of how to use the <kbd>mysql_user</kbd> module—however, there is a twist in our usage from here. The preceding example takes advantage of the fact that no root password is set—it is implicitly manipulating the database as <kbd>root</kbd>, by virtue of the fact that we will put <kbd>become: yes</kbd> in our <kbd>site.yml</kbd> file, and thus, the playbook will be run as <kbd>root</kbd>. At the time that this task is run, the root user has no password, and so, the above task will run satisfactorily.</p>
+<p>The answer to this is to add the <kbd>login_user</kbd> and <kbd>login_password</kbd> parameters to the module for all future tasks, to ensure that we have authenticated successfully with the database to perform the required tasks.</p>
+<div class="packt_tip">This role will only run successfully once as it is written—on the second run, a password will be set for the root MariaDB user, and the preceding task will fail. However, if we specify a <kbd>login_password</kbd> for the above task, and the password is blank (as in the initial run), the task will also fail. There are a number of ways around this, such as setting the old password in another variable or, indeed, committing to only running this role once. You could also specify <kbd>ignore_errors: yes</kbd> under this task so that, if the root password is already set, we simply carry on to the next tasks, which should run successfully.</div>
+<p>With this condition understood, we now add another task to the role, to remove the remote root accounts, as follows:</p>
+<pre>- name: Delete root MariaDB user for remote logins<br/>  mysql_user:<br/>    user: root<br/>    host: "{{ ansible_fqdn }}"<br/>    state: absent<br/>    login_user: root<br/>    login_password: "{{ mariadb_root_password }}"</pre>
+<p>Again, this code is quite self-explanatory—however, note here too that running this task a second time will also yield an error, this time because on the second run, these privileges will not exist because we deleted them on the first run. Thus, this is almost certainly a role to run once only—or where careful consideration must be applied to the code and the error handling logic.</p>
+<p class="mce-root">We now add a task to delete the anonymous user accounts, as follows:</p>
+<pre>- name: Delete anonymous MariaDB user<br/>  mysql_user:<br/>    user: ""<br/>    host: "{{ item }}"<br/>    state: absent<br/>    login_user: root<br/>    login_password: "{{ mariadb_root_password }}"<br/>  loop:<br/>    - "{{ ansible_fqdn }}"<br/>    - localhost</pre>
+<p>You will see the use of a <kbd>loop</kbd> here—this is used to remove both the local and remote privileges within a single task. Finally, we remove the <kbd>test</kbd> database, which is redundant in most enterprise scenarios, by running the following code:</p>
+<pre>- name: Delete the test database<br/>  mysql_db:<br/>    db: test<br/>    state: absent<br/>    login_user: root<br/>    login_password: "{{ mariadb_root_password }}"</pre>
+<p>With the role fully complete, we can run it in the usual manner, and secure our newly installed database. The output should look something like this:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/37b03b62-9e01-42aa-8a91-e69708f34d9b.png" style="width:51.75em;height:32.00em;"/></p>
+<p>With these two roles and some input from <a href="200bea26-7066-4feb-a571-481a5f047ae4.xhtml" target="_blank">Chapter 7</a>, <em>Configuration Management with Ansible</em>, we have successfully installed, configured, and secured a MariaDB database on CentOS. This is, obviously, a very specific example—however, if you were to perform this on Ubuntu, the process would be very similar. The differences would be the following:</p>
+<ul>
+<li>The <kbd>apt</kbd> module would be used in place of the <kbd>yum</kbd> module in all tasks.</li>
+<li>Package names would have to be changed for Ubuntu.</li>
+<li>Defining the repository source would be performed under <kbd>/etc/apt</kbd> rather than <kbd>/etc/yum.repos.d</kbd>, with the file format adjusted accordingly.</li>
+<li>Configuration paths may be different for MariaDB on Ubuntu.</li>
+<li>Ubuntu normally uses <kbd>ufw</kbd> instead of <kbd>firewalld</kbd>—by default, you might find that <kbd>ufw</kbd> is disabled, so, this step could be skipped.</li>
+</ul>
+<p>With these changes taken into account, the preceding process can be very quickly adapted for Ubuntu (or, indeed, any other platform, provided the appropriate changes are made). Once the packages are installed and configured, as the modules such as <kbd>mysql_user</kbd> and <kbd>mysql_db</kbd> are cross-platform, they will work equally well on all supported platforms.</p>
+<p>So far in this book, we have focused very heavily on MariaDB—this is not because of any inherent bias toward this database, nor indeed should it be inferred as any recommendation. It has simply been chosen as a relevant example and built upon throughout the text. Before we proceed to look at the process of loading data or schemes into a newly installed database, we will take a brief look in the next section at how to apply the processes we have learned so far to another popular Linux database—PostgreSQL.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Installing PostgreSQL Server with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we will demonstrate how the principles and high-level processes we have looked at so far for MariaDB on CentOS can be applied to another platform. Taking a high-level view, these processes can be applied to almost any database and Linux platform, with the proper attention to detail. Here, we will install PostgreSQL Server onto Ubuntu Server, and then secure it by setting the root password—essentially, analogous to the process we have performed in the preceding section.</p>
+<p>Let us get started by creating a role called <kbd>installpostgres</kbd>. In this role we will again define a template for the package downloads from the official PostgreSQL sources, this time—of course—tailoring it to the fact that we're using Ubuntu Server, and not CentOS. The following code shows the template file—note that this is specific for Ubuntu Server 18.04 LTS—codename <kbd>bionic</kbd>:</p>
+<pre class="code">deb http://apt.postgresql.org/pub/repos/apt/ <span>bionic</span>-pgdg main</pre>
+<p>As before, once our package sources are defined, we can proceed to create the tasks that will install the database. In the case of Ubuntu, we must add the package-signing key manually to the <kbd>apt</kbd> keyring, in addition to copying the preceding template into place. Thus, our tasks within the role begin, as follows:</p>
+<pre>---<br/><span class="p p-Indicator">-</span> <span class="nt">name</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">Populate PostgreSQL apt template on target host</span>
+  <span class="nt">template</span><span class="p">:</span>
+    <span class="nt">src</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">templates/pgdg.list.j2</span>
+    <span class="nt">dest</span><span class="p">:</span> <span>/etc/apt/sources.list.d/pgdg.list</span>
+    <span class="nt">owner</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">root</span>
+    <span class="nt">group</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">root</span>
+    <span class="nt">mode</span><span class="p">:</span> <span class="s">'0644'</span></pre>
+<p>We could also use <kbd>apt_repository</kbd> here, but, for consistency with the previous MariaDB example, we are using template. Both will achieve the same end result.</p>
+<p>When the <kbd><span>template</span></kbd> package is in place, we must then add the package-signing key to <kbd>apt</kbd>'s keyring, as follows:</p>
+<pre>- name: Add key for PostgreSQL packages<br/>  apt_key:<br/>    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc<br/>    state: present</pre>
+<p>The <kbd>postgresql-11</kbd> and other supporting packages are then installed (as per the documentation at <a href="https://www.postgresql.org/download/linux/ubuntu/">https://www.postgresql.org/download/linux/ubuntu/</a>), as follows:</p>
+<pre>- name: Install PostgreSQL 11 packages<br/>  apt:<br/>    name:<br/>      - postgresql-11<br/>      - <span>postgresql-client-11</span><br/>    state: latest<br/>    update_cache: yes</pre>
+<p>As our default Ubuntu Server install is not running a firewall, the final task in this playbook is to start the service, and ensure it starts at boot time, as follows:</p>
+<pre>- name: Ensure PostgreSQL service is installed and started at boot time<br/>  service:<br/>    name: postgresql<br/>    state: started<br/>    enabled: yes</pre>
+<p>Running this should yield output similar to the following:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/e64ead5b-ee7d-4244-bd88-e1c56ff1eb4e.png" style="width:50.67em;height:31.58em;"/></p>
+<p>By default, <em>out-of-the-box</em> installation of PostgreSQL is much more secure than MariaDB. Without additional configuration, no remote logins are allowed at all, and although no password is set for the superuser account, it can only be accessed on the local machine from the <kbd>postgres</kbd> user account. Similarly, there is no test database to drop.</p>
+<p>Thus, although the high-level process is the same, you must be aware of the nuances of both the database server you are using and the underlying operating system.</p>
+<p>By way of example and to complete this section, let's create a database called <kbd>production</kbd>, and an associated user called <kbd>produser</kbd> who will be given access to it. Although technically, this overlaps with the next section on loading initial data, it is provided here to be analogous to the preceding section on MariaDB, and to demonstrate how to use the native Ansible modules for PostgreSQL.</p>
+<ol>
+<li>Let's create a role called <kbd>setuppostgres</kbd>, and start by defining a task to install the Ubuntu package necessary to support the Ansible PostgreSQL modules, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Install PostgreSQL Ansible support packages<br/>  apt:<br/>    name: python-psycopg2<br/>    state: latest</pre>
+<ol start="2">
+<li>After this, we add a task to create the database (this is a very simple example—you will want to tailor it to your exact requirements), as follows:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Create production database<br/>  postgresql_db:<br/>    name: production<br/>    state: present<br/>  become_user: postgres</pre>
+<ol start="3">
+<li>Notice how we leverage the local <kbd>postgres</kbd> account on the target machine for database superuser access with the <kbd>become_user</kbd> statement. Next, we'll add the user, and give them privileges on this database, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Add produser account to database<br/>  postgresql_user:<br/>    db: production<br/>    name: produser<br/>    password: securepw<br/>    priv: ALL<br/>    state: present<br/>  become_user: postgres</pre>
+<p style="padding-left: 60px">As usual, you would not just specify the password in plaintext like this—this has been done here for simplicity. As usual, substitute appropriate data for variables, and if those variables are sensitive, either encrypt them at rest using Ansible Vault or prompt the user for them when the playbook is run.</p>
+<ol start="4">
+<li>Now, to get PostgreSQL to listen for remote connections for this user, we need to perform two more actions. We need to add a line to <kbd>pg_hba.conf</kbd>, to tell PostgreSQL to allow the user we just created to access this database from the appropriate network—the following example is shown, but be sure to tailor it to your network and requirements:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Grant produser access to the production database over the local network<br/>  postgresql_pg_hba:<br/>    dest: /etc/postgresql/11/main/pg_hba.conf<br/>    contype: host<br/>    users: produser<br/>    source: 192.168.81.0/24<br/>    databases: production<br/>    method: md5</pre>
+<ol start="5">
+<li>We must also change the <kbd>listen_addresses</kbd> parameter in the <kbd>postgresql.conf</kbd> file, which defaults to local connections only. The exact location of this file will vary depending on your operating system and version of PostgreSQL—the following example shown is suitable for our install of PostgreSQL 11 on Ubuntu Server 18.04:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Ensure PostgreSQL is listening for remote connections<br/>  lineinfile:<br/>    dest: /etc/postgresql/11/main/postgresql.conf<br/>    regexp: '^listen_addresses ='<br/>    line: listen_addresses = '*'<br/>  notify: Restart PostgreSQL</pre>
+<ol start="6">
+<li>Observant readers will have noticed the use of handlers here too—the <kbd>postgresql</kbd> service must be restarted to pick up any changes to this file. However, this should only be performed when the file is changed, and hence we make use of handlers. Our <kbd>handlers/main.yml</kbd> file will look like this:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Restart PostgreSQL<br/>  service:<br/>    name: postgresql<br/>    state: restarted</pre>
+<ol start="7">
+<li>With our playbook assembled, we can now run it, and the output should look something like the following screenshot:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/420b017b-3c12-4abc-a370-621bf44f930e.png" style="width:50.92em;height:39.25em;"/></p>
+<p>Although this example is not strictly the same as the replication of the <kbd>mysql_secure_installation</kbd> tool in the previous section, it does show how to use native Ansible modules to configure and secure a PostgreSQL database and shows how Ansible can powerfully assist you in setting up and securing new database servers. These principles can be applied to just about any database server that is compatible with Linux, though the modules available for each database will vary. A full list of modules can be found here: <a href="https://docs.ansible.com/ansible/latest/modules/list_of_database_modules.html">https://docs.ansible.com/ansible/latest/modules/list_of_database_modules.html</a></p>
+<p>Now that we have looked at the process of installing a database server, in the next section, we will build on our installation work, to load initial data and schemas.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Importing and exporting data</h1>
+                </header>
+            
+            <article>
+                
+<p>No database is complete simply by installing the software and configuring it—often, there is a very important intermediate stage, which involves loading an initial dataset. This might be a backup from a previous database, a sanitized dataset for testing purposes, or, simply, a schema into which application data can be loaded.</p>
+<p>Although Ansible has modules for a limited set of database functions, the functionality here is not as complete as that for other automation tasks. The most complete support offered for a database by Ansible is for PostgreSQL—with lesser support for some other databases. Through some clever use of the <kbd>shell</kbd> module, any manual task that you can perform on the command line can be replicated into an Ansible task. It is up to you to apply logic to the tasks to handle errors or conditions where, for example, a database already exists, and we shall see an example of this in the next section.</p>
+<p>In the next section, we will look at how you could use Ansible to automate the task of loading a sample database into a MariaDB database.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Automating MariaDB data loading with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>MariaDB is a good choice for this chapter because it offers a middle-of-the-road view when it comes to database management with Ansible. There is some native module support in Ansible, but this is not complete for all tasks you might want to execute. As a result, we will develop the following example, which automates the loading of a sample set of data, using just the <kbd>shell</kbd> Ansible modules. We will then develop this to show how it would be completed with the <kbd>mysql_db</kbd> module, to provide you with a direct comparison between the two automation techniques.</p>
+<div class="packt_infobox">Note that the following examples performed using the <kbd>shell</kbd> module could be adapted for almost any database you can manage from the command line, and so it is hoped these will provide you with a valuable reference for automating your database management tasks.</div>
+<p>In terms of example databases, we will work with the publicly available <strong>Employees</strong> sample database, as this is available to everyone reading this book. You can, of course, choose your own set of data to work with—however, it is, as ever, hoped that this following practical example will teach you the skills you need to load data into your newly installed database with Ansible:</p>
+<ol>
+<li>To start with, let's create a role called <kbd>loadmariadb</kbd>. Into the <kbd>roles</kbd> directory structure, create a directory called <kbd>files/</kbd>, and clone the <kbd>employees</kbd> sample database. This is publicly available on GitHub, and, at the time of writing, could be cloned using the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$ git clone https://github.com/datacharmer/test_db.git</strong></pre>
+<ol start="2">
+<li>From here, we create a <kbd>tasks/</kbd> directory within the role and write the code for our role tasks themselves. To start with, we need to copy the database files across to our database server, by running the following code:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Copy sample database to server<br/>  copy:<br/>    src: "{{ item }}"<br/>    dest: /tmp/<br/>  loop:<br/>    - files/test_db/employees.sql<br/>    - files/test_db/load_departments.dump<br/>    - files/test_db/load_employees.dump<br/>    - files/test_db/load_dept_emp.dump<br/>    - files/test_db/load_dept_manager.dump<br/>    - files/test_db/load_titles.dump<br/>    - files/test_db/load_salaries1.dump<br/>    - files/test_db/load_salaries2.dump<br/>    - files/test_db/load_salaries3.dump<br/>    - files/test_db/show_elapsed.sql</pre>
+<ol start="3">
+<li>Once the data files are copied to the server, it is simply a matter of loading them into the database. However, as there is no module for this task, we must revert to a shell command to handle this, as shown in the following code block:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Load sample data into database<br/>  shell: "mysql -u root --password={{ mariadb_root_password }} &lt; /tmp/employees.sql"<br/>  args:<br/>    chdir: /tmp</pre>
+<ol start="4">
+<li>The role tasks are simplicity themselves—however, before we can run the playbook, we need to set the <kbd>mariadb_root_password</kbd> variable, ideally in a vault, but for simplicity in this book, we will put it in a plaintext <kbd>vars</kbd> file in the role. The file <kbd>vars/main.yml</kbd> should look like this:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>mariadb_root_password: "securepw"</pre>
+<p style="padding-left: 60px">As you will have spotted, this playbook assumes that you already installed and configured MariaDB in a previous role—the password used in the preceding code block is that set in the previous section when we installed MariaDB and secured it using Ansible.</p>
+<ol start="5">
+<li>Running the playbook should yield results like this:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/fa4e8d55-7e63-498e-8520-4962c88370d4.png" style="width:44.17em;height:30.50em;"/></p>
+<p>Here, we have not only loaded a sample schema, but also sample data, into our database. In your enterprise, you could choose to perform either of these tasks in isolation, as required.</p>
+<p>You will probably have spotted that this playbook is extremely dangerous. As we discussed previously, the issue with using the <kbd>shell</kbd> module in Ansible playbooks is that the results of the task will vary as the shell command is always run, whether it needs running or not. Thus, if you ran this playbook against a server with an existing database called <kbd>employees</kbd>, it would overwrite all the data in it with the sample data! Contrast this with the <kbd>copy</kbd> module, which only copies the files if they do not already exist on the receiving end.</p>
+<p>Given the lack of native database modules at the time of writing, we need to devise a more intelligent way of running this command. Here, we can make use of some of the clever error handling built into Ansible.</p>
+<p>The <kbd>shell</kbd> module assumes that the command it is running has run successfully if it returns exit code zero. This results in the task returning the <kbd>changed</kbd> status we saw in this playbook run. However, if the exit code is not zero, the <kbd>shell</kbd> module will instead return a status of <kbd>failed</kbd>.</p>
+<p>We can take advantage of this knowledge, and couple it with a useful MariaDB command that will return a zero exit code if the database we query exists, and non-zero if it doesn't. See the following screenshot for an example:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/185c8355-44d3-4a26-b99e-7ad5cbea9fa4.png" style="width:41.50em;height:30.33em;"/></p>
+<p>We can make use of this command by running it before our task that loads the data. We can ignore any errors from the command, and instead register them in a variable. We use this to conditionally run the data load, loading it only if an error occurred (this is the instance where the database does not exist, and so it is safe to load the data).</p>
+<p>The copy task remains the same, but the tail end of the tasks now looks like this:</p>
+<pre>- name: Check to see if the database exists<br/>  shell: "mysqlshow -u root --password={{ mariadb_root_password }} employees"<br/>  ignore_errors: true<br/>  register: dbexists<br/><br/>- name: Load sample data into database<br/>  shell: "mysql -u root --password={{ mariadb_root_password }} &lt; /tmp/employees.sql"<br/>  args:<br/>    chdir: /tmp<br/>  when: dbexists.rc != 0</pre>
+<p>Now, we will only load the data if the database doesn't exist. This code has been kept simple for the sake of providing an example, and it is left to you to enhance it—for example, by putting the filenames and database name into a variable so that the role becomes reusable in a variety of circumstances (which, after all, is one of the goals of writing a role). </p>
+<p>If we now run this code, we can see that it operates as desired—on the first run, the data is loaded, as the following screenshot shows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/d14854d0-0c2d-4035-8843-ddaa7a583c0d.png" style="width:50.58em;height:45.58em;"/></p>
+<p>However, on the second run, it is not—the following screenshot shows the playbook being run a second time, and the data load task being skipped because the database exists:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/1063129d-0ed5-4518-8e18-e6dc0dcc2404.png" style="width:49.75em;height:40.00em;"/></p>
+<p>Although these examples are specific to MariaDB, the high-level process performed here should work with just about any database. The key element is to use the <kbd>shell</kbd> module to load the data and/or schema but to do so in a way that reduces the right of a valid database getting overwritten, in the event that the playbook gets run twice. You should extend this logic to any other task you perform—your ultimate goal should be that if your playbook is run unintentionally, then no damage is done to the existing database.</p>
+<p>Having completed this example, it is worth noting that Ansible does provide a module called <kbd>mysql_db</kbd>, which can natively handle tasks such as dumping and importing database data. Let's now develop an example that makes use of the native <kbd>mysql_db</kbd> module:</p>
+<ol>
+<li>If we were to develop a role to perform exactly the same task as shown previously, but using this native module, we would first of all check to see if the database exists as before, registering the result to a variable, like this:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Check to see if the database exists<br/>  shell: "mysqlshow -u root --password={{ mariadb_root_password }} employees"<br/>  ignore_errors: true<br/>  register: dbexists</pre>
+<ol start="2">
+<li>We then create a <kbd>block</kbd> in our tasks file, as there is no point running any of the tasks after this step if the database exists. The <kbd>block</kbd> uses the <kbd>when</kbd> clause we used before, to determine whether the tasks inside it should run or not, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Import new database only if it doesn't already exist<br/>  block:<br/><br/>  when: dbexists.rc != 0</pre>
+<ol start="3">
+<li>Inside the <kbd>block</kbd>, we copy over all the SQL files to import just as we did before, like this:</li>
+</ol>
+<pre style="padding-left: 60px">  - name: Copy sample database to server<br/>    copy:<br/>      src: "{{ item }}"<br/>      dest: /tmp/<br/>    loop:<br/>      - files/test_db/employees.sql<br/>      - files/test_db/load_departments.dump<br/>      - files/test_db/load_employees.dump<br/>      - files/test_db/load_dept_emp.dump<br/>      - files/test_db/load_dept_manager.dump<br/>      - files/test_db/load_titles.dump<br/>      - files/test_db/load_salaries1.dump<br/>      - files/test_db/load_salaries2.dump<br/>      - files/test_db/load_salaries3.dump<br/>      - files/test_db/show_elapsed.sql</pre>
+<ol start="4">
+<li>Now, an important difference emerges between using the <kbd>shell</kbd> module, and <kbd>mysql_db</kbd>. When using the <kbd>shell</kbd> module, we used the <kbd>chdir</kbd> argument to change the working directory to <kbd>/tmp</kbd>, which is where all our SQL files were copied to. The <kbd>mysql_db</kbd> module has no <kbd>chdir</kbd> (or equivalent) argument, and so will fail when it comes to try to load the <kbd>*.dump</kbd> files that are sourced via <kbd>employees.sql</kbd>. To work around this, we use the Ansible <kbd>replace</kbd> module, to add the full path to these files into the appropriate lines in <kbd>employees.sql</kbd>, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">  - name: Add full paths to employees.sql as mysql_db won't know where to load them from otherwise<br/>    replace:<br/>      path: /tmp/employees.sql<br/>      regexp: '^source (.*)$'<br/>      replace: 'source /tmp/\1'</pre>
+<ol start="5">
+<li>Finally, we use the <kbd>mysql_db</kbd> module to load in the data (this is analogous to the shell command we performed in our earlier example), as follows:</li>
+</ol>
+<pre style="padding-left: 60px">  - name: Load sample data into database<br/>    mysql_db:<br/>      name: all<br/>      state: import<br/>      target: /tmp/employees.sql<br/>      login_user: root<br/>      login_password: "{{ mariadb_root_password }}"</pre>
+<ol start="6">
+<li>When we run this code, it achieves the same end result as our previous role that used the <kbd>shell</kbd> module, as the following screenshot shows:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/335f97a1-02fb-4eb6-8e5f-a0fffd5f6e80.png" style="width:48.75em;height:50.42em;"/></p>
+<p>This process works equally well for backing up databases, too. If you were to use the <kbd>shell</kbd> module, you could use the <kbd>mysqldump</kbd> command to back up a database, and then copy the backed-up data to your Ansible host (or indeed, another) for archiving. A simple piece of example code to achieve this might be constructed as follows:</p>
+<ol>
+<li>As we want the backup filename to be dynamic and include useful information such as the current date and hostname on which the backup is being performed, we use the <kbd>set_fact</kbd> module, along with some internal Ansible variables, to define a filename for the backup data, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Define a variable for the backup file name<br/>  set_fact:<br/>    db_filename: "/tmp/{{ inventory_hostname }}-backup-{{ ansible_date_time.date }}.sql"</pre>
+<ol start="2">
+<li>We then use the <kbd>shell</kbd> module to run <kbd>mysqldump</kbd>, with the appropriate parameters for creating a backup—going into depth on these is beyond the scope of this book, but the following example creates a backup of all databases on your server, without locking the tables during the backup:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Back up the database<br/>  shell: "mysqldump -u root --password={{ mariadb_root_password }} --all-databases --single-transaction --lock-tables=false --quick &gt; {{ db_filename }}"</pre>
+<ol start="3">
+<li>The <kbd>fetch</kbd> module is then used to retrieve the data for archiving—fetch works just like the <kbd>copy</kbd> module that we used earlier in this section, except that it copies data in the reverse direction (that is, from the inventory host to the Ansible server). Run the following code:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Copy the backed up data for archival<br/>  fetch:<br/>    src: "{{ db_filename }}"<br/>    dest: "/backup"</pre>
+<ol start="4">
+<li>Running this in the usual manner results in a complete backup of the database, with the resulting file being copied to our Ansible server, as the following screenshot shows:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/58a09392-6801-45a7-bfa7-dc4e2ea207e9.png" style="width:42.33em;height:23.00em;"/></p>
+<p>This example could also be achieved using the <kbd>mysql_db</kbd> module, just as we did before—the <kbd>set_fact</kbd> and <kbd>fetch</kbd> tasks remain exactly the same, while the <kbd>shell</kbd> task is replaced with the following code:</p>
+<pre>- name: Back up the database<br/>  mysql_db:<br/>    state: dump<br/>    name: all<br/>    target: "{{ db_filename }}"<br/>    login_user: root<br/>    login_password: "{{ mariadb_root_password }}"</pre>
+<p>Thus, Ansible can assist you both with loading data into your databases and backing it up. As we have discussed previously, it is generally better to use the native Ansible modules (such as <kbd>mysql_db</kbd>) where they are available, but, provided you apply the correct logic to it, the <kbd>shell</kbd> module can assist you, if native modules don't exist or provide the functionality you need.</p>
+<p>Now that we have considered the process of creating databases and loading data into them, we will proceed in the next section to demonstrate how to build on this work, to perform routine database maintenance with Ansible.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Performing routine maintenance</h1>
+                </header>
+            
+            <article>
+                
+<p>Loading schemas and/or data is not the only task you would perform with Ansible on a database. Sometimes, manual intervention is required in a database. For example, PostgreSQL requires VACUUM operations from time to time, to free up unused space in the database. MariaDB has a maintenance tool called <kbd>mysqlcheck</kbd> that can be used to verify the integrity of tables and perform optimization. Each platform will have its own specific tools for maintenance operations, and it is up to you to establish the best practices for database maintenance on your chosen platform. Furthermore, sometimes it is necessary to make simple changes to a database. For example, it might be necessary to delete (or update) a row from a table, to clear an error situation that has occurred in an application.</p>
+<p>Of course, all these activities could be performed manually—however, this (as always) brings about the risk of losing track of what happened, who ran a task, and how they ran it (for example, which options were provided). If we move this example into the world of Ansible and AWX, suddenly we have a complete audit trail of activities, and we know exactly what was run and how it was run. Furthermore, if special options are required for a task, these will be stored within the playbooks, and thus the <em>self-documentation</em> that Ansible provides is available here too.</p>
+<p>As our examples thus far have been very MariaDB-centric, let's take a look at how you might run a full vacuum on a table in PostgreSQL, with Ansible.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Routine maintenance on PostgreSQL with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>PostgreSQL is something of a special case on Ansible, as it has more native modules to support database activities than most other databases. Let's consider an example case: performing a vacuum on the <kbd>sales.creditcard</kbd> table in the publicly available AdventureWorks sample database (available here: <a href="https://github.com/lorint/AdventureWorks-for-Postgres">https://github.com/lorint/AdventureWorks-for-Postgres</a>).</p>
+<div class="packt_infobox">Vacuuming is a PostgreSQL-specific maintenance process and one that you might want to consider running on a regular basis, especially if your tables have a lot of deletes or modifications. Although a full discussion of this is beyond the scope of this book, it is important to consider that tables that are subject to these activities can become bloated in size and queries can become slow over time, and vacuuming is a way to release unused space and speed up queries again.</div>
+<p>Now, to perform a vacuum on this table by hand, you would log in to the <kbd>psql</kbd> client utility with appropriate credentials, and then run the following commands to connect to the database and perform the task:</p>
+<pre>postgres=# \c AdventureWorks<br/>AdventureWorks=# vacuum full sales.creditcard;</pre>
+<p>In a real enterprise, this would be a task that encompasses many more tables, and even databases, but here, we will once again keep the example simple, to demonstrate the principles involved. Scaling this up is then left as a task for you to perform. Let's automate this, first of all using the <kbd>shell</kbd> module in Ansible. This is a useful example, as this technique will work with most major databases—simply, you must establish the command needed for your particular maintenance operation, and then run it.</p>
+<p>A simple role to perform this task would look like this:</p>
+<pre>---<br/>- name: Perform a VACUUM on the sales.credit_card table<br/>  shell: psql -c "VACUUM FULL sales.creditcard" AdventureWorks<br/>  become: yes<br/>  become_user: postgres</pre>
+<p>Note—as before—very simple use of the <kbd>shell</kbd> module with the appropriate command, except that, this time, we are using the <kbd>become_user</kbd> parameter to switch to the <kbd>postgres</kbd> user account, which has superuser rights on the database on the host to which we connect. Let's see what happens when we run this, as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/afb8f821-4b31-4674-a91d-3f3a6e1f90f5.png" style="width:44.00em;height:17.25em;"/></p>
+<p>Naturally, this could be scaled to just about any other database—for example, you could use the <kbd>mysql</kbd> client tool on a MariaDB database, or even run the <kbd>mysqlcheck</kbd> tool, as discussed earlier. The limit really is on what you can script for the <kbd>shell</kbd> module to run, and because Ansible runs the command over SSH on the database server itself, you don't need to worry about opening up your database for access across the network—it can remain tightly locked down.</p>
+<p>In addition to using the <kbd>shell</kbd> module, Ansible offers us the option to actually run queries directly from a module called <kbd>postgresql_query</kbd>. This is unique, though such support could be added for any other database if someone was willing to write the module and submit it.</p>
+<p>Unfortunately for Ansible versions prior to 2.9, it was not possible to extend our VACUUM example to this as the <kbd>postgresql_query</kbd> module runs transactions inside a block, and it is not possible to run a VACUUM inside a transaction block. If you are running version 2.9 or later, you can now run a VACUUM using example code, as shown here:</p>
+<pre>---<br/>- name: Perform a VACUUM on the sales.credit_card table<br/>  postgresql_query:<br/>    db: AdventureWorks<br/>    query: VACUUM sales.creditcard<br/>    autocommit: yes<br/>  become_user: postgres<br/>  become: yes</pre>
+<p>By way of another simple example, we could also use the <kbd>postgresql_query</kbd> module to directly manipulate the database.  </p>
+<p>Suppose that a bug in the application using this database has occurred, and an operator must manually insert a credit card number into the database. The SQL code to perform this might look something like this:</p>
+<pre>INSERT INTO sales.creditcard ( creditcardid, cardtype, cardnumber, expmonth, expyear ) VALUES ( 0, 'Visa', '0000000000000000', '11', '2019' );</pre>
+<p>We could achieve the same end result in Ansible, using a role that looks like the following:</p>
+<pre>---<br/>- name: Manually insert data into the creditcard table<br/>  postgresql_query:<br/>    db: AdventureWorks<br/>    query: INSERT INTO sales.creditcard ( creditcardid, cardtype, cardnumber, expmonth, expyear ) VALUES ( 0, 'Visa', '0000000000000000', '11', '2019' );<br/>  become_user: postgres<br/>  become: yes</pre>
+<p>Naturally, you would use variables for the data values, and sensitive data like this should always be stored in a vault (or, perhaps, entered by hand when the role is run).</p>
+<div class="packt_tip">AWX has a feature called <strong>Surveys</strong>, which presents the user with a series of predefined questions to answer before a playbook is run. The answers to these questions are stored in Ansible variables— thus, a role such as the preceding one could be parameterized, and run from AWX with all the values entered into a Survey, negating the need for a vault and concerns over sensitive customer data being stored in Ansible.</div>
+<p>As you can see here, when we run this role, we actually get a changed status when the <kbd>INSERT</kbd> operation is successful—very useful for monitoring such tasks and ensuring they have run as desired. The following screenshot shows this role being run, and the <kbd>changed</kbd> status, denoting the successful insertion of data into the <kbd>sales.creditcard</kbd> table:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/118c4804-76c5-4289-be64-5047e307d3a0.png" style="width:56.00em;height:22.25em;"/></p>
+<p>The world really is your oyster when it comes to database management with Ansible, and, regardless of the task required, it is desirable that all database tasks be handled in a standardized, repeatable, and auditable manner, just like the rest of your Enterprise Linux estate. It is hoped that this chapter has gone some way in showing you how to achieve this.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Databases are a core part of the application stack in most enterprises, and there is a multitude of databases available on the Linux platform. Although many databases have their own management tools, Ansible is well suited to assist with a wide array of database management tasks, from the installation of database services and loading of initial data or schemas (or even restoring from backups) to handling day-to-day maintenance tasks. Combining Ansible's error handling and secure automation, there is virtually no limit to the types of database management tasks you can perform with Ansible.</p>
+<p>In this chapter, you learned how <span>to use Ansible to install database servers in a consistent and repeatable manner. You then learned how to </span><span>import initial data and schemas, and how to extend this to automate backup tasks. Finally, you gained hands-on knowledge of some routine database maintenance tasks with Ansible.</span></p>
+<p>In the next chapter, we will look at how Ansible can assist with the task of routine maintenance on your Linux servers.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>Why is it prudent to install and manage your database platform with Ansible?</li>
+<li>What are the best practices for database configuration file management with Ansible?</li>
+<li>How can Ansible help you keep your database secure on the network?</li>
+<li>When would you use the <kbd>shell</kbd> module instead of a native database module in Ansible?</li>
+<li>Why would you want to perform routine maintenance with Ansible?</li>
+<li>How would you perform a PostgreSQL database backup with Ansible?</li>
+<li>Which module would you use to manipulate the users on a MariaDB database?</li>
+<li>How is PostgreSQL support unique in Ansible at the present time?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li>For an in-depth understanding of Ansible, please refer to <em>Mastering Ansible, Third Edition—James Freeman</em> and <em>Jesse Keating</em> (<a href="https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition">https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition</a>).</li>
+<li>To learn more about the specifics relating to PostgreSQL database management, readers may refer to <em>Learning PostgreSQL 11, Third Edition—Andrey Volkov, Salahadin Juba</em> (<a href="https://www.packtpub.com/gb/big-data-and-business-intelligence/learning-postgresql-11-third-edition">https://www.packtpub.com/gb/big-data-and-business-intelligence/learning-postgresql-11-third-edition</a>).</li>
+<li>Similarly, to learn more about MariaDB database management, readers can refer to <em>MariaDB Essentials—Federico Razzoli, Emilien Kenler</em> (<a href="https://www.packtpub.com/gb/application-development/mariadb-essentials">https://www.packtpub.com/gb/application-development/mariadb-essentials</a>).</li>
+<li>For a full list of available Ansible modules, readers should refer to <a href="https://docs.ansible.com/ansible/latest/modules/list_of_database_modules.html">https://docs.ansible.com/ansible/latest/modules/list_of_database_modules.html.</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

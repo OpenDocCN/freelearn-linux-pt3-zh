@@ -1,0 +1,519 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer158" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor581"/>18</h1>
+    <h1 id="_idParaDest-514" class="chapterTitle"><a id="_idTextAnchor582"/>Managing Memory</h1>
+    <p class="normal">This chapter covers issues related to memory management, which is an important topic for any Linux system but especially for embedded Linux, where system memory is usually in limited supply. After a brief refresher on virtual memory, I will show you how to measure memory usage and how to detect problems with memory allocation, including memory leaks, as well as what happens when you run out of memory. You will have to understand the tools that are available, from simple tools such as <code class="inlineCode">free</code> and <code class="inlineCode">top</code> to complex ones such as <code class="inlineCode">mtrace</code> and Valgrind.</p>
+    <p class="normal">We will learn the difference between kernel- and user-space memory, and how the kernel maps physical pages of memory to the address space of a process. Then we will locate and read the memory maps for individual processes under the <code class="inlineCode">proc</code> filesystem. We will see how the <code class="inlineCode">mmap</code> system call can be used to map a program’s memory to a file, so that it can allocate memory in bulk or share it with another process. In the second half of this chapter, we will use <code class="inlineCode">ps</code> to measure per-process memory usage before moving on to more accurate tools such as <code class="inlineCode">smem</code> and <code class="inlineCode">ps_mem</code>.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Virtual memory basics</li>
+      <li class="bulletList">Kernel-space memory layout</li>
+      <li class="bulletList">User-space memory layout</li>
+      <li class="bulletList">Process memory map</li>
+      <li class="bulletList">Managing memory</li>
+      <li class="bulletList">Swapping</li>
+      <li class="bulletList">Mapping memory with <code class="inlineCode">mmap</code></li>
+      <li class="bulletList">How much memory does my application use?</li>
+      <li class="bulletList">Per-process memory usage</li>
+      <li class="bulletList">Identifying memory leaks</li>
+      <li class="bulletList">Running out of memory</li>
+    </ul>
+    <h1 id="_idParaDest-515" class="heading-1"><a id="_idTextAnchor583"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have a Linux-based host system with <code class="inlineCode">gcc</code>, <code class="inlineCode">make</code>, <code class="inlineCode">top</code>, <code class="inlineCode">procps</code>, <code class="inlineCode">valgrind</code>, and <code class="inlineCode">smem</code> installed.</p>
+    <p class="normal">All of these tools are available on most popular Linux distributions (such as Ubuntu, Arch, and so on).</p>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter18"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter18</span></a>.</p>
+    <h1 id="_idParaDest-516" class="heading-1"><a id="_idTextAnchor584"/>Virtual memory basics</h1>
+    <p class="normal">To recap, Linux configures<a id="_idIndexMarker1297"/> the <strong class="keyWord">Memory Management Unit</strong> (<strong class="keyWord">MMU</strong>) of the CPU to present a virtual address space to a running <a id="_idIndexMarker1298"/>program that begins at zero and ends at the highest address, <code class="inlineCode">0xffffffff</code>, on a 32-bit processor. This address space is divided into pages of 4 KB by default. If 4 KB pages are too small for your application, then you can configure the<a id="_idIndexMarker1299"/> kernel to use <strong class="keyWord">HugePages</strong>, reducing the amount of system resources <a id="_idIndexMarker1300"/>needed to access page table entries and increasing the <strong class="keyWord">Translation Lookaside Buffer</strong> (<strong class="keyWord">TLB</strong>) hit ratio.</p>
+    <p class="normal">Linux divides this virtual address space into <a id="_idIndexMarker1301"/>an area for applications, called <strong class="keyWord">user space</strong>, and an area for the kernel, called <strong class="keyWord">kernel space</strong>. The split <a id="_idIndexMarker1302"/>between the two is set by a kernel configuration parameter named <code class="inlineCode">PAGE_OFFSET</code>. In a typical 32-bit embedded system, <code class="inlineCode">PAGE_OFFSET</code> is <code class="inlineCode">0xc0000000</code>, giving the lower 3 gigabytes to user space and the top gigabyte to kernel space. The user address space is allocated per process so that each process runs in a sandbox, separated from the others. The kernel address space is the same for all processes, as there is only one kernel.</p>
+    <p class="normal">Pages in this virtual address space are mapped to physical addresses by the MMU, which uses page tables to perform the mapping.</p>
+    <p class="normal">Each page of virtual memory<a id="_idIndexMarker1303"/> may be unmapped or mapped as follows:</p>
+    <ul>
+      <li class="bulletList">Unmapped so that trying to access these addresses will result in a <code class="inlineCode">SIGSEGV</code>.</li>
+      <li class="bulletList">Mapped to a page of physical memory that is private to the process.</li>
+      <li class="bulletList">Mapped to a page of physical memory that is shared with other processes.</li>
+      <li class="bulletList">Mapped and shared with a <strong class="keyWord">copy-on-write</strong> (<strong class="keyWord">CoW</strong>) flag set: a write is trapped in the kernel, which makes a<a id="_idIndexMarker1304"/> copy of the page and maps it to the process in place of the original page before allowing the write to take place.</li>
+      <li class="bulletList">Mapped to a page of physical memory that is used by the kernel.</li>
+    </ul>
+    <p class="normal">The kernel may additionally map pages to reserved memory regions, for example, to access registers and memory buffers in device drivers.</p>
+    <p class="normal">An obvious question is this: why do we do it this way instead of simply referencing physical memory directly, as a typical RTOS would?</p>
+    <p class="normal">There are numerous advantages to <a id="_idIndexMarker1305"/>virtual memory, some of which are described here:</p>
+    <ul>
+      <li class="bulletList">Invalid memory accesses are trapped and applications are alerted by <code class="inlineCode">SIGSEGV</code>.</li>
+      <li class="bulletList">Processes run in their own memory space, isolated from other processes.</li>
+      <li class="bulletList">Efficient use of memory through the sharing of common code and data, for example, in libraries.</li>
+      <li class="bulletList">The possibility of increasing the apparent amount of physical memory by adding swap files, although swapping on embedded targets is rare.</li>
+    </ul>
+    <p class="normal">These are powerful arguments, but I have to admit that there are some disadvantages as well. It is difficult to determine the actual memory budget of an application, which is one of the main concerns of this chapter. The default allocation strategy is to overcommit, which leads to tricky out-of-memory situations, which I will also discuss later, in the <em class="italic">Running out of memory</em> section. Finally, the delays introduced by the memory management code in handling exceptions—page faults—make the system less deterministic, which is important for real-time programs. I will cover this in <a href="Chapter_19.xhtml#_idTextAnchor654"><em class="italic">Chapter 21</em></a>.</p>
+    <p class="normal">Memory management is different for kernel space and user space. The upcoming sections describe the essential differences and the things you need to know.</p>
+    <h1 id="_idParaDest-517" class="heading-1"><a id="_idTextAnchor585"/>Kernel-space memory layout</h1>
+    <p class="normal">Kernel memory is managed in a <a id="_idIndexMarker1306"/>straightforward way. It is not demand-paged, which means that for every allocation using <code class="inlineCode">kmalloc()</code> or a similar function, there is real physical memory. Kernel memory is never discarded or paged out.</p>
+    <p class="normal">Some architectures show a summary of the memory mapping at boot time in the kernel log messages. This trace is taken from a 32-bit Arm device (a BeagleBone Black):</p>
+    <pre class="programlisting con"><code class="hljs-con">Memory: 511MB = 511MB total
+Memory: 505980k/505980k available, 18308k reserved, 0K highmem
+Virtual kernel memory layout:
+    vector  : 0xffff0000 - 0xffff1000   ( 4 kB)
+    fixmap  : 0xfff00000 - 0xfffe0000   ( 896 kB)
+    vmalloc : 0xe0800000 - 0xff000000   ( 488 MB)
+    lowmem  : 0xc0000000 - 0xe0000000   ( 512 MB)
+    pkmap   : 0xbfe00000 - 0xc0000000   ( 2 MB)
+    modules : 0xbf800000 - 0xbfe00000   ( 6 MB)
+      .text : 0xc0008000 - 0xc0763c90   (7536 kB)
+      .init : 0xc0764000 - 0xc079f700   ( 238 kB)
+      .data : 0xc07a0000 - 0xc0827240   ( 541 kB)
+      .bss  : 0xc0827240 - 0xc089e940   ( 478 kB)
+</code></pre>
+    <p class="normal">The figure of 505,980 KB available is the amount of free memory the kernel sees when it begins execution but before it begins making dynamic allocations.</p>
+    <p class="normal">Consumers of kernel-space<a id="_idIndexMarker1307"/> memory include the following:</p>
+    <ul>
+      <li class="bulletList">The kernel itself, in other words, the code and data loaded from the kernel image file at boot time. This is shown in the preceding kernel log in the <code class="inlineCode">.text</code>, <code class="inlineCode">.init</code>, <code class="inlineCode">.data</code>, and <code class="inlineCode">.bss</code>. segments. The <code class="inlineCode">.init</code> segment is freed once the kernel has completed initialization.</li>
+      <li class="bulletList">Memory allocated through the slab allocator, which is used for kernel data structures of various kinds. This <a id="_idIndexMarker1308"/>includes allocations made using <code class="inlineCode">kmalloc()</code>. They come from the region marked <strong class="keyWord">lowmem</strong>.</li>
+      <li class="bulletList">Memory allocated via <code class="inlineCode">vmalloc()</code>, usually for larger chunks of memory than is available through <code class="inlineCode">kmalloc()</code>. These are<a id="_idIndexMarker1309"/> in the <strong class="keyWord">vmalloc</strong> area.</li>
+      <li class="bulletList">A mapping for device drivers to access registers and memory belonging to various bits of hardware, which you can see by reading <code class="inlineCode">/proc/iomem</code>. These also come from the <strong class="keyWord">vmalloc</strong> area, but since they are mapped to physical memory that is outside of the main system <a id="_idIndexMarker1310"/>memory, they do not take up any real memory.</li>
+      <li class="bulletList">Kernel modules which are loaded into the area marked <strong class="keyWord">modules</strong>.</li>
+      <li class="bulletList">Other low-level allocations that are not tracked anywhere else.</li>
+    </ul>
+    <p class="normal">Now that we know the layout of memory in kernel space, let’s find out how much memory the kernel is using.</p>
+    <h2 id="_idParaDest-518" class="heading-2"><a id="_idTextAnchor586"/>How much memory does the kernel use?</h2>
+    <p class="normal">Unfortunately, there isn’t <a id="_idIndexMarker1311"/>a precise answer to the question of how much memory the kernel uses, but what follows is as close as we can get.</p>
+    <p class="normal">Firstly, you can see the memory taken up by the kernel code and data in the kernel log shown previously, or you can use the <code class="inlineCode">size</code> command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cd build_arm64
+$ aarch64-buildroot-linux-gnu-size vmlinux
+   text     data    bss      dec  hex     filename
+26412819 15636144 620032 42668995 28b13c3 vmlinux
+</code></pre>
+    <p class="normal">Usually, the amount of memory taken by the kernel for the static code and data segments shown here is small when compared to the total amount of memory. If that is not the case, you need to look through the kernel configuration and remove the components that you don’t need. An effort to allow building<a id="_idIndexMarker1312"/> small kernels known as <strong class="keyWord">Linux Kernel Tinification</strong> had been making good progress until the project stalled, and Josh Triplett’s patches were eventually removed from the <code class="inlineCode">linux-next</code> tree in 2016. Now, your best bet at reducing the kernel’s in-memory<a id="_idIndexMarker1313"/> size is <strong class="keyWord">Execute-in-Place</strong> (<strong class="keyWord">XIP</strong>) where you trade RAM for flash (<a href="https://lwn.net/Articles/748198/"><span class="url">https://lwn.net/Articles/748198/</span></a>).</p>
+    <p class="normal">You can get more information <a id="_idIndexMarker1314"/>about memory usage by reading <code class="inlineCode">/proc/meminfo</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cat /proc/meminfo
+MemTotal:        1996796 kB
+MemFree:         1917020 kB
+MemAvailable:    1894044 kB
+Buffers:            2444 kB
+Cached:            11976 kB
+SwapCached:            0 kB
+Active:             9440 kB
+Inactive:           8964 kB
+Active(anon):         92 kB
+Inactive(anon):     4096 kB
+Active(file):       9348 kB
+Inactive(file):     4868 kB
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+Dirty:                 8 kB
+Writeback:             0 kB
+AnonPages:          4008 kB
+Mapped:             6864 kB
+Shmem:               200 kB
+KReclaimable:       7412 kB
+Slab:              20924 kB
+SReclaimable:       7412 kB
+SUnreclaim:        13512 kB
+KernelStack:        1552 kB
+PageTables:          540 kB
+SecPageTables:         0 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:      998396 kB
+Committed_AS:       7396 kB
+VmallocTotal:   135288315904 kB
+VmallocUsed:        4072 kB
+VmallocChunk:          0 kB
+&lt;…&gt;
+</code></pre>
+    <p class="normal">There is a description of each of these fields on the manual page <code class="inlineCode">proc(5)</code>. The kernel memory usage is the sum of the following:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">Slab</code>: the total memory allocated by the slab allocator</li>
+      <li class="bulletList"><code class="inlineCode">KernelStack</code>: the stack space used when executing kernel code</li>
+      <li class="bulletList"><code class="inlineCode">PageTables</code>: the memory used to store page tables</li>
+      <li class="bulletList"><code class="inlineCode">VmallocUsed</code>: the memory allocated by <code class="inlineCode">vmalloc()</code></li>
+    </ul>
+    <p class="normal">In the case of slab allocations, you can get more information by reading <code class="inlineCode">/proc/slabinfo</code>. Similarly, there is a breakdown of allocations in <code class="inlineCode">/proc/vmallocinfo</code> for the <strong class="keyWord">vmalloc</strong> area. In both cases, you need detailed knowledge of the kernel and its subsystems in order to see exactly which subsystem is <a id="_idIndexMarker1315"/>making the allocations and why, which is beyond the scope of this discussion.</p>
+    <p class="normal">With modules, you can use <code class="inlineCode">lsmod</code> to find out the memory space taken up by the code and data:</p>
+    <pre class="programlisting con"><code class="hljs-con"># lsmod
+Module          Size  Used by
+g_multi        47670  2
+libcomposite   14299  1 g_multi
+mt7601Usta    601404  0
+</code></pre>
+    <p class="normal">This leaves the low-level allocations, of which there is no record, and that prevents us from generating an accurate account of kernel-space memory usage. This will appear as missing memory when we add up all the kernel- and user-space allocations that we know about.</p>
+    <p class="normal">Measuring kernel-space memory usage is complicated. The information in <code class="inlineCode">/proc/meminfo</code> is somewhat limited and the additional information provided by <code class="inlineCode">/proc/slabinfo</code> and <code class="inlineCode">/proc/vmallocinfo</code> is difficult to interpret. User space offers better visibility into memory usage by way of the process memory map.</p>
+    <h1 id="_idParaDest-519" class="heading-1"><a id="_idTextAnchor587"/>User-space memory layout</h1>
+    <p class="normal">Linux employs a lazy <a id="_idIndexMarker1316"/>allocation strategy for user space, only mapping physical pages of memory when the program accesses it. For example, allocating a buffer of 1 MB using <code class="inlineCode">malloc(3)</code> returns a pointer to a block of memory addresses but no actual physical memory. A flag is set in the page table entries such that any read or write access is trapped by the kernel. This is known as a <strong class="keyWord">page fault</strong>. Only at this point does the kernel attempt to find a page of physical memory and<a id="_idIndexMarker1317"/> add it to the page table mapping for the process. Let’s demonstrate this with a simple program from <code class="inlineCode">MELD/Chapter18/pagefault-demo</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdlib.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;string.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/resource.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> BUFFER_SIZE (1024 * 1024)</span>
+<span class="hljs-type">void</span><span class="hljs-function"> </span><span class="hljs-title">print_pgfaults</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+    <span class="hljs-type">int</span> ret;
+    <span class="hljs-keyword">struct</span> <span class="hljs-title">rusage</span> usage;
+    ret = <span class="hljs-built_in">getrusage</span>(RUSAGE_SELF, &amp;usage);
+    <span class="hljs-keyword">if</span> (ret == <span class="hljs-number">-1</span>) {
+        <span class="hljs-built_in">perror</span>(<span class="hljs-string">"getrusage"</span>);
+    } <span class="hljs-keyword">else</span> {
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Major page faults %ld\n"</span>, usage.ru_majflt);
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Minor page faults %ld\n"</span>, usage.ru_minflt);
+    }
+}
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">int</span><span class="hljs-params"> argc, </span><span class="hljs-type">char</span><span class="hljs-params"> *argv[])</span>
+{
+    <span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *p;
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Initial state\n"</span>);
+    <span class="hljs-built_in">print_pgfaults</span>();
+    p = <span class="hljs-built_in">malloc</span>(BUFFER_SIZE);
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"After malloc\n"</span>);
+    <span class="hljs-built_in">print_pgfaults</span>();
+    <span class="hljs-built_in">memset</span>(p, <span class="hljs-number">0x42</span>, BUFFER_SIZE);
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"After memset\n"</span>);
+    <span class="hljs-built_in">print_pgfaults</span>();
+    <span class="hljs-built_in">memset</span>(p, <span class="hljs-number">0x42</span>, BUFFER_SIZE);
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"After 2nd memset\n"</span>);
+    <span class="hljs-built_in">print_pgfaults</span>();
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">When you run it, you will see output like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">Initial state
+Major page faults 0
+Minor page faults 172
+After malloc
+Major page faults 0
+Minor page faults 186
+After memset
+Major page faults 0
+Minor page faults 442
+After 2nd memset
+Major page faults 0
+Minor page faults 442
+</code></pre>
+    <p class="normal">There were 172 minor page faults encountered after initializing the program’s environment and a further 14 when calling <code class="inlineCode">getrusage(2)</code> (these numbers will vary depending on the architecture and the version of the C library you are using). The important part is the increase when filling the memory with data: 442 - 186 = 256. The buffer is 1 MB, which is 256 pages. The second call to <code class="inlineCode">memset(3)</code> makes no <a id="_idIndexMarker1318"/>difference because all the pages are now mapped.</p>
+    <p class="normal">As you can see, a page fault is generated when the kernel traps access to a page that has not been mapped yet. In fact, there are two kinds of page faults: <code class="inlineCode">minor</code> and <code class="inlineCode">major</code>. With a minor fault, the kernel just has to find a page of physical memory and map it to the process address space, as shown in the preceding code. A major page fault occurs when the virtual memory is mapped to a file, for example, using <code class="inlineCode">mmap(2)</code>, which I will describe shortly. Reading from this memory means that the kernel not only has to find a page of memory and map it in but also has to fill it with data from the file. Consequently, major faults are much more expensive in terms of time and system resources.</p>
+    <p class="normal">While <code class="inlineCode">getrusage(2)</code> offers useful metrics on minor and major page faults within a process, sometimes what we really want to see is an overall memory map of a process.</p>
+    <h1 id="_idParaDest-520" class="heading-1"><a id="_idTextAnchor588"/>Process memory map</h1>
+    <p class="normal">Each running process in user space has a<a id="_idIndexMarker1319"/> process map that we can inspect. These memory maps tell us how a program’s memory is allocated and what shared libraries it is linked to. You can see the memory map for a process through the <code class="inlineCode">proc</code> filesystem. Here is the map for the <code class="inlineCode">init</code> process (PID 1):</p>
+    <pre class="programlisting con"><code class="hljs-con"># cat /proc/1/maps
+aaaaaf830000-aaaaaf83a000 r-xp 00000000 b3:62 397   /sbin/init.sysvinit
+aaaaaf84f000-aaaaaf850000 r--p 0000f000 b3:62 397   /sbin/init.sysvinit
+aaaaaf850000-aaaaaf851000 rw-p 00010000 b3:62 397   /sbin/init.sysvinit
+aaaae9d63000-aaaae9d84000 rw-p 00000000 00:00 0     [heap]
+ffff7ffb0000-ffff8013b000 r-xp 00000000 b3:62 309   /lib/libc.so.6
+ffff8013b000-ffff8014d000 ---p 0018b000 b3:62 309   /lib/libc.so.6
+ffff8014d000-ffff80150000 r--p 0018d000 b3:62 309   /lib/libc.so.6
+ffff80150000-ffff80152000 rw-p 00190000 b3:62 309   /lib/libc.so.6
+ffff80152000-ffff8015e000 rw-p 00000000 00:00 0
+ffff8016c000-ffff80193000 r-xp 00000000 b3:62 304   /lib/ld-linux-aarch64.so.1
+ffff801a4000-ffff801a6000 rw-p 00000000 00:00 0
+ffff801a6000-ffff801a8000 r--p 00000000 00:00 0     [vvar]
+ffff801a8000-ffff801aa000 r-xp 00000000 00:00 0     [vdso]
+ffff801aa000-ffff801ac000 r--p 0002e000 b3:62 304   /lib/ld-linux-aarch64.so.1
+ffff801ac000-ffff801ae000 rw-p 00030000 b3:62 304   /lib/ld-linux-aarch64.so.1
+ffffd73ca000-ffffd73eb000 rw-p 00000000 00:00 0     [stack]
+</code></pre>
+    <p class="normal">The first two columns show the start and end virtual addresses and the permissions for each mapping. The permissions are shown here:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">r</code>: read</li>
+      <li class="bulletList"><code class="inlineCode">w</code>: write</li>
+      <li class="bulletList"><code class="inlineCode">x</code>: execute</li>
+      <li class="bulletList"><code class="inlineCode">s</code>: shared</li>
+      <li class="bulletList"><code class="inlineCode">p</code>: private (copy-on-write)</li>
+    </ul>
+    <p class="normal">If the mapping is associated <a id="_idIndexMarker1320"/>with a file, the filename appears in the final column, and columns three, four, and five contain the offset from the start of the file, the block device number, and the inode of the file. Most of the mappings are to the program itself and the libraries it is linked with. There are two areas where the program can allocate memory, marked <code class="inlineCode">[heap]</code> and <code class="inlineCode">[stack]</code>. Memory allocated using malloc comes from the former (except for very large allocations, which we will come to later); allocations on the stack come from the latter. The maximum size of both areas is controlled by the process’s <code class="inlineCode">ulimit</code>:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">heap</strong>: <code class="inlineCode">ulimit -d</code>, default unlimited</li>
+      <li class="bulletList"><strong class="keyWord">stack</strong>: <code class="inlineCode">ulimit -s</code>, default 8 MB</li>
+    </ul>
+    <p class="normal">Allocations that exceed the limit are rejected by <code class="inlineCode">SIGSEGV</code>.</p>
+    <p class="normal">When running out of memory, the kernel may decide to discard pages that are mapped to a file and are read-only. If that page is accessed again, it will cause a major page fault and be read back in from the file.</p>
+    <h1 id="_idParaDest-521" class="heading-1"><a id="_idTextAnchor589"/>Swapping</h1>
+    <p class="normal">The idea of swapping is to reserve some<a id="_idIndexMarker1321"/> storage where the kernel can place pages of memory that are not mapped to a file, freeing up the memory for other uses. It increases the effective size of physical memory by the size of the swap file. It is not a panacea: there is a cost to copying pages to and from a swap file, which becomes apparent on a system that has too little real memory for the workload it is carrying and so swapping becomes the main activity. This is <a id="_idIndexMarker1322"/>sometimes known as <strong class="keyWord">disk thrashing</strong>.</p>
+    <p class="normal">Swapping is seldom used on embedded devices because it does not work well with flash storage, where constant writing would wear it out quickly. However, you may want to consider swapping to compressed RAM (zram).</p>
+    <h2 id="_idParaDest-522" class="heading-2"><a id="_idTextAnchor590"/>Swapping to compressed memory (zram)</h2>
+    <p class="normal">The <strong class="keyWord">zram</strong> driver creates RAM-based <a id="_idIndexMarker1323"/>block devices named <code class="inlineCode">/dev/zram0</code>, <code class="inlineCode">/dev/zram1</code>, and so on. Pages written to these devices are compressed before being stored. With compression ratios in the range of 30% to 50%, you can expect<a id="_idIndexMarker1324"/> an overall increase in free memory of about 10% at the expense of more processing and a corresponding increase in power usage.</p>
+    <p class="normal">To enable zram, configure the kernel with these options:</p>
+    <pre class="programlisting code"><code class="hljs-code">CONFIG_SWAP
+CONFIG_CGROUP_MEM_RES_CTLR
+CONFIG_CGROUP_MEM_RES_CTLR_SWAP
+CONFIG_ZRAM
+</code></pre>
+    <p class="normal">Then, mount zram at boot time by adding the following to <code class="inlineCode">/etc/fstab</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">/dev/zram0 none swap defaults zramsize=&lt;size in bytes&gt;, swapprio=&lt;swap partition priority&gt;
+</code></pre>
+    <p class="normal">You can turn swapping on and off using the following commands:</p>
+    <pre class="programlisting con"><code class="hljs-con"># swapon /dev/zram0
+# swapoff /dev/zram0
+</code></pre>
+    <p class="normal">Swapping memory out to zram is better than swapping out to flash storage, but neither technique is a substitute for adequate physical memory.</p>
+    <p class="normal">User-space processes depend on the kernel to manage virtual memory for them. Sometimes a program wants greater control over its memory map than the kernel can offer. There is a system call that lets us map memory to a file for more direct access from user space.</p>
+    <h1 id="_idParaDest-523" class="heading-1"><a id="_idTextAnchor591"/>Mapping memory with mmap</h1>
+    <p class="normal">A process begins life with a certain <a id="_idIndexMarker1325"/>amount of memory mapped to the <strong class="keyWord">text</strong> (the code) and <strong class="keyWord">data</strong> segments of the program file, together with the shared libraries that it is linked with. It can allocate memory on its heap at <a id="_idIndexMarker1326"/>runtime using <code class="inlineCode">malloc(3)</code> and on the stack through locally scoped variables and memory allocated through <code class="inlineCode">alloca(3)</code>. It may also load libraries dynamically at runtime using <code class="inlineCode">dlopen(3)</code>. All of these mappings are taken care of by the kernel. However, a process can also manipulate its memory map in an explicit way using <code class="inlineCode">mmap(2)</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">void *mmap(void *addr, size_t length, int prot, int flags,int fd, off_t offset);
+</code></pre>
+    <p class="normal">This function maps <code class="inlineCode">length</code> bytes of memory from the file with the <code class="inlineCode">fd</code> descriptor, starting at <code class="inlineCode">offset</code> in the file, and returns a pointer to the mapping, assuming it is successful. Since the underlying hardware works in pages, <code class="inlineCode">length</code> is rounded up to the nearest whole number of pages. The protection parameter, <code class="inlineCode">prot</code>, is a combination of read, write, and execute permissions and the <code class="inlineCode">flags</code> parameter contains at least <code class="inlineCode">MAP_SHARED</code> or <code class="inlineCode">MAP_PRIVATE</code>. There are many other flags, which are described in the <code class="inlineCode">mmap</code> manpage.</p>
+    <p class="normal">There are many things you <a id="_idIndexMarker1327"/>can do with <code class="inlineCode">mmap</code>. I will show some of them in the<a id="_idIndexMarker1328"/> upcoming sections.</p>
+    <h2 id="_idParaDest-524" class="heading-2"><a id="_idTextAnchor592"/>Using mmap to allocate private memory</h2>
+    <p class="normal">You can use <code class="inlineCode">mmap</code> to allocate an area of private memory by setting <code class="inlineCode">MAP_ANONYMOUS</code> in the <code class="inlineCode">flags</code> parameter and setting the file <a id="_idIndexMarker1329"/>descriptor <code class="inlineCode">fd</code> to <code class="inlineCode">-1</code>. This is similar to allocating memory from the heap using <code class="inlineCode">malloc</code>, except that the memory is page-aligned and in multiples of pages. The memory is allocated in the same area as that used for libraries. In fact, this area is<a id="_idIndexMarker1330"/> referred to by some as the <code class="inlineCode">mmap</code> area for this reason.</p>
+    <p class="normal">Anonymous mappings are<a id="_idIndexMarker1331"/> better for large allocations because they do not pin down the heap with chunks of memory, which would make fragmentation more likely. Interestingly, you will find that <code class="inlineCode">malloc</code> (in <code class="inlineCode">glibc</code> at least) stops allocating memory from the heap for requests over 128 KB and uses <code class="inlineCode">mmap</code> in this way, so in most cases, just using <code class="inlineCode">malloc</code> is the right thing to do. The system will choose the best way of satisfying the request.</p>
+    <h2 id="_idParaDest-525" class="heading-2"><a id="_idTextAnchor593"/>Using mmap to share memory</h2>
+    <p class="normal">As we saw in <a href="Chapter_17.xhtml#_idTextAnchor542"><em class="italic">Chapter 17</em></a>, POSIX shared <a id="_idIndexMarker1332"/>memory requires <code class="inlineCode">mmap</code> to access the <a id="_idIndexMarker1333"/>memory segment. In this case, you set the <code class="inlineCode">MAP_SHARED</code> flag and use the file descriptor from <code class="inlineCode">shm_open()</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">int</span> shm_fd;
+<span class="hljs-type">char</span> *shm_p;
+shm_fd = <span class="hljs-built_in">shm_open</span>(<span class="hljs-string">"/myshm"</span>, O_CREAT | O_RDWR, <span class="hljs-number">0666</span>);
+<span class="hljs-built_in">ftruncate</span>(shm_fd, <span class="hljs-number">65536</span>);
+shm_p = <span class="hljs-built_in">mmap</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">65536</span>, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, <span class="hljs-number">0</span>);
+</code></pre>
+    <p class="normal">Another process uses the same calls, filename, length, and flags to map to that memory region for sharing. Subsequent calls to <code class="inlineCode">msync(2)</code> control when updates to memory are carried through to the underlying file.</p>
+    <p class="normal">Sharing memory via <code class="inlineCode">mmap</code> also offers a straightforward way to read from and write to device memory.</p>
+    <h2 id="_idParaDest-526" class="heading-2"><a id="_idTextAnchor594"/>Using mmap to access device memory</h2>
+    <p class="normal">As I mentioned in <a href="Chapter_11.xhtml#_idTextAnchor373"><em class="italic">Chapter 11</em></a>, it is possible for a driver to allow its device node to be memory mapped and share some of the device<a id="_idIndexMarker1334"/> memory with an application. The exact implementation is dependent on the driver.</p>
+    <p class="normal">One example is the Linux framebuffer, <code class="inlineCode">/dev/fb0</code>. FPGAs such as the Xilinx Zynq series are also accessed as memory via <code class="inlineCode">mmap</code> from Linux. The framebuffer interface is defined in <code class="inlineCode">/usr/include/linux/fb.h</code>, including an <code class="inlineCode">ioctl</code> function to get the size of the display and the bits per pixel. You can then<a id="_idIndexMarker1335"/> use <code class="inlineCode">mmap</code> to ask the video driver to share the framebuffer with the application and read and write pixels:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">int</span> f;
+<span class="hljs-type">int</span> fb_size;
+<span class="hljs-type">unsigned</span> <span class="hljs-type">char</span> *fb_mem;
+f = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/fb0"</span>, O_RDWR);
+<span class="hljs-comment">/* Use ioctl FBIOGET_VSCREENINFO to find the display</span>
+<span class="hljs-comment"> dimensions and calculate fb_size */</span>
+fb_mem = <span class="hljs-built_in">mmap</span>(<span class="hljs-number">0</span>, fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, <span class="hljs-number">0</span>);
+<span class="hljs-comment">/* read and write pixels through pointer fb_mem */</span>
+</code></pre>
+    <p class="normal">A second example is the streaming <a id="_idIndexMarker1336"/>video interface, <strong class="keyWord">Video 4 Linux 2</strong> (<strong class="keyWord">V4L2)</strong>, which is defined in <code class="inlineCode">/usr/include/linux/videodev2.h</code>. Each video device has a node named <code class="inlineCode">/dev/video&lt;N&gt;</code>, starting with <code class="inlineCode">/dev/video0</code>. There is an <code class="inlineCode">ioctl</code> function to ask the driver to allocate a number of video buffers that you can <code class="inlineCode">mmap</code> into user space. Then, it is just a question of cycling the buffers and filling or emptying them with video data, depending on whether you are playing back or capturing a video stream.</p>
+    <p class="normal">Now that we have covered memory layout and mapping, let’s look at memory usage, starting with how to measure it.</p>
+    <h1 id="_idParaDest-527" class="heading-1"><a id="_idTextAnchor595"/>How much memory does my application use?</h1>
+    <p class="normal">As with kernel space, the different <a id="_idIndexMarker1337"/>ways of allocating, mapping, and sharing user-space memory make it quite difficult to answer this seemingly simple question.</p>
+    <p class="normal">To begin, you can ask the kernel how much memory it thinks is available, which you can do using the <code class="inlineCode">free</code> command. Here is a typical example of the output:</p>
+    <pre class="programlisting con"><code class="hljs-con">        total        used   free shared buffers cached
+Mem:   509016      504312   4704 0      26456   363860
+-/+ buffers/cache: 113996 395020
+Swap:       0           0      0
+</code></pre>
+    <p class="normal">At first sight, this looks like a system that is almost out of memory, with only 4,704 KB free out of 509,016 KB: less than 1%. However, note that 26,456 KB is in buffers and a whopping 363,860 KB is in caches. Linux believes that free memory is wasted memory; the kernel uses free memory for buffers and caches with the knowledge that they can be shrunk when the need arises. Removing buffers and cache from the measurement provides true free memory, which is 395,020 KSB: 77% of the total. When using <code class="inlineCode">free</code>, the numbers on the second line marked <code class="inlineCode">-/+ buffers/cache</code> are the important ones.</p>
+    <p class="normal">You can force the kernel to free up caches by writing a number between 1 and 3 to <code class="inlineCode">/proc/sys/vm/drop_caches</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo 3 &gt; /proc/sys/vm/drop_caches
+</code></pre>
+    <p class="normal">The number is actually a bitmask that determines which of the two broad types of caches you want to free: <code class="inlineCode">1</code> for the page<a id="_idIndexMarker1338"/> cache and <code class="inlineCode">2</code> for the dentry and inode caches combined. Since <code class="inlineCode">1</code> and <code class="inlineCode">2</code> are different bits, writing a <code class="inlineCode">3</code> frees both types of caches. </p>
+    <p class="normal">The exact roles of these caches are not particularly important here, only that there is memory that the kernel is using but that can be reclaimed at short notice.</p>
+    <p class="normal">The <code class="inlineCode">free</code> command tells us how much memory is being used and how much is left. It neither tells us which processes are using the unavailable memory nor in what proportions. To measure that, we need other tools.</p>
+    <h1 id="_idParaDest-528" class="heading-1"><a id="_idTextAnchor596"/>Per-process memory usage</h1>
+    <p class="normal">There are several metrics to measure<a id="_idIndexMarker1339"/> the amount of memory a process is using. I will begin with the two <a id="_idIndexMarker1340"/>that are easiest to obtain: the <strong class="keyWord">virtual set size</strong> (<strong class="keyWord">VSS</strong>) and the <strong class="keyWord">resident memory size</strong> (<strong class="keyWord">RSS</strong>), both of which are available in most implementations of the <code class="inlineCode">ps</code> and <code class="inlineCode">top</code> commands:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">VSS</strong>: Called <code class="inlineCode">VSZ</code> in the <code class="inlineCode">ps</code> command <a id="_idIndexMarker1341"/>and <code class="inlineCode">VIRT</code> in <code class="inlineCode">top</code>, this is the total amount of memory mapped by a process. It is the sum of all the regions shown in <code class="inlineCode">/proc/&lt;PID&gt;/map</code>. This number is of limited interest since only part of the virtual memory is committed to physical memory at any time.</li>
+      <li class="bulletList"><strong class="keyWord">RSS</strong>: Called <code class="inlineCode">RSS</code> in <code class="inlineCode">ps</code> and <code class="inlineCode">RES</code> in <code class="inlineCode">top</code>, this is<a id="_idIndexMarker1342"/> the sum of memory that is mapped to physical <a id="_idIndexMarker1343"/>pages of memory. This gets closer to the actual memory budget of the process, but there is a problem: if you add the RSS of all the processes, you will get an overestimate of the memory in use because some pages will be shared.</li>
+    </ul>
+    <p class="normal">Let’s learn more about the <code class="inlineCode">top</code> and <code class="inlineCode">ps</code> commands.</p>
+    <h2 id="_idParaDest-529" class="heading-2"><a id="_idTextAnchor597"/>Using top and ps</h2>
+    <p class="normal">The versions of <code class="inlineCode">top</code> and <code class="inlineCode">ps</code> from BusyBox provide <a id="_idIndexMarker1344"/>very limited information. The examples that follow use the full versions from the <code class="inlineCode">procps</code> package.</p>
+    <p class="normal">Here is the output from a <code class="inlineCode">ps</code> command with a custom format that includes <code class="inlineCode">vsz</code> and <code class="inlineCode">rss</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ps -eo pid,tid,class,rtprio,stat,vsz,rss,comm
+    PID     TID CLS RTPRIO STAT    VSZ   RSS COMMAND
+<a id="_idTextAnchor598"/>      1       1 TS       - Ss     4496  2652 systemd
+    &lt;…&gt;
+    205     205 TS       - Ss     4076  1296 systemd-journal
+    228     228 TS       - Ss     2524  1396 udevd
+    581     581 TS       - Ss     2880  1508 avahi-daemon
+    584     584 TS       - Ss     2848  1512 dbus-daemon
+    590     590 TS       - Ss     1332   680 acpid
+    594     594 TS       - Ss     4600  1564 wpa_supplicant
+</code></pre>
+    <p class="normal">Likewise, <code class="inlineCode">top</code> shows a summary of the free memory and memory usage per process:</p>
+    <pre class="programlisting con"><code class="hljs-con">top - 21:17:52 up 10:04, 1 user, load average: 0.00, 0.01, 0.05
+Tasks: 96 total, 1 running, 95 sleeping, 0 stopped, 0 zombie
+%Cpu(s):  1.7 us,  2.2 sy,  0.0 ni, 95.9 id,  0.0 wa,  0.0 hi
+KiB Mem : 509016 total, 278524 used, 230492 free,  25572 buffers
+KiB Swap:      0 total,      0 used,      0 free, 170920 cached
+PID USER PR NI   VIRT   RES   SHR S  %CPU  %MEM    TIME+ COMMAND
+595 root 20  0  64920  9.8m  4048 S   0.0   2.0  0:01.09 node
+866 root 20  0  28892  9152  3660 S   0.2   1.8  0:36.38 Xorg
+&lt;…&gt;
+</code></pre>
+    <p class="normal">These simple commands give you a feel for the memory usage and provide the first indication that you have a memory <a id="_idIndexMarker1345"/>leak when you see that the RSS of a process keeps on increasing. However, they are not very accurate in the absolute measurements of memory usage.</p>
+    <h2 id="_idParaDest-530" class="heading-2"><a id="_idTextAnchor599"/>Using smem</h2>
+    <p class="normal">In 2009, Matt Mackall began<a id="_idIndexMarker1346"/> looking at the problem of accounting for shared<a id="_idIndexMarker1347"/> pages in process memory measurement and added two new metrics called <strong class="keyWord">unique set size</strong> (<strong class="keyWord">USS</strong>) and <strong class="keyWord">proportional set size</strong> (<strong class="keyWord">PSS</strong>):</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">USS</strong>: This is the amount <a id="_idIndexMarker1348"/>of memory that is committed to physical memory and is unique to a process; it is not shared with any others. It is the amount of memory that would be freed if the process were to terminate.</li>
+      <li class="bulletList"><strong class="keyWord">PSS</strong>: This splits the accounting of <a id="_idIndexMarker1349"/>shared pages that are committed to physical memory between all the processes that have them mapped. For example, if an area of library code is 12 pages long and is shared by six processes, each will accumulate two pages in PSS. Thus, if you add the PSS numbers for all processes, you will get the actual amount of memory being used by those processes. In other words, PSS is the number we have been looking for.</li>
+    </ul>
+    <p class="normal">Information about PSS is available in <code class="inlineCode">/proc/&lt;PID&gt;/smaps</code>, which contains additional information for each of the mappings shown in <code class="inlineCode">/proc/&lt;PID&gt;/maps</code>. Here is a section from such a file that provides information on the mapping for the <code class="inlineCode">libc</code> code segment:</p>
+    <pre class="programlisting con"><code class="hljs-con">ffffbd080000-ffffbd20b000 r-xp 00000000 b3:62 309 /lib/libc.so.6
+Size:               1580 kB
+KernelPageSize:        4 kB
+MMUPageSize:           4 kB
+Rss:                1132 kB
+Pss:                 112 kB
+Pss_Dirty:             0 kB
+Shared_Clean:       1132 kB
+Shared_Dirty:          0 kB
+Private_Clean:         0 kB
+Private_Dirty:         0 kB
+Referenced:         1132 kB
+Anonymous:             0 kB
+KSM:                   0 kB
+LazyFree:              0 kB
+AnonHugePages:         0 kB
+ShmemPmdMapped:        0 kB
+FilePmdMapped:         0 kB
+Shared_Hugetlb:        0 kB
+Private_Hugetlb:       0 kB
+Swap:                  0 kB
+SwapPss:               0 kB
+Locked:                0 kB
+THPeligible:           0
+VmFlags: rd ex mr mw me
+</code></pre>
+    <p class="normal">Note that the <code class="inlineCode">Rss</code> is <code class="inlineCode">1132 kB</code>, but because it is shared between many other processes, the <code class="inlineCode">Pss</code> is only <code class="inlineCode">112 kB</code>.</p>
+    <p class="normal">There is a tool named <strong class="keyWord">smem</strong> that collates <a id="_idIndexMarker1350"/>information from the <code class="inlineCode"><a id="_idIndexMarker1351"/></code><code class="inlineCode">smaps</code> files and presents it in various ways, including as pie or bar charts. The project page for <code class="inlineCode">smem</code> is <a href="https://www.selenic.com/smem/"><span class="url">https://www.selenic.com/smem/</span></a>. It is available as a package in most desktop distributions. However, since it is written in Python, installing it on an embedded target requires a Python environment, which may be too much trouble for just one tool. To help with this, there is a <a id="_idIndexMarker1352"/>small program named <strong class="keyWord">smemcap</strong> that captures the state from <code class="inlineCode">/proc</code> on the target and saves it to a TAR file that can be analyzed later on the host computer. <code class="inlineCode">smemcap</code> is part of BusyBox, but it can also be compiled from source.</p>
+    <p class="normal">If you run <code class="inlineCode">smem</code> natively, as <code class="inlineCode">root</code>, you will see these results:</p>
+    <pre class="programlisting con"><code class="hljs-con"># smem -t
+PID User Command                     Swap   USS   PSS   RSS
+  1 root init [5]                       0   136   267  1532
+361 root /sbin/klogd -n                 0   104   273  1708
+367 root /sbin/getty 38400 tty1         0   108   278  1788
+369 root /sbin/getty -L 115200 ttyS2    0   108   278  1788
+358 root /sbin/syslogd -n -O /var/lo    0   108   279  1728
+306 root udhcpc -R -b -p /var/run/ud    0   168   284  1372
+366 root /bin/sh /bin/start_getty 11    0   116   315  1736
+383 root -sh                            0   220   506  2184
+129 root /sbin/udevd -d                 0  1436  1517  2380
+351 root sshd: /usr/sbin/sshd [liste    0   928  1893  3764
+380 root sshd: root@pts/0               0  3816  4900  7160
+387 root python3 /usr/bin/smem -t       0 11968 12136 13456
+-----------------------------------------------------------
+<a id="_idTextAnchor600"/> 12 1                                   0 19216 22926 40596
+</code></pre>
+    <p class="normal">You can see from the last line of the output that, in this case, the total PSS is about half of the RSS.</p>
+    <p class="normal">If you don’t have or don’t want to<a id="_idIndexMarker1353"/> install Python on your target, you can capture the state using <code class="inlineCode">smemcap</code>, again as <code class="inlineCode">root</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># smemcap &gt; smem-beagleplay-cap.tar
+</code></pre>
+    <p class="normal">Then, copy the TAR file to the host and read it using <code class="inlineCode">smem -t -S</code>, although this time there is no need to run the command as <code class="inlineCode">root</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ smem -t -S smem-beagleplay-cap.tar
+</code></pre>
+    <p class="normal">The output is identical to the output we get when running <code class="inlineCode">smem</code> natively.</p>
+    <h2 id="_idParaDest-531" class="heading-2"><a id="_idTextAnchor601"/>Other tools to consider</h2>
+    <p class="normal">Another way to <a id="_idIndexMarker1354"/>display PSS is via <strong class="keyWord">ps_mem</strong> (<a href="https://github.com/pixelb/ps_mem"><span class="url">https://github.com/pixelb/ps_mem</span></a>), which prints much the same<a id="_idIndexMarker1355"/> information but in a simpler format. It is also written in Python.</p>
+    <p class="normal">Android also has a tool that displays a summary of USS and PSS for each process, named <strong class="keyWord">procrank</strong>, which can be<a id="_idIndexMarker1356"/> cross-compiled for embedded Linux with a few small changes. You can get the code from <a href="https://github.com/csimmonds/procrank_linux"><span class="url">https://github.com/csimmonds/procrank_linux</span></a>.</p>
+    <p class="normal">We now know how to measure per-process memory usage. Let’s say we use the tools just shown to find the process that is the <a id="_idIndexMarker1357"/>memory hog in our system. How do we then drill down into that process to figure out where it is going wrong? That is the topic of the next section.</p>
+    <h1 id="_idParaDest-532" class="heading-1"><a id="_idTextAnchor602"/>Identifying memory leaks</h1>
+    <p class="normal">A memory leak occurs when memory is allocated but not freed when it is no longer needed. Memory leakage is by no means <a id="_idIndexMarker1358"/>unique to embedded systems, but it becomes an issue partly because targets don’t have much memory in the first place and partly because they often run for long periods of time without rebooting, allowing the leaks to become a large puddle.</p>
+    <p class="normal">You will realize that there is a leak when you run <code class="inlineCode">free</code> or <code class="inlineCode">top</code> and see that free memory is continually going down even if you drop caches, as shown in the preceding section. You will be able to identify the culprit (or culprits) by looking at the USS and RSS per process.</p>
+    <p class="normal">There are several tools to identify memory leaks in a program. I will look at two: <code class="inlineCode">mtrace</code> and <code class="inlineCode">valgrind</code>.</p>
+    <h2 id="_idParaDest-533" class="heading-2"><a id="_idTextAnchor603"/>mtrace</h2>
+    <p class="normal"><strong class="keyWord">mtrace</strong> is a component of <code class="inlineCode">glibc</code> that<a id="_idIndexMarker1359"/> traces calls to <code class="inlineCode">malloc</code>, <code class="inlineCode">free</code>, and related functions, and identifies areas of memory not freed when<a id="_idIndexMarker1360"/> the program exits. You need to call the <code class="inlineCode">mtrace()</code> function from within the program to begin tracing and then, at runtime, write a path name to the <code class="inlineCode">MALLOC_TRACE</code> environment variable in which the trace information is written. If <code class="inlineCode">MALLOC_TRACE</code> does not exist or if the file cannot be opened, the <code class="inlineCode">mtrace</code> hooks are not installed. </p>
+    <p class="normal">While the trace information is written in ASCII, it is usual to use the <code class="inlineCode">mtrace</code> command to view it. Here is an example of a program that uses <code class="inlineCode">mtrace</code> from <code class="inlineCode">MELD/Chapter18/mtrace-example</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;mcheck.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdlib.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">int</span><span class="hljs-params"> argc, </span><span class="hljs-type">char</span><span class="hljs-params"> *argv[])</span>
+{
+    <span class="hljs-type">int</span> j;
+    <span class="hljs-built_in">mtrace</span>();
+    <span class="hljs-keyword">for</span> (j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">2</span>; j++)
+        <span class="hljs-built_in">malloc</span>(<span class="hljs-number">100</span>); <span class="hljs-comment">/* Never freed:a memory leak */</span>
+    <span class="hljs-built_in">calloc</span>(<span class="hljs-number">16</span>, <span class="hljs-number">16</span>); <span class="hljs-comment">/* Never freed:a memory leak */</span>
+    <span class="hljs-built_in">exit</span>(EXIT_SUCCESS);
+}
+</code></pre>
+    <p class="normal">Here is what you might see when running the program and looking at the trace:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ export MALLOC_TRACE=mtrace.log
+$ ./mtrace-example
+$ mtrace mtrace-example mtrace.log
+Memory not freed:
+-----------------
+           Address   Size      Caller
+0x0000000001479460    0x64  at /home/chris/mtrace-example.c:12
+0x00000000014794d0    0x64  at /home/chris/mtrace-example.c:12
+0x0000000001479540   0x100  at /home/chris/mtrace-example.c:14
+</code></pre>
+    <p class="normal">Unfortunately, <code class="inlineCode">mtrace</code> does <a id="_idIndexMarker1361"/>not tell you about leaked memory while the program runs. It has<a id="_idIndexMarker1362"/> to terminate first.</p>
+    <h2 id="_idParaDest-534" class="heading-2"><a id="_idTextAnchor604"/>Valgrind</h2>
+    <p class="normal"><strong class="keyWord">Valgrind</strong> is a very powerful tool used to<a id="_idIndexMarker1363"/> discover memory problems including leaks and other things. One advantage is that you <a id="_idIndexMarker1364"/>don’t have to recompile the programs and libraries that you want to check, although it works better if they have been compiled with the <code class="inlineCode">-g</code> option so that they include debug symbol tables. It works by running the program in an emulated environment and trapping execution at various points. This leads to the big downside of Valgrind, which is that the program runs at a fraction of normal speed, which makes it less useful for testing anything with real-time constraints.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">Incidentally, the name is often mispronounced: it says in the Valgrind FAQ that the grind part is pronounced with a short <em class="italic">i</em>, as in grinned (rhymes with tinned) rather than grind (rhymes with find). The FAQ, documentation, and<a id="_idIndexMarker1365"/> downloads are available at <a href="https://valgrind.org"><span class="url">https://valgrind.org</span></a>.</p>
+    </div>
+    <p class="normal">Valgrind contains several diagnostic tools:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">memcheck</code>: This is the default tool, and it detects memory leaks and general misuse of memory.</li>
+      <li class="bulletList"><code class="inlineCode">cachegrind</code>: This calculates the processor cache hit rate.</li>
+      <li class="bulletList"><code class="inlineCode">callgrind</code>: This calculates the cost of each function call.</li>
+      <li class="bulletList"><code class="inlineCode">helgrind</code>: This highlights the misuse of the Pthread API, including potential deadlocks, and race conditions.</li>
+      <li class="bulletList"><code class="inlineCode">DRD</code>: This is another Pthread analysis tool.</li>
+      <li class="bulletList"><code class="inlineCode">massif</code>: This profiles the usage of the heap and stack.</li>
+    </ul>
+    <p class="normal">You can select the tool you want with the <code class="inlineCode">-tool</code> option. Valgrind runs on the major embedded platforms: Arm (Cortex-A), PowerPC, MIPS, and x86 in 32-bit and 64-bit variants. It is available as a package in both<a id="_idIndexMarker1366"/> The Yocto Project and Buildroot.</p>
+    <p class="normal">To find our memory leak, we need to <a id="_idIndexMarker1367"/>use the default <code class="inlineCode">memcheck</code> tool, with the <code class="inlineCode">-–leak-check=full</code> option to print the lines where the leak was found:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ valgrind --leak-check=full ./mtrace-example
+==3384686== Memcheck, a memory error detector
+==3384686== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==3384686== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3384686== Command: ./mtrace-example
+==3384686==
+==3384686==
+==3384686== HEAP SUMMARY:
+==3384686==     in use at exit: 456 bytes in 3 blocks
+==3384686==   total heap usage: 3 allocs, 0 frees, 456 bytes allocated
+==3384686==
+==3384686== 200 bytes in 2 blocks are definitely lost in loss record 1 of 2
+==3384686==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3384686==    by 0x1091D3: main (mtrace-example.c:12)
+==3384686==
+==3384686== 256 bytes in 1 blocks are definitely lost in loss record 2 of 2
+==3384686==    at 0x484D953: calloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==3384686==    by 0x1091EC: main (mtrace-example.c:14)
+==3384686==
+==3384686== LEAK SUMMARY:
+==3384686==    definitely lost: 456 bytes in 3 blocks
+==3384686==    indirectly lost: 0 bytes in 0 blocks
+==3384686==      possibly lost: 0 bytes in 0 blocks
+==3384686==    still reachable: 0 bytes in 0 blocks
+==3384686==         suppressed: 0 bytes in 0 blocks
+==3384686==
+==3384686== For lists of detected and suppressed errors, rerun with: -s
+==3384686== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)
+</code></pre>
+    <p class="normal">The output from Valgrind<a id="_idIndexMarker1368"/> shows that two memory leaks were found in <code class="inlineCode">mtrace-example.c</code>: a <code class="inlineCode">malloc</code> at line 12 and a <code class="inlineCode">calloc</code> at line 14. The subsequent calls to <code class="inlineCode">free</code> that are supposed to accompany these two memory allocations are missing from the program. Left unchecked, memory leaks in a long-running <a id="_idIndexMarker1369"/>process may eventually result in the system running out of memory.</p>
+    <h1 id="_idParaDest-535" class="heading-1"><a id="_idTextAnchor605"/>Running out of memory</h1>
+    <p class="normal">The standard memory allocation policy is to <strong class="keyWord">overcommit</strong>, which <a id="_idIndexMarker1370"/>means that the kernel will allow more memory to be<a id="_idIndexMarker1371"/> allocated by applications than there is physical memory. Most of the time, this works fine because it is common for applications to request more memory than they really need. This also helps in the implementation of <code class="inlineCode">fork(2)</code>: it is safe to make a copy of a large program because the pages of memory are shared with the copy-on-write flag set. In the majority of cases, <code class="inlineCode">fork</code> is followed by an <code class="inlineCode">exec</code> function call, which unshares the memory and then loads a new program.</p>
+    <p class="normal">However, there is always the possibility that a particular workload will cause a group of processes to try to cash in on the allocations they have been promised simultaneously and so demand more than <a id="_idIndexMarker1372"/>there really is. This is an <strong class="keyWord">out-of-memory</strong>, or <strong class="keyWord">OOM</strong>, situation. At this point, there<a id="_idIndexMarker1373"/> is no other alternative but to kill off processes until the problem goes away. This is the job of the <strong class="keyWord">out-of-memory killer</strong>.</p>
+    <p class="normal">Before we get to that, there is a tuning parameter for kernel allocations in <code class="inlineCode">/proc/sys/vm/overcommit_memory</code>, which you can set to the following:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode"><a id="_idTextAnchor606"/>0</code>: heuristic overcommit</li>
+      <li class="bulletList"><code class="inlineCode">1</code>: always overcommit; never check</li>
+      <li class="bulletList"><code class="inlineCode"><a id="_idTextAnchor607"/>2</code>: always check; never overcommit</li>
+    </ul>
+    <p class="normal">Option <code class="inlineCode">0</code> is the default and is the best choice in the majority of cases.</p>
+    <p class="normal">Option <code class="inlineCode">1</code> is only useful if you run programs that work with large sparse arrays and allocate large areas of memory but write to a small proportion of them. Such programs are rare in the context of embedded systems.</p>
+    <p class="normal">Option <code class="inlineCode">2</code> seems to be a good choice if you are worried about running out of memory, perhaps in a mission or safety-critical application. It will fail allocations that are greater than the commit limit, which is the size of swap space plus the total memory multiplied by the overcommit ratio. The overcommit ratio is controlled by /<code class="inlineCode">proc/sys/vm/overcommit_ratio</code> and has a default value of 50%.</p>
+    <p class="normal">As an example, suppose you have a device with 2 GB of system RAM and you set a really conservative ratio of 25%:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo 25 &gt; /proc/sys/vm/overcommit_ratio
+# grep -e MemTotal -e CommitLimit /proc/meminfo
+MemTotal:        1996796 kB
+CommitLimit:      499196 kB
+</code></pre>
+    <p class="normal">There is no swap, so the commit limit is 25% of <code class="inlineCode">MemTotal</code>, as expected.</p>
+    <p class="normal">There is another important variable in <code class="inlineCode">/proc/meminfo</code>, called <code class="inlineCode">Committed_AS</code>. This is the total amount of memory that is needed to fulfill all the allocations made so far. I found the following on one system:</p>
+    <pre class="programlisting con"><code class="hljs-con"># grep -e MemTotal -e Committed_AS /proc/meminfo
+MemTotal:        1996796 kB
+Committed_AS:    2907335 kB
+</code></pre>
+    <p class="normal">In other words, the kernel had already promised more memory than the available memory. Consequently, setting <code class="inlineCode">overcommit_memory</code> to <code class="inlineCode">2</code> would mean that all allocations would fail regardless of <code class="inlineCode">overcommit_ratio</code>. To get to a working system, I would have to either install double the amount of RAM or severely reduce the number of running processes, of which there were about 40.</p>
+    <p class="normal">In all cases, the final <a id="_idIndexMarker1374"/>defense is <code class="inlineCode">oom-killer</code>. It uses a heuristic method to calculate a badness score between 0 and 1,000 for each process and then terminates those with the highest score until there is enough free memory. You should see something like this in the kernel log:</p>
+    <pre class="programlisting con"><code class="hljs-con">[44510.490320] eatmem invoked oom-killer: gfp_mask=0x200da, order=0, oom_score_adj=0
+</code></pre>
+    <p class="normal">You can force an OOM event using <code class="inlineCode">echo f &gt; /proc/sysrq-trigger</code>.</p>
+    <p class="normal">You can influence the badness score for a process by writing an adjustment value to <code class="inlineCode">/proc/&lt;PID&gt;/oom_score_adj</code>. A value of <code class="inlineCode">-1000</code> means that the badness score can never be greater than zero and so it will never be killed; a value of <code class="inlineCode">+1000</code> means that it will always be greater than 1,000 and so it will always be killed.</p>
+    <h1 id="_idParaDest-536" class="heading-1"><a id="_idTextAnchor608"/>Summary</h1>
+    <p class="normal">Accounting for every byte of memory used in a virtual memory system is just not possible. However, you can find a fairly accurate figure for the total amount of free memory, excluding that taken by buffers and the cache, using the <code class="inlineCode">free</code> command. By monitoring it over a period of time and with different workloads, you should become confident that it will remain within a given limit.</p>
+    <p class="normal">When you want to tune memory usage or identify sources of unexpected allocations, there are resources that give more detailed information. For kernel space, the most useful information is in <code class="inlineCode">/proc</code>: <code class="inlineCode">meminfo</code>, <code class="inlineCode">slabinfo</code>, and <code class="inlineCode">vmallocinfo</code>.</p>
+    <p class="normal">When it comes to getting accurate measurements for user space, the best metric is PSS, as shown by <code class="inlineCode">smem</code> and other tools. For memory debugging, you can get help from simple tracers such as <code class="inlineCode">mtrace</code>, or you have the heavyweight option of the Valgrind <code class="inlineCode">memcheck</code> tool.</p>
+    <p class="normal">If you have concerns about the consequence of an OOM situation, you can fine-tune the allocation mechanism via <code class="inlineCode">/proc/sys/vm/overcommit_memory</code> and you can control the likelihood of particular processes being killed though the <code class="inlineCode">oom_score_adj</code> parameter.</p>
+    <p class="normal">The next chapter is all about debugging user-space and kernel code using the GNU Debugger and the insights you can gain from watching code as it runs, including the memory management functions I have described here.</p>
+    <h1 id="_idParaDest-537" class="heading-1"><a id="_idTextAnchor609"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">Linux Kernel Development, 3rd edition</em>, by Robert Love</li>
+      <li class="bulletList"><em class="italic">Linux System Programming, 2nd Edition</em>, by Robert Love</li>
+      <li class="bulletList"><em class="italic">Understanding the Linux Virtual Memory Manager</em>, by Mel Gorman – <a href="https://www.kernel.org/doc/gorman/pdf/understand.pdf"><span class="url">https://www.kernel.org/doc/gorman/pdf/understand.pdf</span></a></li>
+      <li class="bulletList"><em class="italic">Valgrind 3.3: Advanced Debugging and Profiling for GNU/Linux Applications</em>, by Julian Seward, Nicholas Nethercote, and Josef Weidendorfer</li>
+    </ul>
+  </div>
+</div></div></body></html>

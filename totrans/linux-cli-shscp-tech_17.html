@@ -1,0 +1,503 @@
+<html><head></head><body><div id="sbo-rt-content"><div id="_idContainer274">
+			<h1 id="_idParaDest-396"><em class="italic"><a id="_idTextAnchor404"/>Chapter 17</em>: Advanced Shell Script Examples</h1>
+			<p>So far, we have done all we could to show you different ways scripts can be written, and we went through a lot of examples of how different tasks can be accomplished. In this chapter, we are going to implement all this in a much more complex way in <strong class="bold">scripts</strong> that can be used in real life. </p>
+			<p>The scripts we are going to show you in this chapter solve everyday problems for system administrators, from dealing with creating new users to working with <strong class="bold">virtual machines</strong> (<strong class="bold">VMs</strong>). By walking you through these examples, our aim is not only to show you how scripts should work but also what they should look like and how to approach writing them. </p>
+			<p>In this chapter, we are going to cover the following shell script examples:</p>
+			<ul>
+				<li>Implementing a web server service and security settings</li>
+				<li>Creating users and groups from a standardized input file and a standardized password and forcing users to change them on the next login</li>
+				<li>Creating users and groups from a standardized input file and a random password for every user</li>
+				<li>Scripted VM installation on <strong class="bold">Kernel-based Virtual Machine</strong> (<strong class="bold">KVM</strong>)</li>
+				<li>A shell script to provision <strong class="bold">Secure Shell</strong> (<strong class="bold">SSH</strong>) keys, create standard users, install a standardized set of packages for a <strong class="bold">Linux, Apache, MySQL, PHP/Perl/Python</strong> (<strong class="bold">LAMP</strong>) server, configure basic firewall settings, <strong class="bold">Security-Enhanced Linux</strong> (<strong class="bold">SELinux</strong>) configuration, and <strong class="source-inline">sudo</strong> configuration</li>
+				<li>A shell script for VM administration</li>
+			</ul>
+			<h1 id="_idParaDest-397"><a id="_idTextAnchor405"/>Technical requirements </h1>
+			<p>In almost all the other chapters, we were working with a generic setup that simply required any Linux distribution, as long as it could run a Bash shell. In this chapter, we are going to change things a bit—by necessity, these scripts will have to run on Ubuntu or any other Debian-based distribution. We are going to mention the reasons for this in the following recipes when something has to be done differently in order to make it happen on any other Linux distribution. So, in order to run scripts in this chapter, you need the following: </p>
+			<ul>
+				<li>A VM with Linux installed—we are using <em class="italic">Ubuntu 20.10</em>, but any Debian-based distribution will work </li>
+				<li>Understanding of all the things we did in the previous chapters since we are going to presume you understand how Bash scripting works </li>
+			</ul>
+			<p>So, start your VM for us to start doing many useful things!</p>
+			<h1 id="_idParaDest-398"><a id="_idTextAnchor406"/>Implementing a web server service and security settings</h1>
+			<p>In this particular<a id="_idIndexMarker1134"/> recipe, the idea is to use a small <strong class="source-inline">shell</strong> script<a id="_idIndexMarker1135"/> to help us configure an already installed web server. We are going to enable our script to change where the web pages served by the server are located, but you will quickly see that changing any other option is easily added to this script. </p>
+			<p>By using this script, all users would have to do to get the system running is this: </p>
+			<ul>
+				<li>Install the web server</li>
+				<li>Run the script to change where website files are located</li>
+			</ul>
+			<p>As always, the main problem when preparing something that will be a simple operation for the user is understanding and hiding all the complexity while making it reasonably easy for the administrator to add new features. How do we do this? Read on. </p>
+			<h2 id="_idParaDest-399"><a id="_idTextAnchor407"/>Getting ready</h2>
+			<p>This is our scenario: </p>
+			<p>A user has installed an Apache web server on their Ubuntu machine. They want to change the location of files that make up their website. </p>
+			<p>Before we go into this, we must work on our presumptions for this task, as is usual with almost any script. </p>
+			<p>First, we expect the web server to be already installed before we run the script, and we expect it to be Apache. The simplest way to do it is to use the following command: </p>
+			<p class="source-code">sudo apt install apache2 -y</p>
+			<p>Now, we wait for the package manager to do its job. </p>
+			<p>Our script will not work with nginx or <strong class="source-inline">lighttpd</strong> nor any other web server since the configuration<a id="_idIndexMarker1136"/> is<a id="_idIndexMarker1137"/> parsed directly and there is no common way to set the parameters we require. Having said that, since the parsing we are using to change the configuration is pretty basic, if you need to modify this script to work with another server, it will probably take just a few minutes. </p>
+			<p>Next, we are presuming that the user is changing the default website, one called <strong class="source-inline">000-default.conf</strong> in the configuration directory. This value is hardcoded in our script, which means that if you have multiple websites on the same server, this script will only change the one configured as default. </p>
+			<p>Sometimes, administrators just add websites directly into this part of the configuration instead of creating new files for every site, as it should be done. Our script accomplishes its task by finding and replacing any mention of the <strong class="source-inline">DocumentRoot</strong> directive in the file. If we specify multiple <strong class="source-inline">DocumentRoot</strong> directives, the script is going to change all of them to the same value. </p>
+			<p>Another thing we must think about is error checking. Inside the script itself, we are trying to catch if there was an error in the configuration, but the way we do it leaves a lot to be desired. Although our script will try to restore files to the state that it was before we changed their content, we are not trying to do any real syntax checking in the values that we are changing. This can prove to be a problem if the user makes an error when specifying the path they want to use, but there is no easy way to solve this; implementing a check that will be smart enough to scan for a valid path is too complicated for a task such as this. </p>
+			<h2 id="_idParaDest-400"><a id="_idTextAnchor408"/>How to do it…</h2>
+			<p>In the recipes in this chapter, we are going to first give you our version of the script and then explain the details we think are important. All the scripts are going to have plenty of comments inside them, and we strongly advise you to do the same if possible. Comments can also be used when creating a script to define a rough outline of all the things you want to do before you type out a single command. </p>
+			<p>First, let's<a id="_idIndexMarker1138"/> start<a id="_idIndexMarker1139"/> with the script itself: </p>
+			<p class="source-code">#!/bin/bash</p>
+			<p class="source-code"># V1.0 / Jasmin Redzepagic / 01/11/2021</p>
+			<p class="source-code"># Distribution allowed under GNU Licence V2.0</p>
+			<p class="source-code"> </p>
+			<p class="source-code"># Script configures apache DocumentRoot with a given path </p>
+			<p class="source-code"># and sets firewall accordingly</p>
+			<p class="source-code"># Script is interactive, no arguments are accepted</p>
+			<p class="source-code"># This script has to be run as root, we need to check that</p>
+			<p class="source-code">if [[ $(id -u) -ne 0 ]] </p>
+			<p class="source-code">then </p>
+			<p class="source-code">    echo "This script needs to be run as root!" &gt;&amp;2 </p>
+			<p class="source-code">    exit 1 </p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># If there are multiple sites configured we will show a warning</p>
+			<p class="source-code">if [[ $(ls /etc/apache2/sites-enabled/ | wc -l) -gt 1 ]] </p>
+			<p class="source-code">then </p>
+			<p class="source-code">echo "Warning: you may have more than one site!" &gt;&amp;2 </p>
+			<p class="source-code">             exit 1 </p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># First we are going to get what the root of the site is now</p>
+			<p class="source-code"># When checking for DocumentRoot we are only checking </p>
+			<p class="source-code"># in default web site</p>
+			<p class="source-code">HTTPDIR='grep DocumentRoot /etc/apache2/sites-available/000-\default.conf'</p>
+			<p class="source-code">HTTPDIR="/$( cut -d '/' -f 2- &lt;&lt;&lt; "$HTTPDIR" )"</p>
+			<p class="source-code"># We are going to print current directory </p>
+			<p class="source-code"># that we read from inside the configuration file</p>
+			<p class="source-code">echo "Current HTTPDIR is set as $HTTPDIR"</p>
+			<p class="source-code">read -p  "Press Enter to accept current value or input absolute\</p>
+			<p class="source-code">path for new DocumentRoot: " NEWDIR</p>
+			<p class="source-code"># If user pressed enter we are going to </p>
+			<p class="source-code"># simply use the value we already read, </p>
+			<p class="source-code"># otherwise we use the new value</p>
+			<p class="source-code"># Note: there is absolutely no sanity checking </p>
+			<p class="source-code"># if the given value is actually a path</p>
+			<p class="source-code">NEWDIR=${NEWDIR:-$HTTPDIR}</p>
+			<p class="source-code">echo "Directory is going to be set to $NEWDIR"</p>
+			<p class="source-code"># Since we are dealing with a path we need to</p>
+			<p class="source-code"># preprocess it before we use it in sed</p>
+			<p class="source-code"># otherwise this is going to break</p>
+			<p class="source-code"># There is an alternative, sed allows for </p>
+			<p class="source-code"># any other character in place of /</p>
+			<p class="source-code"># but this is going to be a problem </p>
+			<p class="source-code"># if our path contains any nonstandard character</p>
+			<p class="source-code"># so we simply escape all the slashes</p>
+			<p class="source-code"># we need to use the _ character in this </p>
+			<p class="source-code"># case to be able to search for slash </p>
+			<p class="source-code">ESCNEWDIR=$(echo $NEWDIR | sed 's_/_\\/_g')</p>
+			<p class="source-code">ESCHTTPDIR=$(echo $HTTPDIR | sed 's_/_\\/_g')</p>
+			<p class="source-code"># before we change the configuration </p>
+			<p class="source-code"># we are going to back it up so we can restore if we need to </p>
+			<p class="source-code">cp /etc/apache2/sites-available/000-default.conf /etc/apache2/l\</p>
+			<p class="source-code">sites-available/000-default.conf.backedup</p>
+			<p class="source-code">sed -i "s/$ESCHTTPDIR/$ESCNEWDIR/g" /etc/apache2/sites-available/000-default.conf</p>
+			<p class="source-code"># now we need to restart the service</p>
+			<p class="source-code"># in order to use the new configuration.</p>
+			<p class="source-code">systemctl reload apache2</p>
+			<p class="source-code"># after every command we must check to see if there were any errors.</p>
+			<p class="source-code"># In this particular case, we restore from backup if there were</p>
+			<p class="source-code">if [ $? -ne 0 ]</p>
+			<p class="source-code"> then </p>
+			<p class="source-code">     cp /etc/apache2/sites-available/000-default.conf. \</p>
+			<p class="source-code">     backedup/etc/apache2/sites-available/000-default.conf</p>
+			<p class="source-code"># we need to exit if we triggered this condition </p>
+			<p class="source-code"># since we are finished here, nothing was changed.</p>
+			<p class="source-code"># before exit we need to reload apache once more </p>
+			<p class="source-code"># to make sure old configuration is used</p>
+			<p class="source-code"># we are doing a start and stop here </p>
+			<p class="source-code"># because reload obviously failed in the step above </p>
+			<p class="source-code">     echo "Apache was not reloaded correctly, maybe there was \</p>
+			<p class="source-code">     an error in the syntax"</p>
+			<p class="source-code">     systemctl stop apache2</p>
+			<p class="source-code">     systemctl start apache2</p>
+			<p class="source-code">     return 1</p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># if we came this far we need to get our firewall sorted out</p>
+			<p class="source-code"># we are adding ports 80 and 443 as permitted. </p>
+			<p class="source-code">ufw allow http</p>
+			<p class="source-code">ufw allow https</p>
+			<p class="source-code"># alternative to this is ufw allow "Apache Full" </p>
+			<p class="source-code"># but using exact ports and aliases makes this easier to read. </p>
+			<p class="source-code"># end of script</p>
+			<p>We need to note a few things here. Apache as a web server is right now the most used web server in all the distributions by default, but nginx is slowly becoming more and more popular. The thing to remember is that depending on the distribution package containing <strong class="source-inline">apache</strong>, this is called either <strong class="source-inline">apache2</strong> (on Debian-based distributions such as Ubuntu) or <strong class="source-inline">httpd</strong> (on Red Hat-based distributions such as <strong class="bold">Red Hat Enterprise Linux</strong> (<strong class="bold">RHEL</strong>) or CentOS). Other<a id="_idIndexMarker1140"/> than the package name, there is a small difference in the placement of the configuration files for the server itself, although the syntax is exactly the same. </p>
+			<p>Another thing is <a id="_idIndexMarker1141"/>the<a id="_idIndexMarker1142"/> firewall. Ubuntu uses <strong class="source-inline">ufw</strong> while CentOS uses <strong class="source-inline">firewalld</strong>. The third big thing to note is <strong class="source-inline">apparmor</strong> (Ubuntu) and <strong class="source-inline">SELinux</strong> (CentOS). </p>
+			<p>Our version of the script works on Debian-based machines. Slight modifications are needed if we want to use it on, for example, CentOS. </p>
+			<h2 id="_idParaDest-401"><a id="_idTextAnchor409"/>See also</h2>
+			<ul>
+				<li>https://www.digitalocean.com/community/questions/which-ufw-service-to-use-for-apache2</li>
+				<li>https://www.tecmint.com/setup-ufw-firewall-on-ubuntu-and-debian/</li>
+			</ul>
+			<h1 id="_idParaDest-402"><a id="_idTextAnchor410"/>Creating users and groups and forcing users to change them on the next login</h1>
+			<p>One of the <a id="_idIndexMarker1143"/>most<a id="_idIndexMarker1144"/> common<a id="_idIndexMarker1145"/> things you <a id="_idIndexMarker1146"/>are going<a id="_idIndexMarker1147"/> to do on Linux machines is create a lot of users. There is a way to avoid this by using a centralized database for user authentication, but in reality, this is used only on machines in large deployments, so local users are still prevalent in most cases. </p>
+			<p>Having a way to deploy users and assign them passwords is something every admin needs whenever deploying a new server or desktop. </p>
+			<h2 id="_idParaDest-403"><a id="_idTextAnchor411"/>Getting ready</h2>
+			<p>This recipe calls for two things. </p>
+			<p>The <strong class="source-inline">script</strong> has to be used with administrative privileges since it changes users on the system. Also, we need to prepare a file containing a user list in advance. </p>
+			<p>Before we show you our script, we must also mention that there is more than one way to read and parse a file when getting values for our scripts. It makes sense to try to understand different ways of doing this in order to up your scripting game. For this exact reason, in this recipe and the next one, we decided to avoid using a <strong class="source-inline">for</strong> loop but instead opted to parse a file using arrays and delimiters. </p>
+			<h2 id="_idParaDest-404"><a id="_idTextAnchor412"/>How to do it…</h2>
+			<p>As we have become accustomed to, we are starting with our script before we note things to remember:</p>
+			<p class="source-code">#!/bin/bash</p>
+			<p class="source-code"># V1.0 / Jasmin Redzepagic / 01/11/2021</p>
+			<p class="source-code"># Distribution allowed under GNU Licence V2.0</p>
+			<p class="source-code"># script creates users from a csv file, and makes the user </p>
+			<p class="source-code"># change his password at next logon</p>
+			<p class="source-code"># argument for the script is csv file name</p>
+			<p class="source-code"># csv file is structured as follows: </p>
+			<p class="source-code"># user1,password1</p>
+			<p class="source-code"># user2,password2</p>
+			<p class="source-code"># ....</p>
+			<p class="source-code"># First thing to do is check if we have any arguments supplied</p>
+			<p class="source-code">if [ $# -eq 0 ]</p>
+			<p class="source-code">  then</p>
+			<p class="source-code">    echo "No arguments, proper usage is $0 &lt;CSV file&gt;"</p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># next we need to get our information from the file</p>
+			<p class="source-code"># here we are doing it one line at a time </p>
+			<p class="source-code"># and to do that we need to adjust the delimeter </p>
+			<p class="source-code"># that shell uses to understand how values are </p>
+			<p class="source-code"># separated. </p>
+			<p class="source-code">IFS=$'\n'</p>
+			<p class="source-code"># Read the lines into an array</p>
+			<p class="source-code">read -d '' -ra USRCREDS &lt; $1</p>
+			<p class="source-code"># Now we are going to deal with individual lines</p>
+			<p class="source-code"># since right now our array contains both the user </p>
+			<p class="source-code"># and the appropriate password in one value</p>
+			<p class="source-code"># separated by a , character </p>
+			<p class="source-code"># we chose to do this by telling the shell </p>
+			<p class="source-code"># we want to use , as a value separator</p>
+			<p class="source-code">IFS=','</p>
+			<p class="source-code"># Iterate over the lines</p>
+			<p class="source-code">for USER in "${USRCREDS[@]}"</p>
+			<p class="source-code">do</p>
+			<p class="source-code"># Split values into separate variables</p>
+			<p class="source-code">   read usr pass &lt;&lt;&lt; "$USER"</p>
+			<p class="source-code"># Create the user</p>
+			<p class="source-code">   useradd -m $usr</p>
+			<p class="source-code"># Set the password, we need to do this using passwd command</p>
+			<p class="source-code"># alternative would be to use a hashing function</p>
+			<p class="source-code"># passwd asks for password twice!</p>
+			<p class="source-code">   echo "$pass"$'\n'"$pass" | passwd $usr</p>
+			<p class="source-code"># then we expire the user password</p>
+			<p class="source-code">   passwd --expire $usr</p>
+			<p class="source-code">done</p>
+			<p>There are a couple of concepts that we need to mention here. The first is dealing with passwords. Having any password readable in plaintext for any amount of time is a security risk, so the idea of making the user change their password as soon as possible is wise. </p>
+			<p>When creating passwords for new users, we basically have two choices—one is to create a list of users and passwords in advance, as we did in this example, and the other is to create a list of users and then assign them random passwords, as we will do in the next recipe. </p>
+			<p>Whenever<a id="_idIndexMarker1148"/> you are dealing with any password, always <a id="_idIndexMarker1149"/>remember <a id="_idIndexMarker1150"/>that <a id="_idIndexMarker1151"/>once a single user is compromised, you have a big <a id="_idIndexMarker1152"/>security problem because a lot of ways to break into the system are depending on being able to run an application locally. Minimize the time anybody other than the user knows the password for the account, and never store passwords in a plain, readable format. </p>
+			<h2 id="_idParaDest-405"><a id="_idTextAnchor413"/>See also</h2>
+			<ul>
+				<li>https://linuxconfig.org/linux-reset-password-expiration-age-and-history</li>
+				<li><a href="https://www.tecmint.com/force-user-to-change-password-next-login-in-linux/%0D">https://www.tecmint.com/force-user-to-change-password-next-login-in-linux/</a></li>
+			</ul>
+			<h1 id="_idParaDest-406"><a id="_idTextAnchor414"/>Creating users and groups from a standardized input file and a random password for each user</h1>
+			<p>In the <a id="_idIndexMarker1153"/>previous<a id="_idIndexMarker1154"/> recipe, we<a id="_idIndexMarker1155"/> dealt with a way of creating new users. In this one, we are going to expand on this using a similar script to not only create new users but also assign them groups provided with the user, giving the administrator information on new user passwords. </p>
+			<h2 id="_idParaDest-407"><a id="_idTextAnchor415"/>Getting ready</h2>
+			<p>We are creating users, so this script has to be run under an administrator account. In this particular case, we also probably want to redirect the output of the script to some file since passwords for new users are created when the script is run, and passwords are not stored anywhere. If we don't save them somewhere, they are going to be lost and recreated. </p>
+			<h2 id="_idParaDest-408"><a id="_idTextAnchor416"/>How to do it…</h2>
+			<p>In the previous recipe, we mentioned that passwords should never be stored anywhere, but when creating new users, this is completely inevitable. We feel that the way we deal with passwords in this recipe is better than having them ready in advance since passwords in this script are created while the script is running so that the administrator can establish <a id="_idIndexMarker1156"/>more <a id="_idIndexMarker1157"/>control<a id="_idIndexMarker1158"/> over them from the start:</p>
+			<p class="source-code">#!/bin/bash</p>
+			<p class="source-code"># V1.0 / Jasmin Redzepagic / 01/11/2021</p>
+			<p class="source-code"># Distribution allowed under GNU Licence V2.0</p>
+			<p class="source-code"># script creates users from a csv file </p>
+			<p class="source-code"># creating a group specified for each user</p>
+			<p class="source-code"># and adding the user to a group</p>
+			<p class="source-code"># password is generated and printed with the username</p>
+			<p class="source-code"># argument for the script is csv file name</p>
+			<p class="source-code"># csv file is structured as follows: </p>
+			<p class="source-code"># user1,group1</p>
+			<p class="source-code"># user2,group2</p>
+			<p class="source-code"># ....</p>
+			<p class="source-code"># output is structured as: </p>
+			<p class="source-code"># user / password</p>
+			<p class="source-code"># First thing to do is check if we have any arguments supplied</p>
+			<p class="source-code">if [ $# -eq 0 ]</p>
+			<p class="source-code">  then</p>
+			<p class="source-code">    echo "No arguments, proper usage is $0 &lt;CSV file&gt;"</p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># This script has to be run as root, we need to check that</p>
+			<p class="source-code">if [[ $(id -u) -ne 0 ]] </p>
+			<p class="source-code">             then </p>
+			<p class="source-code">              echo "In order to add users and groups this \</p>
+			<p class="source-code">              scripts needs to be run as root!" &gt;&amp;2 </p>
+			<p class="source-code">              exit 1 </p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># next we need to get our information from the file </p>
+			<p class="source-code"># here we are doing it one line at a time </p>
+			<p class="source-code"># and to do that we need to adjust the delimeter </p>
+			<p class="source-code"># that shell uses to understand how values are </p>
+			<p class="source-code"># separated. </p>
+			<p class="source-code">IFS=$'\n'</p>
+			<p class="source-code"># Read the lines into an array</p>
+			<p class="source-code">read -d '' -ra USRCREDS &lt; $1</p>
+			<p class="source-code"># Now we are going to deal with individual lines</p>
+			<p class="source-code"># since right now our array contains both the user </p>
+			<p class="source-code"># and the appropriate password in one value</p>
+			<p class="source-code"># separated by a , character </p>
+			<p class="source-code"># we chose to do this by telling the shell </p>
+			<p class="source-code"># we want to use , as a value separator</p>
+			<p class="source-code">IFS=','</p>
+			<p class="source-code"># Iterate over the lines</p>
+			<p class="source-code">for USER in "${USRCREDS[@]}"</p>
+			<p class="source-code">do</p>
+			<p class="source-code"># Split values into separate variables</p>
+			<p class="source-code">read usr grp &lt;&lt;&lt; "$USER"</p>
+			<p class="source-code"># Create the user</p>
+			<p class="source-code">useradd -m $usr</p>
+			<p class="source-code">   </p>
+			<p class="source-code"># if the group does not exist, create it</p>
+			<p class="source-code">getent group $grp || groupadd $grp</p>
+			<p class="source-code"># add the user to a group</p>
+			<p class="source-code">usermod -a -G $grp $usr</p>
+			<p class="source-code"># now we create a random password</p>
+			<p class="source-code">pass=$(cat /dev/urandom | tr -dc A-Za-z0-9 | head -c8)</p>
+			<p class="source-code"># Set the password, we need to do this using passwd command</p>
+			<p class="source-code"># alternative would be to use a hashing function</p>
+			<p class="source-code"># passwd asks for password twice!</p>
+			<p class="source-code">echo "$pass"$'\n'"$pass" | passwd $usr</p>
+			<p class="source-code">   </p>
+			<p class="source-code"># in the end we print user and password </p>
+			<p class="source-code">   </p>
+			<p class="source-code">echo $usr/$pass</p>
+			<p class="source-code">done</p>
+			<p>One thing to note in this script is that we are relying on a lot of messages from the commands we are <a id="_idIndexMarker1159"/>using <a id="_idIndexMarker1160"/>instead <a id="_idIndexMarker1161"/>of checking things by ourselves. For example, if the user is already created, an error message is going to be created by <strong class="source-inline">useradd</strong> instead of us:</p>
+			<div>
+				<div id="_idContainer273" class="IMG---Figure">
+					<img src="Images/Figure_17.1_B16269.jpg" alt="Figure 17.1 – Error messages provided by commands inside the script&#13;&#10;" width="1110" height="415"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 17.1 – Error messages provided by commands inside the script</p>
+			<h2 id="_idParaDest-409"><a id="_idTextAnchor417"/>See also</h2>
+			<ul>
+				<li><a href="https://superuser.com/questions/533126/how-to-execute-command-and-if-it-fails-execute-another-command-and-return-1">https://superuser.com/questions/533126/how-to-execute-command-and-if-it-fails-execute-another-command-and-return-1</a></li>
+				<li><a href="https://linux.die.net/man/4/urandom">https://linux.die.net/man/4/urandom</a></li>
+			</ul>
+			<h1 id="_idParaDest-410"><a id="_idTextAnchor418"/>Scripted VM installation on KVM</h1>
+			<p>Another <a id="_idIndexMarker1162"/>common <a id="_idIndexMarker1163"/>task done in some environments is creating new VMs from the command line. The<a id="_idIndexMarker1164"/> reason we <a id="_idIndexMarker1165"/>do this is usually flexibility and speed—using a <strong class="bold">graphical user interface</strong> (<strong class="bold">GUI</strong>) can be an <strong class="bold">order of magnitude</strong> (<strong class="bold">OOM</strong>) slower<a id="_idIndexMarker1166"/> than using a <strong class="bold">command-line interface</strong> (<strong class="bold">CLI</strong>). </p>
+			<p>KVM provides a very simple solution for creating machines in the command line. All the user needs to know are some basic parameters. </p>
+			<h2 id="_idParaDest-411"><a id="_idTextAnchor419"/>Getting ready</h2>
+			<p>We, of course, need a functioning KVM on the server we are running this script on. Other than that, our script presumes the user understands all the different options that KVM requires to be able to create a machine. Before trying to understand how the script works, be sure to go through as much information as possible about creating VMs from the command line in order to be sure what the different options do. Also, refresh your knowledge about using the <strong class="source-inline">dialog</strong> toolkit for graphical interfaces since this script relies on this for input. </p>
+			<h2 id="_idParaDest-412"><a id="_idTextAnchor420"/>How to do it…</h2>
+			<p>The only big thing in this small script is the way we are assigning values using <strong class="source-inline">dialog</strong>. As always, there are a couple of ways to do it. We are using the most logical one, for us at least:</p>
+			<p class="source-code">#!/bin/bash</p>
+			<p class="source-code"># V1.0 / Jasmin Redzepagic / 01/11/2021</p>
+			<p class="source-code"># Distribution allowed under GNU Licence V2.0</p>
+			<p class="source-code"># script creates a virtual machine on the host it is run on</p>
+			<p class="source-code"># asking the user for parameters of the VM</p>
+			<p class="source-code"># in this script we are going to use dialog to show</p>
+			<p class="source-code"># how a script can get values that way</p>
+			<p class="source-code">name=$(dialog --inputbox "What is the name of the VM?" 8 25 \</p>
+			<p class="source-code">--output-fd 1)</p>
+			<p class="source-code">cpus=$(dialog --inputbox "How many VCPUs?" 8 25  --output-fd 1)</p>
+			<p class="source-code">mem=$(dialog --inputbox "Enter the amount of memory in MB" 8 25 \</p>
+			<p class="source-code">--output-fd 1)</p>
+			<p class="source-code">cdrom=$(dialog --inputbox "Path to CDROM:" 8 25 --output-fd 1)</p>
+			<p class="source-code">disksize=$(dialog --inputbox "Enter the disk size:" 8 25 \</p>
+			<p class="source-code">--output-fd 1)</p>
+			<p class="source-code">osv=$(dialog --inputbox "What is the OS variant installed?" 8 \</p>
+			<p class="source-code">25 --output-fd 1)</p>
+			<p class="source-code">virt-install --name=$name --vcpus=$cpus --memory=$mem \</p>
+			<p class="source-code">--cdrom=$cdrom --disk size=$disksize --os-variant=$osv</p>
+			<p>When<a id="_idIndexMarker1167"/> using <strong class="source-inline">dialog</strong>, you must handle the way input from the user <a id="_idIndexMarker1168"/>is redirected. In this example, we are using <strong class="source-inline">–output-fd 1</strong> in order to tell <strong class="source-inline">dialog</strong> to get everything redirected to <strong class="bold">standard output</strong> (<strong class="bold">stdout</strong>) where <a id="_idIndexMarker1169"/>we can directly assign the values to variables. </p>
+			<h2 id="_idParaDest-413"><a id="_idTextAnchor421"/>See also</h2>
+			<ul>
+				<li><a href="https://linux.die.net/man/1/dialog">https://linux.die.net/man/1/dialog</a></li>
+				<li><a href="https://www.geeksforgeeks.org/creating-dialog-boxes-with-the-dialog-tool-in-linux/">https://www.geeksforgeeks.org/creating-dialog-boxes-with-the-dialog-tool-in-linux/</a></li>
+			</ul>
+			<h1 id="_idParaDest-414"><a id="_idTextAnchor422"/>Using a shell script to provision SSH keys</h1>
+			<p>The safest <a id="_idIndexMarker1170"/>way<a id="_idIndexMarker1171"/> to deal <a id="_idIndexMarker1172"/>with<a id="_idIndexMarker1173"/> passwords is to not use<a id="_idIndexMarker1174"/> them at all. Using SSH keys is a great way of avoiding passwords completely if we are able to get a public key connected to a user account that the user can log in to without using the password, and since only their private key enables login, this makes the whole transaction much safer. </p>
+			<p>This recipe deals with just such a task, installing a new machine that is going to serve as a LAMP server and that will enable users to log in using no passwords at all. </p>
+			<h2 id="_idParaDest-415"><a id="_idTextAnchor423"/>Getting ready</h2>
+			<p>In reality, a script such as this will be used if we have a few servers to install and not too much time. An alternative to something like this would be to use a proper orchestration tool such as Ansible, but although it is an enormously powerful tool, Ansible is too complicated for small deployments. </p>
+			<p>In any case, this script presumes only that our server has a working internet connection to be able to get the packages that need to be installed and that we have acquired a public SSH key from the user we plan on creating. </p>
+			<h2 id="_idParaDest-416"><a id="_idTextAnchor424"/>How to do it…</h2>
+			<p>We are transferring the key by using a regular plaintext file. This is completely fine since it actually contains no information that can pose a security problem—in order to use SSH to connect, a user has to have a private key that corresponds to the public key we are using. </p>
+			<p>Since this key is—or should be—controlled by only one particular user, we are not worried about safety here: </p>
+			<p class="source-code">#!/bin/bash</p>
+			<p class="source-code"># V1.0 / Jasmin Redzepagic / 01/11/2021</p>
+			<p class="source-code"># Distribution allowed under GNU Licence V2.0</p>
+			<p class="source-code"># script installs lamp, creates a user and assigns him SSH key</p>
+			<p class="source-code"># key is provided in a file </p>
+			<p class="source-code"># script expects filename that contains SSH key</p>
+			<p class="source-code"># First thing to do is check if we have any arguments supplied</p>
+			<p class="source-code">if [ $# -eq 0 ]</p>
+			<p class="source-code">  then</p>
+			<p class="source-code">   echo "No arguments, proper usage is $0 &lt;file containing SSH \</p>
+			<p class="source-code">key&gt;"</p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># This script has to be run as root, we need to check that</p>
+			<p class="source-code">if [[ $(id -u) -ne 0 ]] </p>
+			<p class="source-code">             then </p>
+			<p class="source-code">                          echo "In order to add services this \</p>
+			<p class="source-code">scripts needs to be run as root!" &gt;&amp;2 </p>
+			<p class="source-code">                          exit 1 </p>
+			<p class="source-code">fi</p>
+			<p class="source-code"># now we follow the standard installation procedure for LAMP</p>
+			<p class="source-code"># first we aquire new updates</p>
+			<p class="source-code">apt update</p>
+			<p class="source-code"># then we install apache server</p>
+			<p class="source-code">apt install apache2 –y</p>
+			<p class="source-code"># we reconfigure the firewall to allow all the traffic in</p>
+			<p class="source-code">ufw allow "Apache Full"</p>
+			<p class="source-code"># then we install mysql server</p>
+			<p class="source-code"># we could also install mariadb as the alternative</p>
+			<p class="source-code">apt install mysql-server –y</p>
+			<p class="source-code"># then we install php and required modules</p>
+			<p class="source-code">apt install php libapache2-mod-php php-mysql –y</p>
+			<p class="source-code"># we create our user</p>
+			<p class="source-code">useradd lampuser</p>
+			<p class="source-code"># we create directory for the ssh keys</p>
+			<p class="source-code">mkdir /home/lampuser/.ssh</p>
+			<p class="source-code"># we copy the key directly, allowing login without password</p>
+			<p class="source-code"># note that user has no password by default, only ssh works</p>
+			<p class="source-code">cp $1 /home/lampuser/.ssh/authorized_keys</p>
+			<p class="source-code"># apply permissions to files in directory</p>
+			<p class="source-code">chown -R lampuser:lampuser /home/lampuser/.ssh</p>
+			<p class="source-code">chmod 700 /home/lampuser/.ssh</p>
+			<p class="source-code">chmod 600 /home/lampuser/.ssh/authorized_keys</p>
+			<p class="source-code"># add user to sudo group enabling sudo command</p>
+			<p class="source-code">usermod -a -G sudo lampuser</p>
+			<p class="source-code"># finally we run the secure installation to finish setting up \</p>
+			<p class="source-code">mysql</p>
+			<p class="source-code">mysql_secure_installation</p>
+			<h2 id="_idParaDest-417"><a id="_idTextAnchor425"/>See also</h2>
+			<ul>
+				<li><a href="https://www.hostinger.com/tutorials/ssh-tutorial-how-does-ssh-work">https://www.hostinger.com/tutorials/ssh-tutorial-how-does-ssh-work</a></li>
+				<li><a href="https://www.digitalocean.com/community/tutorials/how-to-install-linux-apache-mysql-php-lamp-stack-on-ubuntu-20-04">https://www.digitalocean.com/community/tutorials/how-to-install-linux-apache-mysql-php-lamp-stack-on-ubuntu-20-04</a></li>
+			</ul>
+			<h1 id="_idParaDest-418"><a id="_idTextAnchor426"/>A shell script for VM administration</h1>
+			<p>Some tasks are <a id="_idIndexMarker1175"/>complicated to do from the command line, simply <a id="_idIndexMarker1176"/>because we have a lot of commands that we have to repeat over and over again and then reuse the values that we got in one step in the step that follows it. </p>
+			<p>In this recipe, we are going to deal with such a task, doing basic maintenance on a VM. What we plan to do is create a script that will enable the user to do a couple of standard tasks on VMs running on the local server, simplifying administration tasks and removing the need to remember long commands. Our plan is to enable the user to start, stop, check status, and revert a VM running on the local server. The script is going to provide the user with the list of machines and give them the opportunity to choose any available machines or apply the command to all of them. </p>
+			<p>Let's see what is needed for this task. </p>
+			<h2 id="_idParaDest-419"><a id="_idTextAnchor427"/>Getting ready</h2>
+			<p>By this point, you have become accustomed to our disclaimers and requirements that we have to enable our script to run. This one is no different. First, this script requires one important thing—the server has to have support for KVM installed on it before we even begin to do anything. In the script itself, we are using a single command to accomplish all the tasks, but in reality, all of KVM needs to be installed and configured. </p>
+			<p>Another option is that this script can be, with minor modifications, used to perform tasks on other KVM hosts, but we will leave this as an exercise for you. </p>
+			<p>So, before you start the script, do a small check if everything works, with a simple command:</p>
+			<p class="source-code">virsh list –all </p>
+			<p>This should return a list of all the VMs running on your server. If there is any error, it needs to be<a id="_idIndexMarker1177"/> sorted<a id="_idIndexMarker1178"/> out before you even try to run the script itself since the script is based on this command working. </p>
+			<h2 id="_idParaDest-420"><a id="_idTextAnchor428"/>How to do it…</h2>
+			<p>First, we are going to start with the script itself:</p>
+			<p class="source-code">#!/bin/bash</p>
+			<p class="source-code"># V1.0 / Jasmin Redzepagic / 01/11/2021</p>
+			<p class="source-code"># Distribution allowed under GNU Licence V2.0</p>
+			<p class="source-code"># Simple interface to virsh command</p>
+			<p class="source-code"># this script enumerates all machines on this KVM host </p>
+			<p class="source-code"># and enables user to perform basic commands</p>
+			<p class="source-code"># script is interactive and has no command line arguments</p>
+			<p class="source-code"># in this script we are going to create a simple two level menu </p>
+			<p class="source-code"># that will first ask user what virtual machine he wants to \</p>
+			<p class="source-code">  perform commands on. </p>
+			<p class="source-code"># User has to specify the machine from a list or type ALL</p>
+			<p class="source-code"># if he wants to run the command on all the machines on the host</p>
+			<p class="source-code"># we need to get the list of virtual</p>
+			<p class="source-code">Machines</p>
+			<p class="source-code"># notice we are not redirecting errors in order for the user</p>
+			<p class="source-code"># to be able to see what actually happened </p>
+			<p class="source-code">virsh list --all </p>
+			<p class="source-code"># then we do some rudimentary error checking to make sure</p>
+			<p class="source-code"># we are at least able to use virsh</p>
+			<p class="source-code">if [ $? -ne 0 ]</p>
+			<p class="source-code"> then </p>
+			<p class="source-code">    echo "Something is wrong with your KVM instance, exiting!"</p>
+			<p class="source-code">    return 1</p>
+			<p class="source-code">fi </p>
+			<p class="source-code"># if we come this far our script can talk to the user</p>
+			<p class="source-code">read -p "Choose VM you want to change state of or type ALL for \</p>
+			<p class="source-code">all machines:" HOSTN</p>
+			<p class="source-code">echo -e "\n"</p>
+			<p class="source-code">if [ $HOSTN == "ALL" ];</p>
+			<p class="source-code">then</p>
+			<p class="source-code">             echo "You chose all machines."</p>
+			<p class="source-code">else</p>
+			<p class="source-code">             echo "You chose: " $HOSTN "."</p>
+			<p class="source-code">fi</p>
+			<p class="source-code">echo "What do you want to do"</p>
+			<p class="source-code">echo "1 = START"</p>
+			<p class="source-code">echo "2 = STOP"</p>
+			<p class="source-code">echo "3 = RESET"</p>
+			<p class="source-code">echo "4 = STATUS"</p>
+			<p class="source-code">echo -e "\n"</p>
+			<p class="source-code">read CHOSENOP</p>
+			<p class="source-code">if [ $HOSTN == "ALL" ]; # we are running the commands on all the machines</p>
+			<p class="source-code"># every command is run in a loop on all the machines</p>
+			<p class="source-code">then </p>
+			<p class="source-code">                if [ $CHOSENOP -eq 1 ];    # user chose start</p>
+			<p class="source-code">                 then</p>
+			<p class="source-code">                          for i in $(virsh list --name --all);</p>
+			<p class="source-code">                          do </p>
+			<p class="source-code">                          echo "Starting  $i"                          </p>
+			<p class="source-code">                          virsh start $i;</p>
+			<p class="source-code">                          done</p>
+			<p class="source-code">                          exit 0</p>
+			<p class="source-code">               elif [ $CHOSENOP -eq 2 ]; # user chose stop</p>
+			<p class="source-code">               then</p>
+			<p class="source-code">                         for i in $(virsh list --name --all);</p>
+			<p class="source-code">              do </p>
+			<p class="source-code">                         echo "Stopping  $i"                       virsh shutdown $i</p>
+			<p class="source-code">done</p>
+			<p class="source-code">                         exit 0</p>
+			<p class="source-code">             elif [ $CHOSENOP -eq 3 ]; # user chose to revert \</p>
+			<p class="source-code">to snapshot</p>
+			<p class="source-code">               then</p>
+			<p class="source-code">                          for i in $(virsh list --name --all);</p>
+			<p class="source-code">                          do </p>
+			<p class="source-code">                          echo "Reverting $i to latest snapshot: "               </p>
+			<p class="source-code">                          virsh snapshot-revert $i start;</p>
+			<p class="source-code">                          done</p>
+			<p class="source-code">                          exit 0</p>
+			<p class="source-code">                elif [ $CHOSENOP -eq 4 ]; # user chose to \</p>
+			<p class="source-code">                display status of machines</p>
+			<p class="source-code">                then</p>
+			<p class="source-code">                           for i in $(virsh list --name --all);</p>
+			<p class="source-code">                           do </p>
+			<p class="source-code">                           echo "Status of $i: "</p>
+			<p class="source-code">                           virsh dominfo $i;</p>
+			<p class="source-code">                           done</p>
+			<p class="source-code">                           exit 0</p>
+			<p class="source-code">                else</p>
+			<p class="source-code"># user made an invalid input</p>
+			<p class="source-code">                          echo "Input was not valid!"</p>
+			<p class="source-code">                          exit 0</p>
+			<p class="source-code">               fi</p>
+			<p class="source-code">else</p>
+			<p class="source-code"># we do everything the same way but with a particular VM</p>
+			<p class="source-code">             </p>
+			<p class="source-code">             if [ $CHOSENOP -eq 1 ];</p>
+			<p class="source-code">             then</p>
+			<p class="source-code">                          echo "Starting $HOSTN"</p>
+			<p class="source-code">                          virsh start $HOSTN                            </p>
+			<p class="source-code">                          exit 0</p>
+			<p class="source-code">             elif [ $CHOSENOP -eq 2 ];</p>
+			<p class="source-code">             then</p>
+			<p class="source-code">                          echo "Stopping $HOSTN"</p>
+			<p class="source-code">                          virsh shutdown $HOSTN                </p>
+			<p class="source-code">                           exit 0</p>
+			<p class="source-code">             elif [ $CHOSENOP -eq 3 ];</p>
+			<p class="source-code">             then</p>
+			<p class="source-code">                          echo "Reverting $HOSTN to last \</p>
+			<p class="source-code">                          snapshot"</p>
+			<p class="source-code">                          virsh snapshot-revert $HOSTN                 </p>
+			<p class="source-code">                          exit 0</p>
+			<p class="source-code">             elif [ $CHOSENOP -eq 4 ];</p>
+			<p class="source-code">             then</p>
+			<p class="source-code">                          echo "Status of $HOSTN: "</p>
+			<p class="source-code">                          virsh dominfo $HOSTN                </p>
+			<p class="source-code">                          exit 0</p>
+			<p class="source-code">              else</p>
+			<p class="source-code"># user made an invalid input</p>
+			<p class="source-code">                          echo "Input was not valid!"/ \</p>
+			<p class="source-code">                          exit 0</p>
+			<p class="source-code">              fi</p>
+			<p class="source-code">fi</p>
+			<p>In this particular script, the main thing that we needed to decide on is how to handle two different conditions. The first condition is: <em class="italic">Are we dealing with a particular VM or all of them?</em> The second condition is: <em class="italic">What operation is needed?</em></p>
+			<p>There are a couple of ways we can do this—we chose this one because it looks the most logical. We first give the user a list of all the machines on the host, and after they have decided which machine they want to run the command on, we ask them to select what they want to do. </p>
+			<p>We could have easily done this the other way around and let them choose the command first and then<a id="_idIndexMarker1179"/> let <a id="_idIndexMarker1180"/>them select the VM they want to perform it on. </p>
+			<p>Another thing that we decided on was how to display the names of the machines. We are leaving it to the user to get the machine name right, and we are not doing any checks. One thing that could be done is to try to compare user input to the list of actual machine names. This way, if a user makes a mistake, we can catch it before the script tries to perform an operation on the invalid machine. </p>
+			<p>Another thing that can be done in this, and in pretty much any script that has a lot of logical decisions and not enough checks, is to do a <strong class="source-inline">try</strong>-<strong class="source-inline">catch</strong> loop for the entire script so that we can deal with any possible errors without the script breaking completely and leaving us in an unknown state. </p>
+			<h2 id="_idParaDest-421"><a id="_idTextAnchor429"/>See also</h2>
+			<ul>
+				<li>https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/virtualization_administration_guide/chap-virtualization_administration_guide-managing_guests_with_virsh</li>
+				<li><a href="https://help.ubuntu.com/community/KVM/Virsh">https://help.ubuntu.com/community/KVM/Virsh</a></li>
+			</ul>
+		</div>
+	</div></body></html>

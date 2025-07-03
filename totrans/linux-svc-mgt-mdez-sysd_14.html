@@ -1,0 +1,421 @@
+<html><head></head><body>
+		<div id="_idContainer056">
+			<h1 id="_idParaDest-156"><em class="italic"><a id="_idTextAnchor164"/>Chapter 12</em>: Controlling Resource Usage with cgroups Version 1</h1>
+			<p>Now that we've seen what <strong class="source-inline">cgroups</strong> are and how they're structured, it's time to look at how to actually use them. In this chapter, we'll cover these specific topics:</p>
+			<ul>
+				<li>Understanding resource controllers</li>
+				<li>Controlling CPU usage</li>
+				<li>Controlling memory usage</li>
+				<li>Controlling <strong class="source-inline">blkio</strong> usage</li>
+				<li>Understanding <strong class="source-inline">pam_limits</strong> and <strong class="source-inline">ulimit</strong></li>
+			</ul>
+			<p>Learning how to control resource usage with <strong class="source-inline">cgroups</strong> can help you make your data center run more securely and efficiently. So, buckle your seat belts and let's get going.</p>
+			<h1 id="_idParaDest-157"><a id="_idTextAnchor165"/>Technical requirements</h1>
+			<p>To get the most out of this chapter, you'll want to use a somewhat new host computer with a multi-core CPU and plenty of memory. In my case, I'm using a fairly late-model Dell workstation with a hexacore Xeon CPU and 32 GB of RAM. Hyperthreading is enabled, which gives me a total of 12 CPU cores to play with.</p>
+			<p>Set your virtual machines to run with at least two CPU cores and a decent amount of RAM. I'm setting mine to use four cores, as you see here:</p>
+			<div>
+				<div id="_idContainer044" class="IMG---Figure">
+					<img src="image/Figure_12.1_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.1 –<a id="_idTextAnchor166"/> Setting the CPU cores in VirtualBox</p>
+			<p>I'm also setting my virtual machines to run with eight GB of RAM, as you see here:</p>
+			<div>
+				<div id="_idContainer045" class="IMG---Figure">
+					<img src="image/Figure_12.2_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.2 – Setting the RAM in VirtualBox</p>
+			<p>As usual, I'll be using my Ubuntu Server 20.04 and AlmaLinux 8 virtual machines for the demos.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/3xJ61qi">https://bit.ly/3xJ61qi</a></p>
+			<p>Now that we have everything set up, let's dig in.</p>
+			<h1 id="_idParaDest-158"><a id="_idTextAnchor167"/>Understanding resource controllers</h1>
+			<p>There are a few different<a id="_idIndexMarker389"/> names for this cgroups feature. I prefer to use the term <em class="italic">resource controllers</em>. In other documentation, you may see these resource controllers referred to as <a id="_idIndexMarker390"/>either <em class="italic">subsystems</em> or just as <em class="italic">controllers</em>. All <a id="_idIndexMarker391"/>of these terms refer to the same thing, which is the cgroups technology that allows us to control the resource usage of the various running processes. Before we start getting our hands too dirty, let's see what resource controllers we have.</p>
+			<h2 id="_idParaDest-159"><a id="_idTextAnchor168"/>Examining the resource controllers</h2>
+			<p>The best way to <a id="_idIndexMarker392"/>see what resource controllers we have is to install some cgroup tools. On the Ubuntu machine, do:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo apt install cgroup-tools</p>
+			<p>On the Alma machine, do:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo dnf install libcgroup-tools</p>
+			<p>On either machine, we can now <a id="_idIndexMarker393"/>use <strong class="source-inline">lssubsys</strong> to view our active resource controllers, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ lssubsys</p>
+			<p class="source-code">cpuset</p>
+			<p class="source-code">cpu,cpuacct</p>
+			<p class="source-code">blkio</p>
+			<p class="source-code">memory</p>
+			<p class="source-code">devices</p>
+			<p class="source-code">freezer</p>
+			<p class="source-code">net_cls,net_prio</p>
+			<p class="source-code">perf_event</p>
+			<p class="source-code">hugetlb</p>
+			<p class="source-code">pids</p>
+			<p class="source-code">rdma</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Here's a brief <a id="_idIndexMarker394"/>description of each of them:</p>
+			<ul>
+				<li><strong class="source-inline">cpuset</strong>: If you're<a id="_idIndexMarker395"/> running a system with multiple CPU cores, this allows you to assign a process to one specific CPU core or a set of CPU cores. This enhances performance by forcing a process to use a portion of the CPU cache that's already been filled with the data and the instructions that the process needs. By default, the Linux kernel scheduler can move processes around from one CPU core to another, or from one set of CPU cores to another. Every time this happens, the running process must access the main system memory to refill the CPU cache. This costs extra CPU cycles, which can hurt performance.</li>
+				<li><strong class="source-inline">cpu,cpuacct</strong>: There <a id="_idIndexMarker396"/>used to be two separate controllers for <strong class="source-inline">cpu</strong> and <strong class="source-inline">cpuacct</strong>. Now, they've been combined into one single controller. This controller <a id="_idIndexMarker397"/>lets you control CPU usage for either processes or users. On a multi-tenant system, it allows you to monitor users' CPU usage, which is handy for billing purposes.</li>
+				<li><strong class="source-inline">blkio</strong>: This is <a id="_idIndexMarker398"/>short for <strong class="bold">Block Input/Output</strong>. This <a id="_idIndexMarker399"/>controller allows you to set limits on how fast processes and users can read from or write to block devices. (A block device is something such as a hard drive or a hard drive partition.)</li>
+				<li><strong class="source-inline">memory</strong>: As you<a id="_idIndexMarker400"/> might have guessed, this one allows you to set limits on the amount of system memory that a process or user can use.</li>
+				<li><strong class="source-inline">devices</strong>: This<a id="_idIndexMarker401"/> allows you to control access to system devices.</li>
+				<li><strong class="source-inline">freezer</strong>: This one <a id="_idIndexMarker402"/>has a strange name, but its purpose is simple. It allows you to suspend running processes in a cgroup. This can be handy for when you need to move processes from one cgroup to another. When you're ready, just resume the processes.</li>
+				<li><strong class="source-inline">net_cls,net_prio</strong>: This <a id="_idIndexMarker403"/>allows you to place class identifier (<strong class="source-inline">classid</strong>) tags on network packets. The Linux traffic controller and the Linux<a id="_idIndexMarker404"/> firewall can use these tags to control and prioritize network traffic for the various cgroups.</li>
+				<li><strong class="source-inline">perf_event</strong>: This <a id="_idIndexMarker405"/>allows you to monitor cgroups with the <strong class="source-inline">perf</strong> tool.</li>
+				<li><strong class="source-inline">hugetlb</strong>: This one<a id="_idIndexMarker406"/> allows your cgroups to use huge virtual memory pages, and to place limits upon their use. (This is a bit beyond the scope of this book, so we won't say anything more about it.)</li>
+				<li><strong class="source-inline">pids</strong>: This allows you <a id="_idIndexMarker407"/>to place a limit on the number of processes that can run in a cgroup.</li>
+				<li><strong class="source-inline">rdma</strong>: <strong class="bold">Remote direct memory access</strong> allows<a id="_idIndexMarker408"/> one<a id="_idIndexMarker409"/> computer to directly access the memory of another computer without having to involve either computer's operating system. This is mainly used for parallel computing clusters, which is also beyond the <a id="_idIndexMarker410"/>scope of this book.</li>
+			</ul>
+			<p>On the <strong class="source-inline">cgroups</strong> man page, you'll see a brief mention of these controllers under the <em class="italic">Cgroups version 1 controllers</em> section. To see a detailed description of them, you'll need to look at the documentation that comes packaged with the Linux kernel source code. On the Alma machine, you can install that documentation as a separate package by doing:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo dnf install kernel-doc</p>
+			<p>In the <strong class="source-inline">/usr/share/doc/kernel-doc-4.18.0/Documentation/cgroup-v1/</strong> directory, you'll now find text files that contain more detailed explanations about the resource controllers. (I also looked for that documentation package on the Ubuntu machine, but couldn't find it.) Of course, it's only fair to warn you that these documentation pages are mainly written for Linux kernel programmers, so you might not get much out of them. But then, who knows? Go ahead and give them a quick glance to see whether there's anything there that can help you. (You might also find that they're a great <a id="_idIndexMarker411"/>sleeping aid, for those nights when you have a severe case of insomnia.)</p>
+			<p>When you look in the <strong class="source-inline">/sys/fs/cgroup/</strong> directory, you'll see that each of these resource controllers has its own directory. Here's what that looks like on the Ubuntu machine:</p>
+			<div>
+				<div id="_idContainer046" class="IMG---Figure">
+					<img src="image/Figure_12.3_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.3 – Resource controllers on Ubuntu</p>
+			<p>For now, we'll ignore the two directories at the bottom of the screen. (The <strong class="source-inline">systemd</strong> directory is for the root cgroup, and the <strong class="source-inline">unified</strong> directory is for Version 2 controllers.) Even though we're running cgroups Version 1 here, it's still possible to use Version 2 controllers. (You won't see the <strong class="source-inline">unified</strong> directory on the Alma machine, because the RHEL 8-type distros don't have Version 2 controllers enabled by default.) Note that we'll only talk about Version 1 controllers in this chapter.</p>
+			<p>Also, note that we <a id="_idIndexMarker412"/>have four symbolic links that point to two different directories. That's because the <strong class="source-inline">cpu</strong> and <strong class="source-inline">cpuacct</strong> controllers used to be two separate controllers, but they're now combined into just one controller. The same is true of the <strong class="source-inline">net_cls</strong> and <strong class="source-inline">net_prio</strong> controllers. The symbolic links provide us with some backward compatibility.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Space doesn't permit me to cover all of these resource controllers in detail. So, we'll just focus on the <em class="italic">big three</em> that you'll be most likely to use. These are the <strong class="source-inline">cpu</strong>, <strong class="source-inline">memory</strong>, and <strong class="source-inline">blkio</strong> controllers. That's just as well, because with cgroups Version 1, these are the only three resource controllers that you can directly configure via <strong class="source-inline">systemd</strong>. (To use any of the other Version 1 resource controllers, you'll have to jump through some hoops and use some non-systemd management utilities.)</p>
+			<p>All right, enough theory for now. Let's start getting our hands dirty.</p>
+			<h2 id="_idParaDest-160"><a id="_idTextAnchor169"/>Preparing for the demos</h2>
+			<p>For the first few demos, we'll use <a id="_idIndexMarker413"/>the <strong class="source-inline">stress-ng</strong> tool to simulate some<a id="_idIndexMarker414"/> real-world problems. On the Ubuntu machine, install it by doing:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo apt install stress-ng</p>
+			<p>To install it on the Alma machine, you'll first need to have the EPEL repository installed. If you haven't already, install it by doing:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo dnf install epel-release</p>
+			<p>Then, install the <strong class="source-inline">stress-ng</strong> package by doing:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo dnf install stress-ng</p>
+			<p>Next, create a new, non-privileged user account. (I've created an account for Vicky, who is my teenage solid gray kitty.)</p>
+			<p>Then, open a terminal on your host machine and have your new user log in to a remote session on the virtual machine. Open a second terminal on the host machine, and log in to your own account on the virtual machine. Keep the virtual machine's local terminal off to the side, because you'll be using it, too.</p>
+			<p>Now that we're all set up, let's talk about the <strong class="source-inline">cpu</strong> resource controller.</p>
+			<h1 id="_idParaDest-161"><a id="_idTextAnchor170"/>Controlling CPU usage</h1>
+			<p>You can control <a id="_idIndexMarker415"/>resource usage either by using the <strong class="source-inline">systemctl set-property</strong> command<a id="_idIndexMarker416"/> or by editing systemd unit files. For the first demo, we'll have Vicky put some stress on the virtual machine's CPUs. We'll deal with it by using <strong class="source-inline">systemctl set-property</strong> to configure the <strong class="source-inline">cpu</strong> resource controller.</p>
+			<h2 id="_idParaDest-162"><a id="_idTextAnchor171"/>Controlling Vicky's CPU usage</h2>
+			<p>By default, all users on a<a id="_idIndexMarker417"/> Linux system have unlimited use of the system resources. That could be problematic on a system with multiple users. Any user could decide to hog all the resources, which could effectively cause a Denial-of-Service situation for all the other users. In real life, a user could cause trouble by doing something completely innocent, such as rendering a large video file. An authorized user could also cause a Denial-of-Service by doing something they aren't supposed to do, such as using server resources to do some cryptocurrency mining. In any case, we want to limit the resources that a user can use. We'll do that by assigning limits to the user's slice.</p>
+			<p>So, let's say that Vicky is logged in remotely and is hogging all the CPU time from the other users. Simulate that by having Vicky do:</p>
+			<p class="source-code">vicky@ubuntu2004:~$ stress-ng -c 4</p>
+			<p>The <strong class="source-inline">-c 4</strong> option in this command indicates that Vicky is doing a stress test on four cores of the CPU. Change that number to however many cores you've assigned to your own virtual machine.</p>
+			<p>In the remote terminal where you're logged in to your own account, open the <strong class="source-inline">top</strong> utility. It should look something like this:</p>
+			<div>
+				<div id="_idContainer047" class="IMG---Figure">
+					<img src="image/Figure_12.4_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.4 – The top display with Vicky's stress test</p>
+			<p>At the top of the <strong class="source-inline">top</strong> display, we<a id="_idIndexMarker418"/> see that Vicky is hogging nearly 100% of all four CPU cores. Do I have to tell you that that isn't good?</p>
+			<p>Keep <strong class="source-inline">top</strong> going on your own remote terminal, and go to the virtual machine's local terminal. To get proper results, make sure that you're not anywhere within the <strong class="source-inline">/sys/fs/cgroup/</strong> filesystem. Use <strong class="source-inline">systemd-cgls</strong> to find Vicky's user slice, which should look like this:</p>
+			<div>
+				<div id="_idContainer048" class="IMG---Figure">
+					<img src="image/Figure_12.5_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.5 – Vicky's user slice</p>
+			<p>We see that she's user number <strong class="source-inline">1001</strong>, and we want to show her who's the boss around here. We're just <a id="_idIndexMarker419"/>not going to let her get away with hogging the CPU like this. So, on the local terminal, reduce her <strong class="source-inline">CPUQuota</strong> to <strong class="source-inline">10%</strong> by doing:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl set-property user-1001.slice CPUQuota=10%</p>
+			<p>This command creates some new files in the <strong class="source-inline">/etc/systemd/</strong> directory, which means that you'll need to do <strong class="source-inline">sudo systemctl daemon-reload</strong>, just as you'd do when creating a new unit file. You should now see Vicky's CPU usage go down to practically nothing, as we see here:</p>
+			<div>
+				<div id="_idContainer049" class="IMG---Figure">
+					<img src="image/Figure_12.6_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.6 – After reducing Vicky's CPUQuota</p>
+			<p>Okay, maybe reducing Vicky's <strong class="source-inline">CPUQuota</strong> down to only <strong class="source-inline">10%</strong> is a bit too radical. In real life, you could adjust <strong class="source-inline">CPUQuota</strong> to whatever you need it to be. On a machine with multiple cores, there's<a id="_idIndexMarker420"/> a trick to this that you should know about. It's that whatever quota you give to Vicky is spread across all available CPU cores. So, in this case, we're not giving Vicky 10% of each core. Instead, we're spreading that 10% across four cores, which allows her to consume only about 2.5% of the CPU cycles from each core, as you can see in <em class="italic">Figure 12.6</em>. Also, setting Vicky's <strong class="source-inline">CPUQuota</strong> to <strong class="source-inline">100%</strong> doesn't give her 100% usage of each core. Instead, she would have only about 25% usage of each core. To allow her to have 50% usage of each core, set <strong class="source-inline">CPUQuota</strong> to <strong class="source-inline">200%</strong>. The maximum setting that we can have on this machine with four cores is <strong class="source-inline">400%</strong>, which would give her 100% usage of each core.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Keep in mind that the figures I've just given you are based on having four cores assigned to the virtual machine. These figures will differ if you've assigned a different number of cores to your own virtual machine.</p>
+			<p>The first time you execute a <strong class="source-inline">systemctl set-property</strong> command, you'll create the <strong class="source-inline">system.control/</strong> directory under the <strong class="source-inline">/etc/systemd/</strong> directory, which looks like this:</p>
+			<p class="source-code"> donnie@ubuntu2004:/etc/systemd$ ls -ld system.control/</p>
+			<p class="source-code">drwxr-xr-x 3 root root 4096 Jul 14 19:59 system.control/</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd$</p>
+			<p>Under that directory, you'll<a id="_idIndexMarker421"/> see a directory for Vicky's user slice. Under her user slice directory, you'll see the configuration file for Vicky's <strong class="source-inline">CPUQuota</strong>, as you see here:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control$ ls -l</p>
+			<p class="source-code">total 4</p>
+			<p class="source-code">drwxr-xr-x 2 root root 4096 Jul 14 20:25 user-1001.slice.d</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control$ cd user-1001.slice.d/</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control/user-1001.slice.d$ ls -l</p>
+			<p class="source-code">total 4</p>
+			<p class="source-code">-rw-r--r-- 1 root root 143 Jul 14 20:25 50-CPUQuota.conf</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control/user-1001.slice.d$</p>
+			<p>Here you see that I've just set Vicky's quota up to <strong class="source-inline">200%</strong>:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control/user-1001.slice.d$ cat 50-CPUQuota.conf </p>
+			<p class="source-code"># This is a drop-in unit file extension, created via "systemctl set-property"</p>
+			<p class="source-code"># or an equivalent operation. Do not edit.</p>
+			<p class="source-code">[Slice]</p>
+			<p class="source-code">CPUQuota=200%</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control/user-1001.slice.d$</p>
+			<p>Now, be aware that you'll only need to do a <strong class="source-inline">daemon-reload</strong> when you first create this file. Any subsequent changes you make to this file with the <strong class="source-inline">systemctl set-property</strong> command will take effect immediately.</p>
+			<p>In the cgroup <a id="_idIndexMarker422"/>filesystem, under Vicky's user slice directory, you'll see her current <strong class="source-inline">CPUQuota</strong> setting in the <strong class="source-inline">cpu.cfs_quota_us</strong> file. Here's what it looks like when set to <strong class="source-inline">200%</strong>:</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/cpu/user.slice/user-1001.slice$ cat cpu.cfs_quota_us </p>
+			<p class="source-code">200000</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/cpu/user.slice/user-1001.slice$</p>
+			<p>To get the actual 200% figure, just chop the last three zeros off from the <strong class="source-inline">200000</strong> that you see.</p>
+			<p>Okay, we're through with this demo. In Vicky's window, do a <em class="italic">Ctrl</em> + <em class="italic">C</em> to stop the stress test.</p>
+			<p>Next, let's see how to limit CPU usage for a service.</p>
+			<h2 id="_idParaDest-163"><a id="_idTextAnchor172"/>Controlling CPU usage for a service</h2>
+			<p>For <a id="_idIndexMarker423"/>this demo, perform the commands at the virtual machine's <a id="_idIndexMarker424"/>local terminal, and keep <strong class="source-inline">top</strong> going on your own remote terminal.</p>
+			<p>The first step of this demo is to create <strong class="source-inline">cputest.service</strong> at the virtual machine's local terminal, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl edit --full --force cputest.service</p>
+			<p>The contents of the file will look like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=CPU stress test service</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">ExecStart=/usr/bin/stress-ng -c 4</p>
+			<p>You see that there's nothing fancy here. It's just enough to get the job done. As you did before, change the <strong class="source-inline">-c</strong> option to reflect the number of cores that you've assigned to your own virtual machine. Next, do a <strong class="source-inline">daemon-reload</strong> and then start the service:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl daemon-reload</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl start cputest.service </p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>In the <a id="_idIndexMarker425"/>top display, you<a id="_idIndexMarker426"/> should see <strong class="source-inline">cputest.service</strong> hogging 100% of the CPU:</p>
+			<div>
+				<div id="_idContainer050" class="IMG---Figure">
+					<img src="image/Figure_12.7_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.7 – cputest.service with no limits</p>
+			<p>Next, let's set the <strong class="source-inline">CPUQuota</strong> for this service from the command line.</p>
+			<h3>Setting CPUQuota from the command line</h3>
+			<p>Setting <a id="_idIndexMarker427"/>the <strong class="source-inline">CPUQuota</strong> for a service is no different from setting it for a user. Let's say that we only want to allow a 90% <strong class="source-inline">CPUQuota</strong> for this service. Let's set that from the command line, just as we did when we set this for Vicky:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl set-property cputest.service CPUQuota=90%</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Doing this creates <a id="_idIndexMarker428"/>another directory in the <strong class="source-inline">/etc/systemd/system.control/</strong> directory:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control$ ls -l</p>
+			<p class="source-code">total 8</p>
+			<p class="source-code">drwxr-xr-x 2 root root 4096 Jul 15 19:15 cputest.service.d</p>
+			<p class="source-code">drwxr-xr-x 2 root root 4096 Jul 15 17:53 user-1001.slice.d</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control$</p>
+			<p>Inside the <strong class="source-inline">/etc/systemd/system.control/cputest.service.d/</strong> directory, you'll see the <strong class="source-inline">50-CPUQuota.conf</strong> file, which is set up the same as the one that we created for Vicky:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control/cputest.service.d$ cat 50-CPUQuota.conf </p>
+			<p class="source-code"># This is a drop-in unit file extension, created via "systemctl set-property"</p>
+			<p class="source-code"># or an equivalent operation. Do not edit.</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">CPUQuota=90%</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control/cputest.service.d$</p>
+			<p>This allows <strong class="source-inline">cputest.service</strong> to use only <a id="_idIndexMarker429"/>about 22.5% of each CPU core, as we see here:</p>
+			<div>
+				<div id="_idContainer051" class="IMG---Figure">
+					<img src="image/Figure_12.8_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.8 – cputest with 90% CPUQuota</p>
+			<p>Here, in the cgroup<a id="_idIndexMarker430"/> filesystem, we see that <strong class="source-inline">CPUQuota</strong> is indeed set to <strong class="source-inline">90%</strong>:</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/cpu/system.slice/cputest.service$ cat cpu.cfs_quota_us </p>
+			<p class="source-code">90000</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/cpu/system.slice/cputest.service$</p>
+			<p>Note that this limit is only placed on the <em class="italic">service</em>, and not on the root user who owns the service. The root user can still run other programs and services without any limits.</p>
+			<p>Next, let's set <strong class="source-inline">CPUQuota</strong> in the <strong class="source-inline">cputest.service</strong> file.</p>
+			<h3>Setting CPUQuota in the service file</h3>
+			<p>First, stop <strong class="source-inline">cputest.service</strong>, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl stop cputest.service </p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Next, delete <a id="_idIndexMarker431"/>the <strong class="source-inline">cputest.service.d/</strong> directory that <a id="_idIndexMarker432"/>you created with the <strong class="source-inline">systemctl set-property</strong> command:</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control$ sudo rm -rf cputest.service.d/</p>
+			<p class="source-code">donnie@ubuntu2004:/etc/systemd/system.control$</p>
+			<p>Do <strong class="source-inline">systemctl daemon-reload</strong> and then start <strong class="source-inline">cputest.service</strong>. You should see that the service now hogs the CPU, as it did at first. Stop the service, and then edit the unit file by <a id="_idIndexMarker433"/>doing:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl edit --full cputest.service</p>
+			<p>Add the <strong class="source-inline">CPUQuota=90%</strong> line, so <a id="_idIndexMarker434"/>that the file now looks like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=CPU stress test service</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">ExecStart=/usr/bin/stress-ng -c 4</p>
+			<p class="source-code">CPUQuota=90%</p>
+			<p>Save the file and start the service. You should see in the <strong class="source-inline">top</strong> display that the new setting has taken effect.</p>
+			<p>That's all there is to it. Easy, right?</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">The <strong class="source-inline">systemd.resource-control</strong> man page<a id="_idIndexMarker435"/> explains the various directives you can use to control resource usage. When you read through it, take note of which ones are for cgroups Version 1 and which ones are for cgroups Version 2. Also, take note of the directives that are marked as <em class="italic">deprecated</em>. For example, many cgroups tutorials that you'll find on the web tell you to use the <strong class="source-inline">CPUShares</strong> directive, which is listed on this man page as deprecated. (In Linux-speak, something that has been deprecated still works for now, but it will quit working at some point in the future. In this case, these deprecated directives work for Version 1, but they won't work for Version 2.)</p>
+			<p>We won't need <strong class="source-inline">cputest.service</strong> anymore, so go ahead and stop it. Let's move on to see how to control Vicky's memory usage.</p>
+			<h1 id="_idParaDest-164"><a id="_idTextAnchor173"/>Controlling memory usage</h1>
+			<p>Let's start by having <a id="_idIndexMarker436"/>Vicky do something that will hog all of the system memory. As before, we'll use the <strong class="source-inline">stress-ng</strong> utility to simulate that, like this:</p>
+			<p class="source-code">vicky@ubuntu2004:~$ stress-ng --brk 4</p>
+			<p>Wait a few moments, and you'll see some fairly ugly things in the <strong class="source-inline">top</strong> display:</p>
+			<div>
+				<div id="_idContainer052" class="IMG---Figure">
+					<img src="image/Figure_12.9_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.9 – The top display for Vicky's memory usage</p>
+			<p>Yeah, only 98.9 bytes of free memory, and super-high load averages. In fact, after about 2 minutes or so, this virtual machine is completely unresponsive to any commands. Ouch!</p>
+			<p>Now, understand that I still have the 200% <strong class="source-inline">CPUQuota</strong> set for Vicky. So, CPU usage isn't the problem here. The load average is a representation of how many tasks are waiting to be serviced by the CPU. In the top part of the <strong class="source-inline">top</strong> display, as shown in <em class="italic">Figure 12.9</em>, the <strong class="source-inline">53.51</strong> that you see is the 1-minute average, <strong class="source-inline">46.38</strong> is the 5-minute average, and <strong class="source-inline">25.00</strong> is the 15-minute average. These load averages are spread across all available CPU cores. This means that the more cores you have, the higher the load averages can go without hurting <a id="_idIndexMarker437"/>system performance. With only four cores, my virtual machine can't even begin to handle load averages like these. By hogging all of the system memory, Vicky is preventing the CPU from servicing tasks in a timely manner.</p>
+			<p>In order to shut down Vicky's program on this unresponsive virtual machine, I had to close down her remote terminal window by clicking on the <strong class="bold">x</strong> button in the top corner, which in turn closed down her <strong class="source-inline">stress-ng</strong> session. I mean, there was just no other way to do it. If this were to happen in real life on the local terminal of a physical server, you'd likely have to take the drastic step of either hitting the power switch or pulling the power cord. Even doing a <strong class="source-inline">kill</strong> command on this <strong class="source-inline">stress-ng</strong> process won't work, because the system won't be able to execute it.</p>
+			<p>To prevent this<a id="_idIndexMarker438"/> from happening again, let's set a 1GB memory limit for Vicky, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl set-property --runtime user-1001.slice MemoryMax=1G</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p><strong class="source-inline">MemoryMax</strong>, eh? That could be the name of a memory-enhancing nutritional supplement for us senior citizens.</p>
+			<p>Seriously though, you see that I'm using the <strong class="source-inline">--runtime</strong> option, which I didn't use before. This option makes the setting temporary, so that it will disappear when I reboot this machine. Instead of creating a permanent configuration file in the <strong class="source-inline">/etc/systemd/system.control/user-1001.slice.d/</strong> directory, this handy-dandy <strong class="source-inline">--runtime</strong> option created a temporary configuration file in the <strong class="source-inline">/run/systemd/system.control/user-1001.slice.d/</strong> directory, which looks like this:</p>
+			<p class="source-code">donnie@ubuntu2004:/run/systemd/system.control/user-1001.slice.d$ cat 50-MemoryMax.conf </p>
+			<p class="source-code"># This is a drop-in unit file extension, created via "systemctl set-property"</p>
+			<p class="source-code"># or an equivalent operation. Do not edit.</p>
+			<p class="source-code">[Slice]</p>
+			<p class="source-code">MemoryMax=1073741824</p>
+			<p class="source-code">donnie@ubuntu2004:/run/systemd/system.control/user-1001.slice.d$</p>
+			<p>To make the setting permanent, just run the command again without the <strong class="source-inline">--runtime</strong> option, and then do <strong class="source-inline">daemon-reload</strong>.</p>
+			<p>Now, when Vicky runs her evil memory-hogging program, she won't be able to lock up the system.</p>
+			<h1 id="_idParaDest-165"><a id="_idTextAnchor174"/>Controlling blkio usage</h1>
+			<p>In this scenario, Vicky is once<a id="_idIndexMarker439"/> again trying to hog system resources for herself. This time, she's reading so much from the system hard drive that nobody else can use it. Before we get to that, you'll need to install <strong class="source-inline">iotop</strong> on your virtual machines, so that you can measure the amount of bandwidth that Vicky is using. On the Ubuntu machine, do:</p>
+			<p class="source-code">sudo apt install iotop</p>
+			<p>On the Alma machine, do:</p>
+			<p class="source-code">sudo dnf install iotop</p>
+			<p>In the remote login window where you're running <strong class="source-inline">top</strong>, quit <strong class="source-inline">top</strong> and then do:</p>
+			<p class="source-code">sudo iotop -o</p>
+			<p>Now that we have things set up, let's see about setting a <strong class="source-inline">blkio</strong> limit for Vicky.</p>
+			<h2 id="_idParaDest-166"><a id="_idTextAnchor175"/>Setting a blkio limit for Vicky</h2>
+			<p>In Vicky's remote login <a id="_idIndexMarker440"/>window, have her use our good friend <strong class="source-inline">dd</strong> to create a dummy file, like this:</p>
+			<p class="source-code">vicky@ubuntu2004:~$ dd if=/dev/zero of=afile bs=1M count=10000</p>
+			<p class="source-code">10000+0 records in</p>
+			<p class="source-code">10000+0 records out</p>
+			<p class="source-code">10485760000 bytes (10 GB, 9.8 GiB) copied, 17.4288 s, 602 MB/s</p>
+			<p class="source-code">vicky@ubuntu2004:~$</p>
+			<p>Cool. Vicky has created a 10 GB file full of nothing but zeros. Next, let's have Vicky use <strong class="source-inline">dd</strong> to copy the contents of the file over to the <strong class="source-inline">/dev/null</strong> device, while watching the <strong class="source-inline">iotop -o</strong> display in our own remote login window. The command looks like this:</p>
+			<p class="source-code">vicky@ubuntu2004:~$ dd if=afile of=/dev/null</p>
+			<p class="source-code">20480000+0 records in</p>
+			<p class="source-code">20480000+0 records out</p>
+			<p class="source-code">10485760000 bytes (10 GB, 9.8 GiB) copied, 69.2341 s, 151 MB/s</p>
+			<p class="source-code">vicky@ubuntu2004:~$</p>
+			<p>So, it appears that she <a id="_idIndexMarker441"/>read this file at an average rate of 151 MB per second. The <strong class="source-inline">iotop</strong> display looks like this:</p>
+			<div>
+				<div id="_idContainer053" class="IMG---Figure">
+					<img src="image/Figure_12.10_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.10 – Vicky's read bandwidth with no restrictions</p>
+			<p>To limit her read bandwidth, we first need to know where she is reading the file from. We can use the <strong class="source-inline">lsblk</strong> utility to get a clue, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ lsblk</p>
+			<p class="source-code">NAME                      MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT</p>
+			<p class="source-code">loop0                       7:0    0  99.4M  1 loop /snap/core/11316</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">sda                         8:0    0     1T  0 disk </p>
+			<p class="source-code">├─sda1                      8:1    0     1M  0 part </p>
+			<p class="source-code">├─sda2                      8:2    0     1G  0 part /boot</p>
+			<p class="source-code">└─sda3                      8:3    0     1T  0 part </p>
+			<p class="source-code">  └─ubuntu--vg-ubuntu--lv 253:0    0   200G  0 lvm  /</p>
+			<p class="source-code">sdb                         8:16   0    10G  0 disk </p>
+			<p class="source-code">└─sdb1                      8:17   0    10G  0 part /media/backup</p>
+			<p class="source-code">sr0                        11:0    1  1024M  0 rom  </p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>We know that Vicky's <a id="_idIndexMarker442"/>file is in her own home directory. We see here that the <strong class="source-inline">/home/</strong> directory isn't mounted separately. So, it must be in the root partition, which is mounted as a logical volume on the <strong class="source-inline">/dev/sda</strong> drive. Let's now say that we want to limit Vicky's read bandwidth to only one MB per second for this logical volume. The command would look like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl set-property user-1001.slice BlockIOReadBandwidth="/dev/sda 1M"</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Note how the device name and the rate limit setting both have to be surrounded by a pair of double quotes. Also, note that we set bandwidth limits for the entire drive, not just for a specific partition or logical volume. Of course, we've created a new set file in the <strong class="source-inline">/etc/systemd/system.control/</strong> directory, so be sure to do a <strong class="source-inline">daemon-reload</strong>.</p>
+			<p>Next, have Vicky repeat her <strong class="source-inline">dd if=afile of=/dev/null</strong> command. Be aware that with her reduced bandwidth, this will take a while to complete. While it's running, note Vicky's reduced speed in the <strong class="source-inline">iotop</strong> window:</p>
+			<div>
+				<div id="_idContainer054" class="IMG---Figure">
+					<img src="image/Figure_12.11_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.11 – Vicky's reduced bandwidth</p>
+			<p>Yeah, she's just under one MB per second, just where we want her to be. By the way, don't feel bad if you want to <a id="_idIndexMarker443"/>abort this operation before it finishes. At this one MB per second rate, it will be a long time before it finishes on its own.</p>
+			<p>Finally, while Vicky is still logged in, look at the attribute file that this command modified in the cgroup filesystem:</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/blkio/user.slice/user-1001.slice$ cat blkio.throttle.read_bps_device </p>
+			<p class="source-code">8:0 1000000</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/blkio/user.slice/user-1001.slice$</p>
+			<p>In this <strong class="source-inline">blkio.throttle.read_bps_device</strong> file, the <strong class="source-inline">8:0</strong> represents the major and minor numbers of the <strong class="source-inline">/dev/sda</strong> device, as you can see here:</p>
+			<p class="source-code">donnie@ubuntu2004:/dev$ ls -l sda</p>
+			<p class="source-code">brw-rw---- 1 root disk 8, 0 Aug 19 14:01 sda</p>
+			<p class="source-code">donnie@ubuntu2004:/dev$</p>
+			<h2 id="_idParaDest-167"><a id="_idTextAnchor176"/>Setting a blkio limit for a service</h2>
+			<p>Of course, you<a id="_idIndexMarker444"/> can also set the <strong class="source-inline">BlockIOReadBandwidth</strong> parameter for a service. For example, let's use the <strong class="source-inline">set-property</strong> option to set<a id="_idIndexMarker445"/> it for the Apache web server. On the Ubuntu machine, the command is:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl set-property apache2.service BlockIOReadBandwidth="/dev/sda 1M"</p>
+			<p>On the AlmaLinux machine, the command is:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl set-property httpd.service BlockIOReadBandwidth="/dev/sda 1M"</p>
+			<p>If you want to set this <strong class="source-inline">BlockIOReadBandwidth</strong> parameter in a service file, there's a bit of a trick that you need to know about. When you set this on the command line, you had to surround the <strong class="source-inline">/dev/sda 1M</strong> part with a pair of double quotes. When you set this in a service file, you do <em class="italic">not</em> surround the <strong class="source-inline">/dev/sda 1M</strong> within double quotes. To demonstrate, let's set <a id="_idIndexMarker446"/>up an FTP server and set a <strong class="source-inline">blkio</strong> limit on it. On the Ubuntu machine, install<a id="_idIndexMarker447"/> the FTP server by doing:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo apt install vsftpd</p>
+			<p>On the AlmaLinux machine, do:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo dnf install vsftpd</p>
+			<p>On either machine, edit the service file by doing:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl edit --full vsftpd</p>
+			<p>In the <strong class="source-inline">[Service]</strong> section, add the new parameter, but without the double quotes:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">.. .</p>
+			<p class="source-code">BlockIOReadBandwidth=/dev/sda 1M</p>
+			<p>Do a <strong class="source-inline">daemon-reload</strong> and restart the <strong class="source-inline">vsftpd</strong> service. You should see the new setting show up in the cgroup filesystem:</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/blkio/system.slice/vsftpd.service$ cat blkio.throttle.read_bps_device </p>
+			<p class="source-code">8:0 1000000</p>
+			<p class="source-code">donnie@ubuntu2004:/sys/fs/cgroup/blkio/system.slice/vsftpd.service$</p>
+			<p>There are a lot more resource management directives than what we can cover here. To see more, just consult the <strong class="source-inline">systemd.resource-management</strong> man page.</p>
+			<p>Before we close this chapter, let's commit a bit of sacrilege by talking about <strong class="source-inline">pam_limits</strong> and <strong class="source-inline">ulimit</strong>, which have nothing at all to do with either systemd or cgroups.</p>
+			<h1 id="_idParaDest-168"><a id="_idTextAnchor177"/>Understanding pam_limits and ulimit</h1>
+			<p>Before the cgroup and systemd technologies were invented, we had other methods for controlling resource usage. These methods are still with us, and we can do some things with them that we can't do with cgroups. To demonstrate, let's briefly look at two of these older methods.</p>
+			<h2 id="_idParaDest-169"><a id="_idTextAnchor178"/>The ulimit command</h2>
+			<p>The <strong class="source-inline">ulimit</strong> command <a id="_idIndexMarker448"/>allows us to dynamically control resource usage for a shell session and for any processes that get started by the shell session. Let's use the <strong class="source-inline">-a</strong> option to see what the default settings are for my current shell session:</p>
+			<div>
+				<div id="_idContainer055" class="IMG---Figure">
+					<img src="image/Figure_12.12_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 12.12 – The default ulimit settings</p>
+			<p>As you can see, doing <strong class="source-inline">ulimit -a</strong> also shows us the option switches that we'd use to set the various limits. The<a id="_idIndexMarker449"/> trick is that you can either set or lower limits as a normal user, but you need <strong class="source-inline">sudo</strong> privileges to increase any limits. For example, let's say that we want to limit the size of any new files to only ten MB. We'll use the <strong class="source-inline">-f</strong> option, and specify the file size in terms of the number of 1,024-byte blocks. Ten MB works out to be 10,240 blocks, so our command looks like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ ulimit -f 10240</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>The new limit shows up in the <strong class="source-inline">ulimit -a</strong> output:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ ulimit -a</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">file size               (blocks, -f) 10240</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Now, watch what happens when I try to increase this limit:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ ulimit -f 20000</p>
+			<p class="source-code">-bash: ulimit: file size: cannot modify limit: Operation not permitted</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>So, a normal user can set a<a id="_idIndexMarker450"/> limit that hasn't been set before, but <strong class="source-inline">sudo</strong> privileges are needed to increase an existing limit. But you can reset everything back to the default settings by either closing the terminal window and opening a new one or by logging out and logging back in. Then, just set a new limit to whatever you want it to be.</p>
+			<p>Now, when I try to create a ten MB size file, things work fine:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ dd if=/dev/zero of=afile bs=1M count=10</p>
+			<p class="source-code">10+0 records in</p>
+			<p class="source-code">10+0 records out</p>
+			<p class="source-code">10485760 bytes (10 MB, 10 MiB) copied, 0.0440278 s, 238 MB/s</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>But things don't work so fine when I try to create an eleven MB file:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ dd if=/dev/zero of=afile bs=1M count=11</p>
+			<p class="source-code">File size limit exceeded (core dumped)</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>The <strong class="source-inline">ulimit</strong> command<a id="_idIndexMarker451"/> can come in handy for developers who need to test new software, or for anyone who needs to set resource limits from within a shell script. To read more about <strong class="source-inline">ulimit</strong>, open the <strong class="source-inline">bash-builtins</strong> man page and search for <strong class="source-inline">ulimit</strong>.</p>
+			<p>Next, let's talk about using a configuration file to set limits.</p>
+			<h2 id="_idParaDest-170"><a id="_idTextAnchor179"/>The pam_limits module</h2>
+			<p>The <strong class="source-inline">pam_limits</strong> module <a id="_idIndexMarker452"/>is part of the <strong class="bold">Pluggable Authentication Modules </strong>system, which <a id="_idIndexMarker453"/>most people just know as <strong class="bold">PAM</strong>. It allows you to set non-volatile limits on either users or groups. You'll do this by either editing the <strong class="source-inline">/etc/security/limits.conf</strong> file or by creating new drop-in files in the <strong class="source-inline">/etc/security/limits.d/</strong> directory. To get an idea of how this works, open the <strong class="source-inline">/etc/security/limits.conf</strong> file and look at the commented-out examples. For a more detailed explanation of things, look at the <strong class="source-inline">limits.conf</strong> man page.</p>
+			<p>Let's say that we want to prevent Pogo from creating any files that are larger than 20 MB. We'll do that by adding a line to the bottom of the <strong class="source-inline">/etc/security/limits.conf</strong> file, which will look like this:</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">#&lt;domain&gt;      &lt;type&gt;  &lt;item&gt;         &lt;value&gt;</p>
+			<p class="source-code">#</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">pogo            hard    fsize           20480</p>
+			<p class="source-code"># End of file</p>
+			<p>Log in as Pogo, and let him try to create a file:</p>
+			<p class="source-code">pogo@ubuntu2004:~$ dd if=/dev/zero of=afile bs=1M count=19</p>
+			<p class="source-code">19+0 records in</p>
+			<p class="source-code">19+0 records out</p>
+			<p class="source-code">19922944 bytes (20 MB, 19 MiB) copied, 0.0989717 s, 201 MB/s</p>
+			<p class="source-code">pogo@ubuntu2004:~$</p>
+			<p>Keep repeating this command with a larger <strong class="source-inline">count=</strong> number until you get an error.</p>
+			<p>All right, I think that this about covers things for this chapter. Let's wrap this baby up.</p>
+			<h1 id="_idParaDest-171"><a id="_idTextAnchor180"/>Summary</h1>
+			<p>In this chapter, we looked at the basics of using cgroups Version 1 to control resources. A lot of information you've likely seen in your web searches is out of date and somewhat confusing. My goal for this chapter has been to bring you up-to-date information and present it in an understandable manner.</p>
+			<p>We started by looking at the cgroups Version 1 controllers and giving a brief explanation of each one. After that, we saw how to control CPU usage, memory usage, and block device bandwidth usage for both users and services. We wrapped up by showing you the old, non-cgroup way of setting limits, which is still useful.</p>
+			<p>In the next chapter, we'll look at cgroups Version 2. I'll see you there.</p>
+			<h1 id="_idParaDest-172"><a id="_idTextAnchor181"/>Questions</h1>
+			<ol>
+				<li>Your computer has six CPU cores. What would Vicky's <strong class="source-inline">CPUQuota</strong> setting be if you want to limit her to only 16.66% for each CPU core?<p>A. 16.66%</p><p>B. 33.00%</p><p>C. 100%</p><p>D. 200%</p></li>
+				<li>According to the <strong class="source-inline">systemd.resource-control</strong> man page, which of the following directives represents the most modern way of limiting someone's memory usage?<p>A. <strong class="source-inline">MemoryLimit</strong></p><p>B. <strong class="source-inline">MemoryMax</strong></p><p>C. <strong class="source-inline">LimitMemory</strong></p><p>D. <strong class="source-inline">MaxMemory</strong></p></li>
+				<li>What does the <strong class="source-inline">--runtime</strong> option for <strong class="source-inline">systemctl set-property</strong> do?<p>A. It makes the new setting permanent.</p><p>B. Nothing, because it's already the default behavior.</p><p>C. It makes the new setting temporary.</p><p>D. It makes the command run faster.</p></li>
+				<li>Which of the following is true about CPU load averages?<p>A. Machines with more CPU cores can handle higher CPU load averages.</p><p>B. CPU load averages have nothing to do with how many CPU cores a machine has.</p><p>C. Excessive memory usage won't cause CPU load averages to go too high.</p><p>D. High CPU load averages have no effect on any machine.</p></li>
+			</ol>
+			<h1 id="_idParaDest-173"><a id="_idTextAnchor182"/>Answers</h1>
+			<ol>
+				<li value="1">C</li>
+				<li>B</li>
+				<li>C</li>
+				<li>A</li>
+			</ol>
+			<h1 id="_idParaDest-174"><a id="_idTextAnchor183"/>Further reading</h1>
+			<ul>
+				<li>Using control groups Version 1 with <strong class="source-inline">systemd</strong>:<p><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/managing_monitoring_and_updating_the_kernel/using-control-groups-version-1-with-systemd_managing-monitoring-and-updating-the-kernel">https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/managing_monitoring_and_updating_the_kernel/using-control-groups-version-1-with-systemd_managing-monitoring-and-updating-the-kernel</a></p></li>
+				<li>The Linux kernel Completely Fair Scheduler:<p><a href="https://www.kernel.org/doc/html/latest/scheduler/sched-design-CFS.html">https://www.kernel.org/doc/html/latest/scheduler/sched-design-CFS.html</a></p></li>
+				<li>For anyone who still needs to work with RHEL 7 or RHEL 7 clones on machines with multiple CPUs, here's a procedure for using the <strong class="source-inline">cpuset</strong> controller:<p><a href="https://www.redhat.com/en/blog/world-domination-cgroups-part-6-cpuset">https://www.redhat.com/en/blog/world-domination-cgroups-part-6-cpuset</a></p></li>
+				<li>How to set a <strong class="source-inline">ulimit</strong> value permanently:<p><a href="https://linuxhint.com/permanently_set_ulimit_value/">https://linuxhint.com/permanently_set_ulimit_value/</a></p></li>
+			</ul>
+		</div>
+	</body></html>

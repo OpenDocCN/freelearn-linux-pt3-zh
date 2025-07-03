@@ -1,0 +1,398 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">CIS Hardening with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml" target="_blank">Chapter 13</a>, <em>Using CIS Benchmarks</em>, we explored in detail the concept of CIS Benchmarks, how they benefit Linux security in the enterprise, and how to apply them. We examined in some detail an example of the CIS hardening benchmarks, that being the one for Red Hat Enterprise Linux (and CentOS) 7. Although we concluded that the benchmark document provided a great deal of detail regarding the validation checks, and even how to implement the benchmarks, we also saw that the whole process was incredibly manual. Further, with almost 400 pages of detail to a single operating system benchmark, we established that the potential workload for an engineer to implement this on just one server would be huge.</p>
+<p>In this chapter, we will once again bring Ansible into consideration. We have already established that Ansible lends itself extremely well to automation at enterprise scale, and implementation of the CIS Benchmarks is no exception. As we proceed through this chapter, we will learn how to rewrite the CIS Benchmarks in Ansible, and then how to apply them at enterprise scale and even maintain oversight of the ongoing compliance of your Linux servers against these benchmarks going forward. In doing this, we will develop a highly scalable, repeatable approach to implementing security benchmarks in the enterprise in a manner that is manageable, repeatable, reliable, and secure <span>– </span>all the hallmarks of effective automation in the enterprise.</p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li><span>Writing Ansible security policies</span></li>
+<li>Application of enterprise-wide policies with Ansible</li>
+<li>Testing security policies with Ansible
+<div class="page">
+<div class="layoutArea"/>
+</div>
+</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter includes examples based on the following technologies:</p>
+<ul>
+<li class="mce-root"><span>CentOS 7.6</span></li>
+<li class="mce-root">Ansible 2.8</li>
+</ul>
+<p class="mce-root"/>
+<p>To run through these examples, you will need access to a server or virtual machine running the operating system listed previously, alongside Ansible. Note that the examples given in this chapter may be destructive in nature (for example, they delete files and make changes to server configuration) and if run as shown are only intended to be run in an isolated test environment.</p>
+<p class="mce-root">Once you are satisfied that you have a safe environment to operate in, we can get started with routine system maintenance with Ansible.</p>
+<p><span>All example code discussed in this chapter is available on GitHub at the following URL:</span><span> <a href="https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter14">https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter14</a></span>.<a href="https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux"/></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Writing Ansible security policies</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml" target="_blank">Chapter 13</a>, <em>Using CIS Benchmarks</em>, we explored the CIS Benchmark for Red Hat Enterprise Linux 7 (version 2.2.0) and looked in detail at the document and implementation techniques. Although throughout this book we have focused on two of the more common operating systems found in the enterprise <span>– </span>Ubuntu Server LTS and RHEL/CentOS 7 <span>– </span>in the previous chapter, we chose to focus on the CIS Benchmark for RHEL 7 alone. This was purely for simplicity, as many of the good security practices that apply to RHEL 7 will also apply to Ubuntu Server LTS. For example, neither system should have root SSH logins enabled, and neither should have packet redirect sending enabled unless it is core to their role.</p>
+<p>In this chapter, we will continue to develop our RHEL 7-based example. Please know that most of the techniques employed in this chapter for automating the implementation of this benchmark with Ansible will apply equally well to Ubuntu Server LTS, and so it is hoped that the knowledge you gain from this chapter will serve you well when it comes to implementing security benchmarks on Ubuntu, or any other Linux server to which they may apply.</p>
+<p>Let's get straight into some practical, hands-on examples of developing CIS Benchmark implementations, only this time we will use Ansible rather than shell scripts based on the example code in the CIS Benchmark document.</p>
+<p>Let's start by considering our old friend, the remote root login.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Ensuring remote root login is disabled</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous chapter, we devised the following shell script to test for the condition described in CIS Benchmark recommendation 5.2.8 (RHEL 7, benchmark version 2.2.0), and then implemented it if the condition was not met. It is included here so that it can be contrasted against the Ansible solution we are about to create:</p>
+<pre>#!/bin/bash<br/>#<br/># This file implements CIS Red Hat Enterprise Linux 7 Benchmark <br/># Recommendation 5.2.8 from version 2.2.0<br/>echo -n "Ensure root logins are disabled on SSH... "<br/>OUTPUT=$(grep -e "^PermitRootLogin no" /etc/ssh/sshd_config)<br/>if [ "x$OUTPUT" == "x" ]; then<br/>  echo FAILED!<br/>  OPTPRESENT=$(grep -e "^PermitRootLogin.*" /etc/ssh/sshd_config)<br/>  if [ "x$OPTPRESENT" == "x" ]; then<br/>    echo "Configuration not present - attempting to add"<br/>    echo "PermitRootLogin no" | sudo tee -a /etc/ssh/sshd_config 1&gt;/dev/null<br/>  else<br/>    echo "Configuration present - attempting to modify"<br/>    sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin no/g' /etc/ssh/sshd_config<br/>  fi<br/>  sudo systemctl restart sshd<br/>else<br/>  echo OK<br/>fi</pre>
+<p>This shell script is for just one of the numerous benchmarks, and although it does work, it is quite fragile and does not scale across multiple systems. Further, the script is not at all easy to read, and so imagine the scale of the script that would be required if all the CIS Benchmark recommendations were implemented!</p>
+<p>Let's consider how we might rewrite this functionality in an Ansible role instead. First of all, we know we are testing for a specific line of configuration in a single file. If it is not present, then we know that the configuration (implicit or otherwise) is to allow remote root logins. In this instance, we carry out two actions: first of all, we modify the configuration file to insert the correct line (or modify the existing line if it exists but has the wrong value configured). Then, we restart the SSH daemon if the configuration file was changed.</p>
+<p>Our experience with Ansible has shown us that the <kbd>lineinfile</kbd> module can handle nearly all of the work-related to both checking the configuration file and modifying it if the requisite line isn't correctly configured. We have also learned that the <kbd>service</kbd> module can easily restart the SSH daemon, and that this module would be run from a <kbd>handler</kbd> rather than in the main task flow to ensure that the daemon is not restarted unless the configuration is actually modified.</p>
+<p>Thus, we might define a role containing a single task that looks like this in a role called <kbd>rhel7cis_recommendation528</kbd>:</p>
+<pre>---<br/>- name: 5.2.8 Ensure SSH root login is disabled (Scored - L1S L1W)<br/>  lineinfile:<br/>    state: present<br/>    dest: /etc/ssh/sshd_config<br/>    regexp: '^PermitRootLogin'<br/>    line: 'PermitRootLogin no'<br/>  notify: Restart sshd</pre>
+<p>Notice how we have given the task a meaningful name <span>– </span>taken, in fact, directly from the CIS Benchmark document itself. Thus, we know exactly which benchmark this is, what it is for, and whether or not it is scored.  We have also inserted the level information into the title as again this would save us from cross-referencing the original CIS Benchmark document later on.</p>
+<p>Alongside our role tasks, we also want to create a handler to restart the SSH daemon if we modify the configuration file (it will not pick up the changes without this) <span>– </span>an example of suitable code for this handler is as follows:</p>
+<pre>---<br/>- name: Restart sshd<br/>  service:<br/>    name: sshd<br/>    state: restarted</pre>
+<p>We can already see that this playbook is much easier to read than our original shell script <span>– </span>there is none of the code duplication we found when we implemented this benchmark in a shell script, and the <kbd>lineinfile</kbd> module is so powerful that it wraps all of our various checks up into one single Ansible task.</p>
+<p>Running the role should yield output similar to that shown in the following screenshot on a system that has remote root logins enabled:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/441adfc0-b2c3-4ab3-bd44-fea8096075a8.png" style="width:41.25em;height:20.50em;"/></p>
+<p>By contrast, if the recommendation is already implemented, then the output will look like that shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/9524fed6-2ed1-41cf-8aa5-bd63ecf68a6b.png" style="width:41.42em;height:17.50em;"/></p>
+<p>As you can see, if the condition is met, the <kbd>lineinfile</kbd> module makes no changes (resulting in the <kbd>ok</kbd> status seen in the preceding screenshot), and the handler does not run at all.</p>
+<p>This in itself is extremely powerful, and a huge improvement over our shell script in terms of both manageability and coding effort. Nonetheless, the RHEL 7 CIS Benchmark contains almost 400 recommendations, and you would not want to have to create and include 400 roles in a playbook run as this would detract from the otherwise manageable nature of our Ansible automation.</p>
+<p>In the next section of this chapter, we will look at expanding our current playbook by adding another recommendation from <em>section 5</em> of the CIS Benchmark, thus building up our playbook code in a scalable, manageable fashion.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building up security policies in Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>If we were to proceed precisely as we did in the previous section, then when it comes to <em>section 5.2.9</em> of the RHEL 7 CIS Benchmark version 2.2.0 (Ensure SSH <kbd>PermitEmptyPasswords</kbd> is disabled), we would create a new role called <kbd>rhel7cis_recommendation529</kbd> and put the relevant tasks and handlers inside it.</p>
+<p>I'm sure that you will be able to see that this does not scale well <span>– </span>the creation of a new role means we need to specify it in our top-level playbook, which would look something like the following:</p>
+<pre>---<br/>- name: Test and implement CIS benchmark<br/>  hosts: all<br/>  become: yes<br/><br/>  roles:<br/>    - rhel7cis_recommendation528<br/>    - rhel7cis_recommendation529</pre>
+<p>Having one role per line, with almost 400 roles to include, would quickly become tedious and detract from the highly manageable nature of our Ansible code.</p>
+<p>Exactly how you divide up your Ansible tasks into roles is up to you, and you should utilize the method that you find most manageable. As a suggestion, though, looking at the table of contents for our example CIS Benchmark, we can see that the recommendations are divided into six sections. Those in <em>section 5</em> relate specifically to <em>Access, Authentication</em>, <em>and Authorization</em>, and thus it is entirely logical that we might want to group all of these together into one role, perhaps called <kbd>rhel7cis_section5</kbd>.</p>
+<p>With this decision made regarding playbook structure, we can now proceed to build both the checks for recommendations 5.2.8 and 5.2.9 into the same role. They can share the same handler too, as both relate to SSH daemon configuration. Thus, our new role's tasks could look like the following:</p>
+<pre>---<br/>- name: 5.2.8 Ensure SSH root login is disabled (Scored - L1S L1W)<br/>  lineinfile:<br/>    state: present<br/>    dest: /etc/ssh/sshd_config<br/>    regexp: '^PermitRootLogin'<br/>    line: 'PermitRootLogin no'<br/>  notify: Restart sshd<br/><br/>- name: 5.2.9 Ensure SSH PermitEmptyPasswords is disabled (Scored - L1S L1W)<br/>  lineinfile:<br/>    state: present<br/>    dest: /etc/ssh/sshd_config<br/>    regexp: '^PermitEmptyPasswords'<br/>    line: 'PermitEmptyPasswords no'<br/>  notify: Restart sshd</pre>
+<p>The resulting code is still highly readable and is broken down into manageable chunks, but is now not so granular that it would be difficult to maintain the top-level playbook.</p>
+<p>Our handler code remains the same as before, and now when we run the role on a system that does not meet either of these recommendations, the output should look something like the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/2a96f435-4509-4ab3-b77b-431271ea1c27.png" style="width:43.83em;height:26.33em;"/></p>
+<p>This is very clean and tidy, and hopefully you can see how this could scale well when it comes to implementing all of the nearly 400 recommendations from the CIS Benchmark if you chose to do so. However, it also raises an important consideration: in an ideal world, all of the CIS recommendations would be applied to every machine, yet in reality, this is not always possible. In the <em>Applying security policy wisely</em> <span>section</span><span> </span><span>of</span> <a href="3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml" target="_blank">Chapter 13</a><span>,</span> <em>Using CIS Benchmarks</em><span>, we discussed a variety of recommendations that you would apply caution to implementing. In addition, as much as it is desirable to never perform a remote login with the root account over SSH, I have come across systems where this is actually required to support some kind of legacy system until it can be updated.</span></p>
+<p>In short, there will always be a requirement for exceptions in the process of policy enforcement. The important thing is to handle this in a graceful manner. Say you have 100 Linux machines to apply our newly written mini security policy to, but that two require remote root logins to be enabled.</p>
+<p>In this instance, we have two choices:</p>
+<ul>
+<li>Maintain a separate set of playbooks for the two servers where the exceptions are required</li>
+<li>Find a way to selectively run the tasks in our role without having to modify it</li>
+</ul>
+<p>Of these choices, the second is clearly the better of them as it supports us in maintaining one single playbook. But how do we achieve this?</p>
+<p>Ansible offers us two tools to approach this problem. The first is the <kbd>when</kbd> clause that we have already considered several times in this book. So far, we have only looked at this clause to evaluate a condition programatically (for example, to run a disk cleanup on the condition that free space on the disk falls below a certain value). In this instance, we employ a much simpler implementation <span>– </span>simply evaluating whether a Boolean value is true or not.</p>
+<p>Suppose that we add the following code below our task to implement recommendation 5.2.8:</p>
+<pre>  when: <br/>    - recommendation_528|default(true)|bool</pre>
+<p>These two lines evaluate a variable called <kbd>recommendation_528</kbd> and applies two Jinja2 filters to ensure it is processed correctly, even when the variable is undefined:</p>
+<ul>
+<li>The <kbd>default</kbd> filter sets the variable to <kbd>true</kbd> by default as Ansible will fail the play with an error if any variable it encounters is undefined. This removes the need for us to define these variables up-front <span>– </span>our role simply defaults them to <kbd>true</kbd> unless we set them otherwise.</li>
+<li>The second filter casts them to a <kbd>bool</kbd> type to ensure a reliable evaluation of the condition.</li>
+</ul>
+<div class="packt_tip">Remember that <kbd>true</kbd> can be both a string and a Boolean value, depending on how you interpret it. Using the <kbd>|bool</kbd> filter ensures that Ansible evaluates it in the Boolean context.</div>
+<p>Similarly, for the second task, we would add the following immediately below the <kbd>notify</kbd> clause:</p>
+<pre>  when: <br/>    - recommendation_529|default(true)|bool</pre>
+<p>Now, if we run the playbook without doing anything else to it against a system that is not compliant, it behaves exactly as it did before, as shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/f8a1bba0-e42d-4a57-b870-6177e5143dba.png" style="width:42.33em;height:25.25em;"/></p>
+<p>The magic now happens when we want to run it against a system where we wish to skip one or both of these recommendations. Imagine that our host, <kbd>legacy-testhost</kbd>, is a legacy system where remote root logins are still a requirement. To use this role on this particular system, we know that we must set <kbd>recommendation_528</kbd> to <kbd>false</kbd>. This can be performed at a variety of levels, and the inventory is probably the most sensible place to define it as it prevents someone from accidentally running the playbook in the future without defining this and hence breaking our legacy code by denying remote root logins. We can create a new inventory for this system that might look something like this:</p>
+<pre>[legacyservers]<br/>legacy-testhost<br/><br/>[legacyservers:vars]<br/>recommendation_528=false</pre>
+<p>Having set the variable for the recommendation we want to skip to <kbd>false</kbd>, we can then run our role against this new inventory, and the results should look something like those shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/16be69cc-264c-4f70-8467-4d7f41256025.png" style="width:41.75em;height:26.25em;"/></p>
+<p>This was exactly what we desired <span>– </span>recommendation 5.2.8 was skipped on our legacy system, and all we had to do was define a variable in the inventory <span>– </span>the role code from all our other servers was reused.</p>
+<p>Using the <kbd>when</kbd> clause with a simple Boolean variable works well for simple decisions like this, but what about when you have multiple criteria to evaluate? Although the <kbd>when</kbd> clause can evaluate both logical <kbd>and</kbd> and <kbd>or</kbd> constructs, this could become somewhat difficult to manage as complexity increases.</p>
+<p>Ansible tags are the second tool that will help us here, and these are a special feature that is designed specifically to allow you to run only desired portions of a role or playbook, rather than having to run the whole thing from start to finish. Suppose that we add the following tags below our task for implementing recommendation 5.2.8:</p>
+<pre>  tags:<br/>    - notlegacy<br/>    - allservers</pre>
+<p>Below the task for recommendation 5.2.9, we might add the following:</p>
+<pre>  tags:<br/>    - allservers</pre>
+<p>The behavior of these tags is best explained by example, and as this is a hands-on book, we will do exactly that. The first thing to note is that adding tags to a playbook (or role within a playbook) does absolutely nothing unless you specify which tags to run, or to skip. Thus, if we run our playbook in its current form, it behaves exactly as it always has, in spite of the addition of the tags, as the following screenshot shows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/803ae32e-11bf-4136-91c3-add7780bcee1.png" style="width:40.33em;height:24.08em;"/></p>
+<p>The magic comes when we specify which tags are to be run. Let's repeat the previous command, but this time add <kbd>--skip-tags=notlegacy</kbd>. The switch does exactly what it implies <span>– </span>all tasks with the <kbd>notlegacy</kbd> <span>t</span><span>ag </span>are ignored. The following screenshot shows the output from such a run of this playbook:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/f51d5c68-3554-41b4-9f11-23e80006f74e.png" style="width:44.08em;height:22.83em;"/></p>
+<p>Here, we see a marked difference from the use of the <kbd>when</kbd> clause <span>– </span>where previously we observed that our task for recommendation 5.2.8 was evaluated but subsequently skipped, it does not even appear in the preceding playbook output <span>– </span>in short, the entire task has been treated as if it didn't exist.</p>
+<p>If we had run the playbook with the <kbd>--tags=allservers</kbd> <span>option, </span>we would have observed both tasks running, as both were tagged with this value.</p>
+<p>This becomes incredibly useful not only for our example here, but when considering the wider benchmark document. For example, we have already discussed that all recommendations are either level 1 or level 2. Equally, we know that some are scored, and some not.</p>
+<p>Knowing that level 1 benchmarks are less likely to disrupt the day-to-day running of a Linux server, we could implement all recommendations in a playbook with the level as one of the tags for each, and then if we were to run the playbook with <kbd>--tag=level1</kbd>, then only the level 1 recommendations would be implemented. Working with this example, the tags for our task for recommendation 5.2.8 might be as follows:</p>
+<pre>  tags:<br/>    - notlegacy<br/>    - allservers<br/>    - level1<br/>    - scored</pre>
+<p>When you are building up your roles and playbooks to implement security benchmarks, regardless of the operating system or security standard, it is recommended that you make use of the when clause and tags to the best of your advantage. Remember <span>– </span>when automating at enterprise scale, the last thing you want is lots of fragmented pieces of code to manage, all of which are similar but do slightly different things. The more you can standardize, the more manageable your enterprise will be, and appropriate use of these features will serve you well in ensuring you can maintain a single Ansible code base, and yet tailor its actions at runtime to handle the exceptions in your server estate.</p>
+<p>Since we have been considering appropriate playbook and role structure for our security benchmark, we have deliberately kept our examples simple in this section. In the next section, we will revisit some of the more complex examples we highlighted in <a href="3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml" target="_blank">Chapter 13</a>, <em>Using CIS Benchmarks</em>, and demonstrate how Ansible makes them far easier to code and understand.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing more complex security benchmarks in Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the examples we considered in detail in <a href="3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml" target="_blank">Chapter 13</a>, <em>Using CIS Benchmarks</em>, was recommendation 3.1.2, which is concerned with packet redirect sending being disabled. This is considered important on any machine that is not supposed to be acting as a router (though it should not be implemented on a router as it would stop the router from functioning correctly).</p>
+<p>On the face of it, this recommendation looks quite straightforward <span>– </span>we simply need to set these two kernel parameters, as follows:</p>
+<pre>net.ipv4.conf.all.send_redirects = 0<br/>net.ipv4.conf.default.send_redirects = 0</pre>
+<p>In spite of this apparent simplicity, we ended up developing almost 60 lines of shell script to implement this check because we had to check both the currently active kernel parameters and persistent configuration file values, and then perform the appropriate changes if the values were not set as desired.</p>
+<p>Here, once again, Ansible comes to our rescue. The <kbd>sysctl</kbd> module within Ansible wraps up many of the tests and configuration work that we constructed into our shell script. Further, we can use a loop so that the same task code can we run twice <span>– </span>once against each of the aforementioned kernel parameters.</p>
+<p>When developing a role for this, we could define a single task that looks something like this:</p>
+<pre>---<br/>- name: 3.1.2 Ensure packet redirect sending is disabled (Scored - L1S L1W)<br/>  sysctl:<br/>    name: "{{ item.paramname }}"<br/>    value: "{{ item.paramvalue }}"<br/>    reload: yes<br/>    ignoreerrors: yes<br/>    sysctl_set: yes<br/>    state: present<br/>  loop:<br/>    - { paramname: net.ipv4.conf.all.send_redirects, paramvalue: 0 }<br/>    - { paramname: net.ipv4.conf.default.send_redirects, paramvalue: 0 }<br/>  notify:<br/>    - Flush IPv4 routes</pre>
+<p>The recommendation also says that if we implement these changes, we should also flush out the IPv4 routes on the system. This is also achieved through a <kbd>sysctl</kbd> parameter, and so we simply use the <kbd>sysctl</kbd> module again, only this time in a <kbd>handler</kbd>:</p>
+<pre>- name: Flush IPv4 routes<br/>  sysctl:<br/>    name: net.ipv4.route.flush<br/>    value: "1"<br/>    sysctl_set: yes</pre>
+<p>Running this against a test system might yield output similar to that shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/836b6104-e9c2-4e1e-b1a8-9ab7d26b6217.png" style="width:44.58em;height:25.67em;"/></p>
+<p>As we can see from the preceding screenshot, this code has run successfully and applied the setting recommended by the benchmark, and as a direct result of the change, the handler has fired and flushed the IPv4 routes. The overall result of this is that what took 57 lines of fairly unreadable shell script can now be achieved in 14 lines of far more readable YAML.</p>
+<p>So far, we have built up a clear picture of how Ansible can make the design and implementation of CIS recommendations straightforward, especially when compared to alternatives such as shell scripting. We have noted that native Ansible modules such as <kbd>sysctl</kbd> and <kbd>lineinfile</kbd> can gracefully wrap up a multitude of steps that would have have been performed by a shell script. However, there are times when you, as the playbook author, must make some important decisions for your playbooks, and we will look at this in more detail in the following section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Making appropriate decisions in your playbook design</h1>
+                </header>
+            
+            <article>
+                
+<p>As you build up your roles and playbooks to implement security baselines, you will discover that some of your implementation will be cut and dried (for example, you will almost certainly know whether you want root SSH logins to be possible or not), whereas there will be decisions to be made for other aspects. Time synchronization is one such example, and in this section, we will explore this in more detail to demonstrate the kinds of decisions you can expect to make when designing your roles, as well as how to address them in a constructive manner.</p>
+<p>If you review <em>section 2.2.1</em> of the RHEL 7 CIS Benchmark (version 2.2.0), you will see that it is entirely concerned with time synchronization. Indeed, this is an important function in just about every Enterprise Linux infrastructure, and discrepancies between the clocks on servers can cause issues such as with certificate validity and Kerberos tickets.</p>
+<p>Although it is almost universally agreed that time synchronization is vitally important, there is less agreement on the way to achieve it. For example, there are two main time synchronization services available for most mainstream Linux distributions:</p>
+<ul>
+<li><kbd>chrony</kbd></li>
+<li><kbd>ntpd</kbd> </li>
+</ul>
+<p>Although <kbd>chrony</kbd> is now the standard on RHEL 7, this does not mean that the venerable <kbd>ntpd</kbd> service will no longer work <span>– </span>in fact, some enterprises still choose to implement this because they have extensive experience with it.</p>
+<p>It is entirely possible to get Ansible to detect which of these two services a given Linux server is using <span>–</span> at a high level, we could get Ansible to do the following:</p>
+<ol>
+<li>Query the RPM package database to see whether <kbd>ntpd</kbd>, <kbd>chrony</kbd>, or both are installed.</li>
+<li>If one or both are installed, detect which one is active:</li>
+</ol>
+<p style="padding-left: 90px">a. If neither are active, this needs rectifying as we have established the need for time synchronization.</p>
+<p style="padding-left: 90px">b. If both are active, the services will clash and one should be disabled. </p>
+<p>As I'm sure you will see, there comes a point in the preceding process where an intervention is required <span>– </span>if neither service is started, we need to choose one to start. If both are active, we need to disable one. This is where Ansible's ability to help ends <span>– </span>it cannot decide for your particular enterprise which of these two perfectly valid services is best for your use case.</p>
+<p>Thus, it is important to make a decision up-front about which time synchronization service you are using. With this decision made, playbooks can then be specifically coded to perform the appropriate checks and equally perform the appropriate remediation steps as required. In addition, we know from our discussion in <a href="c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml" target="_blank"/><a href="c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml" target="_blank">Chapter 1</a>, <em>Building a Standard Operating Environment on Linux</em>, that automation at enterprise scale is supported by commonality and standards <span>– </span>so we know from these principles that we should choose a standard time synchronization service and stick with it except where there is a good business reason to raise an exception.</p>
+<p>To progress this example, let's look at recommendation 2.2.1.1. This states that we should ensure that a time synchronization service is in use <span>– </span>though it is agnostic about which one. If we have made our decision up-front about which service is relevant, our playbook development is easy. Suppose we have chosen <kbd>chrony</kbd> (the default for RHEL 7); our role for this recommendation might be as follows:</p>
+<pre>---<br/>- name: 2.2.1.1 Ensure time synchronization is in use (Not Scored - L1S L1W)<br/>  yum:<br/>    name: chrony<br/>    state: present<br/><br/>- name: 2.2.1.1 Ensure time synchronization is in use (Not Scored - L1S L1W)<br/>  service:<br/>    name: chronyd<br/>    state: started</pre>
+<p>This simple code ensures that we both check for and satisfy recommendation 2.2.1.1 without the need for any logic to detect which time service is in use. Of course, we could choose to be more thorough and check that <kbd>ntpd</kbd> is not started, but this is left as an exercise to you.</p>
+<p>Naturally, we cannot fit all the Ansible code that's required for the roughly 400 recommendations in this CIS Benchmark into this book <span>– </span>that would deserve an entire book to itself! In addition, this example is just for one benchmark <span>–</span> if your enterprise introduces a new operating system such as RHEL 8, you can be sure there will be a separate CIS Benchmark for this operating system that will need to be implemented. However, it is hoped that the development of these examples from the RHEL 7 CIS Benchmark is sufficient for you to design and build your own policy. Thus, in the next section of this chapter, we will look at techniques for making this task manageable at enterprise scale.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Application of enterprise-wide policies with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>Although we have seen the significant benefits that Ansible can bring to CIS Benchmark implementation, I'm sure it is apparent at this stage that development and maintenance of these policies could turn into a full-time job, especially when coupled with the need to run them against the infrastructure and manage the results of each run.</p>
+<p>Fortunately, the spirit of open source development brings a solution to this dilemma. Imagine if someone had already spent a great deal of time and effort developing a high-quality set of Ansible roles for implementing CIS Benchmarks, and that this was available as open source code so that you could audit it, ensure it was fit for your environment, and tailor it easily if required. Further, imagine that they had put a great deal of time and effort into tagging each task, and adding appropriate variable structure to allow you to easily specify your choices such as which time synchronization service your enterprise uses.</p>
+<p>Thankfully, this work has already been completed by MindPoint Group, and their code has been made freely available on GitHub at <a href="https://github.com/MindPointGroup/RHEL7-CIS">https://github.com/MindPointGroup/RHEL7-CIS</a>.</p>
+<div class="packt_tip">At the time of writing, the latest CIS Benchmark available for EL7 systems is version 2.2.0, whereas the aforementioned playbooks are written against version 2.1.1 of the benchmark. It is up to you to ensure you are aware of the benchmark version you are implementing, as well as any possible security implications if you implement a slightly older version.</div>
+<p>In addition to this, just as users of Ubuntu may choose paid support or to use the free open source operating system, and EL7 users may choose between Red Hat Enterprise Linux 7 or CentOS 7, MindPoint Group also offers a commercially supported version of their Ansible hardening code, available via <a href="https://www.lockdownenterprise.com/">https://www.lockdownenterprise.com/</a>. Thus, they offer support for both ends of the spectrum, respecting that some enterprises will absolutely require an enterprise support contract, while others will prefer to use freely available open source software.</p>
+<p>Let's explore how we might use the open source code against our CentOS 7 server:</p>
+<ol>
+<li>First of all, we need to clone the GitHub repository:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$ cd roles</strong><br/><strong>$ git clone https://github.com/MindPointGroup/RHEL7-CIS.git</strong><br/><strong>$ cd ..</strong></pre>
+<ol start="2">
+<li>Once this is complete, we can then proceed to use the code exactly as we would use any other role. Where appropriate, we should set variables, which can be set either in the inventory or in the main playbook (more on this in a second).</li>
+</ol>
+<p style="padding-left: 60px">Thus, the purest and simplest possible implementation of the MindPoint Group CIS Benchmark in Ansible once the role has been cloned from GitHub is a playbook that looks like this:</p>
+<pre style="padding-left: 60px">---<br/>- name: Implement EL7 CIS benchmark<br/>  hosts: all<br/>  become: yes<br/><br/>  roles:<br/>    - RHEL7-CIS</pre>
+<ol start="3">
+<li>With these steps complete, you can literally begin implementing the EL7 benchmark and its near 400 recommendations on your Linux servers in a matter of minutes <span>– </span>the playbook is run in the normal manner, and will produce many pages of output as all the checks are performed and recommendations implemented (if/when required). The following screenshot shows the playbook being run and the initial page of output:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/a25b3be9-a3c6-48bb-86a8-1eb96437f806.png" style="width:42.08em;height:29.17em;"/></p>
+<p>Now, a word on variables. As we established in the previous section (<em>Writing Ansible security policies</em>), there will be occasions where you need to vary your playbook run. The variables and tags are all documented in the <kbd>README.md</kbd> file that accompanies the GitHub repository we cloned earlier, and for purposes of illustration, let's consider a few examples.</p>
+<p>First off, suppose we only want to implement the level 1 recommendations (those that are less risky to day-to-day operations). This can be achieved by running the playbook and using the <kbd>level1</kbd> tag:</p>
+<pre><strong>$ ansible-playbook -i hosts site.yml --tags=level1</strong></pre>
+<p>Alternatively, you might be running the hardening playbooks against a set of servers that act as routers. In this instance, we would need to set the <span><kbd>rhel7cis_is_router</kbd> variable to <kbd>false</kbd> to ensure that kernel parameters that disable router functionality are not set.</span></p>
+<p>This could be done on the command line as follows:</p>
+<pre><strong>$ ansible-playbook -i hosts site.yml -e <span>rhel7cis_is_router=true</span></strong></pre>
+<p>However, this is very manual, and it would be far too easy for someone to accidentally run the playbook without setting this variable, suddenly disabling the router.</p>
+<p>It would be far better to set this variable at the inventory level, thus ensuring that it is always set correctly whenever the playbook is run. Thus, we might create an inventory such as this:</p>
+<pre>[routers]<br/>router-testhost<br/><br/>[routers:vars]<br/>rhel7cis_is_router=true</pre>
+<p>With this inventory in place, running the playbook against the routers is performed using a command such as the following:</p>
+<pre><strong>$ ansible-playbook -i routers site.yml</strong></pre>
+<p>As long as this inventory file is used, there is no danger of someone forgetting to set the <span><kbd>rhel7cis_is_router</kbd> variable to <kbd>true</kbd>.</span></p>
+<p>Of course, this discussion does not mean that you must download and use these playbooks <span>– </span>it is still entirely possible to develop and maintain your own playbooks to your own requirements. Indeed, there may be situations in which this strategy is actually preferable.</p>
+<p>What is important is that you choose the strategy that is best for your enterprise. When selecting your strategy for implementing security policy at scale, you should take the following into account:</p>
+<ul>
+<li>Whether you want to own your own code (with all the advantages and disadvantages that brings)</li>
+<li>Whether you want to be responsible for the maintenance of your code base going forward</li>
+<li>That you should standardize on one code base as far as possible to ensure your code structure remains maintainable</li>
+<li>Whether you need third-party support on implementing these benchmarks or whether you are happy that you have the skills and resources in-house</li>
+</ul>
+<p>Once you have made your evaluation, you will be well placed to define your path forward with creating Ansible playbooks to implement your chosen security standards. It is intended that the information provided to you in this chapter so far will be sufficient to support you in whichever path you choose. Although we have focused on EL7 (Red Hat Enterprise Linux 7 and CentOS 7) in this chapter, everything we have discussed will scale well to other operating systems for which there exist security benchmarks (for example, Ubuntu Server 18.04). In fact, if you run through the processes we have discussed within this chapter using the CIS Benchmark for Ubuntu Server 18.04, you will find a great deal of similarity can be achieved.</p>
+<p>So far, we have dealt almost exclusively with the implementation of CIS Benchmarks. This chapter would not be complete, however, without providing a method to check levels of enforcement without the need to make changes. After all, auditing is an important part of most enterprise policies, especially where security is concerned, yet changes must be made under an authorized change request window.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing security policies with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>As we have discussed so far, it is important to ensure that not only can you implement security policies in an efficient and repeatable manner, but that it should also be possible to audit them. There are a variety of tools available for this task, both closed source and open source. Before we consider any other tools, though, it is worthwhile looking at how Ansible itself can assist with this task.</p>
+<p>Let's return to one of our original examples, where we were implementing two of the recommendations from <em>section 5</em> of the CIS Benchmark.</p>
+<p>Previously, we ran this with the following command:</p>
+<pre><strong>$ ansible-playbook -i hosts site.yml</strong></pre>
+<p>This ran through the two checks, implementing the changes if the system was not already compliant with the security recommendations. However, Ansible also has a mode of operation called check mode. In this mode, Ansible does not make any changes to the remote system(s) <span>– </span>rather, it tries to predict all changes that might be made to the systems instead.</p>
+<p>Not all modules are compatible with check mode, and so some care is advised when using this mode. For example, Ansible cannot possibly know the output of running a particular shell command using the <kbd>shell</kbd> module, as there are so many possible permutations of commands. Also, running shell commands might be destructive or cause a change to the system, and so any tasks that use the <kbd>shell</kbd> module are skipped during a check run.</p>
+<p>However, many of the core modules we have already used, such as <kbd>yum</kbd>, <kbd>lineinfile</kbd>, and <kbd>sysctl</kbd>, do support check mode and so can be used quite effectively in this mode.</p>
+<p>Thus, if we run our example playbook again, only this time in check mode, we would see an output similar to what's shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/e6323e0e-a2a5-498b-ae66-4c90ee855323.png" style="width:43.00em;height:26.58em;"/></p>
+<p>You will notice that this looks exactly like any other playbook run <span>– </span>there are, in fact, no clues at all that it is running in check mode, other than the <kbd>-C</kbd> flag on the command line invoking this run. However, if you examine the target system, you will see that no changes were made.</p>
+<p>The preceding output is very useful, though, for auditing processes <span>– </span>it demonstrates to us that the target system does not meet the recommendations for either <em>section 5.2.8</em> or <em>5.2.9</em> of the benchmark <span>– </span>if these were met, then the result should have been <kbd>ok</kbd>. Equally, we know that the handler only fires in the event that changes are required on the remote system, and again this tells us that the system is not compliant in some way.</p>
+<p>It is accepted that some interpretation of the output is going to be required <span>– </span>however, by exercising good design practices in your roles when you write them (especially when putting the benchmark section number and title into the task names), then you can very quickly start to interpret the output and see which systems are not compliant, and further, which recommendations specifically they fail on.</p>
+<p>Further, the variable structure we put in place to determine which tasks are run and when still applies in check mode, so if we run this playbook on the legacy hosts that need remote root logins enabled (but this time in check mode), we can see that this task is skipped, ensuring that we don't get false positives during an audit. The following screenshot shows this being run:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/aba6824e-590c-46b6-be73-2c9fde8772f9.png" style="width:43.67em;height:27.25em;"/></p>
+<p>In this manner (coupled with good playbook design), Ansible code can be reused not just for implementation purposes, but for auditing purposes too.</p>
+<p>It is hoped that this chapter has given you sufficient knowledge to proceed with confidence when it comes to implementing security hardening on your Linux servers at enterprise scale, and even auditing them as part of an ongoing process.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Ansible is an incredibly powerful tool that lends itself well to the implementation and auditing of security benchmarks such as the CIS security benchmark. We have demonstrated through practical example how it can reduce a shell script of nearly 60 lines down to less than 20, and how the same code can be easily reused in a variety of scenarios, and even be used to audit security policies across the enterprise. </p>
+<p>In this chapter, you learned <span>how to write Ansible playbooks to apply server hardening benchmarks such as CIS. You then gained</span> <span>hands-on knowledge of applying server hardening policies across the enterprise using Ansible, and how to make use of publicly available open source roles to assist you in this. Finally, you learned about how Ansible supports testing and auditing of successful policy application.</span></p>
+<p>In the next chapter, we will look at an open source tool called <strong>OpenSCAP</strong> that can be used to perform effective auditing of security policies across the enterprise.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>How do Ansible modules such as <kbd>lineinfile</kbd> make security benchmark implementation code more efficient than shell scripting?</li>
+<li>How can Ansible tasks be made conditional for a specific server or group of servers?</li>
+<li>What are good practices for naming your tasks when writing Ansible tasks to implement the CIS Benchmark?</li>
+<li>How might you modify a playbook so that you can easily get the CIS level 1 benchmarks to run without any of the level 2 ones being evaluated?</li>
+<li>What is the difference between the <kbd>--tags</kbd> and <kbd>--skip-tags</kbd> options when running an Ansible playbook?</li>
+<li>Why would you want to make use of publicly available open source code for your CIS Benchmark implementation?</li>
+<li>What does the <kbd>-C</kbd> flag do to a playbook run when used with the <kbd>ansible-playbook</kbd> command?</li>
+<li>Does the <kbd>shell</kbd> module support check mode?</li>
+</ol>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li>To review common questions about the CIS Benchmarks, please refer to <a href="https://www.cisecurity.org/cis-benchmarks/cis-benchmarks-faq/">https://www.cisecurity.org/cis-benchmarks/cis-benchmarks-faq/</a>.<a href="https://www.cisecurity.org/cis-benchmarks/cis-benchmarks-faq/"/></li>
+<li>A full list of CIS Benchmarks is available at <a href="https://www.cisecurity.org/cis-benchmarks/">https://www.cisecurity.org/cis-benchmarks/</a>.<a href="https://www.cisecurity.org/cis-benchmarks/"/></li>
+<li><span>For an in-depth understanding of Ansible, please refer to <em>Mastering Ansible, Third Edition</em> by <em>James Freeman</em> and <em>Jesse Keating</em> (<a href="https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition">https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition</a>).</span></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

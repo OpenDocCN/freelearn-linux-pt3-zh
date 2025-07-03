@@ -1,0 +1,586 @@
+<html><head></head><body>
+		<div id="_idContainer064">
+			<h1 id="_idParaDest-50" class="chapter-number"><a id="_idTextAnchor049"/>3</h1>
+			<h1 id="_idParaDest-51"><a id="_idTextAnchor050"/>The PowerShell Pipeline – How to String Cmdlets Together</h1>
+			<p>Almost all <strong class="bold">operating systems</strong> (<strong class="bold">OSs</strong>) have the concept of <a id="_idIndexMarker140"/>a <strong class="bold">pipeline</strong>, allowing the output of one process <a id="_idIndexMarker141"/>to be fed into the input of the next. This concept is credited to Douglas McIlroy in 1973 when he was working on version 3 of Unix at Bell Labs. This initial implementation envisaged the output of every command as a file-like structure, on which the next command <span class="No-Break">could operate.</span></p>
+			<p>This chapter will explain how PowerShell adheres to this vision and differs from it. We’ll start by exploring the pipeline concept, then look at some basic ways of manipulating the contents of the pipeline before taking a medium-depth dive into how the pipeline works in PowerShell, and how we can troubleshoot it when <span class="No-Break">it doesn’t.</span></p>
+			<p>By the end of this chapter, we’ll understand how information passes from one cmdlet to the next, how to manipulate that information so that we only work with the stuff we need, and how to work out what’s going wrong when we get an <span class="No-Break">error message.</span></p>
+			<p>In this chapter, we’re going to cover the <span class="No-Break">following topics:</span></p>
+			<ul>
+				<li>How to bring cmdlets together – <span class="No-Break">the pipeline</span></li>
+				<li>Selecting and <span class="No-Break">sorting objects</span></li>
+				<li><span class="No-Break">Filtering objects</span></li>
+				<li><span class="No-Break">Enumerating objects</span></li>
+				<li><span class="No-Break">Formatting objects</span></li>
+				<li>How the pipeline works – <span class="No-Break">parameter binding</span></li>
+				<li>Troubleshooting the pipeline – <span class="No-Break">pipeline tracin<a id="_idTextAnchor051"/>g</span></li>
+			</ul>
+			<h1 id="_idParaDest-52"><a id="_idTextAnchor052"/>How to bring cmdlets together – the pipeline</h1>
+			<p>Since Unix and the C programming language in the 1970s, operating systems have abstracted computer input and output<a id="_idIndexMarker142"/> into <strong class="bold">standard streams</strong>. These are <em class="italic">abstract devices</em> that belong to the operating system. They allow any program running on that operating system to accept standardized input, often from a keyboard, and provide standardized output, usually to a screen, without needing to know anything about how the input got there, or where the output is going. The three most common<a id="_idIndexMarker143"/> are <strong class="bold">standard input</strong> (<strong class="bold">stdin</strong>), <strong class="bold">standard output</strong> (<strong class="bold">stdout</strong>), and <strong class="bold">standard error</strong> (<strong class="bold">stderr</strong>). The <a id="_idIndexMarker144"/>stdin stream is almost always from the <a id="_idIndexMarker145"/>keyboard and can be captured by the PowerShell <strong class="source-inline">Read-Host</strong> cmdlet. The stdout stream is the successful output of the cmdlet. The stderr stream contains any error messages produced by the program and is sent to a separate stream so as not to interfere with any <span class="No-Break">successful output.</span></p>
+			<p>PowerShell expands on these streams a bit and has six output streams instead of two. Each of these streams can be captured either with an explicit PowerShell cmdlet or by specifying one of the<a id="_idIndexMarker146"/> common parameters when running a cmdlet, as shown in the <span class="No-Break">following table:</span></p>
+			<table id="table001-2" class="T---Table _idGenTablePara-1">
+				<colgroup>
+					<col/>
+					<col/>
+					<col/>
+					<col/>
+				</colgroup>
+				<tbody>
+					<tr class="T---Table">
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="bold">Stream #</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="bold">Description</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="bold">Cmdlet</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="bold">Common Parameters</strong></span></p>
+						</td>
+					</tr>
+					<tr class="T---Table">
+						<td class="T---Table T---Body T---Body">
+							<p>1</p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break">Success</span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="source-inline">Write-Output</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p>None – this is the <span class="No-Break">default output</span></p>
+						</td>
+					</tr>
+					<tr class="T---Table">
+						<td class="T---Table T---Body T---Body">
+							<p>2</p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break">Error</span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="source-inline">Write-Error</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><strong class="source-inline">-ErrorAction</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">-ErrorVariable</strong></span></p>
+						</td>
+					</tr>
+					<tr class="T---Table">
+						<td class="T---Table T---Body T---Body">
+							<p>3</p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break">Warning</span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="source-inline">Write-Warning</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><strong class="source-inline">-WarningAction</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">-WarningVariable</strong></span></p>
+						</td>
+					</tr>
+					<tr class="T---Table">
+						<td class="T---Table T---Body T---Body">
+							<p>4</p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break">Verbose</span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="source-inline">Write-Verbose</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">Verbose</strong></span></p>
+						</td>
+					</tr>
+					<tr class="T---Table">
+						<td class="T---Table T---Body T---Body">
+							<p>5</p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break">Debug</span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="source-inline">Write-Debug</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">Debug</strong></span></p>
+						</td>
+					</tr>
+					<tr class="T---Table">
+						<td class="T---Table T---Body T---Body">
+							<p>6</p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break">Information</span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><span class="No-Break"><strong class="source-inline">Write-Information</strong></span></p>
+						</td>
+						<td class="T---Table T---Body T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">InformationAction</strong></span><span class="No-Break"> and</span></p>
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">InformationVariable</strong></span></p>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+			<p class="IMG---Figure">Table 3.1 – PowerShell streams</p>
+			<p>Stream 1 is the <a id="_idIndexMarker147"/>equivalent of stdout, while stream 2 is the equivalent of stderr. The PowerShell pipeline passes the contents of stream 1, success, from one cmdlet to the next in the pipeline. When we see red error messages on the screen, they are not output in stream 1 – they are output in stream 2. This is because we don’t want error messages (or verbose messages or anything other than an output object) being passed into the next cmdlet and causing another error. After all, the second cmdlet has no way of interpreting <span class="No-Break">that information.</span></p>
+			<p>The pipeline<a id="_idIndexMarker148"/> may consist of one or more PowerShell cmdlets, separated by a pipe character (<strong class="source-inline">|</strong>). Every PowerShell cmdlet is part of a pipeline, even if it’s just one cmdlet. There is an implicit pair of cmdlets, <strong class="source-inline">Out-Default | Out-Host</strong>, at the end of every pipeline so that the output in stream 1 of the cmdlet gets formatted and written to the screen. Some cmdlets have no stream 1 output, so we see nothing on the screen after running them. For example, in <a href="B17600_02.xhtml#_idTextAnchor034"><span class="No-Break"><em class="italic">Chapter 2</em></span></a>, <em class="italic">Exploring PowerShell Cmdlets and Syntax</em>, we ran the <span class="No-Break">following cmdlet:</span></p>
+			<pre class="console">
+Set-Alias -Name processes -Value Get-Process</pre>			<p>Once the cmdlet finished running, we were returned to the prompt. If we look at the help file for <strong class="source-inline">Set-Alias</strong>, we will see that it has no output by default, so we see nothing on the screen when it runs successfully. <strong class="source-inline">Set-Alias</strong> is still a pipeline, though; <strong class="source-inline">Out-Default</strong> still runs, it just receives <span class="No-Break">no output.</span></p>
+			<p>Cmdlets<a id="_idIndexMarker149"/> execute from left to right, with the output object of the cmdlet on the left being passed to the next cmdlet in the pipeline on the right. For ease of reading (and typing), the pipe symbol can be used as a line break when working interactively. Try pressing <em class="italic">return</em> or <em class="italic">Enter</em> after the <span class="No-Break">pipe symbol:</span></p>
+			<pre class="console">
+Get-process |
+Get-member</pre>			<p>You should see a continuation prompt (<strong class="source-inline">&gt;&gt;</strong>) after pressing <em class="italic">return</em>/<em class="italic">Enter</em> after the pipe symbol, as <span class="No-Break">shown here:</span></p>
+			<div>
+				<div id="_idContainer048" class="IMG---Figure">
+					<img src="image/B17600_03_001.jpg" alt="Figure 3.1 – Using the pipe symbol as a line break"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.1 – Using the pipe symbol as a line break</p>
+			<p>We keep referring to objects – it would be useful to describe exactly what we mean. This is what we’ll do in the <span class="No-Break">next section.</span></p>
+			<h2 id="_idParaDest-53"><a id="_idTextAnchor053"/>What is an object?</h2>
+			<p>When we run <a id="_idIndexMarker150"/>commands in Linux and the Windows console, the commands output a byte stream to stdout; this is interpreted as a text file, held in memory. When we want to manipulate the contents of this output, we must use the same tools that we would use to search and manipulate text; this may be Perl, sed, AWK, or a host <span class="No-Break">of others.</span></p>
+			<p>This means that we become adept at text manipulation; I’ve got about seven volumes of Perl books on my desk, dating back to the mid-nineties. PowerShell cmdlets don’t produce a text-like byte stream; instead, they produce objects and collections of objects, which are table structures held in memory, that are produced when we run <strong class="source-inline">Get-Process</strong>, as <span class="No-Break">shown here:</span></p>
+			<div>
+				<div id="_idContainer049" class="IMG---Figure">
+					<img src="image/B17600_03_002.jpg" alt="Figure 3.2 – The Get-Process collection of objects"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.2 – The Get-Process collection of objects</p>
+			<p>Each line in the table is an object. Each column is a property of the objects in the table. The whole table is a collection of objects. From <span class="No-Break"><em class="italic">Figure 3</em></span><em class="italic">.1</em>, we know that each <a id="_idIndexMarker151"/>object is of the <strong class="source-inline">System.Diagnostics.Process</strong> type and has the list of properties and methods associated with that object type. With the pipeline, we can send this collection to another cmdlet to extract further information, or just call the specific property we are interested in. If we want to know the value of a property that isn’t displayed by default, such as how much privileged processor time had been consumed in the lifetime of a particular process, we could type <span class="No-Break">the following:</span></p>
+			<pre class="console">
+(Get-Process -id 4514).PrivilegedProcessorTime</pre>			<p>Where did that <strong class="source-inline">4514</strong> come from? It’s the <strong class="source-inline">Id</strong> property of one of the <strong class="source-inline">pwsh</strong> processes in <span class="No-Break"><em class="italic">Figure 3</em></span><em class="italic">.2</em>. From this, I can see that my <strong class="source-inline">pwsh</strong> process has 11.75 seconds in privileged mode. I know – we probably don’t want to know that for a process as trivial as <strong class="source-inline">pwsh</strong>, but we might be interested in the value for other processes if we were investigating a storage performance issue on a database server. Run the <span class="No-Break">following code:</span></p>
+			<pre class="console">
+Set-Alias -Name processes -Value Get-Process
+(get-process -id (processes).id).privilegedprocessortime</pre>			<p>Here, we will get the privileged process time for all the processes currently running on our client, using the alias we have set <span class="No-Break">for </span><span class="No-Break"><strong class="source-inline">Get-Process</strong></span><span class="No-Break">.</span></p>
+			<p>Not all cmdlets produce a single type of object. Some cmdlets may produce more than one, and we need to be careful how we process these and pass their output in the pipeline. For instance, consider the <strong class="source-inline">Get-ChildItem</strong> cmdlet. It gets the contents of a directory or folder. A directory may contain two basic types of items – that is, files and sub-directories. These two types will have different properties – for instance, we can’t nest a sub-directory inside a file. A pipeline that has been set up to manipulate file objects may fail if it is also passed directory objects. Let’s have a look; type <span class="No-Break">the following:</span></p>
+			<pre class="console">
+(Get-ChildItem -Path c:\scratch\ | Get-Member).TypeName | Select-Object -Unique</pre>			<p>Here, we can see that the <strong class="source-inline">C:\scratch</strong> directory on my Windows machine contains both directories and files, as shown in the <span class="No-Break">following screenshot:</span></p>
+			<div>
+				<div id="_idContainer050" class="IMG---Figure">
+					<img src="image/B17600_03_003.jpg" alt="Figure 3.3 – Checking the types of objects in a directory"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.3 – Checking the types of objects in a directory</p>
+			<p>What are we doing<a id="_idIndexMarker152"/> there? This looks a bit complicated. Well, we’re taking the output of the <strong class="source-inline">Get-ChildItem C:\scratch</strong> cmdlet and passing it to <strong class="source-inline">Get-Member</strong>. We’re only interested in the <strong class="source-inline">TypeName</strong> property, so we put the pipeline in parentheses so that we can easily access just the property we need. Once we’ve got the collection of all <strong class="source-inline">TypeName</strong> instances, we pass it in a second pipeline to <strong class="source-inline">Select-Object</strong>, which we tell to only return unique values by using the <strong class="source-inline">-unique</strong> parameter. <span class="No-Break">Clever, eh?</span></p>
+			<p>We’re going to look at basic ways of manipulating these objects in the next few sections. Let’s start with selecting and <span class="No-Break">sorting objects.</span></p>
+			<h1 id="_idParaDest-54"><a id="_idTextAnchor054"/>Selecting and sorting objects</h1>
+			<p>Many of the <a id="_idIndexMarker153"/>cmdlets we <a id="_idIndexMarker154"/>might run will produce a large amount of output, and, likely, much of it will not be interesting. Therefore, it’s useful to be able to select just the bits we need and sort them into a meaningful order. There are two cmdlets for doing this: <strong class="source-inline">Select-Object</strong> and <strong class="source-inline">Sort-Object</strong>. We will often see these referred to by their aliases – <strong class="source-inline">select</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">sort</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-55"><a id="_idTextAnchor055"/>Using Select-Object</h2>
+			<p>We <a id="_idIndexMarker155"/>used <strong class="source-inline">Select-Object</strong> in the <em class="italic">What is an object?</em> section to select the<a id="_idIndexMarker156"/> unique properties of objects in a collection. However, we can use it to do so much more. Look at the help file for <strong class="source-inline">Select-Object</strong> by running the <span class="No-Break">following command:</span></p>
+			<pre class="console">
+Get-Help Select-Object</pre>			<p>Here, we can see that there are four parameter sets, all of which work in one of two ways – we can either use the cmdlet to work with one or more properties of a collection, or we can use it to select a subset of objects in a collection. Let’s try the first one by typing <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Process | Select-Object Name, Id</pre>			<p>Here, we’ll see a collection of objects with two properties – <strong class="source-inline">Name</strong> and <strong class="source-inline">Id</strong>. Now, let’s run that in <strong class="source-inline">Get-Member</strong>, <span class="No-Break">as follows:</span></p>
+			<pre class="console">
+Get-Process | Select-Object Name, Id | Get-Member</pre>			<p>Here, we <a id="_idIndexMarker157"/>can see that <a id="_idIndexMarker158"/>we’ve taken that collection of <strong class="source-inline">System.Diagnostics.Process</strong> objects and changed them into <strong class="source-inline">Selected.System.Diagnostics.Process</strong> objects – these objects only have two properties – the <strong class="source-inline">Name</strong> and <strong class="source-inline">Id</strong> properties we used in the <span class="No-Break"><strong class="source-inline">Select-Object</strong></span><span class="No-Break"> cmdlet:</span></p>
+			<div>
+				<div id="_idContainer051" class="IMG---Figure">
+					<img src="image/B17600_03_004.jpg" alt="Figure 3.4 – The properties of our new objects"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.4 – The properties of our new objects</p>
+			<p>We’ve still got the same number of objects, but now, they only have the properties we’re interested in. This has two benefits; first, PowerShell will run much quicker while working on these smaller objects, but also PowerShell will require less memory. The downside is that we no longer have access to the properties we <em class="italic">didn’t</em> select from the original objects in <span class="No-Break">the pipeline.</span></p>
+			<p>The second way we can use <strong class="source-inline">Select-Object</strong> is to select a subset of objects from a collection. The parameters for doing that are in the first parameter set; <strong class="source-inline">-first</strong>, <strong class="source-inline">-last</strong>, and <strong class="source-inline">-skip</strong>. Each of these parameters requires an integer as an argument. <strong class="source-inline">-first 5</strong> will select the first five objects in the pipeline, whereas <strong class="source-inline">-last 2</strong> will select the last two objects in the pipeline, <span class="No-Break">like this:</span></p>
+			<div>
+				<div id="_idContainer052" class="IMG---Figure">
+					<img src="image/B17600_03_005.jpg" alt="Figure 3.5 – Selecting a subset of objects"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.5 – Selecting a subset of objects</p>
+			<p>We can use the <strong class="source-inline">-skip</strong> parameter to miss out values at the start or end, <span class="No-Break">like this:</span></p>
+			<pre class="console">
+1,2,3,4,5,6,7,8 | Select-Object -First 2 -skip 1</pre>			<p>This will return the <a id="_idIndexMarker159"/>integers <strong class="source-inline">2</strong> and <strong class="source-inline">3</strong> which are the first two if we skip the<a id="_idIndexMarker160"/> <span class="No-Break">first one.</span></p>
+			<p class="callout-heading">Activity 1</p>
+			<p class="callout">How might we return <strong class="source-inline">2</strong>, <strong class="source-inline">3</strong>, <strong class="source-inline">4</strong>, <strong class="source-inline">7</strong>, and <strong class="source-inline">8</strong> from <span class="No-Break">that array?</span></p>
+			<p>The problem with running <strong class="source-inline">Select-Object</strong> in this way is that unless we can control the order of the objects in the collection, we’re just grabbing random objects. This brings us to our next <span class="No-Break">cmdlet, </span><span class="No-Break"><strong class="source-inline">Sort-Object</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-56"><a id="_idTextAnchor056"/>Ordering objects with Sort-Object</h2>
+			<p>When we<a id="_idIndexMarker161"/> run <strong class="source-inline">Get-Process</strong>, the processes are returned in <a id="_idIndexMarker162"/>alphabetical order, by process name. This is determined in the PowerShell source code. We can, however, change the order in which the objects are presented (and by implication, re-order them in the pipeline) using the <span class="No-Break"><strong class="source-inline">Sort-Object</strong></span><span class="No-Break"> cmdlet.</span></p>
+			<p><strong class="source-inline">Sort-Object</strong> can sort a collection of objects on one or more properties. We don’t need to run it with any parameters; if we don’t specify a property to sort on, it will sort the collection based on the default sort property of the first object in the pipeline, which is defined deep within the PowerShell source code and is not easy <span class="No-Break">to find.</span></p>
+			<p>What does <a id="_idIndexMarker163"/>this mean? Remember that <strong class="source-inline">Get-ChildItem</strong> produces<a id="_idIndexMarker164"/> two types of output. By default, when you run <strong class="source-inline">Get-ChildItem</strong>, you get a list of all the first type of object (<strong class="source-inline">System.IO.DirectoryInfo</strong>, or directories), and then a list of all the second type of object (<strong class="source-inline">System.IO.FileInfo</strong>, or files), as shown in the first example in the <span class="No-Break">following screenshot:</span></p>
+			<div>
+				<div id="_idContainer053" class="IMG---Figure">
+					<img src="image/B17600_03_006.jpg" alt="Figure 3.6 – The effect of running Select-Object with no parameters"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.6 – The effect of running Select-Object with no parameters</p>
+			<p>In the second example, <strong class="source-inline">Get-ChildItem -Path C:\Scratch\ | Sort-Object</strong>, we have a list of all the objects arranged alphabetically and mixed; it ignores the <span class="No-Break">object type.</span></p>
+			<p>We can add a property name to sort our collection on that property. For instance, we could run <strong class="source-inline">Get-Process</strong> and sort on the working set size, <span class="No-Break">like so:</span></p>
+			<pre class="console">
+Get-Process | Sort-Object -Property ws</pre>			<p>This is nice. However, it’s sorted them in the default order, ascending, so the processes we are most likely to be interested in – those with the highest memory consumption – are at the bottom of the table. We can fix that with another <span class="No-Break">parameter, </span><span class="No-Break"><strong class="source-inline">-Descending</strong></span><span class="No-Break">:</span></p>
+			<pre class="console">
+Get-Process | Sort-Object -Property WS -Descending</pre>			<p>This produces a much more useful output, as <span class="No-Break">shown here:</span></p>
+			<div>
+				<div id="_idContainer054" class="IMG---Figure">
+					<img src="image/B17600_03_007.jpg" alt="Figure 3.7 – Using Sort-Object to sort in descending order"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.7 – Using Sort-Object to sort in descending order</p>
+			<p>We can even <a id="_idIndexMarker165"/>sort on multiple properties at once. For instance, we<a id="_idIndexMarker166"/> could try doing <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Process | Sort-Object -Property SI, WS -Descending</pre>			<p>This orders <a id="_idIndexMarker167"/>our list <a id="_idIndexMarker168"/>by <strong class="bold">Session ID</strong> (<strong class="bold">SI</strong>), and then by <strong class="bold">Working </strong><span class="No-Break"><strong class="bold">Set</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">WS</strong></span><span class="No-Break">).</span></p>
+			<p>Let’s take a look at the help file. Here, we can see that <strong class="source-inline">Sort-Object</strong> has three parameter sets that all work in much the same fashion; the only difference is the <strong class="source-inline">-top</strong>, <strong class="source-inline">-bottom</strong>, and <strong class="source-inline">-stable</strong> parameters. The <strong class="source-inline">-top</strong> and <strong class="source-inline">-bottom</strong> parameters are fairly self-explanatory, but <strong class="source-inline">-stable</strong> is less so. When we run <strong class="source-inline">Sort-Object</strong>, it will output objects of equal value in an order according to its internal logic, not necessarily in the order that they are received. The <strong class="source-inline">-stable</strong> parameter (as well as <strong class="source-inline">-top</strong> and <strong class="source-inline">-bottom</strong>) will preserve the order that <strong class="source-inline">Sort-Object</strong> received the objects in if the sorted properties <span class="No-Break">are equal.</span></p>
+			<p>We can now see how we can combine these two cmdlets, <strong class="source-inline">Sort-Object</strong> and <strong class="source-inline">Select-Object</strong>, to produce meaningful collections of interesting information. For instance, we could type <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Process | Sort-Object CPU -Descending | Select-Object -First 5</pre>			<p>This will <a id="_idIndexMarker169"/>get us the five<a id="_idIndexMarker170"/> most CPU-intensive running processes, <span class="No-Break">as follows:</span></p>
+			<div>
+				<div id="_idContainer055" class="IMG---Figure">
+					<img src="image/B17600_03_008.jpg" alt="Figure 3.8 – Combining Sort-Object and Select-Object"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.8 – Combining Sort-Object and Select-Object</p>
+			<p>What if we don’t want the top five, though? What if we want all the processes that are using <em class="italic">a lot</em> of CPU? That’s where filtering <span class="No-Break">comes in.</span></p>
+			<h1 id="_idParaDest-57"><a id="_idTextAnchor057"/>Filtering objects</h1>
+			<p>We can filter <a id="_idIndexMarker171"/>objects in a more sophisticated way using the <strong class="source-inline">Where-Object</strong> cmdlet. <strong class="source-inline">Where-Object</strong> also looks at the properties of the objects in the pipeline, but it can also make decisions about which objects to output and which to discard. <span class="No-Break">Try this:</span></p>
+			<pre class="console">
+Get-Process | Where-Object -Property CPU -gt -Value 1</pre>			<p>This will return a list of processes where the CPU property has a value greater than 1. In practice, we very rarely see people include the <strong class="source-inline">-Property</strong> and <strong class="source-inline">-Value</strong> names for the parameters, as they are positional. It is far more likely that you will see this written <span class="No-Break">as follows:</span></p>
+			<pre class="console">
+Get-Process | where CPU -gt 1</pre>			<p>Wait, though. What’s that <strong class="source-inline">-gt</strong>? The <strong class="source-inline">-gt</strong> parameter is a <strong class="bold">comparison operator</strong>, an important concept <span class="No-Break">in coding.</span></p>
+			<h2 id="_idParaDest-58"><a id="_idTextAnchor058"/>Understanding comparison operators</h2>
+			<p>Comparison operators are <a id="_idIndexMarker172"/>expressed as switch parameters when using the <strong class="source-inline">Where-Object</strong> cmdlet, resulting in the help file being a long and complex document, with many parameter sets, as only one comparison operator can be used at a time. The basic comparison operators are shown in the <span class="No-Break">following table:</span></p>
+			<table id="table002" class="No-Table-Style _idGenTablePara-1">
+				<colgroup>
+					<col/>
+					<col/>
+					<col/>
+				</colgroup>
+				<thead>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break"><strong class="bold">Comparison</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break"><strong class="bold">Operator</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break"><strong class="bold">Case-Sensitive Operator</strong></span></p>
+						</td>
+					</tr>
+				</thead>
+				<tbody>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break">Equality</span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">eq</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">ceq</strong></span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break">Inequality</span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">ne</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">cne</strong></span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break">Greater than</span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">gt</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">cgt</strong></span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break">Less than</span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">lt</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">clt</strong></span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p>Greater than or <span class="No-Break">equal to</span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">ge</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">cge</strong></span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p>Less than or <span class="No-Break">equal to</span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">le</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">cle</strong></span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style T---Body">
+							<p><span class="No-Break">Wildcard equality</span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">like</strong></span></p>
+						</td>
+						<td class="No-Table-Style T---Body">
+							<p><strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">clike</strong></span></p>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+			<p class="IMG---Figure">Table 3.2 – Basic comparison operators</p>
+			<p>By default, the operators are not case-sensitive, so <strong class="source-inline">-eq top</strong> is functionally the same as <strong class="source-inline">-eq TOP</strong>. There are also several NOT operators to obtain the opposite, such as <strong class="source-inline">-NotLike</strong>. Additionally, we have more advanced comparison operators, such as <span class="No-Break">the following:</span></p>
+			<ul>
+				<li><strong class="source-inline">-match</strong> to get values based on <span class="No-Break">regular expressions.</span></li>
+				<li><strong class="source-inline">-in</strong> to get objects where the property has a value in a specified array. We’ll discuss arrays in <a href="B17600_04.xhtml#_idTextAnchor071"><span class="No-Break"><em class="italic">Chapter 4</em></span></a>, <em class="italic">PowerShell Variables and </em><span class="No-Break"><em class="italic">Data Structures</em></span><span class="No-Break">.</span></li>
+				<li><strong class="source-inline">-contains</strong> to get objects where the specified value might be in a property that contains an array, rather than a <span class="No-Break">single value.</span></li>
+			</ul>
+			<p>Let’s explore how some of these might work. Try running the following commands to get a list of your running <span class="No-Break">PowerShell processes:</span></p>
+			<pre class="console">
+Get-Process | Where-Object ProcessName -eq pwsh
+Get-Process | Where-Object ProcessName -like pwsh
+Get-Process | Where-Object ProcessName -like *pwsh
+Get-Process | Where-Object ProcessName -like *wsh
+Get-Process | Where-Object ProcessName -contains pwsh
+Get-Process | Where-Object ProcessName -in "pwsh", "bash"</pre>			<p>The last one works because we have given <strong class="source-inline">Where-Object</strong> a two-item array of values, <strong class="source-inline">"pwsh"</strong> and <strong class="source-inline">"bash"</strong>, and asked it to return any objects with a <strong class="source-inline">ProcessName</strong> property value in that array. In practice, the array probably wouldn’t be a list of strings like that but something much more complicated, derived by running <span class="No-Break">another cmdlet.</span></p>
+			<p class="callout-heading">Activity 2</p>
+			<p class="callout">Why doesn’t <strong class="source-inline">Get-Process | Where-Object ProcessName -contains *wsh</strong> produce <span class="No-Break">any output?</span></p>
+			<p>That’s all very<a id="_idIndexMarker173"/> interesting, but what happens if we want to find something more complicated, such as a filter on two properties, or find values within <span class="No-Break">a range?</span></p>
+			<h2 id="_idParaDest-59"><a id="_idTextAnchor059"/>Understanding Where-Object advanced syntax</h2>
+			<p>So far, we’ve<a id="_idIndexMarker174"/> been using <strong class="source-inline">Where-Object</strong> with what is known as<a id="_idIndexMarker175"/> the <strong class="bold">basic syntax</strong>. For more complicated operations, there is a more advanced option: using the <strong class="source-inline">-FilterScript</strong> parameter. This parameter allows us to pass a short script object to the cmdlet, which then runs on each item in <span class="No-Break">the pipeline.</span></p>
+			<p>Filter scripts<a id="_idIndexMarker176"/> are <strong class="bold">script blocks</strong>, and<a id="_idIndexMarker177"/> script blocks must be enclosed in curly brackets. They allow us to combine filters <a id="_idIndexMarker178"/>using <strong class="bold">Boolean operators</strong> such as <strong class="source-inline">-and</strong>, <strong class="source-inline">-or</strong>, and <strong class="source-inline">-not</strong>. Let’s see how one of our previous examples might work using advanced syntax. Earlier in this section, we typed <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Process | Where-Object ProcessName -eq pwsh</pre>			<p>This gave us a list of all our running <strong class="source-inline">pwsh</strong> processes when using the <span class="No-Break">basic syntax.</span></p>
+			<p>Writing the same command using the advanced syntax would look <span class="No-Break">like this:</span></p>
+			<pre class="console">
+Get-Process | Where-Object -FilterScript {$PSItem.ProcessName -eq 'pwsh'}</pre>			<p>The filter script is the<a id="_idIndexMarker179"/> bit enclosed in curly brackets – that is, <strong class="source-inline">$PSItem.ProcessName -eq 'pwsh'</strong>. Let’s break this down. <strong class="source-inline">-eq 'pwsh'</strong> is familiar to us, as we used it earlier, but what about <strong class="source-inline">$PSItem.ProcessName</strong>? This is a construction that allows us to access the <strong class="source-inline">ProcessName</strong> property of the object currently being processed. <strong class="source-inline">$PSItem</strong> is a <strong class="bold">variable</strong> that represents the current object in the pipeline. In practice, you will very rarely see <strong class="source-inline">$PSItem</strong> outside of textbooks; the variable is almost always written as <strong class="source-inline">$_</strong> (<em class="italic">dollar underscore</em>); for example, <strong class="source-inline">$_.ProcessName -eq 'pwsh'</strong>. In the basic syntax, we didn’t need quotes around <strong class="source-inline">pwsh</strong>, but in the advanced syntax, we do so that the script knows that we are passing it a string value, <span class="No-Break">like so:</span></p>
+			<div>
+				<div id="_idContainer056" class="IMG---Figure">
+					<img src="image/B17600_03_009.jpg" alt="Figure 3.9 – Three ways of filtering with Where-Object, one of which is wrong"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.9 – Three ways of filtering with Where-Object, one of which is wrong</p>
+			<p>Without the quotes, the<a id="_idIndexMarker180"/> cmdlet will interpret <strong class="source-inline">pwsh</strong> as the next cmdlet. If you look closely at the error, you will see that it doesn’t get as far as that, though, because <strong class="source-inline">-eq</strong> is missing a value. It doesn’t matter much if you use single or double quotes here, but the best practice is to use single quotes unless you need some of the special powers of double quotes, which we will talk about in <a href="B17600_04.xhtml#_idTextAnchor071"><span class="No-Break"><em class="italic">Chapter 4</em></span></a>, <em class="italic">PowerShell Variables and </em><span class="No-Break"><em class="italic">Data Structures</em></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-60"><a id="_idTextAnchor060"/>Multiple filters in the advanced syntax</h2>
+			<p>Now that we <a id="_idIndexMarker181"/>understand the syntax, we can start using it to combine filters to produce more complex results. <span class="No-Break">Try this:</span></p>
+			<pre class="console">
+Get-Process | Where-Object -FilterScript {$PSItem.ProcessName -eq 'pwsh' -and $PSItem.CPU -gt 1}</pre>			<p>This should give you a list of your <strong class="source-inline">pwsh</strong> processes where the <strong class="source-inline">CPU</strong> value is greater than 1. Now, if you change the <strong class="source-inline">CPU</strong> value to something higher, you should see the <span class="No-Break">output change:</span></p>
+			<div>
+				<div id="_idContainer057" class="IMG---Figure">
+					<img src="image/B17600_03_010.jpg" alt="Figure 3.10 – Combining filters with Where-Object advanced syntax"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.10 – Combining filters with Where-Object advanced syntax</p>
+			<p>Be aware that<a id="_idIndexMarker182"/> the script block syntax is unforgiving. Unless we type it carefully and exactly right, we will not get the result we are hoping for. For instance, let’s say we type <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Process | Where-Object -FilterScript {$PSItem.ProcessName -eq 'pwsh' -and CPU -gt 25}</pre>			<p>Here, we will get an error saying <strong class="source-inline">You must provide a value expression following the '-and' operator</strong>. Because we can see the error, we can fix it by replacing <strong class="source-inline">CPU</strong> with <strong class="source-inline">$PSItem.CPU</strong>. However, let’s say we only want processes named <strong class="source-inline">pwsh</strong> or <strong class="source-inline">bash</strong>, and we <span class="No-Break">type this:</span></p>
+			<pre class="console">
+Get-Process | Where-Object -FilterScript {$PSItem.ProcessName -eq 'pwsh' -or 'bash'}</pre>			<p>Here, we <em class="italic">don’t</em> get an error, we just get the wrong result, as shown in the following screenshot. The correct syntax is shown in the second example in the <span class="No-Break">following screenshot:</span></p>
+			<div>
+				<div id="_idContainer058" class="IMG---Figure">
+					<img src="image/B17600_03_011.jpg" alt="Figure 3.11 – Careful with that syntax, Eugene"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.11 – Careful with that syntax, Eugene</p>
+			<p>We can also use the advanced syntax to access properties of properties. Let’s run <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Process | Get-Member</pre>			<p>Here, we can see that the <strong class="source-inline">ProcessName</strong> property is a string, so it has the properties of a string object. This means we can run something <span class="No-Break">like this:</span></p>
+			<pre class="console">
+Get-Process | Where-Object -FilterScript {$_.ProcessName.Length -lt 5}</pre>			<p>Here, we are<a id="_idIndexMarker183"/> looking for all the processes running on the machine with a <strong class="source-inline">ProcessName</strong> that’s fewer than <strong class="source-inline">5</strong> characters. We’re also using the more common <strong class="source-inline">$_</strong> in place of <strong class="source-inline">$PSItem</strong>. You must get used <span class="No-Break">to this.</span></p>
+			<h2 id="_idParaDest-61"><a id="_idTextAnchor061"/>Filter optimization</h2>
+			<p>Consider<a id="_idIndexMarker184"/> the following <span class="No-Break">two cmdlets:</span></p>
+			<pre class="console">
+Get-Process | Sort-Object -Property CPU -Descending | Where-Object CPU -gt 1
+Get-Process | Where-Object CPU -gt 1 | Sort-Object -Property CPU -Descending</pre>			<p>They produce the same results (at least, they do on my machine). However, on my client, the first one takes 29 milliseconds, while the second one only takes 20 milliseconds. Try it yourself with the <strong class="source-inline">Measure-Command</strong> cmdlet, <span class="No-Break">like this:</span></p>
+			<pre class="console">
+Measure-Command {Get-Process | Sort-Object -Property CPU -Descending | Where-Object CPU -gt 1}
+Measure-Command {Get-Process | Where-Object CPU -gt 1 | Sort-Object -Property CPU -Descending}</pre>			<p>Now and then, because they’re both very short pipelines, you may get a surprising result, but if you run them 10 times in a row, the second cmdlet will be quicker than the first in some way almost every time. This variation is caused by the other things running on your client, competing with PowerShell <span class="No-Break">for resources.</span></p>
+			<p>Earlier in this chapter, we talked about reducing the amount of processing and memory PowerShell requires to produce a result. Filter optimization is a great way to do this. We should filter objects as early as possible in the pipeline to reduce the number of objects PowerShell has to work on. There’s a basic<a id="_idIndexMarker185"/> rule: <span class="No-Break"><strong class="bold">filter left</strong></span><span class="No-Break">.</span></p>
+			<p>We don’t just have the <strong class="source-inline">Where-Object</strong> cmdlet for filtering. Many cmdlets also have filtering parameters that are either explicit, where the parameter name is <strong class="source-inline">-Filter</strong>, or parameters that will perform common filtering tasks. For instance, the <strong class="source-inline">Get-ChildItem</strong> cmdlet has <strong class="source-inline">-File</strong> and <strong class="source-inline">-Directory</strong> parameters to limit its output to just those object types. Where possible, use the built-in parameters of the cmdlet to filter objects before passing them into the pipeline for <span class="No-Break">further processing.</span></p>
+			<p class="callout-heading">Activity 3</p>
+			<p class="callout">How can we find a list of cmdlets that have a <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">Filter</strong></span><span class="No-Break"> parameter?</span></p>
+			<p>We’ve now got a pretty good grasp of how to limit the objects in the pipeline to just the ones we’re interested in. Next, we’ll look at how we can perform operations on <span class="No-Break">those objects.</span></p>
+			<h1 id="_idParaDest-62"><a id="_idTextAnchor062"/>Enumerating objects</h1>
+			<p>Often, we will want<a id="_idIndexMarker186"/> to perform an operation on the objects that we’re working with. Most of the time, there will be a cmdlet to do this, but sometimes, there won’t. For instance, say we want to output the filename and path of some items in a folder. There is no convenient property that will produce just the filename and path; there are properties such as <strong class="source-inline">pspath</strong>, which will get us what we want and a bit extra, but nothing that gets exactly what we want. There is, however, a method on the objects that are produced by <strong class="source-inline">Get-ChildItem</strong> that will: <strong class="source-inline">tostring()</strong>. We can execute this method on each item by enumerating them, <span class="No-Break">like so:</span></p>
+			<pre class="console">
+Get-ChildItem myfiles | Foreach-Object -MemberName tostring</pre>			<p>This will produce exactly the output I want, <span class="No-Break">as follows:</span></p>
+			<div>
+				<div id="_idContainer059" class="IMG---Figure">
+					<img src="image/B17600_03_012.jpg" alt="Figure 3.12 – Basic enumeration"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.12 – Basic enumeration</p>
+			<p>This is a pretty simple example. Like <strong class="source-inline">Where-Object</strong>, <strong class="source-inline">Foreach-Object</strong> has basic and advanced syntax, and the advanced syntax looks very similar to what we saw in the previous section. You must provide a script block to the <strong class="source-inline">-Process</strong> parameter of <strong class="source-inline">ForEach-Object</strong>. To run the last cmdlet with the advanced syntax, we would type <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-ChildItem myfiles | ForEach-Object -Process {$_.tostring()}</pre>			<p>As shown in the following screenshot, the output is the same. Note that when using a script block, the method name, <strong class="source-inline">tostring</strong>, must be followed by an open and close <span class="No-Break">bracket pair:</span></p>
+			<div>
+				<div id="_idContainer060" class="IMG---Figure">
+					<img src="image/B17600_03_013.jpg" alt="Figure 3.13 – Advanced enumeration"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.13 – Advanced enumeration</p>
+			<p>If the method takes arguments, then we would put them in parentheses as a comma-separated list, <span class="No-Break">like so:</span></p>
+			<pre class="console">
+('Powerhell').Insert(5, 'S')</pre>			<p>This will correct the spelling by inserting the <strong class="source-inline">'S'</strong> string at position 5 in the original string. We don’t see interactive enumeration as much as we used to, since usually, cmdlets are written to perform most of the things we might have wanted to enumerate interactively. However, this is an important concept in scripting, as we will see in <a href="B17600_05.xhtml#_idTextAnchor096"><span class="No-Break"><em class="italic">Chapter 5</em></span></a>, <em class="italic">PowerShell Control Flow – Conditionals and Loops</em>. There is one useful technique we can use it for, though – repeating a process a set number of times. <span class="No-Break">Try this:</span></p>
+			<pre class="console">
+1..10 | Foreach-Object {Get-Random}</pre>			<p>So, in the first part <a id="_idIndexMarker187"/>of the pipeline, we are using a range operator (<strong class="source-inline">..</strong>) to create an array of 10 integers from 1 to 10. We’re not using the <strong class="source-inline">$PSItem</strong> pipeline variable in the second cmdlet, though – we’re just instructing it to run once for each item in the pipeline. As you can see, we’re not limited to just putting object methods into the script block; we can put cmdlets and scripts in <span class="No-Break">there too.</span></p>
+			<h2 id="_idParaDest-63"><a id="_idTextAnchor063"/>Parallel enumeration</h2>
+			<p>One of the problems with <a id="_idIndexMarker188"/>enumeration is that it can take a very long time if there are a lot of objects, or if the process is complicated. With PowerShell 7, we gained the ability to run <strong class="source-inline">ForEach-Object</strong> processes in parallel. Try running the following code, which will print out the numbers 1 <span class="No-Break">to 10:</span></p>
+			<pre class="console">
+1..10 | ForEach-Object {
+$_
+Start-sleep 1}</pre>			<p>As you press <em class="italic">Enter</em> after each line, you should see a continuation prompt until you close the curly brackets. Slow, eh? 10 seconds to print out 10 numbers. Now, let’s try it with <span class="No-Break">parallel processing:</span></p>
+			<pre class="console">
+1..10 | ForEach-Object -Parallel {
+$_
+Start-Sleep 1}</pre>			<p>Now, you should see the<a id="_idIndexMarker189"/> numbers being printed out in groups of five. We can alter the number of parallel processes with the <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">ThrottleLimit</strong></span><span class="No-Break"> parameter.</span></p>
+			<p>Now that we’ve explored some useful cmdlets for manipulating the pipeline and had our first taste of scripting (yes, that’s what you did just now), we will have a look at how the <span class="No-Break">pipeline works.</span></p>
+			<h1 id="_idParaDest-64"><a id="_idTextAnchor064"/>How the pipeline works – parameter binding</h1>
+			<p>The main difference between the output of PowerShell cmdlets and more generic shells is that instead of being file-like, the output is an <strong class="bold">object</strong>, with a type, properties, and methods. So, how does an object <a id="_idIndexMarker190"/>produced by one cmdlet get passed to <span class="No-Break">another cmdlet?</span></p>
+			<p>Cmdlets can only accept input via their parameters. There is no other way, so it follows that the output objects of one cmdlet must be fed to a parameter of the next cmdlet in the pipeline. Consider the following <span class="No-Break">cmdlet pipeline:</span></p>
+			<pre class="console">
+Get-Process | Sort-Object -Property CPU</pre>			<p>We can only see one parameter here, <strong class="source-inline">-property</strong>, and it’s being given an argument of <strong class="source-inline">CPU</strong>. So, what’s going on? <strong class="source-inline">Sort-Object</strong> is being given two parameters, but we can’t see one of them. This is<a id="_idIndexMarker191"/> called <strong class="bold">pipeline </strong><span class="No-Break"><strong class="bold">parameter binding</strong></span><span class="No-Break">.</span></p>
+			<p>PowerShell takes the output of the first cmdlet, <strong class="source-inline">Get-Process</strong>, and must do something with it, so it looks for a parameter on the second cmdlet that can accept the object that PowerShell is holding. There are two ways this can happen; <strong class="source-inline">ByValue</strong> and <strong class="source-inline">ByPropertyName</strong>. Let’s look at them <span class="No-Break">in detail.</span></p>
+			<p><strong class="source-inline">ByValue</strong> is the default method, and PowerShell will always try that first, so let’s start <span class="No-Break">with that.</span></p>
+			<h2 id="_idParaDest-65"><a id="_idTextAnchor065"/>Understanding ByValue parameter binding</h2>
+			<p>Let’s have a look at the <a id="_idIndexMarker192"/>help file for <strong class="source-inline">Sort-Object</strong> by typing <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Help Sort-Object -Full</pre>			<p>Have a look through the parameters. You will see that only one parameter can accept objects from the pipeline: <strong class="source-inline">-InputObject</strong>. The help file has this to say <span class="No-Break">about it:</span></p>
+			<pre class="console">
+-InputObject &lt;System.Management.Automation.PSObject&gt;
+        To sort objects, send them down the pipeline to `Sort-Object`. If you use the InputObject parameter to submit a collection of items, `Sort-Object` receives one object that represents the collection. Because one object cannot be sorted, `Sort-Object` returns the entire collection unchanged.
+        Required?                    false
+        Position?                    named
+        Default value                None
+        Accept pipeline input?       True (ByValue)
+        Accept wildcard characters?  false</pre>			<p>Here, we can see that it only accepts input <strong class="source-inline">ByValue</strong>, and it only accepts <strong class="source-inline">PSObject</strong> type input. <strong class="source-inline">PSObject</strong> is pretty broad; it means anything that is an object in PowerShell. So, we can use it to sort an array of numbers because they are objects of the <strong class="source-inline">System.Int32</strong> type, as shown in the following screenshot. Notice that, as described in the help file, we can’t successfully pass an array directly to the <strong class="source-inline">-InputObject</strong> parameter; it must go through the pipeline. If we try to explicitly feed it an array via the parameter, it sees a single array object and returns the array unsorted. We need it to pass through the pipeline one item at <span class="No-Break">a time:</span></p>
+			<div>
+				<div id="_idContainer061" class="IMG---Figure">
+					<img src="image/B17600_03_014.jpg" alt="Figure 3.14 – Correct and incorrect use of the -InputObject parameter"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.14 – Correct and incorrect use of the -InputObject parameter</p>
+			<p>Let’s have a look at another. We can see from the help file for <strong class="source-inline">Get-ChildItem</strong> that it has a parameter, <strong class="source-inline">-path</strong>, that accepts pipeline input <strong class="source-inline">ByValue</strong>, and accepts string objects. This means we can do something like this, where we put the <strong class="source-inline">myfiles</strong> string into <span class="No-Break">the pipeline:</span></p>
+			<pre class="console">
+'myfiles' | Get-ChildItem</pre>			<p>Here, we will get a meaningful output – a list of all the items in the <strong class="source-inline">myfiles</strong> directory. If we had a cmdlet pipeline that outputs paths as strings, we could feed this into <strong class="source-inline">Get-ChildItem</strong> to get the contents. The important thing to remember when using <strong class="source-inline">ByValue</strong> is that the type of object you are passing into the pipeline must match the type of object that is specified<a id="_idIndexMarker193"/> by the parameter of the next cmdlet that accepts <span class="No-Break">pipeline input.</span></p>
+			<p><strong class="source-inline">Get-ChildItem</strong> is interesting because the parameter that accepts pipeline input is not the <strong class="source-inline">-InputObject</strong> parameter – it’s <strong class="source-inline">-path</strong>. What happens if you try to pipe a string to <strong class="source-inline">Get-ChildItem</strong>, but you also explicitly specify the <strong class="source-inline">-path</strong> parameter? You will get an error, as <span class="No-Break">shown here:</span></p>
+			<div>
+				<div id="_idContainer062" class="IMG---Figure">
+					<img src="image/B17600_03_015.jpg" alt="Figure 3.15 – Pipeline sabotage"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.15 – Pipeline sabotage</p>
+			<p>The preceding error says that there is no parameter to accept pipeline input, even though we know there is. This is because we bound a value to <strong class="source-inline">Get-ChildItem</strong> before we started processing the objects in the pipeline, effectively removing that parameter from those available. If we see this error, it’s always worth checking that we haven’t already used the parameter<a id="_idIndexMarker194"/> before we throw our laptops at the wall <span class="No-Break">in frustration.</span></p>
+			<p>Let’s have a look at the other method of binding pipeline content to a <span class="No-Break">parameter: </span><span class="No-Break"><strong class="source-inline">ByPropertyName</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-66"><a id="_idTextAnchor066"/>ByPropertyName parameter binding</h2>
+			<p>PowerShell will<a id="_idIndexMarker195"/> always try to bind to a parameter <strong class="source-inline">ByValue</strong> first. It will only try to shoehorn the pipeline objects using <strong class="source-inline">ByPropertyName</strong> if <strong class="source-inline">ByValue</strong> is not available. What happens if your first cmdlet produces objects of the wrong sort for the <strong class="source-inline">pipeline-accepting</strong> parameter of the next cmdlet? Well, PowerShell will look and see if there is a parameter in the second cmdlet that accepts pipeline input where there is a matching property name – usually, <strong class="source-inline">-Id</strong> <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">-Name</strong></span><span class="No-Break">.</span></p>
+			<p>Unsurprisingly, <strong class="source-inline">Stop-Process</strong> is a cmdlet that stops processes. If we look at the help file, we will see that three parameters accept pipeline input:<strong class="source-inline">-InputObject</strong>, which accepts objects <strong class="source-inline">ByValue</strong>, and <strong class="source-inline">-Id</strong> and <strong class="source-inline">-Name</strong>, which accept <strong class="source-inline">ByPropertyName</strong>. Now, let’s type <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Random | Stop-Process</pre>			<p>Here, we will get an error – the same one shown in <span class="No-Break"><em class="italic">Figure 3</em></span><em class="italic">.15</em>. We know that <strong class="source-inline">Stop-Process</strong> has three parameters that take pipeline input, so it’s not the first reason. We haven’t explicitly bound anything to any parameters either, so it must be because the type of object we have in the pipeline is the wrong sort of object. If we use <strong class="source-inline">Get-Member</strong> to determine the type of objects <strong class="source-inline">Get-Random</strong> produces, and then refer to the help file for <strong class="source-inline">Stop-Process</strong>, we will see that <strong class="source-inline">Get-Random</strong> produces <strong class="source-inline">System.Int32</strong> objects, but <strong class="source-inline">Stop-Process</strong> requires <strong class="source-inline">System.Diagnostics.Process</strong> objects. So, if we’ve not got the right sort of objects in our pipeline, why didn’t PowerShell try to do anything <strong class="source-inline">ByPropertyName</strong>? Well, it did, but none of the properties of the object that were output by <strong class="source-inline">Get-Random</strong> have a property name that matches the <strong class="source-inline">-Id</strong> or <strong class="source-inline">-Name</strong> parameters in <strong class="source-inline">Stop-Process</strong>. Let’s have some fun. Type <span class="No-Break">the following:</span></p>
+			<pre class="console">
+New-Object -TypeName PSObject -Property @{'Id' = (Get-Random)} | Stop-Process -WhatIf</pre>			<p>What are we <a id="_idIndexMarker196"/>doing there? We’re using the <strong class="source-inline">New-Object</strong> cmdlet to create a generic PowerShell object (<strong class="source-inline">-TypeName PSObject</strong>) with a single property, <strong class="source-inline">Id</strong>, which we populate by running the <strong class="source-inline">Get-Random</strong> cmdlet to produce a random number. We will be able to see it in the output if we pipe the cmdlet <span class="No-Break">into </span><span class="No-Break"><strong class="source-inline">Get-Member</strong></span><span class="No-Break">:</span></p>
+			<div>
+				<div id="_idContainer063" class="IMG---Figure">
+					<img src="image/B17600_03_016.jpg" alt="Figure 3.16 – Creating custom objects"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 3.16 – Creating custom objects</p>
+			<p>Once we’ve created this new custom object, we can pipe it into <strong class="source-inline">Stop-Process</strong>. The object type is not right, so it can’t bind to <strong class="source-inline">-InputObject</strong>, but the object has a property name that matches the <strong class="source-inline">-Id</strong> parameter, so it binds there. Finally, because we don’t want to have too much fun, we’re using the <strong class="source-inline">-WhatIf</strong> parameter, just in case <strong class="source-inline">Get-Random</strong> provides us with a legitimate process ID. <strong class="source-inline">-WhatIf</strong> is one of the common parameters available in most PowerShell cmdlets, and it tells us what would happen if we ran the cmdlet without actually <span class="No-Break">changing anything.</span></p>
+			<h3>Parenthetical commands</h3>
+			<p>A few times now, we have run cmdlets in parentheses, as we did previously. Parentheses are <a id="_idIndexMarker197"/>a way of overriding the order in which PowerShell runs. The same as in mathematics, parentheses are an instruction to do something <em class="italic">first</em>. When we use them in PowerShell, the content inside the parentheses must be completed before anything else in that <a id="_idIndexMarker198"/>segment of the pipeline is processed. This gives us another way to pass input directly to a parameter. </p>
+			<p>In the preceding example, we tried to run <span class="No-Break">the following:</span></p>
+			<pre class="console">
+Get-Random | Stop-Process</pre>			<p>This didn’t work. While the object type (<strong class="source-inline">System.Int32</strong>) was correct for the <strong class="source-inline">-Id</strong> parameter, the <strong class="source-inline">PropertyName</strong> value was incorrect. With parentheses, we can explicitly pass that content to the <strong class="source-inline">-Id</strong> parameter, <span class="No-Break">like so:</span></p>
+			<pre class="console">
+Stop-Process -Id (Get-Random)</pre>			<p>First, PowerShell will produce <a id="_idIndexMarker199"/>a random number, and then pass it to the <strong class="source-inline">-Id</strong> parameter for us. We will see many more useful examples of parentheses as we go through <span class="No-Break">this book.</span></p>
+			<h1 id="_idParaDest-67"><a id="_idTextAnchor067"/>Troubleshooting the pipeline – pipeline tracing</h1>
+			<p>We’ve <a id="_idIndexMarker200"/>done a lot of work in this chapter, so now it’s time to kick back and have some fun with <strong class="source-inline">Trace-Command</strong>. At least, I think it’s fun; other opinions are available. This <a id="_idIndexMarker201"/>cmdlet does, however, really let us get into the nuts and bolts of how PowerShell works so that we get to see it <span class="No-Break">in action.</span></p>
+			<p>Run the <span class="No-Break">following code:</span></p>
+			<pre class="console">
+Trace-Command -Name ParameterBinding -Expression {New-Object -TypeName PSObject -Property @{'Id' = (Get-Random)} | Stop-Process -WhatIf} -PSHost</pre>			<p>Here, we’re running <strong class="source-inline">Trace-Command</strong> and asking it to record <strong class="source-inline">ParameterBinding</strong> events. We’re giving it the cmdlet we ran previously as an expression in a script block, and then with <strong class="source-inline">-PSHost</strong>, we’re telling it to output to the screen, rather than its default, which is the debug stream that we saw right at the start of this chapter when we were talking <span class="No-Break">about streams.</span></p>
+			<p>We’ve now got a screen full of yellow writing, which is messy; we’re going to need to have a dig around in there. These are the questions we’re <span class="No-Break">interested in:</span></p>
+			<ul>
+				<li>Where did the custom <span class="No-Break">object bind?</span></li>
+				<li>How did the custom <span class="No-Break">object bind?</span></li>
+			</ul>
+			<p>Here’s my output, tidied up, with comments below <span class="No-Break">each line:</span></p>
+			<ol>
+				<li><strong class="source-inline">DEBUG: BIND PIPELINE object to </strong><span class="No-Break"><strong class="source-inline">parameters: [Stop-Process]</strong></span></li>
+			</ol>
+			<p>In this line, we’re starting by binding to the parameters <span class="No-Break">of </span><span class="No-Break"><strong class="source-inline">Stop-Process</strong></span><span class="No-Break">.</span></p>
+			<ol>
+				<li value="2"><strong class="source-inline">DEBUG: PIPELINE object TYPE = [</strong><span class="No-Break"><strong class="source-inline">System.Management.Automation.PSCustomObject]</strong></span></li>
+			</ol>
+			<p>This tells us what sort of object we have in <span class="No-Break">the pipeline.</span></p>
+			<ol>
+				<li value="3"><strong class="source-inline">DEBUG: Parameter [InputObject] PIPELINE INPUT ValueFromPipeline </strong><span class="No-Break"><strong class="source-inline">NO COERCION</strong></span></li>
+			</ol>
+			<p>This tells us that <strong class="source-inline">-InputObject</strong> only takes the <span class="No-Break"><strong class="source-inline">ByValue objects</strong></span><span class="No-Break">.</span></p>
+			<ol>
+				<li value="4"><strong class="source-inline">DEBUG: BIND arg [@{Id=1241688337}] to </strong><span class="No-Break"><strong class="source-inline">parameter [InputObject]</strong></span></li>
+			</ol>
+			<p><strong class="source-inline">arg [1241688337]</strong> is the random<a id="_idIndexMarker202"/> number that <span class="No-Break">was generated.</span></p>
+			<ol>
+				<li value="5"><strong class="source-inline">DEBUG: Binding collection parameter InputObject: argument type [PSObject], parameter type [System.Diagnostics.Process[]], collection type Array, element type [System.Diagnostics.Process], </strong><span class="No-Break"><strong class="source-inline">no coerceElementType</strong></span></li>
+			</ol>
+			<p>This shows us that the object types <span class="No-Break">don’t match.</span></p>
+			<ol>
+				<li value="6"><strong class="source-inline">DEBUG: BIND arg [@{Id=1241688337}] to param [</strong><span class="No-Break"><strong class="source-inline">InputObject] SKIPPED</strong></span></li>
+			</ol>
+			<p>Here, we’re skipping binding <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">-InputObject</strong></span><span class="No-Break">.</span></p>
+			<ol>
+				<li value="7"><strong class="source-inline">DEBUG: Parameter [Id] PIPELINE INPUT ValueFromPipelineByPropertyName </strong><span class="No-Break"><strong class="source-inline">NO COERCION</strong></span></li>
+			</ol>
+			<p>This line shows that the <strong class="source-inline">-Id</strong> parameter accepts <strong class="source-inline">ByPropertyName</strong> <span class="No-Break"><strong class="source-inline">as</strong></span><span class="No-Break"> </span><span class="No-Break"><strong class="source-inline">input</strong></span><span class="No-Break">.</span></p>
+			<ol>
+				<li value="8"><strong class="source-inline">DEBUG: BIND arg [1241688337] to </strong><span class="No-Break"><strong class="source-inline">parameter [Id]</strong></span></li>
+			</ol>
+			<p><strong class="source-inline">DEBUG: Binding collection parameter Id: argument type [Int32], parameter type [System.Int32[]], collection type Array, element type [System.Int32], </strong><span class="No-Break"><strong class="source-inline">no coerceElementType</strong></span></p>
+			<p>This shows us that the object <span class="No-Break">types match.</span></p>
+			<ol>
+				<li value="9"><strong class="source-inline">DEBUG: BIND arg [System.Int32[]] to param [</strong><span class="No-Break"><strong class="source-inline">Id] SUCCESSFUL</strong></span></li>
+			</ol>
+			<p>Here, we are told we have <a id="_idIndexMarker203"/>successfully bound to the <strong class="source-inline">–</strong><span class="No-Break"><strong class="source-inline">Id</strong></span><span class="No-Break"> parameter.</span></p>
+			<p>So, we have the answers to our questions – the object in the pipeline bound to the <strong class="source-inline">-Id</strong> <span class="No-Break">parameter, </span><span class="No-Break"><strong class="source-inline">ByPropertyName</strong></span><span class="No-Break">.</span></p>
+			<p>That was a whirlwind introduction to <strong class="source-inline">Trace-Command</strong>. If your pipeline is failing, and you are sure that your object types match, or that you have matching property names, and you haven’t bound something explicitly to the only parameter that accepts pipeline input, then this cmdlet is your best hope of understanding <span class="No-Break">what’s happening.</span></p>
+			<h1 id="_idParaDest-68"><a id="_idTextAnchor068"/>Summary</h1>
+			<p>We covered some really interesting and quite technical topics in this chapter. We started by describing what the pipeline does, and then looked at techniques for selecting and sorting objects. We then looked at filtering objects and talked about the importance of using filtering to allow PowerShell to work as efficiently as possible. </p>
+			<p>From there, we introduced a topic that will be important later, enumeration, and looked at one of the newer features of PowerShell 7, parallel enumeration. In the last part of this chapter, we took a deeper dive into how the pipeline accomplishes its magic and examined the two methods of parameter binding: <strong class="source-inline">ByValue</strong> and <strong class="source-inline">ByPropertyName</strong>. Finally, we played with a cmdlet that allows us to get under the hood of how the pipeline is <span class="No-Break">working: </span><span class="No-Break"><strong class="source-inline">Trace-Command</strong></span><span class="No-Break">.</span></p>
+			<p>Most of the time, the pipeline <em class="italic">just works</em>. However, for cases when it doesn’t, this chapter has given us the essential knowledge we need to understand what it is doing and, hopefully, how to fix it. Sometimes, cmdlet authors do not provide a way for their cmdlets to accept pipeline input. This chapter has shown us how to spot that and given us one technique for working <span class="No-Break">around it.</span></p>
+			<p>This chapter concludes the introductory part of this book on PowerShell mechanics. In the next chapter, we’re going to start doing some coding by looking at variables and data structures. <span class="No-Break">Hold tight.</span></p>
+			<h1 id="_idParaDest-69"><a id="_idTextAnchor069"/>Exercises</h1>
+			<p>The following are some exercises to help you solidify your knowledge of <span class="No-Break">this chapter:</span></p>
+			<ol>
+				<li>How can we use PowerShell to display just the day of the week it <span class="No-Break">is today?</span></li>
+				<li>We need to get a list of CPU usage and the locations of all our running processes, and we don’t want a lot of unnecessary information. How do we <span class="No-Break">do that?</span></li>
+				<li>Now that we’ve got our list, how can we get the path names in reverse <span class="No-Break">alphabetical order?</span></li>
+				<li>There’s a lot of stuff here. How do we ensure it only lists the processes that have a CPU usage of greater <span class="No-Break">than 5?</span></li>
+				<li>What is the most efficient way to get a list of read-only files from our <span class="No-Break">home drive?</span></li>
+				<li>We need to get the size of all the files in our home directory. We just want the name and the size <span class="No-Break">in bytes.</span></li>
+				<li>We have a file that contains a list of process names, called <strong class="source-inline">processes.txt</strong>. we need to use it to discover information about the processes on our local machine, so we will need to find a cmdlet that can get content from <span class="No-Break">the file.</span></li>
+				<li>Without <em class="italic">actually running the cmdlet</em>, what will happen if we run this without <strong class="source-inline">-WhatIf</strong> on a <span class="No-Break">Windows host?</span><pre class="source-code">
+<strong class="bold">'bobscomputer' | Stop-Computer -WhatIf</strong></pre></li>			</ol>
+			<p>If it’s not right, what would the right <span class="No-Break">cmdlet be?</span></p>
+			<p>What would happen if we ran it on a Linux host? Tip: think about this. Don’t try it. Especially don’t try it <span class="No-Break">without </span><span class="No-Break"><strong class="source-inline">-WhatIf</strong></span><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-70"><a id="_idTextAnchor070"/>Further reading</h1>
+			<p>As I get older, I find the history of computing more and more fascinating; concepts and devices that were bleeding edge when I was in my twenties are now dusty old relics. However, these old relics go some way to explaining why we are where we are. The Unix Oral History Project has a great section on the concept of <span class="No-Break">pipes: </span><a href="https://dspinellis.github.io/oral-history-of-unix/frs122/unixhist/finalhis.htm"><span class="No-Break">https://dspinellis.github.io/oral-history-of-unix/frs122/unixhist/finalhis.htm</span></a><span class="No-Break">.</span></p>
+		</div>
+		<div>
+			<div id="_idContainer065" class="IMG---Figure">
+			</div>
+		</div>
+	</body></html>

@@ -1,0 +1,822 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer048">
+<h1 class="chapter-number" id="_idParaDest-107"><a id="_idTextAnchor134"/>8</h1>
+<h1 id="_idParaDest-108"><a id="_idTextAnchor135"/>Software Installation and Package Repositories</h1>
+<p><a id="_idTextAnchor136"/>Most Linux distributions only install the bare minimum set of software by default and assume that the user will install additional software later. These days, installing software on Linux is very easy, thanks to package repositories and high-level package managers that can search, download, and install packages over the network. However, it’s important to understand how package files are organized internally and how package managers work since it helps administrators inspect packages, diagnose problems, and fix installation issues if <span class="No-Break">they occur.</span></p>
+<p>In this chapter, we’ll cover the <span class="No-Break">following topics:</span></p>
+<ul>
+<li>Software installation, packages, <span class="No-Break">and dependencies</span></li>
+<li><span class="No-Break">Package files</span></li>
+<li>Package repositories and high-level <span class="No-Break">package managers</span></li>
+<li><span class="No-Break">System upgrade</span></li>
+</ul>
+<h1 id="_idParaDest-109"><a id="_idTextAnchor137"/>Software installation, packages, and dependencies</h1>
+<p>The definition of a <a id="_idIndexMarker353"/>software package is quite broad. In the early days of computing, when computers were exclusively used to solve mathematical problems, most programs were written completely from scratch to run on a specific computer, so there was no need for installation and thus no need for the concept of software packaging. For a long time afterward, software was still synonymous with executable files. Installing a software product that consists of a single executable file is trivial —just copy it to the <span class="No-Break">target computer.</span></p>
+<p>Such software certainly exists today. For example, the maintainers of <strong class="bold">jq</strong> (a popular tool for extracting data from JSON files) provide standalone, statically linked executables that combine the program and all libraries it needs into a monolithic file and can run on any Linux system, so any user can just download it from its website (<a href="https://stedolan.github.io/jq/download/">https://stedolan.github.io/jq/download/</a>) and start <span class="No-Break">using it.</span></p>
+<p>However, many software projects consist of multiple executable files and often require data files as well. A spell checker program, such as <strong class="bold">Aspell</strong>, requires<a id="_idIndexMarker354"/> dictionary files to work. In video games, the executable is often just a small part, often the smallest one compared to game assets such as models, textures, and sound files. To make the software product work as intended, all those files need to be distributed and installed together as a <span class="No-Break">software package.</span></p>
+<p>In early operating systems, the installation often just consisted of copying all files of a software product to a directory. That’s the purpose of the <strong class="source-inline">/opt</strong> directory still found in many Linux systems. To install a hypothetical software package, Foo 1.0, an administrator may unpack its release archive (say, <strong class="source-inline">foo_1.0.tar.gz</strong>) to <strong class="source-inline">/opt/foo/</strong> (usually, with <strong class="source-inline">tar --xf foo_1.0.tar.gz --directory /opt/foo/</strong>), and the directory structure inside <strong class="source-inline">/opt/foo</strong> will be completely defined by the application developers of Foo rather than by the operating <span class="No-Break">system itself.</span></p>
+<p>In modern <a id="_idIndexMarker355"/>operating systems, simply copying files is rarely enough because it will not properly integrate the newly installed software into the operating system. Even a package that provides a single console command needs to place it in a directory that is already in <strong class="source-inline">$PATH</strong>, or modify the <strong class="source-inline">$PATH</strong> environment variable accordingly. Software with a graphical user interface also needs to correctly register itself in the desktop environment application menus and optionally create <span class="No-Break">desktop icons.</span></p>
+<p>For this reason, operating systems started demanding a certain structure from software packages. In Microsoft Windows and many other systems, they would still usually come as custom executable programs that would unpack and copy the files and also execute scripts to register the package with the operating system. Developers of Linux software also practice this approach sometimes, and there are frameworks for creating executable installers, such<a id="_idIndexMarker356"/> as <span class="No-Break"><strong class="bold">makeself</strong></span><span class="No-Break"> (</span><a href="https://makeself.io/"><span class="No-Break">https://makeself.io/</span></a><span class="No-Break">).</span></p>
+<p>That approach gives software package authors complete control over the installation process, but it also has many disadvantages. First, uninstalling software that was installed that way isn’t always reliable. If installer developers aren’t careful to make it clean up all files created at installation time, users may be left with leftover files they will have to delete <span class="No-Break">by hand.</span></p>
+<p>Second, each package needs to implement its own update checking and installation mechanism. Before the widespread availability of broadband internet access, when software updates were usually distributed on physical media such as floppy disks or CDs, that wasn’t a big concern; but these days, when most users have regular internet access, they benefit from online updates, and many software products such as web browsers must be kept up to date to keep them protected from <span class="No-Break">security threats.</span></p>
+<p>Third, few programs are written from scratch anymore and most make extensive use of third-party libraries, so they have dependencies. One way to make sure the library code is available for the program to call is to make it a part of the executable itself. That approach is known as static linking. It’s foolproof in that there is no way to install such an executable incorrectly, but it leads to greatly increased memory and drive space consumption. For this reason, most programs are dynamically linked with external library files, but for them to work, they need to make sure that files of the correct versions of all required libraries exist on the system. If every software package is standalone and responsible for its own installation, the only way to do that is to bundle all libraries with the package (which is only marginally better <a id="_idIndexMarker357"/>than linking them statically, in terms of drive space usage) or require the user to find and install all libraries manually (which is very inconvenient for <span class="No-Break">the user).</span></p>
+<p>With proprietary software that isn’t redistributable and usually isn’t available in source code form, bundling all dependencies is usually the only option since executables need to be recompiled for use with different library versions. Different Linux distributions may include different versions of libraries due to different release cycles and software inclusion policies (some distributions are focused on stability and will only include older but proven versions, while others may choose to include the latest libraries even if they aren’t <span class="No-Break">well tested).</span></p>
+<p>However, with open source software that is available in source code form and can be modified and redistributed, there are many more possibilities to reuse library files and create a cohesive system. To make that possible, distribution maintainers developed modern <span class="No-Break">package managers.</span></p>
+<h1 id="_idParaDest-110"><a id="_idTextAnchor138"/>Package managers</h1>
+<p>A package manager is<a id="_idIndexMarker358"/> a program that is responsible for the installation, upgrade, and removal of software packages. In the older approach where software developers are responsible for the installation procedure, they are free to choose whether to distribute their software as an executable that unpacks and installs files or as an archive that the user must unpack manually, and the choice of archive and compression algorithms is also on <span class="No-Break">the developers.</span></p>
+<p>By contrast, package managers usually use a very precise definition of a software package. To make a software project installable with a package manager, its maintainer must create a package file that follows a set of guidelines for its internal structure. Apart from the files needed for a software product to work, package files also contain metadata in a specific format. Metadata files contain information about the package, such as its name, version, license, and lists of other packages that it <span class="No-Break">depends on.</span></p>
+<p>Package managers limit what software product authors can do at installation time. For example, there is no way to let the user specify a custom installation directory or choose not to install <span class="No-Break">certain files.</span></p>
+<p>But since they completely control the installation process and every file inside the package is accounted for, they can install and uninstall software reliably and ensure that there are no files left <span class="No-Break">after uninstallation.</span></p>
+<p>An even bigger advantage is that package managers can automatically track package dependencies and either prevent the user from installing a package until all dependencies are installed or automatically install <span class="No-Break">those dependencies.</span></p>
+<p>Different Linux distributions use different package managers. Some of them use two different utilities for managing software installations and upgrades: a low-level package manager that is responsible for working with package files and a high-level tool for automatically downloading packages over the network and <span class="No-Break">managing upgrades.</span></p>
+<p>Historically, that<a id="_idIndexMarker359"/> was the dominant approach: before the widespread availability of broadband Internet access, automatic download wasn’t feasible, so the first package managers developed in the 1990s were only developed to work with local package files. The two most popular projects in this<a id="_idIndexMarker360"/> category are <strong class="bold">rpm</strong> (developed by Red Hat) and <strong class="bold">dpkg</strong> (developed by the Debian project). For the automated installation of packages over <a id="_idIndexMarker361"/>the network and automated <a id="_idIndexMarker362"/>system upgrades, they need to be combined with high-level tools such as YUM, DNF, Zypper, or <strong class="bold">Advanced Packaging </strong><span class="No-Break"><strong class="bold">Tool</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">APT</strong></span><span class="No-Break">).</span></p>
+<p>Some Linux distributions developed in the 2000s and later use package managers that combine both functions and can work with local package files and remote <span class="No-Break">sources alike.</span></p>
+<p>We can represent current situations with low-level and high-level package managers in different distributions as in the <span class="No-Break">following table:</span></p>
+<table class="T---Table _idGenTablePara-1" id="table001">
+<colgroup>
+<col/>
+<col/>
+<col/>
+</colgroup>
+<tbody>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Distribution</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><strong class="bold">High-level </strong><span class="No-Break"><strong class="bold">package manager</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><strong class="bold">Low-level </strong><span class="No-Break"><strong class="bold">package manager</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Debian</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="3">
+<p><span class="No-Break">APT</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="3">
+<p><span class="No-Break"><strong class="source-inline">dpkg</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Ubuntu</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Linux Mint</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Fedora</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">DNF</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="4">
+<p><span class="No-Break"><strong class="source-inline">rpm</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Red Hat <span class="No-Break">Enterprise Linux</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">DNF, YUM</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>openSUSE, SUSE Linux <span class="No-Break">Enterprise Server</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Zypper</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Mageia</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">DNF, urpmi</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Arch Linux</span></p>
+</td>
+<td class="T---Table T---Body T---Body" colspan="2">
+<p><span class="No-Break">pacman</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">NixOS</span></p>
+</td>
+<td class="T---Table T---Body T---Body" colspan="2">
+<p><span class="No-Break">Nix</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Guix</span></p>
+</td>
+<td class="T---Table T---Body T---Body" colspan="2">
+<p><span class="No-Break">Guix</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 8.1 – Package managers used in different Linux distributions</p>
+<p>We will focus on<a id="_idIndexMarker363"/> the most popular low-level package managers: <strong class="source-inline">rpm</strong> and <strong class="source-inline">dpkg</strong>. Neither of them is inherently superior to the other, but their package file format and package management tool interface design choices are quite different. We will examine both to compare and <span class="No-Break">contrast them.</span></p>
+<h1 id="_idParaDest-111"><a id="_idTextAnchor139"/>Package files</h1>
+<p>Conventionally, packages<a id="_idIndexMarker364"/> come as files in a special format that includes both files from the software project that must be installed in the system and metadata for the package manager, such as file checksums, lists of dependencies, and system requirements for the package (such as CPU architecture). We will look inside <strong class="source-inline">.rpm</strong> and <strong class="source-inline">.deb</strong> package files and compare their <span class="No-Break">implementation details.</span></p>
+<h2 id="_idParaDest-112"><a id="_idTextAnchor140"/>Inspecting package files</h2>
+<p>First, we will <a id="_idIndexMarker365"/>examine package files to see what’s inside them and learn how to examine and <span class="No-Break">unpack them.</span></p>
+<p>Please note that normally, you will not need to manually download and unpack package files! We are doing it only for <span class="No-Break">educational purposes.</span></p>
+<h3>Inspecting a Debian package</h3>
+<p>We will <a id="_idIndexMarker366"/>use the GNU <strong class="source-inline">hello</strong> package for our experiments. GNU hello is a demo program that simply prints <strong class="source-inline">hello world</strong>—its real purpose is to serve as an example of development and packaging practices and show new developers how to write build scripts, implement internationalization, and <span class="No-Break">so on.</span></p>
+<p>You can find the GNU <strong class="source-inline">hello</strong> package from the latest unstable Debian version <span class="No-Break">at </span><a href="https://packages.debian.org/sid/hello"><span class="No-Break">https://packages.debian.org/sid/hello</span></a><span class="No-Break">.</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer045">
+<img alt="Figure 8.1 – The hello package information page on the Debian package repository website" height="1276" src="image/B18575_08_01.jpg" width="1643"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 8.1 – The hello package information page on the Debian package repository website</p>
+<p>Follow an <a id="_idIndexMarker367"/>architecture-specific download link such as <a href="https://packages.debian.org/sid/amd64/hello/download">https://packages.debian.org/sid/amd64/hello/download</a> and download the package file from any mirror from the list shown in the <span class="No-Break">following screenshot:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer046">
+<img alt="Figure 8.2 – The download page for the hello package for Debian Sid on x86_64 machines" height="1692" src="image/B18575_08_02.jpg" width="1490"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 8.2 – The download page for the hello package for Debian Sid on x86_64 machines</p>
+<p>At the time of <a id="_idIndexMarker368"/>writing, the latest version is 2.10, so I used this link, but it’s not guaranteed to work for <span class="No-Break">future versions:</span></p>
+<pre class="source-code">
+$ wget http://ftp.us.debian.org/debian/pool/main/h/hello/hello_2.10-2_amd64.deb</pre>
+<p>Using the <strong class="source-inline">dpkg --info</strong> command, we can view information about the package we have <span class="No-Break">just downloaded:</span></p>
+<pre class="source-code">
+$ dpkg --info ./hello_2.10-2_amd64.deb
+new Debian package, version 2.0.
+size 56132 bytes: control archive=1868 bytes.
+Package: hello
+Version: 2.10-2
+Architecture: amd64
+Maintainer: Santiago Vila &lt;sanvila@debian.org&gt;
+Installed-Size: 280
+Depends: libc6 (&gt;= 2.14)
+Conflicts: hello-traditional
+Breaks: hello-debhelper (&lt;&lt; 2.9)
+Replaces: hello-debhelper (&lt;&lt; 2.9), hello-traditional
+Section: devel
+Priority: optional
+Homepage: http://www.gnu.org/software/hello/
+Description: example package based on GNU hello
+The GNU hello program produces a familiar, friendly greeting. It allows non-programmers to use a classic computer science tool which would otherwise be unavailable to them.
+.
+Seriously, though: this is an example of how to do a Debian package.
+It is the Debian version of the GNU Project's `hello world' program (which is itself an example for the GNU Project).</pre>
+<p>Where<a id="_idIndexMarker369"/> does <strong class="source-inline">dpkg</strong> get that information from? Notice the <strong class="source-inline">control archive=1868 bytes</strong> part of the output. A Debian package file is an <strong class="source-inline">ar</strong> archive that consists of two compressed <strong class="source-inline">tar</strong> archives glued together. We could certainly extract them using the <strong class="source-inline">ar</strong> utility, or even with <strong class="source-inline">dd</strong> (thanks to the simplicity of its format and the fact that <strong class="source-inline">dpkg</strong> tells us each archive length in bytes), and unpack them by hand, but luckily, <strong class="source-inline">dpkg</strong> has built-in functionality for that. Using <strong class="source-inline">dpkg --control</strong> (<strong class="source-inline">dpkg -e</strong>), we can extract the control archive—the part that contains <span class="No-Break">package metadata:</span></p>
+<pre class="source-code">
+$ dpkg --control ./hello_2.10-2_amd64.deb</pre>
+<p>If we don’t specify a custom output directory, <strong class="source-inline">dpkg</strong> will unpack it into a subdirectory named <strong class="source-inline">DEBIAN</strong>. It will contain two files: <strong class="source-inline">control</strong> and <strong class="source-inline">md5sums</strong>. The control file is where <strong class="source-inline">dpkg --info</strong> (<strong class="source-inline">dpkg -l</strong>) took those fields and their <span class="No-Break">values from:</span></p>
+<pre class="source-code">
+$ cat DEBIAN/control
+Package: hello
+Version: 2.10-2
+Architecture: amd64
+Maintainer: Santiago Vila &lt;sanvila@debian.org&gt;
+Installed-Size: 280
+Depends: libc6 (&gt;= 2.14)
+Conflicts: hello-traditional
+Breaks: hello-debhelper (&lt;&lt; 2.9)
+Replaces: hello-debhelper (&lt;&lt; 2.9), hello-traditional
+Section: devel
+Priority: optional
+Homepage: http://www.gnu.org/software/hello/
+Description: example package based on GNU hello
+The GNU hello program produces a familiar, friendly greeting. It allows non-programmers to use a classic computer science tool which would otherwise be unavailable to them.
+.
+Seriously, though: this is an example of how to do a Debian package.
+It is the Debian version of the GNU Project's `hello world' program (which is itself an example for the GNU Project).</pre>
+<p>The <strong class="source-inline">md5sums</strong> file contains hash sums of all files inside <span class="No-Break">the package:</span></p>
+<pre class="source-code">
+$ cat DEBIAN/md5sums
+6dc2cf418e6130569e0d3cfd2eae0b2e usr/bin/hello
+9dbc678a728a0936b503c0aef4507f5d usr/share/doc/hello/NEWS.gz
+1565f7f8f20ee557191040f63c1726ee
+usr/share/doc/hello/changelog.Debian.gz
+31aa50363c73b22626bd4e94faf90da2 usr/share/doc/hello/changelog.gz
+bf4bad78d5cf6787c6512b69f29be7fa usr/share/doc/hello/copyright
+c5162d14d046d9808bf12adac2885473 usr/share/info/hello.info.gz
+0b430a48c9a900421c8d2a48e864a0a5 usr/share/locale/bg/LC_MESSAGES/hello.mo
+0ac1eda691cf5773c29fb65ad5164228 usr/share/locale/ca/LC_MESSAGES/hello.mo
+...
+usr/share/locale/zh_TW/LC_MESSAGES/hello.mo
+29b51e7fcc9c18e989a69e7870af6ba2 usr/share/man/man1/hello.1.gz</pre>
+<p>The <a id="_idIndexMarker370"/>MD5 hash sum algorithm is no longer cryptographically secure and must not be used to protect files and messages from malicious modification. However, in Debian packages, it is used only for protection against accidental file corruption, so it’s not a security issue. Protection against malicious modification is provided by GnuPG digital signatures, which are checked by the <span class="No-Break">high-level tool—APT.</span></p>
+<p>If you only want to list files inside the data archive, you can do it with <strong class="source-inline">dpkg --contents</strong> (<span class="No-Break"><strong class="source-inline">dpkg -c</strong></span><span class="No-Break">):</span></p>
+<pre class="source-code">
+$ dpkg --contents ./hello_2.10-2_amd64.deb
+drwxr-xr-x root/root  0 2019-05-13 14:06 ./
+drwxr-xr-x root/root 0 2019-05-13 14:06 ./usr/
+drwxr-xr-x root/root 0 2019-05-13 14:06 ./usr/bin/
+-rwxr-xr-x root/root31360 2019-05-13 14:06
+./usr/bin/hello
+drwxr-xr-x root/root 0 2019-05-13 14:06 
+./usr/share/
+drwxr-xr-x root/root 0 2019-05-13 14:06 
+./usr/share/doc/
+drwxr-xr-x root/root 0 2019-05-13 14:06 ./usr/share/doc/hello/
+-rw-r--r-- root/root 1868 2014-11-16 06:51 ./usr/share/doc/hello/NEWS.gz
+-rw-r--r-- root/root 4522 2019-05-13 14:06 ./usr/share/doc/hello/changelog.Debian.gz
+-rw-r--r-- root/root 4493 2014-11-16 07:00 ./usr/share/doc/hello/changelog.gz
+-rw-r--r-- root/root 2264 2019-05-13 13:00 ./usr/share/doc/hello/copyright
+drwxr-xr-x root/root 0 2019-05-13 14:06 ./usr/share/info/
+-rw-r--r-- root/root  11596 2019-05-13 14:06
+./usr/share/info/hello.info.gz
+drwxr-xr-x root/root 0 2019-05-13 14:06 ./usr/share/locale/
+…</pre>
+<p>It’s also possible<a id="_idIndexMarker371"/> to unpack the data archive part of a package file with <strong class="source-inline">dpkg --extract</strong> (<strong class="source-inline">dpkg -x</strong>), but in that case, you need to specify where to unpack it. To unpack into the current directory, we can use the <span class="No-Break">dot shortcut:</span></p>
+<pre class="source-code">
+$ dpkg --extract ./hello_2.10-2_amd64.deb .</pre>
+<p>Now, let’s move on to inspecting an RPM package file and comparing it with what we have seen in a <span class="No-Break">Debian package.</span></p>
+<h3>Inspecting an RPM package</h3>
+<p>We’ll use<a id="_idIndexMarker372"/> Fedora as an example of a distribution that uses RPM packages. The place to search Fedora repositories on the web is <a href="https://packages.fedoraproject.org/">https://packages.fedoraproject.org/</a>. Enter the name of the package (<strong class="source-inline">hello</strong>, in our case) in the search field and you’ll see the package <span class="No-Break">information page.</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer047">
+<img alt="Figure 8.3 – The hello package information page on the Fedora package repository website" height="950" src="image/B18575_08_03.jpg" width="1214"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 8.3 – The hello package information page on the Fedora package repository website</p>
+<p>Fedora uses <a id="_idIndexMarker373"/>Rawhide as a code name for the latest unstable version. At the time of writing, the version in development is 37. To find a package download link, go to the <strong class="bold">Builds</strong> tab, then find a link to the latest build there. We can download that package for inspection using the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+$ wget https://kojipkgs.fedoraproject.org//packages/hello/2.10/8.fc37/x86_64/hello-2.10-8.fc37.x86_64.rpm</pre>
+<p class="callout-heading">Note</p>
+<p class="callout">We have provided a sample direct link to the package from Fedora 37, but since all URLs and package versions are subject to change, the following command is not guaranteed to remain working forever—if you want to download the package, visit the <a href="http://packages.fedoraproject.org">packages.fedoraproject.org</a> <span class="No-Break">website instead.</span></p>
+<p>All RPM queries<a id="_idIndexMarker374"/> are available through the <strong class="source-inline">--query</strong> option. A good thing about RPM is that all query options can be used to inspect either package files or already installed packages, depending on the argument. If you give it just a package name, it will look for an installed package, but if you specify a package file path, it will inspect that <span class="No-Break">file instead.</span></p>
+<p>For example, with <strong class="source-inline">rpm --query --info</strong>, we can read package metadata. Alternatively, that command can be shortened to <span class="No-Break"><strong class="source-inline">rpm -qi</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ rpm --query --info ./hello-2.10-8.fc37.x86_64.rpm
+Name        : hello
+Version     : 2.10
+Release     : 8.fc37
+Architecture: x86_64
+Install Date: (not installed)
+Group       : Unspecified
+Size        : 183537
+License     : GPLv3+ and GFDL
+Signature   : (none)
+Source RPM  : hello-2.10-8.fc37.src.rpm
+Build Date  : Thu 21 Jul 2022 03:15:21 PM IST
+Build Host  : buildvm-x86-27.iad2.fedoraproject.org
+Packager    : Fedora Project
+Vendor      : Fedora Project
+URL         : https://www.gnu.org/software/hello/
+Bug URL     : https://bugz.fedoraproject.org/hello
+Summary     : Prints a familiar, friendly greeting
+Description :
+The GNU Hello program produces a familiar, friendly greeting.
+Yes, this is another implementation of the classic program that prints "Hello, world!" when you run it.
+However, unlike the minimal version often seen, GNU Hello processes its argument list to modify its behavior, supports greetings in many languages, and so on. The primary purpose of GNU Hello is to demonstrate how to write other programs that do these things; it serves as a model for GNU coding standards and GNU maintainer practices.</pre>
+<p>Using <strong class="source-inline">rpm --query --list</strong> (or <strong class="source-inline">rpm -ql</strong> for short), we can get a list of files inside <span class="No-Break">the package:</span></p>
+<pre class="source-code">
+$ rpm --query --list ./hello-2.10-8.fc37.x86_64.rpm
+/usr/bin/hello
+/usr/lib/.build-id
+/usr/lib/.build-id/d2
+/usr/lib/.build-id/d2/847d989fd9b360c77ac8afbbb475415401fcab
+/usr/share/info/hello.info.gz
+/usr/share/licenses/hello
+/usr/share/licenses/hello/COPYING
+/usr/share/locale/bg/LC_MESSAGES/hello.mo
+/usr/share/locale/ca/LC_MESSAGES/hello.mo
+…
+/usr/share/locale/zh_CN/LC_MESSAGES/hello.mo
+/usr/share/locale/zh_TW/LC_MESSAGES/hello.mo
+/usr/share/man/man1/hello.1.gz</pre>
+<p>Compare and <a id="_idIndexMarker375"/>contrast this with the output of <strong class="source-inline">dpkg --contents</strong>, which listed MD5 sums for every file. Unlike Debian packages, RPM packages do not contain hash sums for every file, but rather a single hash sum of the <span class="No-Break">package archive.</span></p>
+<p>The <strong class="source-inline">rpm</strong> command also does not provide options for unpacking RPM packages. Instead, it provides two utilities for extracting its data part: <strong class="source-inline">rpm2cpio</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">rpm2archive</strong></span><span class="No-Break">.</span></p>
+<p>Unlike Debian packages, RPM packages do not store metadata as files inside an archive, but rather use a custom RPM file header to store it. The archive that follows that header only contains files that must be installed. Moreover, while <strong class="source-inline">dpkg</strong> uses a familiar <strong class="source-inline">tar</strong> archive format to pack multiple files into one, RPM uses a much less common <span class="No-Break">CPIO format.</span></p>
+<p>The <strong class="source-inline">cpio</strong> command is difficult to use. In particular, it needs the user to enter the path to every file that must be included in the archive, so it’s impractical to use by hand and can only be reasonably used in conjunction with another tool, such as <strong class="source-inline">find</strong>. For this reason, <strong class="source-inline">tar</strong> is far more popular because the TAR archiving tool can easily pack entire directories in one command, such as <strong class="source-inline">tar cvf file.tar /path/to/directory</strong>. However, the CPIO archive file format is simpler to implement, doesn’t vary between implementations from different vendors, and has better support for special files, such as links and device files, which is why some projects have chosen to use it internally. Among those projects are the Linux kernel, which uses it for the initial RAM disk, and RPM, which uses it for <span class="No-Break">package files.</span></p>
+<p>Luckily, the <strong class="source-inline">rpm2archive</strong> utility can convert an RPM package into a compressed <strong class="source-inline">tar</strong> archive, so you don’t need to learn how to use <strong class="source-inline">cpio</strong> just to extract files from <span class="No-Break">RPM packages:</span></p>
+<pre class="source-code">
+$ rpm2archive hello-2.10-8.fc37.x86_64.rpm
+$ tar xvfz ./hello-2.10-8.fc37.x86_64.rpm.tgz
+./usr/bin/hello
+./usr/lib/.build-id/
+./usr/lib/.build-id/d2/
+./usr/lib/.build-id/d2/847d989fd9b360c77ac8afbbb475415401fcab
+./usr/share/info/hello.info.gz
+./usr/share/licenses/hello/
+./usr/share/licenses/hello/COPYING
+./usr/share/locale/bg/LC_MESSAGES/hello.mo
+./usr/share/locale/ca/LC_MESSAGES/hello.mo
+...</pre>
+<p>Now let’s move on <a id="_idIndexMarker376"/>to inspecting packages installed in <span class="No-Break">the system.</span></p>
+<h2 id="_idParaDest-113"><a id="_idTextAnchor141"/>Inspecting installed packages</h2>
+<p>Both<a id="_idIndexMarker377"/> software project files and the metadata <a id="_idIndexMarker378"/>that we have seen inside package files are retained in the system when the package is installed. Let’s learn how to access information about installed packages and compare it with what we have seen inside <span class="No-Break">package files.</span></p>
+<h3>Listing all installed packages</h3>
+<p>Both <strong class="source-inline">dpkg</strong> and <strong class="source-inline">rpm</strong> provide <a id="_idIndexMarker379"/>an option to list all packages installed on the system. Since those lists are going to be rather long even for small installations, you may want to use them with a pager command such as <strong class="source-inline">less</strong> or a filter such as <strong class="source-inline">head</strong>, <strong class="source-inline">tail</strong>, <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">grep</strong></span><span class="No-Break">.</span></p>
+<p>For Debian-based systems, the command to list all installed packages is <strong class="source-inline">dpkg --list</strong>, or <strong class="source-inline">dpkg -l</strong> for short. The list is sorted alphabetically <span class="No-Break">by default:</span></p>
+<pre class="source-code">
+$ dpkg -l | head
+Desired=Unknown/Install/Remove/Purge/Hold
+| Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
+|/ Err?=(none)/Reinst-required (Status,Err: uppercase=bad)
+||/ Name                                 Version                             
+Architecture Description
+ii  adduser                              3.118                               
+all          add and remove users and groups
+ii  adwaita-icon-theme                   3.30.1-1                            
+all          default icon theme of GNOME
+ii  ansible                              2.9.27-1ppa~trusty                  
+all          Ansible IT Automation
+ii  apparmor                             2.13.2-10                           
+amd64        user-space parser utility for AppArmor
+ii  apt                                  1.8.2.3                             
+amd64        commandline package manager</pre>
+<p>For RPM-based <a id="_idIndexMarker380"/>distributions, that command is <strong class="source-inline">rpm --query --all</strong>, or <strong class="source-inline">rpm -qa</strong>. Note that RPM does not sort that output alphabetically <span class="No-Break">by default:</span></p>
+<pre class="source-code">
+$ rpm --query --all | head
+shared-mime-info-2.1-3.fc35.x86_64
+xorg-x11-drv-vmware-13.2.1-16.fc35.x86_64
+xorg-x11-drv-qxl-0.1.5-20.fc35.x86_64
+irqbalance-1.7.0-8.fc35.x86_64
+ipw2200-firmware-3.1-22.fc35.noarch
+ipw2100-firmware-1.3-29.fc35.noarch
+gpg-pubkey-9867c58f-601c49ca
+gpg-pubkey-d651ff2e-5dadbbc1
+gpg-pubkey-7fac5991-4615767f
+gpg-pubkey-d38b4796-570c8cd3</pre>
+<p>If you simply want to check whether a package is installed, RPM provides an option to check just that, without outputting any other information, that is, <strong class="source-inline">rpm --query</strong> (<span class="No-Break"><strong class="source-inline">rpm -q</strong></span><span class="No-Break">):</span></p>
+<pre class="source-code">
+$ rpm -q rpm
+rpm-4.17.1-3.fc36.x86_64
+$ rpm -q no-such-package
+package no-such-package is not installed</pre>
+<p>The equivalent for Debian-based systems is <strong class="source-inline">dpkg --status</strong> (<strong class="source-inline">dpkg -s</strong>), which also prints information about a package if <span class="No-Break">it’s installed:</span></p>
+<pre class="source-code">
+$ dpkg -s dpkg
+Package: dpkg
+Essential: yes
+Status: install ok installed
+Priority: required
+Section: admin
+Installed-Size: 6693
+Maintainer: Dpkg Developers &lt;debian-dpkg@lists.debian.org&gt;
+Architecture: amd64
+Multi-Arch: foreign
+Version: 1.19.7
+Depends: tar (&gt;= 1.28-1)
+Pre-Depends: libbz2-1.0, libc6 (&gt;= 2.15), liblzma5 (&gt;= 5.2.2), libselinux1 (&gt;= 2.3), zlib1g (&gt;= 1:1.1.4)
+Suggests: apt, debsig-verify
+Breaks: acidbase (&lt;= 1.4.5-4), amule (&lt;&lt; 2.3.1+git1a369e47-3), beep (&lt;&lt; 1.3-4), im (&lt;&lt; 1:151-4), libapt-pkg5.0 (&lt;&lt; 1.7~b), libdpkg-perl (&lt;&lt; 1.18.11), lsb-base (&lt;&lt; 10.2019031300), netselect (&lt;&lt; 0.3.ds1-27), pconsole (&lt;&lt; 1.0-12), phpgacl (&lt;&lt; 3.3.7-7.3), pure-ftpd (&lt;&lt; 1.0.43-1), systemtap (&lt;&lt; 2.8-1), terminatorx (&lt;&lt; 4.0.1-1), xvt (&lt;= 2.1-20.1)
+Conffiles:
+ /etc/alternatives/README 7be88b21f7e386c8d5a8790c2461c92b
+ /etc/cron.daily/dpkg f20e10c12fb47903b8ec9d282491f4be
+ /etc/dpkg/dpkg.cfg f4413ffb515f8f753624ae3bb365b81b
+ /etc/logrotate.d/alternatives 5fe0af6ce1505fefdc158d9e5dbf6286
+ /etc/logrotate.d/dpkg 9e25c8505966b5829785f34a548ae11f
+Description: Debian package management system
+This package provides the low-level infrastructure for handling the installation and removal of Debian software packages.
+.
+For Debian package development tools, install dpkg-dev.
+Homepage: https://wiki.debian.org/Teams/Dpkg</pre>
+<p>If a package<a id="_idIndexMarker381"/> is not installed, that command prints <span class="No-Break">an error:</span></p>
+<pre class="source-code">
+$ dpkg -s no-such-package
+dpkg-query: package 'no-such-package' is not installed and no information is available
+Use dpkg --info (= dpkg-deb --info) to examine archive files.</pre>
+<p>If you want to retrieve information about an installed package in an RPM-based system, you can use the same <strong class="source-inline">rpm -qi</strong> command as we used for inspecting a package file; just give it the name of the <a id="_idIndexMarker382"/>package rather than a <span class="No-Break">file path:</span></p>
+<pre class="source-code">
+$ rpm --query --info rpm
+Name        : rpm
+Version     : 4.17.1
+Release     : 3.fc36
+Architecture: x86_64
+Install Date: Tue 09 Aug 2022 03:05:25 PM IST
+Group       : Unspecified
+Size        : 2945888
+License     : GPLv2+
+Signature   : RSA/SHA256, Tue 02 Aug 2022 02:11:12 PM IST,
+Key ID 999f7cbf38ab71f4
+Source RPM  : rpm-4.17.1-3.fc36.src.rpm
+Build Date  : Tue 02 Aug 2022 01:31:56 PM IST
+Build Host  : buildhw-x86-11.iad2.fedoraproject.org
+Packager    : Fedora Project
+Vendor      : Fedora Project
+URL         : http://www.rpm.org/
+Bug URL     : https://bugz.fedoraproject.org/rpm
+Summary     : The RPM package management system
+Description :
+The RPM Package Manager (RPM) is a powerful command line driven package management system capable of installing, uninstalling, verifying, querying, and updating software packages. Each software package consists of an archive of files along with information about the package like its version, a description, etc.</pre>
+<p>If you need to find out what package a file comes from (or whether it belongs to any package at all), there are commands for that task as well. For RPM, it’s <strong class="source-inline">rpm --query --file</strong> (<span class="No-Break"><strong class="source-inline">rpm -qf</strong></span><span class="No-Break">):</span></p>
+<pre class="source-code">
+$ rpm --query --file /usr/bin/rpm
+rpm-4.17.1-3.fc36.x86_64
+$ touch /tmp/test-file
+$ rpm --query --file /tmp/test-file 
+file /tmp/test-file is not owned by any package</pre>
+<p>For <strong class="source-inline">dpkg</strong>, it’s <strong class="source-inline">dpkg --search</strong> (<span class="No-Break"><strong class="source-inline">dpkg -S</strong></span><span class="No-Break">):</span></p>
+<pre class="source-code">
+$ dpkg -S /usr/bin/dpkg
+dpkg: /usr/bin/dpkg
+$ touch /tmp/test-file
+$ dpkg -S /tmp/test-file 
+dpkg-query: no path found matching pattern /tmp/test-file</pre>
+<p>With RPM, it’s <a id="_idIndexMarker383"/>also easy to list all files that belong to a certain package, and the command is the same as we have already used to list the contents of a <span class="No-Break">package file:</span></p>
+<pre class="source-code">
+$ rpm --query --list rpm
+/etc/rpm
+/usr/bin/rpm
+/usr/bin/rpm2archive
+/usr/bin/rpm2cpio
+/usr/bin/rpmdb
+/usr/bin/rpmkeys
+/usr/bin/rpmquery
+/usr/bin/rpmverify
+…</pre>
+<p>For <strong class="source-inline">dpkg</strong>, the equivalent is <strong class="source-inline">dpkg --listfiles</strong> (<strong class="source-inline">dpkg -L</strong>). However, <strong class="source-inline">dpkg</strong> also lists all directories where files or subdirectories from that package can be found, even top-level directories such as <strong class="source-inline">/etc</strong>, while RPM only shows files and directories that were created as a result of installing <span class="No-Break">a package:</span></p>
+<pre class="source-code">
+$ dpkg -L dpkg | head
+/.
+/etc
+/etc/alternatives
+/etc/alternatives/README
+/etc/cron.daily
+/etc/cron.daily/dpkg
+/etc/dpkg
+/etc/dpkg/dpkg.cfg
+/etc/dpkg/dpkg.cfg.d
+/etc/logrotate.d</pre>
+<p>However, installing packages and removing them is a much more frequent task than inspecting installed ones—let’s learn how to <span class="No-Break">do it.</span></p>
+<h2 id="_idParaDest-114"><a id="_idTextAnchor142"/>Installing and removing package files</h2>
+<p>Even the man <a id="_idIndexMarker384"/>page of <strong class="source-inline">dpkg</strong> warns that unpacking a package to the root directory is not the correct way to install it. There are multiple reasons why the installation of a package is not as simple as just copying the files from it to the <span class="No-Break">right places.</span></p>
+<p>Apart from copying files, package managers record the package and its files in an internal database—that is why commands such as <strong class="source-inline">dpkg --listfiles</strong> and <strong class="source-inline">rpm --query --files</strong> can work, and why package managers can reliably delete packages without leaving any unused <span class="No-Break">files behind.</span></p>
+<p>However, package managers also include safeguards against trying to install a package that is guaranteed not to work on the system. For example, this is what will happen if you try to install a package built for ARM64 on an x86_64 (Intel or <span class="No-Break">AMD64) machine:</span></p>
+<pre class="source-code">
+$ wget http://ftp.us.debian.org/debian/pool/main/h/hello/hello_2.10-2_arm64.deb
+$ sudo dpkg --install ./hello_2.10-2_arm64.deb
+dpkg: error processing archive ./hello_2.10-2_arm64.deb (--install):
+package architecture (arm64) does not match system (amd64)
+Errors were encountered while processing:
+./hello_2.10-2_arm64.deb</pre>
+<p>They will also <a id="_idIndexMarker385"/>protect the system from attempts to delete packages that should not be deleted, or at least warn the user about the consequences. Since they track all dependencies between packages, they can force the removal of packages that will become broken if a package they depend on is removed, but by default, they will refuse to delete any package if other packages depend <span class="No-Break">on it.</span></p>
+<p>In Debian-based Linux distributions, there’s a concept of essential packages that are protected from removal attempts. For example, you will get an error if you try to delete Bash since it’s the default <span class="No-Break">system shell:</span></p>
+<pre class="source-code">
+$ sudo dpkg --remove bash
+dpkg: error processing package bash (--remove):
+ this is an essential package; it should not be removed
+Errors were encountered while processing:
+ bash</pre>
+<p>If a package is not essential, you will get a list of dependent packages that prevent <span class="No-Break">its removal:</span></p>
+<pre class="source-code">
+$ sudo dpkg --remove gcc
+dpkg: dependency problems prevent removal of gcc:
+musl-tools depends on gcc.
+g++ depends on gcc (= 4:8.3.0-1).
+dkms depends on gcc.
+build-essential depends on gcc (&gt;= 4:8.3).</pre>
+<p>RPM has a similar functionality and will not allow the user to install packages with unsatisfied (or unsatisfiable, in case of a different architecture) dependencies or remove <span class="No-Break">essential packages.</span></p>
+<p>This is what an attempt to install a package for a different architecture may <span class="No-Break">look like:</span></p>
+<pre class="source-code">
+$ sudo rpm --install hello-2.10-8.fc37.aarch64.rpm
+error: Failed dependencies:
+ld-linux-aarch64.so.1()(64bit) is needed by hello-2.10-8.fc37.aarch64
+ld-linux-aarch64.so.1(GLIBC_2.17)(64bit) is needed by hello-2.10-8.fc37.aarch64</pre>
+<p>And this is what you will get if you try<a id="_idIndexMarker386"/> to remove <span class="No-Break"><strong class="source-inline">rpm</strong></span><span class="No-Break"> itself:</span></p>
+<pre class="source-code">
+$ sudo rpm --erase rpm
+error: Failed dependencies:
+rpm is needed by (installed) policycoreutils-3.3-4.fc36.x86_64
+rpm is needed by (installed) cmake-rpm-macros-3.22.2-1.fc36.noarch
+rpm is needed by (installed) kde-filesystem-4-67.fc36.x86_64
+rpm is needed by (installed) color-filesystem-1-28.fc36.noarch
+rpm is needed by (installed) efi-srpm-macros-5-5.fc36.noarch
+rpm is needed by (installed) lua-srpm-macros-1-6.fc36.noarch
+rpm &gt; 4.15.90-0 is needed by (installed) python3-rpm-generators-12-15.fc36.noarch
+rpm = 4.17.1-3.fc36 is needed by (installed) rpm-libs-4.17.1-3.fc36.x86_64
+rpm = 4.17.1-3.fc36 is needed by (installed) rpm-build-4.17.1-3.fc36.x86_64
+rpm is needed by (installed) rpmautospec-rpm-macros-0.3.0-1.fc36.noarch
+rpm is needed by (installed) python3-rpmautospec-0.3.0-1.fc36.noarch
+rpm &gt;= 4.9.0 is needed by (installed) createrepo_c-0.20.1-1.fc36.x86_64
+rpm &gt;= 4.15 is needed by (installed) fedora-gnat-project-common-3.15-4.fc36.noarch
+rpm &gt;= 4.11.0 is needed by (installed) redhat-rpm-config-222-1.fc36.noarch</pre>
+<p>However, in modern systems, both the installation and removal of packages with <strong class="source-inline">rpm</strong> and <strong class="source-inline">dpkg</strong> are an exception rather than a rule. While they prevent the installation of packages that have missing dependencies, they do not automate the installation of those dependencies, so trying to install a package with a lot of dependencies is a very tedious task. If you were to upgrade your system, you’d also have to upgrade all packages and their dependencies one by one. That’s the main reason why package repositories and high-level package managers <span class="No-Break">were invented.</span></p>
+<h1 id="_idParaDest-115"><a id="_idTextAnchor143"/>Package repositories and high-level package managers</h1>
+<p>Online collections<a id="_idIndexMarker387"/> of packages for Linux distributions have existed for almost as long as the distributions themselves. They saved users’ time searching for compiled packages or building software from source, but if a package had dependencies, the user would still need to download them all one <span class="No-Break">by one.</span></p>
+<p>The next step for distribution maintainers was to create a format for machine-readable metadata from the entire package collection and a tool that would automate that process. Since every package contains information about its dependencies, in the simplest case, you just need to download <span class="No-Break">them all.</span></p>
+<p>In reality, it’s more complicated. Packages may conflict (for example, because they provide an executable with the same name) and there must be a safeguard against attempts to install conflicting packages. If a user tries to install a package from outside the repository, the repository may not have the right versions of its dependencies. Modern high-level package managers check for these and many other possible issues, so most of the time the user can just say “<em class="italic">I want a certain package installed</em>” and the tool will do everything that needs to be done to <span class="No-Break">install it.</span></p>
+<h2 id="_idParaDest-116"><a id="_idTextAnchor144"/>Package repositories</h2>
+<p>A package repository<a id="_idIndexMarker388"/> in the modern sense is a collection of packages that comes with a machine-readable index. The repository index contains information about every package. Essentially, an index aggregates the package metadata files we have seen when inspecting packages with <strong class="source-inline">dpkg --info</strong> and <strong class="source-inline">rpm --</strong><span class="No-Break"><strong class="source-inline">query --info</strong></span><span class="No-Break">.</span></p>
+<p>Websites with information about distribution packages such as <a href="https://www.debian.org/distrib/packages">https://www.debian.org/distrib/packages</a> and <a href="https://packages.fedoraproject.org/">https://packages.fedoraproject.org/</a> are in fact generated from their package repository indices. When we used them to look up and download packages, we essentially did by hand what high-level package managers can <span class="No-Break">do automatically.</span></p>
+<p>Every distribution has its official repositories, and community- or vendor-supported repositories exist for <span class="No-Break">popular distributions.</span></p>
+<h3>Debian-based distribution repositories</h3>
+<p>Repository <a id="_idIndexMarker389"/>configuration in Debian-based distributions can be found in the <strong class="source-inline">/etc/apt/</strong> directory. The main file is <strong class="source-inline">/etc/apt/sources.list</strong> but there may be additional files <span class="No-Break">in </span><span class="No-Break"><strong class="source-inline">/etc/apt/sources.list.d</strong></span><span class="No-Break">.</span></p>
+<p>This is an example of a <strong class="source-inline">sources.list</strong> file from a Debian 10 (Buster) system. Notice that apart from remote repositories, it’s also possible to specify paths to repositories on local media such as optical drives. If you install a Debian system from a CD or DVD, the installer will add that as a repository entry so that you can install additional packages from that disk <span class="No-Break">later on:</span></p>
+<pre class="source-code">
+$ cat /etc/apt/sources.list
+#deb cdrom:[Debian GNU/Linux 10.5.0 _Buster_ - Official amd64 NETINST 20200801-11:34]/ buster main
+#deb cdrom:[Debian GNU/Linux 10.5.0 _Buster_ - Official amd64 NETINST 20200801-11:34]/ buster main
+deb http://deb.debian.org/debian/ buster main
+deb-src http://deb.debian.org/debian/ buster main
+deb http://security.debian.org/debian-security buster/updates main
+deb-src http://security.debian.org/debian-security buster/updates main
+# buster-updates, previously known as 'volatile'
+deb http://deb.debian.org/debian/ buster-updates main
+deb-src http://deb.debian.org/debian/ buster-updates main</pre>
+<p>Debian <a id="_idIndexMarker390"/>also uses different repository components that you can enable or disable. In this example, only the <strong class="source-inline">main</strong> repository is enabled. The <strong class="source-inline">main</strong> repository includes essential packages. Apart from them, there are <strong class="source-inline">contrib</strong> and <strong class="source-inline">non-free</strong> repositories. The <strong class="source-inline">contrib</strong> repository includes a broad selection of additional packages that aren’t as actively maintained as those from <strong class="source-inline">main</strong>. The non-free repository contains packages whose licenses don’t qualify as free software—they are redistributable, but may have restrictions on modifications or distribution of modified versions, or come without <span class="No-Break">source code.</span></p>
+<p>For better or worse, many firmware files required for devices to work are under non-free licenses, so in practice, you may always use <strong class="source-inline">main contrib non-free</strong> rather than just <strong class="source-inline">main</strong> in Debian repository <span class="No-Break">configuration lines.</span></p>
+<p>Notice that the distribution version (<strong class="source-inline">buster</strong>, in this case) is explicitly hardcoded in the configuration file and you will need to change it yourself to upgrade to a new <span class="No-Break">distribution version.</span></p>
+<p>The repository URL is also set explicitly, usually to the mirror site you chose at <span class="No-Break">installation time.</span></p>
+<h3>RPM package repositories</h3>
+<p>Fedora and Red Hat Enterprise Linux (and its derivatives such as CentOS and Rocky Linux) keep <a id="_idIndexMarker391"/>repository files in <strong class="source-inline">/etc/yum.repos.d/</strong>. Most often, there is one file per repository. This is an example of the base Fedora <span class="No-Break">repository file:</span></p>
+<pre class="source-code">
+$ cat /etc/yum.repos.d/fedora.repo
+[fedora]
+name=Fedora $releasever - $basearch
+#baseurl=http://download.example/pub/fedora/linux/releases/$releasever/Everything/$basearch/os/
+metalink=https://mirrors.fedoraproject.org/metalink?repo=fedora-$releasever&amp;arch=$basearch
+enabled=1
+countme=1
+metadata_expire=7d
+repo_gpgcheck=0
+type=rpm
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
+skip_if_unavailable=False
+[fedora-debuginfo]
+name=Fedora $releasever - $basearch – Debug
+#baseurl=http://download.example/pub/fedora/linux/releases/$releasever/Everything/$basearch/debug/tree/
+metalink=https://mirrors.fedoraproject.org/metalink?repo=fedora-debug-$releasever&amp;arch=$basearch
+enabled=0
+metadata_expire=7d
+repo_gpgcheck=0
+type=rpm
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
+skip_if_unavailable=False
+[fedora-source]
+name=Fedora $releasever – Source
+#baseurl=http://download.example/pub/fedora/linux/releases/$releasever/Everything/source/tree/
+metalink=https://mirrors.fedoraproject.org/metalink?repo=fedora-source-$releasever&amp;arch=$basearch
+enabled=0
+metadata_expire=7d
+repo_gpgcheck=0
+type=rpm
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
+skip_if_unavailable=False</pre>
+<p>Notice that there is no explicit reference to the Fedora version anywhere; instead, there are placeholder variables such as <strong class="source-inline">$releasever</strong> and <strong class="source-inline">$basearch</strong>. The high-level management tools automatically <a id="_idIndexMarker392"/>substitute those variables with data from the <span class="No-Break">installed system.</span></p>
+<p>There is also an option to make the system use mirror lists instead of single mirrors for reliability and load balancing. You can specify either a specific mirror in the <strong class="source-inline">baseurl</strong> option or a link to the Metalink protocol to automatically get a mirror <span class="No-Break">list instead.</span></p>
+<h2 id="_idParaDest-117"><a id="_idTextAnchor145"/>High-level package managers</h2>
+<p>As we already <a id="_idIndexMarker393"/>discussed, both <strong class="source-inline">rpm</strong> and <strong class="source-inline">dpkg</strong> were developed at a time when automatically downloading packages over a network was not feasible for most users because most computers only had a slow and intermittent connection to the Internet over a dial-up modem. By the end of the 90s, Internet connections had become significantly faster, so online package repositories became a <span class="No-Break">logical possibility.</span></p>
+<p>The Debian project developed its high-level package manager named APT in 1998 and most Debian-based distributions have been using it <span class="No-Break">since then.</span></p>
+<p>RPM-based distributions developed multiple high-level package managers independently. One reason for that is that many of the RPM-based distributions were created independently in the 90s, while most Debian-based ones are forks of Debian itself that were created after the introduction <span class="No-Break">of APT.</span></p>
+<p>Linux distributions maintained by Red Hat Inc. itself went through multiple high-level package managers, starting from <strong class="source-inline">up2date</strong>, which was mainly meant for their paying customers. That tool was later replaced by YUM, which came from a now-defunct distribution named Yellow Dog Linux. Its name originally meant Yellow dog Updater, Modified. Later, it was replaced by DNF—since the mid-2010s in Fedora and since the eighth release of Red Hat Enterprise Linux in 2019. Older but still supported versions of Red Hat Enterprise Linux and its derivatives continue to use YUM. Luckily for users, while YUM and DNF mostly differ in their internal implementation, their user interface is almost the same—except for the new features of DNF, of course. The name DNF doesn’t officially stand for anything, but originally came <a id="_idIndexMarker394"/>from <span class="No-Break"><strong class="bold">DaNdiFied YUM</strong></span><span class="No-Break">.</span></p>
+<p>The design choices of APT and YUM/DNF are very different, and you need to be aware of those differences when you switch between them. Let’s learn how to use them to <span class="No-Break">install packages.</span></p>
+<h3>Installing and removing packages with YUM or DNF</h3>
+<p>The command to install a package is <strong class="source-inline">dnf install</strong>. Installing a package requires administrative privileges, so you need to remember to run all such commands <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">sudo</strong></span><span class="No-Break">.</span></p>
+<p>When <a id="_idIndexMarker395"/>you run an installation command, YUM and DNF will automatically download package index files from the repository, so you don’t need to take any action to ensure that you have up-to-date repository metadata. A disadvantage of that approach is that sometimes you may have to wait for it to download that metadata, which may take a few minutes or more on very <span class="No-Break">slow connections.</span></p>
+<p>However, the installation process is completely automated. YUM and DNF will show you a list of packages that would be downloaded and installed and how much space they would need. If you say <strong class="source-inline">yes</strong>, it will proceed with the download <span class="No-Break">and installation:</span></p>
+<pre class="source-code">
+$ sudo dnf install hello
+Last metadata expiration check: 0:44:59 ago on Mon 17 Oct 2022 10:06:44 AM IST.
+Dependencies resolved.
+=====================================================================
+ Package      Architecture  Version              Repository     Size
+=====================================================================
+Installing:
+ hello        x86_64        2.10-7.fc36          fedora         70 k
+Transaction Summary
+=====================================================================
+Install  1 Package
+Total download size: 70 k
+Installed size: 179 k
+Is this ok [y/N]: y
+Downloading Packages:
+hello-2.10-7.fc36.x86_64.rpm         278 kB/s |  70 kB     00:00
+---------------------------------------------------------------------
+Total                                147 kB/s |  70 kB     00:00
+Running transaction check
+Transaction check succeeded.
+Running transaction test
+Transaction test succeeded.
+Running transaction
+Preparing        :                                             1/1 
+Installing       : hello-2.10-7.fc36.x86_64                   1/1 
+Running scriptlet: hello-2.10-7.fc36.x86_64                    1/1 
+Verifying        : hello-2.10-7.fc36.x86_64                1/1
+Installed:
+  hello-2.10-7.fc36.x86_64
+Complete!</pre>
+<p>Removing <a id="_idIndexMarker396"/>a package is also straightforward. Just run <strong class="source-inline">dnf </strong><span class="No-Break"><strong class="source-inline">remove hello</strong></span><span class="No-Break">.</span></p>
+<p>Unlike RPM, DNF and YUM do have a concept of protected packages, so they will outright refuse to delete essential packages such as <strong class="source-inline">bash</strong> <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">rpm</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ sudo dnf remove bash
+Error:
+ Problem: The operation would result in removing the following protected packages: dnf
+(try to add '--skip-broken' to skip uninstallable packages)</pre>
+<p>This protection from erroneous user actions is a significant reason to use YUM or DNF to remove packages despite the fact that RPM is technically sufficient for <span class="No-Break">that task.</span></p>
+<h3>Installing and removing packages with APT</h3>
+<p>APT uses a <a id="_idIndexMarker397"/>different approach to metadata download: it leaves that operation to the user. Unlike YUM and DNF, APT will never automatically download repository indices, so on a freshly deployed Debian-based system, trying to search for or install packages will give you a <em class="italic">package not </em><span class="No-Break"><em class="italic">found</em></span><span class="No-Break"> error.</span></p>
+<p class="callout-heading">Note</p>
+<p class="callout">APT consists of sub-tools for different purposes: <strong class="source-inline">apt-get</strong> for repository index updates and package actions (such as installing, removing, or listing package files), and <strong class="source-inline">apt-cache</strong> for package search. In modern Debian versions, you will find a combined tool named <strong class="source-inline">apt</strong>. You may also want to use an alternative frontend named <strong class="source-inline">aptitude</strong>, which we will <span class="No-Break">discuss later.</span></p>
+<p>Before you can install anything, you need to force the repository index download with <strong class="source-inline">apt-get update</strong> or <strong class="source-inline">apt update</strong>. <strong class="source-inline">update</strong> in its name refers only to a metadata update, not to a <span class="No-Break">package update:</span></p>
+<pre class="source-code">
+$ sudo apt-get update
+Get:1 http://deb.debian.org/debian buster InRelease [122 kB]
+Get:2 http://security.debian.org/debian-security buster/updates InRelease [34.8 kB]
+                                                                      
+                                             Get:3 http://deb.debian.org/debian buster-updates InRelease [56.6 kB]
+...</pre>
+<p>After that, you <a id="_idIndexMarker398"/>can search for packages with <strong class="source-inline">apt-cache search</strong> or <strong class="source-inline">apt search</strong> and install them with <strong class="source-inline">apt install</strong> or <span class="No-Break"><strong class="source-inline">apt-get install</strong></span><span class="No-Break">.</span></p>
+<p>For example, with the following command, you can install the <strong class="source-inline">hello</strong> package automatically from the repositories, without having to download it <span class="No-Break">by hand:</span></p>
+<pre class="source-code">
+$ sudo apt install hello
+Reading package lists... Done
+Building dependency tree       
+Reading state information... Done
+The following NEW packages will be installed:
+  hello
+0 upgraded, 1 newly installed, 0 to remove and 124 not upgraded.
+Need to get 56.1 kB of archives.
+After this operation, 287 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian buster/main amd64 hello amd64 2.10-2 [56.1 kB]
+Fetched 56.1 kB in 0s (1,385 kB/s)
+Selecting previously unselected package hello.
+(Reading database ... 113404 files and directories currently installed.)
+Preparing to unpack .../hello_2.10-2_amd64.deb …
+Unpacking hello (2.10-2) …
+Setting up hello (2.10-2) …
+Processing triggers for man-db (2.8.5-2) …
+$ hello
+Hello, world!</pre>
+<p>APT also includes protection against the removal of essential packages. Trying to remove <strong class="source-inline">bash</strong>, for example, will require a <span class="No-Break">special confirmation:</span></p>
+<pre class="source-code">
+$ sudo apt remove bash
+Reading package lists... Done
+Building dependency tree       
+Reading state information... Done
+The following packages will be REMOVED:
+  bash
+WARNING: The following essential packages will be removed.
+This should NOT be done unless you know exactly what you are doing!
+  bash
+0 upgraded, 0 newly installed, 1 to remove and 124 not upgraded.
+After this operation, 6,594 kB disk space will be freed.
+You are about to do something potentially harmful.
+To continue type in the phrase 'Yes, do as I say!'
+ ?]</pre>
+<p>Needless to say, you should not do this unless you are absolutely certain that what you are doing is safe—for example, if you have made sure that every user uses a shell other than Bash and there are no scripts in the system that require Bash rather than a POSIX <span class="No-Break">Bourne shell.</span></p>
+<p>Removing a<a id="_idIndexMarker399"/> non-essential package, such as <strong class="source-inline">hello</strong>, will not raise any <span class="No-Break">such errors:</span></p>
+<pre class="source-code">
+$ sudo apt-get remove hello
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following packages will be REMOVED:
+  hello
+0 upgraded, 0 newly installed, 1 to remove and 0 not upgraded.
+After this operation, 284 kB disk space will be freed.
+Do you want to continue? [Y/n] Y
+(Reading database ... 72242 files and directories currently installed.)
+Removing hello (2.10-3) ...
+$ hello
+bash: /usr/bin/hello: No such file or directory</pre>
+<p>There is also the <strong class="source-inline">apt-get purge</strong> command, which removes not only executables and data files but also <a id="_idIndexMarker400"/>all configuration files associated with the package. Most of the time, <strong class="source-inline">apt-get remove</strong> is sufficient, but to remove a package such as a web server, you may prefer <strong class="source-inline">apt-get </strong><span class="No-Break"><strong class="source-inline">purge</strong></span><span class="No-Break"> instead.</span></p>
+<h2 id="_idParaDest-118"><a id="_idTextAnchor146"/>Searching for packages</h2>
+<p>Both<a id="_idIndexMarker401"/> APT and YUM/DNF provide a search command, so if you don’t know the exact name of a package, you can search for it. However, they search for a pattern in every field but only display the name and the short description by default, so search results may look odd and include entries that seem to have nothing to do with <span class="No-Break">your request.</span></p>
+<p>For example, let’s try to search for the <strong class="source-inline">hello</strong> package on a <span class="No-Break">Debian system:</span></p>
+<pre class="source-code">
+$ apt-cache search hello
+junior-system - Debian Jr. System tools
+elpa-find-file-in-project - quick access to project files in Emacs
+python-flask - micro web framework based on Werkzeug and Jinja2 - Python 2.7
+...
+libghc-lambdabot-misc-plugins-prof - Lambdabot miscellaneous plugins; profiling libraries
+hello - example package based on GNU hello
+hello-traditional - example package not using any helper package
+iagno - popular Othello game for GNOME</pre>
+<p>Sometimes, you may want to search for a package that provides a certain command or a library file (for example, if you are getting a script error that complains that it <span class="No-Break">wasn’t found).</span></p>
+<p>In YUM and DNF, there is a built-in option for that: <strong class="source-inline">whatprovides</strong>. It supports both exact file paths and wildcard matches. Suppose you want to install a package that provides a <strong class="source-inline">hello</strong> command. Executable files of commands are always in some <strong class="source-inline">bin/</strong> directory, but we don’t know whether it’s going to be <strong class="source-inline">/bin</strong>, <strong class="source-inline">/usr/bin</strong>, <strong class="source-inline">/usr/sbin</strong>, or something else. However, we can search for <strong class="source-inline">*/bin/hello</strong> to find any executable with that name in any package. It will include some irrelevant results, but it will tell us what we want <span class="No-Break">to know:</span></p>
+<pre class="source-code">
+$ dnf whatprovides '*/bin/hello'
+hello-2.10-7.fc36.x86_64 : Prints a familiar, friendly greeting
+Repo        : fedora
+Matched from:
+Filename    : /usr/bin/hello
+rr-testsuite-5.5.0-3.fc36.x86_64 : Testsuite for checking rr functionality
+Repo        : fedora
+Matched from:
+Filename    : /usr/lib64/rr/testsuite/obj/bin/hello
+rr-testsuite-5.6.0-1.fc36.x86_64 : Testsuite for checking rr functionality
+Repo        : updates
+Matched from:
+Filename    : /usr/lib64/rr/testsuite/obj/bin/hello</pre>
+<p>In Debian-based <a id="_idIndexMarker402"/>systems, it’s not that simple. You will need to install an optional <strong class="source-inline">apt-file</strong> tool (<strong class="source-inline">apt-get install apt-file</strong>) and run <strong class="source-inline">apt-file update</strong> to download <span class="No-Break">additional indices.</span></p>
+<p>It also doesn’t support wildcard matching, so if you don’t know the exact path, you will need to supply a Perl-compatible regular expression for <span class="No-Break">your search:</span></p>
+<pre class="source-code">
+$ apt-file search --regexp '(.*)/bin/hello'
+Searching, found 10 results so far ...    
+hello: /usr/bin/hello                 
+hello-traditional: /usr/bin/hello
+libpion-dev: /usr/bin/helloserver
+pvm-examples: /usr/bin/hello.pvm
+pvm-examples: /usr/bin/hello_other</pre>
+<p>As you can see, YUM and DNF provide more functionality out of the box, while APT may require installing additional packages. Nonetheless, it should be possible to execute the same search operations with all of <span class="No-Break">those tools.</span></p>
+<h1 id="_idParaDest-119"><a id="_idTextAnchor147"/>System upgrade</h1>
+<p>Another advantage of high-level package managers is that they automate the upgrade of the entire system (or at least packages installed <span class="No-Break">from repositories).</span></p>
+<h2 id="_idParaDest-120"><a id="_idTextAnchor148"/>Upgrading a system with YUM or DNF</h2>
+<p>The command to <a id="_idIndexMarker403"/>upgrade all packages is <strong class="source-inline">dnf upgrade</strong> or <strong class="source-inline">yum upgrade</strong>. To force a repository index download, you can add <strong class="source-inline">--refresh</strong>. In some cases, you will also want to remove conflicting or outdated packages to complete an upgrade; in that <a id="_idIndexMarker404"/>case, you may need <strong class="source-inline">dnf </strong><span class="No-Break"><strong class="source-inline">upgrade --allowerasing</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ sudo dnf upgrade
+Last metadata expiration check: 1:33:10 ago on Mon 17 Oct 2022 10:06:44 AM IST.
+Dependencies resolved.
+============================================================
+Package                 Arch   Version         Repo     Size
+============================================================
+Installing:
+kernel                  x86_64 5.19.15-201.fc36      updates  264 k
+kernel-core             x86_64 5.19.15-201.fc36      updates   49 M
+kernel-devel            x86_64 5.19.15-201.fc36      updates   16 M
+kernel-modules          x86_64 5.19.15-201.fc36      updates   58 M
+kernel-modules-extra    x86_64 5.19.15-201.fc36      updates  3.7 M
+Upgrading:
+amd-gpu-firmware        noarch 20221012-141.fc36     updates   15 M
+ansible-srpm-macros     noarch 1-8.1.fc36            updates  8.5 k
+appstream               x86_64 0.15.5-1.fc36         updates  668 k
+bash                    x86_64 5.2.2-2.fc36          updates  1.8 M
+...
+Installing dependencies:
+ iir1                    x86_64 1.9.3-1.fc36          updates   27 k
+Removing:
+kernel                  x86_64 5.19.11-200.fc36      @updates   0  
+kernel-core             x86_64 5.19.11-200.fc36      @updates  92 M
+kernel-devel            x86_64 5.19.11-200.fc36      @updates  65 M
+kernel-modules          x86_64 5.19.11-200.fc36      @updates  57 M
+kernel-modules-extra    x86_64 5.19.11-200.fc36      @updates 3.4 M
+Removing dependent packages:
+ kmod-VirtualBox-5.19.11-200.fc36.x86_64
+                         x86_64 6.1.38-1.fc36         @@commandline
+                                                               160 k
+Transaction Summary
+============================================================
+Install   6 Packages
+Upgrade  77 Packages
+Remove    6 Packages
+Total download size: 433 M
+Is this ok [y/N]:</pre>
+<p>If you say <strong class="source-inline">yes</strong>, it will automatically download new package versions and overwrite old packages <span class="No-Break">with them.</span></p>
+<p>Upgrading a <a id="_idIndexMarker405"/>Fedora system to a new distribution version requires a different procedure, however. This is only possible with DNF and needs a plugin available from Fedora repositories. The command sequence to upgrade an older system to Fedora 36 (the current version in 2022) would be <span class="No-Break">as follows:</span></p>
+<pre class="source-code">
+$ sudo dnf upgrade --refresh
+$ sudo dnf install dnf-plugin-system-upgrade
+$ sudo dnf system-upgrade download --releasever=36
+$ sudo dnf system-upgrade reboot</pre>
+<p>The <strong class="source-inline">dnf system-upgrade download --releasever=36</strong> command will download all packages required to upgrade to a new version and run a transaction check. On rare occasions, you will need to remove certain packages if they are no longer available in a new Fedora version. If the check is successful, you can start the upgrade procedure with <strong class="source-inline">dnf system-upgrade reboot</strong>—your system will boot into a minimal environment to perform the upgrade, then boot to the new Fedora version <span class="No-Break">as normal.</span></p>
+<h2 id="_idParaDest-121"><a id="_idTextAnchor149"/>Upgrading a system with APT</h2>
+<p>APT <a id="_idIndexMarker406"/>includes upgrade commands with different functionality instead of using modifier options as YUM and <span class="No-Break">DNF do:</span></p>
+<ul>
+<li><strong class="source-inline">apt upgrade</strong> and <strong class="source-inline">apt-get upgrade</strong> will only upgrade installed packages to newer versions if they are available, but never perform any <span class="No-Break">other actions</span></li>
+<li><strong class="source-inline">apt full-upgrade</strong> or <strong class="source-inline">apt-get dist-upgrade</strong> may remove packages if it’s required to upgrade the system as <span class="No-Break">a whole</span></li>
+</ul>
+<p>Most of the time, you should use <strong class="source-inline">apt-get dist-upgrade</strong> because when you update packages within the same distribution version, package removal events are incredibly rare, while if you upgrade to a new distribution version, there will not be a way around it—you will need to have them removed one way or another before you <span class="No-Break">can upgrade.</span></p>
+<p>This is what a typical package update will <span class="No-Break">look like:</span></p>
+<pre class="source-code">
+$ sudo apt-get dist-upgrade
+Reading package lists... Done
+Building dependency tree       
+Reading state information... Done
+Calculating upgrade... Done
+The following package was automatically installed and is no longer required:
+  linux-image-4.19.0-10-amd64
+Use 'sudo apt autoremove' to remove it.
+The following NEW packages will be installed:
+  linux-headers-4.19.0-22-amd64 linux-headers-4.19.0-22-common linux-image-4.19.0-22-amd64
+The following packages will be upgraded:
+  base-files bind9-host bzip2 curl ... open-vm-tools openjdk-11-jre openjdk-11-jre-headless
+  openssl publicsuffix python-paramiko qemu-utils rsyslog tzdata unzip vim vim-common vim-runtime vim-tiny xxd xz-utils zlib1g zlib1g-dev
+124 upgraded, 3 newly installed, 0 to remove and 0 not upgraded.
+Need to get 186 MB of archives.
+After this operation, 330 MB of additional disk space will be used.
+Do you want to continue? [Y/n]</pre>
+<p>Upgrading a<a id="_idIndexMarker407"/> Debian-based system to a new distribution version is more involved. You will need to look up the codename of the new version and replace the old one in your repository configuration files. For example, if you are upgrading from Debian 10 to 11, you need to replace every occurrence of <strong class="source-inline">buster</strong> (the codename of Debian 10) with <strong class="source-inline">bullseye</strong> (the codename of Debian 11), then run <strong class="source-inline">apt-get dist-upgrade</strong> and reboot <span class="No-Break">your system.</span></p>
+<p>As you can see, system-wide upgrade procedures are conceptually similar in Red Hat and Debian-based distributions, even if the exact commands and implementation <span class="No-Break">details differ.</span></p>
+<h1 id="_idParaDest-122"><a id="_idTextAnchor150"/>Summary</h1>
+<p>In this chapter, we learned about low-level and high-level package managers used by popular Linux distributions. We learned how to install and remove packages using DNF and APT and how to perform a system upgrade. We also learned how to inspect package files by hand and interpret their internal structure—while that task is much less frequent, it’s important to know to have a deeper understanding of software packaging and the package management process. However, package managers offer a lot of additional options and capabilities, so make sure to read <span class="No-Break">their documentation.</span></p>
+<p>In the next chapter, we will learn about network configuration and debugging in <span class="No-Break">Linux systems.</span></p>
+<h1 id="_idParaDest-123"><a id="_idTextAnchor151"/>Further reading</h1>
+<ul>
+<li>RPM <span class="No-Break">documentation: </span><a href="http://rpm.org/documentation.xhtml"><span class="No-Break">http://rpm.org/documentation.xhtml</span></a></li>
+<li><span class="No-Break">dpkg: </span><a href="https://www.dpkg.org/"><span class="No-Break">https://www.dpkg.org/</span></a></li>
+<li>DNF <span class="No-Break">documentation: </span><a href="https://dnf.readthedocs.io/en/latest/"><span class="No-Break">https://dnf.readthedocs.io/en/latest/</span></a></li>
+<li>APT <span class="No-Break">documentation: </span><a href="https://wiki.debian.org/PackageManagement"><span class="No-Break">https://wiki.debian.org/PackageManagement</span></a></li>
+</ul>
+</div>
+</div></body></html>

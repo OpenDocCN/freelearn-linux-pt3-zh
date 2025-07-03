@@ -1,0 +1,341 @@
+<html><head></head><body>
+		<div id="_idContainer026">
+			<h1 id="_idParaDest-76"><em class="italic"><a id="_idTextAnchor077"/>Chapter 6</em>: Understanding systemd Targets</h1>
+			<p>In this chapter, we'll look at what <strong class="source-inline">systemd</strong> targets are, and what they can do for us. Now, I have to tell you that there is a bit of confusion that surrounds this topic, and I hope to clear that up.</p>
+			<p>Specific topics covered in this chapter include the following:</p>
+			<ul>
+				<li>Understanding the purpose of <strong class="source-inline">systemd</strong> targets</li>
+				<li>Understanding the structure of a target file</li>
+				<li>Comparing <strong class="source-inline">systemd</strong> targets to SysVinit run levels</li>
+				<li>Understanding target dependencies</li>
+				<li>Changing the default target</li>
+				<li>Temporarily changing the target</li>
+			</ul>
+			<p>Understanding targets is important and can help you out either in the server room or in your own home. If you're ready, let's get started.</p>
+			<h1 id="_idParaDest-77"><a id="_idTextAnchor078"/>Technical requirements</h1>
+			<p>For this chapter, you'll need a virtual machine that's running with a graphical desktop environment. I'll be using my <em class="italic">AlmaLinux virtual machine</em>, which is running with the <em class="italic">Gnome 3 desktop</em>.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/3Dgar9d">https://bit.ly/3Dgar9d</a></p>
+			<p>As always, this is hands-on, so feel free to follow along.</p>
+			<h1 id="_idParaDest-78"><a id="_idTextAnchor079"/>Understanding the purpose of systemd targets</h1>
+			<p>The legacy <strong class="bold">SysVinit</strong> system<a id="_idIndexMarker142"/> has <em class="italic">runlevels</em>, which define which <a id="_idIndexMarker143"/>services are to automatically start when the operating system enters a certain run state. For example, entering the graphical runlevel would bring up all of the services that allow the graphical mode to properly function. In <strong class="source-inline">systemd</strong>, we have <em class="italic">targets</em> instead of runlevels. Several of these targets perform the same function that runlevels used to. That part is easy to understand.</p>
+			<p>Where the confusion comes in is that targets are more than just runlevels. As we'll soon see, there are many different targets, all with their own specific purposes. In <strong class="source-inline">systemd</strong>, a target is a unit that groups together other <strong class="source-inline">systemd</strong> units for a particular purpose. The units that a target can group together include services, paths, mount points, sockets, and even other targets.</p>
+			<p>By doing a <strong class="source-inline">systemctl list-units -t target</strong> command, you can see all of the active targets on<a id="_idIndexMarker144"/> your system, which should look like this:</p>
+			<div>
+				<div id="_idContainer019" class="IMG---Figure">
+					<img src="image/Figure_6.1_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 6.1 – Active targets on AlmaLinux</p>
+			<p>Add the <strong class="source-inline">--inactive</strong> option<a id="_idIndexMarker145"/> to see the inactive targets:</p>
+			<div>
+				<div id="_idContainer020" class="IMG---Figure">
+					<img src="image/Figure_6.2_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 6.2 – Inactive targets on AlmaLinux</p>
+			<p>You can probably <a id="_idIndexMarker146"/>figure out what a lot of these targets are doing just by looking at their names. For the ones that aren't so obvious, either just look in the <strong class="source-inline">systemd.special</strong> man page or search for a man page with a particular target name.</p>
+			<p>Next, let's peek inside a few of these target files to see what we can see.</p>
+			<h1 id="_idParaDest-79"><a id="_idTextAnchor080"/>Understanding the structure of a target file</h1>
+			<p>As I've said before, the<a id="_idIndexMarker147"/> best way to learn <strong class="source-inline">systemd</strong> is to look at examples of the various unit files. In this section, we'll look at some <strong class="source-inline">.target</strong> files.</p>
+			<h2 id="_idParaDest-80"><a id="_idTextAnchor081"/>Understanding the sockets.target file</h2>
+			<p>Let's start <a id="_idIndexMarker148"/>with the <strong class="source-inline">sockets.target</strong> file, which is one of the simplest targets we have:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Sockets</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p>Yeah, that's it, the entire file. The <strong class="source-inline">[Unit]</strong> section is the only section it has, and it only consists of the <strong class="source-inline">Description=</strong> line and the <strong class="source-inline">Documentation=</strong> line. At first glance, you would think that this can't possibly be doing anything for us. But that's where you'd be wrong. Look in the <strong class="source-inline">/etc/systemd/system/sockets.target.wants</strong> directory, and you'll<a id="_idIndexMarker149"/> see that this target is just a group of all the sockets that we need to have running:</p>
+			<p class="source-code">[donnie@localhost sockets.target.wants]$ ls -l</p>
+			<p class="source-code">total 0</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 43 May  1 17:27 avahi-daemon.socket -&gt; /usr/lib/systemd/system/avahi-daemon.socket</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 35 May  1 17:31 cups.socket -&gt; /usr/lib/systemd/system/cups.socket</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 39 May  1 17:34 sssd-kcm.socket -&gt; /usr/lib/systemd/system/sssd-kcm.socket</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 40 May  1 17:27 virtlockd.socket -&gt; /usr/lib/systemd/system/virtlockd.socket</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 39 May  1 17:27 virtlogd.socket -&gt; /usr/lib/systemd/system/virtlogd.socket</p>
+			<p class="source-code">[donnie@localhost sockets.target.wants]$</p>
+			<p>To see how this works, let's look inside the <strong class="source-inline">cups.socket</strong> file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=CUPS Scheduler</p>
+			<p class="source-code">PartOf=cups.service</p>
+			<p class="source-code">[Socket]</p>
+			<p class="source-code">ListenStream=/var/run/cups/cups.sock</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=sockets.target</p>
+			<p>You can see in the <strong class="source-inline">[Install]</strong> section that this socket is wanted by <strong class="source-inline">sockets.target</strong>. In other words, this socket for the <strong class="bold">Common Unix Printing System</strong> (<strong class="bold">CUPS</strong>) will <a id="_idIndexMarker150"/>be activated whenever <strong class="source-inline">sockets.target</strong> is activated. Of course, <strong class="source-inline">sockets.target</strong> is already active by default on pretty much any Linux system, so you normally won't have to worry about activating it yourself. <strong class="source-inline">cups.socket</strong> is also<a id="_idIndexMarker151"/> normally active by default, but you might not always need it. Let's say that you're running a text-mode server, and you know for a fact that you'll never need to print anything from it. You can disable <strong class="source-inline">cups.socket</strong> the same way that you'd disable a service:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl disable --now cups.socket </p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">Removed /etc/systemd/system/sockets.target.wants/cups.socket.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>When you do this, the associated <strong class="source-inline">cups.service</strong> is still running, so you'll also need to stop and disable it. If you change your mind, you can always re-enable the service and the socket.</p>
+			<h2 id="_idParaDest-81"><a id="_idTextAnchor082"/>Understanding dependencies in the sshd.service file</h2>
+			<p>We've already<a id="_idIndexMarker152"/> looked at the <strong class="source-inline">sshd.service</strong> file, but it's worthwhile to look at it again. To save space, I'll just show the <strong class="source-inline">[Unit]</strong> and <strong class="source-inline">[Install]</strong> sections, which are the only two sections that we need to look at.</p>
+			<h3>The [Unit] and [Install] sections</h3>
+			<p>Here<a id="_idIndexMarker153"/> are <a id="_idIndexMarker154"/>the <strong class="source-inline">[Unit]</strong> and <strong class="source-inline">[Install]</strong> sections <a id="_idIndexMarker155"/>of<a id="_idIndexMarker156"/> the <strong class="source-inline">sshd.service</strong> file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=OpenSSH server daemon</p>
+			<p class="source-code">Documentation=man:sshd(8) man:sshd_config(5)</p>
+			<p class="source-code">After=network.target sshd-keygen.target</p>
+			<p class="source-code">Wants=sshd-keygen.target</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=multi-user.target</p>
+			<p>We've already seen the <strong class="source-inline">WantedBy=multi-user.target</strong> line in the <strong class="source-inline">[Install]</strong> section, which means that the secure shell service will automatically start when the machine boots into multi-user mode.</p>
+			<p>In the <strong class="source-inline">[Unit]</strong> section of the <strong class="source-inline">sshd.service</strong> file, we see that <strong class="source-inline">sshd.service</strong> won't<a id="_idIndexMarker157"/> start <a id="_idIndexMarker158"/>until after <strong class="source-inline">network.target</strong> and <strong class="source-inline">sshd-keygen.target</strong> have started.</p>
+			<p>Now, let's see what's in the <strong class="source-inline">network.target</strong> file.</p>
+			<h3>Understanding passive targets</h3>
+			<p>The <strong class="source-inline">network.target</strong> file<a id="_idIndexMarker159"/> looks<a id="_idIndexMarker160"/> like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Network</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">Documentation=https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget</p>
+			<p class="source-code">After=network-pre.target</p>
+			<p class="source-code">RefuseManualStart=yes</p>
+			<p>One interesting thing here is the <strong class="source-inline">RefuseManualStart=yes</strong> line that we see at the end. This just means that this target will start automatically and that we can't start it ourselves. This is why we consider <strong class="source-inline">network.target</strong> as a <em class="italic">passive</em> target. We also see that <strong class="source-inline">network.target</strong> will start after <strong class="source-inline">network-pre.target</strong>, which is also a passive target.</p>
+			<p>What's even more interesting, and a bit curious, is that this <strong class="source-inline">network.target</strong> doesn't appear to be doing anything for us. I mean, there's no code here that's really doing anything; it <a id="_idIndexMarker161"/>doesn't appear to be starting any <a id="_idIndexMarker162"/>services, and there's no <strong class="source-inline">.wants</strong> directory under the <strong class="source-inline">/etc/systemd/system/</strong> directory that would allow us to add services to it. We can see that here:</p>
+			<p class="source-code">[donnie@localhost system]$ pwd</p>
+			<p class="source-code">/etc/systemd/system</p>
+			<p class="source-code">[donnie@localhost system]$ ls -l network.target.wants</p>
+			<p class="source-code">ls: cannot access 'network.target.wants': No such file or directory</p>
+			<p class="source-code">[donnie@localhost system]$</p>
+			<p>So, what's going on here? Well, this is one of those things that takes a bit of detective work to find out, because the developers of <strong class="source-inline">systemd</strong> don't document it well. The answer is that several targets are <em class="italic">hardcoded</em> into the <strong class="source-inline">systemd</strong> executable file. <strong class="source-inline">network.target</strong> is one example. To get a bit of a clue about this, we can use the <strong class="source-inline">strings</strong> utility to view any text strings that might be in the <strong class="source-inline">systemd</strong> executable file. The command to use it is:</p>
+			<p class="source-code">[donnie@localhost systemd]$ pwd</p>
+			<p class="source-code">/lib/systemd</p>
+			<p class="source-code">[donnie@localhost systemd]$ strings systemd | grep '\.target'</p>
+			<p>The output should look something like this:</p>
+			<div>
+				<div id="_idContainer021" class="IMG---Figure">
+					<img src="image/Figure_6.3_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 6.3 – Targets that are hardcoded into the systemd executable</p>
+			<p>Understand <a id="_idIndexMarker163"/>that not all of these hardcoded <a id="_idIndexMarker164"/>targets are passive targets. For example, at the top of the list, you see several targets that have to do with powering down the machine, rebooting the machine, or rescuing the machine. (I'm talking about everything down to <strong class="source-inline">emergency.target</strong>.) These are targets that we can definitely invoke ourselves.</p>
+			<p>Passive targets are automatically started during the system initialization portion of the boot process. <strong class="source-inline">network.target</strong> gets activated when the machine is able to reach the network. By placing <strong class="source-inline">After=network.target</strong> in the <strong class="source-inline">[Unit]</strong> section of the <strong class="source-inline">sshd.service</strong> file, we ensure that the Secure Shell service won't start until after the network<a id="_idIndexMarker165"/> is <a id="_idIndexMarker166"/>activated and available.</p>
+			<h3>Understanding service templates</h3>
+			<p>To refresh <a id="_idIndexMarker167"/>our memories, let's take <a id="_idIndexMarker168"/>another look at the <strong class="source-inline">[Unit]</strong> section of our <strong class="source-inline">sshd.service</strong> file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=OpenSSH server daemon</p>
+			<p class="source-code">Documentation=man:sshd(8) man:sshd_config(5)</p>
+			<p class="source-code">After=network.target sshd-keygen.target</p>
+			<p class="source-code">Wants=sshd-keygen.target</p>
+			<p>We see that <strong class="source-inline">sshd.service</strong> wants <strong class="source-inline">sshd-keygen.target</strong>, and is not to start until after <strong class="source-inline">sshd-keygen.target</strong> has started. Let's peek inside the <strong class="source-inline">sshd-keygen.target</strong> file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Wants=sshd-keygen@rsa.service</p>
+			<p class="source-code">Wants=sshd-keygen@ecdsa.service</p>
+			<p class="source-code">Wants=sshd-keygen@ed25519.service</p>
+			<p class="source-code">PartOf=sshd.service</p>
+			<p>We see that <strong class="source-inline">sshd.target</strong> wants <strong class="source-inline">sshd-keygen@.service</strong> three different times. The <strong class="source-inline">@</strong> symbol in the filename indicates that this is a service <em class="italic">template</em>. When we invoke a service template, we'll place the value of a variable after the <strong class="source-inline">@</strong> symbol, which allows us to run a service multiple times with different parameters. To see what I'm talking about, let's look inside the <strong class="source-inline">sshd-keygen@.service</strong> file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=OpenSSH %i Server Key Generation</p>
+			<p class="source-code">ConditionFileNotEmpty=|!/etc/ssh/ssh_host_%i_key</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">Type=oneshot</p>
+			<p class="source-code">EnvironmentFile=-/etc/sysconfig/sshd</p>
+			<p class="source-code">ExecStart=/usr/libexec/openssh/sshd-keygen %i</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=sshd-keygen.target</p>
+			<p>The first thing<a id="_idIndexMarker169"/> to note is the <strong class="source-inline">%i</strong> variable. In <a id="_idIndexMarker170"/>the <strong class="source-inline">sshd-keygen.target</strong> file, we see that the three values for this variable are <strong class="source-inline">rsa</strong>, <strong class="source-inline">ecdsa</strong>, and <strong class="source-inline">ed25519</strong>. These values represent the three types of secure shell keys that we want on our system.</p>
+			<p>The <strong class="source-inline">ConditionFileNotEmpty=|!/etc/ssh/ssh_host_%i_key</strong> line verifies whether or not these three key files already exist. On my AlmaLinux system, the keys look like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ cd /etc/ssh</p>
+			<p class="source-code">[donnie@localhost ssh]$ ls -l *key</p>
+			<p class="source-code">-rw-r-----. 1 root ssh_keys  492 Feb 11 18:29 ssh_host_ecdsa_key</p>
+			<p class="source-code">-rw-r-----. 1 root ssh_keys  387 Feb 11 18:29 ssh_host_ed25519_key</p>
+			<p class="source-code">-rw-r-----. 1 root ssh_keys 2578 Feb 11 18:29 ssh_host_rsa_key</p>
+			<p class="source-code">[donnie@localhost ssh]$</p>
+			<p>In this <strong class="source-inline">ConditionFileNotEmpty=</strong> line, the <strong class="source-inline">!</strong> means that we're looking for the <em class="italic">absence</em> of these three key files. The pipe symbol (<strong class="source-inline">|</strong>) that's before the <strong class="source-inline">!</strong> is the <em class="italic">trigger </em>symbol. When you put both of these symbols together, it means that nothing will happen if the three key files already exist. But if the key files <em class="italic">don't</em> exist, the <strong class="source-inline">|</strong> symbol will cause this service to run in order to create them.</p>
+			<p>In the <strong class="source-inline">[Service]</strong> section, we see the <strong class="source-inline">ExecStart=/usr/libexec/openssh/sshd-keygen %i</strong> line. This will cause the <strong class="source-inline">sshd-keygen</strong> command to run once for every value of the <strong class="source-inline">%i</strong> variable that's defined in <strong class="source-inline">sshd-keygen.target</strong>. Each time it runs, it will create one of the three key files that we need.</p>
+			<p>The last thing to look at here is the <strong class="source-inline">Type=oneshot</strong> line, which is also in the <strong class="source-inline">[Service]</strong> section. This causes the service to just run as a normal script that performs some specified one-time task, instead of as a continuously running daemon. After the specified<a id="_idIndexMarker171"/> commands have run, the service <a id="_idIndexMarker172"/>shuts down.</p>
+			<p>Okay, we've seen what targets are, and we've seen a few simple examples. Now, let's look at the targets that have replaced the old-fashioned runlevels.</p>
+			<h1 id="_idParaDest-82"><a id="_idTextAnchor083"/>Comparing systemd targets to SysVinit runlevels</h1>
+			<p>The old SysV<a id="_idIndexMarker173"/> runlevels defined which services <a id="_idIndexMarker174"/>would run when the operating system reached a certain state. It was a simple concept, except that there were four different sets of runlevel definitions that a Linux user would have to know. There was the generic set, which was created by the big Linux gurus at the Linux Foundation as part of the <em class="italic">Linux Standard Base</em>. The Red Hat definitions were almost identical to the generic ones. The <em class="italic">Slackware</em> and <em class="italic">Debian</em> developers basically came out of left field and created their own definitions that didn't look anything like the generic ones. (Of course, Slackware and Debian are the two oldest surviving Linux distros, so it's possible that they might have created their own definitions before the Linux Foundation gurus created the generic definitions.) This made things a bit confusing for new Linux users, especially for those of us who had to study for the Linux Professional Institute certification exam. It also made things a bit difficult for developers who needed to create new services that would run on all the different families of Linux distros. Fortunately, all we need to consider for now is the generic definitions, and how they compare to the <strong class="source-inline">systemd</strong> targets. Let's look at the following table:</p>
+			<div>
+				<div id="_idContainer022" class="IMG---Figure">
+					<img src="image/B17491_06_Table_01.jpg" alt=""/>
+				</div>
+			</div>
+			<p>In <strong class="source-inline">systemd</strong>, there <a id="_idIndexMarker175"/>are some runlevel-type targets that<a id="_idIndexMarker176"/> have no SysV counterparts:</p>
+			<ul>
+				<li><strong class="source-inline">emergency.target</strong> is like <strong class="source-inline">rescue.target</strong>, except that filesystems are mounted as read-only.</li>
+				<li><strong class="source-inline">hibernate.target</strong> saves the system state and then powers down the machine.</li>
+				<li><strong class="source-inline">suspend.target</strong> just puts the system to sleep without powering it down.</li>
+			</ul>
+			<p><strong class="source-inline">hibernate.target</strong> and <strong class="source-inline">suspend.target</strong>, which aren't needed on server implementations of Linux, are a big help to the growing numbers of people who use Linux on laptop and desktop computers. Prior to systemd, there was no good, standardized way of implementing these features.</p>
+			<p>Note that in the official generic definition set, <strong class="source-inline">runlevel 2</strong> and <strong class="source-inline">runlevel 4</strong> don't exactly correspond to the multi-user target. For some reason, every explanation of runlevels versus targets always places runlevels 2 and 4 here, and I'm not sure why.</p>
+			<p>A big difference between SysV and <strong class="source-inline">systemd</strong> is that on SysV, each runlevel is its own independent unit. So, if you had a machine set up to boot into <strong class="source-inline">runlevel 5</strong>, it would go directly to <strong class="source-inline">runlevel 5</strong>. On <strong class="source-inline">systemd</strong>, one target can depend upon another target, which in <a id="_idIndexMarker177"/>turn<a id="_idIndexMarker178"/> might depend upon yet another target. Take, for example, this <strong class="source-inline">graphical.target</strong> unit file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Graphical Interface</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">Requires=multi-user.target</p>
+			<p class="source-code">Wants=display-manager.service</p>
+			<p class="source-code">Conflicts=rescue.service rescue.target</p>
+			<p class="source-code">After=multi-user.target rescue.service rescue.target display-manager.service</p>
+			<p class="source-code">AllowIsolate=yes</p>
+			<p>The <strong class="source-inline">Requires=multi-user.target</strong> line means that <strong class="source-inline">graphical.target</strong> will fail to start unless <strong class="source-inline">multi-user.target</strong> is already running. All of the services that get started in multiuser mode will continue to run in graphical mode. The <strong class="source-inline">Wants=display-manager.service</strong> line means that it wants to start the display manager, but it won't fail if the display manager doesn't start.</p>
+			<p>The <strong class="source-inline">Conflicts=rescue.service rescue.target</strong> line tells <strong class="source-inline">systemd</strong> to shut down <strong class="source-inline">graphical.target</strong> if either <strong class="source-inline">rescue.service</strong> or <strong class="source-inline">rescue.target</strong> gets started, or to shut down <strong class="source-inline">rescue.service</strong> or <strong class="source-inline">rescue.target</strong> if <strong class="source-inline">graphical.target</strong> gets started. Of course, <strong class="source-inline">shutdown.target</strong> is also a conflict, but we don't need to list it. The <strong class="source-inline">Conflicts=shutdown.target</strong> parameter is already implied.</p>
+			<p>The <strong class="source-inline">After=</strong> line seems a bit strange, doesn't it? I mean, it does make sense that <strong class="source-inline">graphical.target</strong> can't run until after <strong class="source-inline">multi-user.target</strong> and <strong class="source-inline">display-manager.service</strong> have completed starting up. But what about <strong class="source-inline">rescue.service</strong> and <strong class="source-inline">rescue.target</strong>? Why would we need these rescue units to run before starting <strong class="source-inline">graphical.target</strong>? Well, we actually don't. It's just that the <strong class="source-inline">After=</strong> directive also affects what happens when you shut down a target. In this case, the directive says that if you decide to switch from <strong class="source-inline">graphical.target</strong> to <strong class="source-inline">rescue.target</strong>, <strong class="source-inline">rescue.target</strong> and <strong class="source-inline">rescue.service</strong> won't start until after <strong class="source-inline">graphical.target</strong> shuts down. So, by switching from graphical mode to rescue mode, the <strong class="source-inline">After=</strong> line operates in an inverse fashion.</p>
+			<p>The last line is <strong class="source-inline">AllowIsolate=yes</strong>. This just means that we can switch from this target to another, if we so desire. For example, if we need to drop out of graphical mode to a <a id="_idIndexMarker179"/>pure <a id="_idIndexMarker180"/>command-line mode, we can <em class="italic">isolate</em> to <strong class="source-inline">multi-user.target</strong>. (Yeah, the terminology is a bit strange, but that's just the way it is.) Before we move on to that, let's talk a bit more about <em class="italic">dependencies</em>.</p>
+			<h1 id="_idParaDest-83"><a id="_idTextAnchor084"/>Understanding target dependencies</h1>
+			<p>In this <strong class="source-inline">graphical.target</strong> file, the <strong class="source-inline">Requires=multi-user.target</strong> line means<a id="_idIndexMarker181"/> that <strong class="source-inline">multi-user.target</strong> has to be running before <strong class="source-inline">graphical.target</strong> can start. So, <strong class="source-inline">multi-user.target</strong> is a dependency for <strong class="source-inline">graphical.target</strong>. Now, let's peek into the <strong class="source-inline">multi-user.target</strong> file:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Multi-User System</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">Requires=basic.target</p>
+			<p class="source-code">Conflicts=rescue.service rescue.target</p>
+			<p class="source-code">After=basic.target rescue.service rescue.target</p>
+			<p class="source-code">AllowIsolate=yes</p>
+			<p>Here, we see that <strong class="source-inline">multi-user.target</strong> requires <strong class="source-inline">basic.target</strong>. So, let's look at the <strong class="source-inline">basic.target</strong> file to see what it requires:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Basic System</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">Requires=sysinit.target</p>
+			<p class="source-code">Wants=sockets.target timers.target paths.target slices.target</p>
+			<p class="source-code">After=sysinit.target sockets.target paths.target slices.target tmp.mount</p>
+			<p>Okay, <strong class="source-inline">basic.target</strong> requires <strong class="source-inline">sysinit.target</strong>. So, let's<a id="_idIndexMarker182"/> see what <strong class="source-inline">sysinit.target</strong> requires:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=System Initialization</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">Conflicts=emergency.service emergency.target</p>
+			<p class="source-code">Wants=local-fs.target swap.target</p>
+			<p class="source-code">After=local-fs.target swap.target emergency.service emergency.target</p>
+			<p><strong class="source-inline">sysinit.target</strong> doesn't <em class="italic">require</em> anything, but it does <em class="italic">want</em> <strong class="source-inline">local-fs.target</strong> and <strong class="source-inline">swap.target</strong>. Some of these chained targets have their own <strong class="source-inline">.wants</strong> directories in the <strong class="source-inline">/etc/systemd/system/</strong> directory that contain symbolic links to the services that will start for those targets. Here, for example, is the contents of the <strong class="source-inline">/etc/systemd/system/sysinit.target.wants/</strong> directory:</p>
+			<p class="source-code">[donnie@localhost sysinit.target.wants]$ ls -l</p>
+			<p class="source-code">total 0</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 44 May  1 17:22 import-state.service -&gt; /usr/lib/systemd/system/import-state.service</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 44 May  1 17:27 iscsi-onboot.service -&gt; /usr/lib/systemd/system/iscsi-onboot.service</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 56 May  1 17:21 selinux-autorelabel-mark.service -&gt; /usr/lib/systemd/system/selinux-autorelabel-mark.service</p>
+			<p class="source-code">[donnie@localhost sysinit.target.wants]$</p>
+			<p>Trying to figure out all of a target's dependencies might seem like a complex operation, but it really<a id="_idIndexMarker183"/> isn't. To see the dependencies for <strong class="source-inline">graphical.target</strong>, we'll just do <strong class="source-inline">systemctl list-dependencies graphical.target</strong>, like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl list-dependencies graphical.target </p>
+			<p class="source-code">graphical.target</p>
+			<p class="source-code">● ├─accounts-daemon.service</p>
+			<p class="source-code">● ├─gdm.service</p>
+			<p class="source-code">● ├─rtkit-daemon.service</p>
+			<p class="source-code">● ├─systemd-update-utmp-runlevel.service</p>
+			<p class="source-code">● ├─udisks2.service</p>
+			<p class="source-code">● └─multi-user.target</p>
+			<p class="source-code">●   ├─atd.service</p>
+			<p class="source-code">●   ├─auditd.service</p>
+			<p class="source-code">●   ├─avahi-daemon.service</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>The whole output is too long to list here, but you get the idea. </p>
+			<p>The <strong class="source-inline">--after</strong> and <strong class="source-inline">--before</strong> options show the dependencies that must start either <em class="italic">before</em> or <em class="italic">after</em> a target starts. (No, I didn't do that backward. The <strong class="source-inline">--after</strong> option indicates that the target must start after the listed dependencies, and the <strong class="source-inline">--before</strong> option indicates that the target must start before the listed dependencies.) For a simple example, let's see<a id="_idIndexMarker184"/> what must start before <strong class="source-inline">network.target</strong> can start:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl list-dependencies --after network.target </p>
+			<p class="source-code">network.target</p>
+			<p class="source-code">● ├─NetworkManager.service</p>
+			<p class="source-code">● ├─wpa_supplicant.service</p>
+			<p class="source-code">● └─network-pre.target</p>
+			<p class="source-code">●   ├─firewalld.service</p>
+			<p class="source-code">●   └─nftables.service</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>If you like, you can also create a graphical representation of a target's dependencies. To do that, you'll first need to install the <strong class="source-inline">graphviz</strong> package. The command to do that on the AlmaLinux machine is:</p>
+			<p class="source-code">sudo dnf install graphviz</p>
+			<p>Next, let's use <strong class="source-inline">systemd-analyze</strong> to create the graphics file that shows the dependencies for <strong class="source-inline">graphical.target</strong>. The command looks like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemd-analyze dot graphical.target | dot -Tsvg &gt; graphical.svg</p>
+			<p class="source-code">   Color legend: black     = Requires</p>
+			<p class="source-code">                 dark blue = Requisite</p>
+			<p class="source-code">                 dark grey = Wants</p>
+			<p class="source-code">                 red       = Conflicts</p>
+			<p class="source-code">                 green     = After</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Finally, open the resultant <strong class="source-inline">graphical.svg</strong> file in <em class="italic">Firefox</em>. Either resize the image to fit the screen or<a id="_idIndexMarker185"/> use the slider bar at the bottom to view different parts of the image:</p>
+			<div>
+				<div id="_idContainer023" class="IMG---Figure">
+					<img src="image/Figure_6.4_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 6.4 – The graphical.target dependencies</p>
+			<p>(Note that your graphic might not look exactly like mine. I don't know why, but that's how it is.)</p>
+			<p>The point I'm trying to make here is that targets can have an entire chain of dependencies. This allows us to have a more modular setup, so that we don't have to create each individual target file with its own complete list of dependencies. This is the opposite of how SysV works. With SysV, each runlevel has its own directory of symbolic links that point to all of the services that are to be started for the specified runlevel.</p>
+			<p>Now that we've seen what targets are and how they're constructed, let's see how to set the default target.</p>
+			<h1 id="_idParaDest-84"><a id="_idTextAnchor085"/>Changing the default target</h1>
+			<p>When you install <a id="_idIndexMarker186"/>a Linux operating system, the installer will configure either <strong class="source-inline">multi-user.target</strong> or <strong class="source-inline">graphical.target</strong> as the default, depending upon whether or not you choose to install a graphical desktop environment. When you boot up a Linux machine, it can be quite obvious what the default target is. If a graphical desktop shows up, you can rest assured that <strong class="source-inline">graphical.target</strong> is set as the default:</p>
+			<div>
+				<div id="_idContainer024" class="IMG---Figure">
+					<img src="image/Figure_6.5_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 6.5 – AlmaLinux with the Gnome 3 desktop</p>
+			<p>However, if a graphical desktop doesn't show up, it doesn't necessarily mean that the machine is set up with <strong class="source-inline">multi-user.target</strong> as its default. It could be that <strong class="source-inline">graphical.target</strong> is the default, and that the graphical display manager has failed to start. (I've seen that happen a few times when a video card driver is configured incorrectly.)</p>
+			<p>To see which target is set as the default, use <strong class="source-inline">systemctl get-default</strong>:</p>
+			<p class="source-code">[donnie@localhost system]$ systemctl get-default</p>
+			<p class="source-code">graphical.target</p>
+			<p class="source-code">[donnie@localhost system]$</p>
+			<p>You can also<a id="_idIndexMarker187"/> see the default setting by looking at the <strong class="source-inline">/etc/systemd/system/default.target</strong> symbolic link, which looks like this:</p>
+			<p class="source-code">[donnie@localhost system]$ ls -l default.target </p>
+			<p class="source-code">lrwxrwxrwx. 1 root 40 May  4 18:30 default.target -&gt; /usr/lib/systemd/system/graphical.target</p>
+			<p class="source-code">[donnie@localhost system]$</p>
+			<p>We see that the symbolic link points to the <strong class="source-inline">graphical.target</strong> file.</p>
+			<p>Now, let's say that you no longer want this machine to boot into graphical mode. Just set it to multiuser mode, like this:</p>
+			<p class="source-code">[donnie@localhost system]$ sudo systemctl set-default multi-user</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">Removed /etc/systemd/system/default.target.</p>
+			<p class="source-code">Created symlink /etc/systemd/system/default.target → /usr/lib/systemd/system/multi-user.target.</p>
+			<p class="source-code">[donnie@localhost system]$</p>
+			<p>You can see that the <strong class="source-inline">default.target</strong> symbolic link now points to the <strong class="source-inline">multi-user.target</strong> file. When you reboot this machine now, the graphical desktop won't start up. After you've rebooted the machine to verify that this works, go ahead and change it back to graphical mode by doing:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl set-default graphical</p>
+			<p class="source-code">Removed /etc/systemd/system/default.target.</p>
+			<p class="source-code">Created symlink /etc/systemd/system/default.target → /usr/lib/systemd/system/graphical.target.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Then, reboot the machine to get back into graphical mode.</p>
+			<p>All right, this is <a id="_idIndexMarker188"/>all good. But there might be times when we'll just want to change to another target temporarily without changing the default. Let's look at that.</p>
+			<h1 id="_idParaDest-85"><a id="_idTextAnchor086"/>Temporarily changing the target</h1>
+			<p>You can also<a id="_idIndexMarker189"/> change from one target to another without changing the default. This can come in handy for a few reasons. For example, let's say that you're setting up a gaming computer with an <em class="italic">Nvidia</em> graphics card. Now, if all you want to do with your Linux computer is just surf the web or do normal office work, the open source Nvidia drivers that come with your Linux distro work fine. For gaming though, the open source drivers might not give you the gaming performance that you really crave. To get around that, you'll go to the Nvidia website and download their proprietary driver. The first step in the installation procedure is to drop the machine out of graphical mode, into text mode. To do that with <strong class="source-inline">systemd</strong>, we'll use the <strong class="source-inline">systemctl isolate</strong> option, like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl isolate multi-user</p>
+			<p>This will shut down the graphics server and bring you back to a text-mode login prompt:</p>
+			<div>
+				<div id="_idContainer025" class="IMG---Figure">
+					<img src="image/Figure_6.6_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 6.6 – Text-mode login on Alma Linux</p>
+			<p>To get back to graphical mode, you can reboot the machine, assuming that you still have <strong class="source-inline">graphical.target</strong> set as the default. Or, you can just run the <strong class="source-inline">isolate</strong> command again, like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl isolate graphical</p>
+			<p>Be aware though that isolating back to graphical mode can sometimes be a bit quirky, so you might find it better to just reboot. Besides, if you're installing a video driver, you'll need to reboot in any case.</p>
+			<p>Now, if you're an old-as-dirt codger like me, you might be so used to the old way of doing things that you can't do things the new way. Well, I have good news. You can still use the old SysV commands to change targets if you really want to. To allow this to happen, the <strong class="source-inline">systemd</strong> developers <a id="_idIndexMarker190"/>created symbolic runlevel links that point to the corresponding targets. Here's what they look like:</p>
+			<p class="source-code">[donnie@localhost ~]$ cd /lib/systemd/system</p>
+			<p class="source-code">[donnie@localhost system]$ ls -l runlevel*.target</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 15 Apr  7 04:46 runlevel0.target -&gt; poweroff.target</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 13 Apr  7 04:46 runlevel1.target -&gt; rescue.target</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 17 Apr  7 04:46 runlevel2.target -&gt; multi-user.target</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 17 Apr  7 04:46 runlevel3.target -&gt; multi-user.target</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 17 Apr  7 04:46 runlevel4.target -&gt; multi-user.target</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 16 Apr  7 04:46 runlevel5.target -&gt; graphical.target</p>
+			<p class="source-code">lrwxrwxrwx. 1 root 13 Apr  7 04:46 runlevel6.target -&gt; reboot.target</p>
+			<p class="source-code">[donnie@localhost system]$</p>
+			<p>The legacy <strong class="source-inline">init</strong> and <strong class="source-inline">telinit</strong> commands are also still there, so you can still use either of them to change runlevels. For example, you can drop from graphical mode down to multiuser mode with either of these two commands:</p>
+			<p class="source-code">sudo init 3</p>
+			<p class="source-code">sudo telinit 3</p>
+			<p>To get back to graphical mode, just run either of these commands again, replacing the <strong class="source-inline">3</strong> with a <strong class="source-inline">5</strong>.</p>
+			<p>All jokes aside, it's great that they included the backward-compatibility stuff for those who really need it. Still though, you'll want to get used to the modern <strong class="source-inline">systemctl isolate</strong> way of doing things, because the <strong class="source-inline">systemd</strong> developers could pull this backward-compatibility<a id="_idIndexMarker191"/> stuff out at any time.</p>
+			<p>All righty, I think that about covers things. Let's wrap this chapter up and put a bow on it.</p>
+			<h1 id="_idParaDest-86"><a id="_idTextAnchor087"/>Summary</h1>
+			<p>As we always do, we've covered a lot of ground and seen a lot of cool stuff. We looked at the purpose of <strong class="source-inline">systemd</strong> targets and how they're structured. Then, we looked at how <strong class="source-inline">systemd</strong> targets compare to the old SysVinit runlevels, and at how to view a target's dependencies. We finished by looking at how to set the default runlevel, and how to temporarily change the runlevel.</p>
+			<p>In the next chapter, we'll look at <strong class="source-inline">systemd</strong> timers. I'll see you there.</p>
+			<h1 id="_idParaDest-87"><a id="_idTextAnchor088"/>Questions</h1>
+			<ol>
+				<li value="1">What is a target?<p>a) It's just another name for the old-fashioned runlevels.</p><p>b) It's a unit that groups together other units for a specific purpose.</p><p>c) It's a unit that starts a service.</p><p>d) It's a unit that listens for incoming network connections.</p></li>
+				<li>What is a passive target?<p>a) It's a target that you can't start yourself.</p><p>b) It's a placeholder target that doesn't do anything.</p><p>c) A passive target is configured with the <strong class="source-inline">TargetMode=passive</strong> line.</p><p>d) It's a target that just runs in the background.</p></li>
+				<li>How would you change from graphical mode to text mode?<p>a) <strong class="source-inline">sudo systemctl isolate text-mode</strong></p><p>b) <strong class="source-inline">sudo systemctl 3</strong></p><p>c) <strong class="source-inline">sudo systemctl isolate multi-user</strong></p><p>d) <strong class="source-inline">sudo runlevel multi-user</strong></p></li>
+				<li>What is a major difference between SysV runlevels and <strong class="source-inline">systemd</strong> targets?<p>a) SysV runlevels depend upon each other. <strong class="source-inline">systemd</strong> targets are self-contained units.</p><p>b) <strong class="source-inline">systemd</strong> targets depend upon each other. Each SysV runlevel has its own complete list of services to run.</p><p>c) SysV runlevels run more efficiently than <strong class="source-inline">systemd</strong> targets.</p><p>d) There is no real difference.</p></li>
+				<li>Which of the following commands shows you the default target?<p>a) <strong class="source-inline">systemctl show-target</strong></p><p>b) <strong class="source-inline">systemctl show-default</strong></p><p>c) <strong class="source-inline">systemctl default</strong></p><p>d) <strong class="source-inline">systemctl get-default</strong></p></li>
+			</ol>
+			<h1 id="_idParaDest-88"><a id="_idTextAnchor089"/>Answers</h1>
+			<ol>
+				<li value="1">b</li>
+				<li>a</li>
+				<li>c</li>
+				<li>b</li>
+				<li>d</li>
+			</ol>
+			<h1 id="_idParaDest-89"><a id="_idTextAnchor090"/>Further reading</h1>
+			<p>An explanation of <strong class="source-inline">network.target</strong>:</p>
+			<p><a href="https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/">https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/</a></p>
+			<p>Booting CentOS into emergency or rescue mode:</p>
+			<p><a href="https://www.thegeekdiary.com/how-to-boot-into-rescue-mode-or-emergency-mode-through-systemd-in-centos-rhel-7-and-8/">https://www.thegeekdiary.com/how-to-boot-into-rescue-mode-or-emergency-mode-through-systemd-in-centos-rhel-7-and-8/</a></p>
+			<p>Booting Ubuntu into emergency or rescue mode:</p>
+			<p><a href="https://linuxconfig.org/how-to-boot-ubuntu-18-04-into-emergency-and-rescue-mode">https://linuxconfig.org/how-to-boot-ubuntu-18-04-into-emergency-and-rescue-mode</a></p>
+		</div>
+	</body></html>

@@ -1,0 +1,244 @@
+<html><head></head><body>
+		<div id="_idContainer043">
+			<h1 id="_idParaDest-146"><em class="italic"><a id="_idTextAnchor152"/>Chapter 11</em>: Understanding cgroups Version 1</h1>
+			<p>In this chapter, we'll introduce you to <strong class="bold">Control Groups</strong>, more commonly<a id="_idIndexMarker363"/> called <strong class="source-inline">cgroups</strong>. (More specifically, we'll be looking at cgroups Version 1.) You'll learn what cgroups are, how they're constructed, and how you can benefit by taking advantage of them. We'll also briefly look at the history of cgroups.</p>
+			<p>Now, I have to tell you that discussing cgroups can become quite complex and convoluted. You might have already seen some online cgroups tutorials that do nothing but make your head hurt. My goal is to strip away as much complexity as possible and provide you with just enough information to help you manage resources on a systemd machine.</p>
+			<p>Specific topics include:</p>
+			<ul>
+				<li>Understanding the history of cgroups</li>
+				<li>Understanding the purpose of cgroups</li>
+				<li>Understanding the structure of cgroups Version 1</li>
+				<li>Understanding the cgroup Version 1 filesystem</li>
+			</ul>
+			<p>All right – if you're ready, let's get started!</p>
+			<h1 id="_idParaDest-147"><a id="_idTextAnchor153"/>Technical requirements</h1>
+			<p>To make things more interesting, we'll use the same Alma virtual machine that we set up in <a href="B17491_05_Final_NM_ePub.xhtml#_idTextAnchor063"><em class="italic">Chapter 5</em></a>, <em class="italic">Creating and Editing Services</em>. You might remember that on that virtual machine, we set up one WordPress container service that's running in system mode, and another WordPress container service that running in user mode. If you don't have that virtual machine, go back to <a href="B17491_05_Final_NM_ePub.xhtml#_idTextAnchor063"><em class="italic">Chapter 5</em></a>, <em class="italic">Creating and Editing Services</em>, and follow the steps for creating the WordPress container services. As always, this chapter will be hands-on. So fire up that virtual machine, and let's dig in.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/3ltmKsO">https://bit.ly/3ltmKsO</a></p>
+			<h1 id="_idParaDest-148"><a id="_idTextAnchor154"/>Understanding the history of cgroups</h1>
+			<p>This <a id="_idIndexMarker364"/>might shock you, but the cgroups technology didn't start as a part of systemd, and it wasn't invented by Red Hat. It's actually a component in the Linux kernel that can run on non-systemd Linux distros. A pair of Google engineers started cgroups development back in 2006, four years before Red Hat engineers started developing systemd. The first enterprise-grade Linux distro to include cgroups technology was <em class="italic">Red Hat Enterprise Linux 6</em>, which<a id="_idIndexMarker365"/> ran a hybrid upstart/SysV setup instead of systemd. Using cgroups on RHEL 6 was optional, and you had to jump through some hoops to set them up.</p>
+			<p>Nowadays, cgroups are enabled by default on all of the major enterprise-type Linux distros and are tightly integrated with systemd. RHEL 7 was the first enterprise distro to use systemd and was also the first enterprise distro to always have cgroups enabled.</p>
+			<p>There are currently two versions of the cgroups technology. Version 1 works well for the most part, but it does have some <a id="_idIndexMarker366"/>flaws, which I won't get into here. Version 2 was developed in 2013, primarily by an engineer at Facebook. In this chapter, I'll confine the discussion to Version 1. Even though Version 2 might be much better, it still hasn't been <a id="_idIndexMarker367"/>widely adopted, and many container technologies still depend upon Version 1. The current versions of all enterprise-grade Linux distros run with Version 1 by default.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Fedora, Arch, and Debian 11 are the only Linux distros of which I'm aware that run cgroups Version 2 by default. I've also seen some speculation that the next non-LTS version of Ubuntu, Ubuntu 21.10, is supposed to come with Version 2. (Of course, you'll likely know that for sure by the time you read this.) So, which one should you learn about? Well, if you're an administrator working with any of the major enterprise-grade Linux distros, you'll want to concentrate on learning Version 1. If you're a developer, you'll probably want to start learning Version 2, because Version 2 is the future.</p>
+			<p>Now that we've covered the history of cgroups, I suppose that I should now make some history by explaining what they are and why we need them. So, allow me to do just that.</p>
+			<h1 id="_idParaDest-149"><a id="_idTextAnchor155"/>Understanding the purpose of cgroups</h1>
+			<p>Back <a id="_idIndexMarker368"/>in the days of single-core CPUs, resource management wasn't such a big deal. Servers generally came with anywhere from one to four single-core CPUs installed, so they were already limited in the number of services that could run simultaneously. All we needed for resource management back then were simple tools such as <strong class="source-inline">nice</strong>, <strong class="source-inline">renice</strong>, and <strong class="source-inline">ulimit</strong>.</p>
+			<p>Nowadays, it's an entirely different story. Servers now come with one or more multi-core CPUs and gobs of memory. (The current king-of-the-hill server CPU is the AMD Epyc, which now comes in a 64-core variety that can run 128 simultaneous threads. Yeah, that's enough to make us hard-core geeks salivate.) Although it might seem counter-intuitive, resource management on these beasts is more important than it was on the old systems. That's because one server can now run multiple services, multiple virtual machines, multiple containers, and multiple user accounts all at the same time. A whole roomful of the old physical servers that could only run one or two services can now be replaced by just one physical server. Those simple resource management tools that we used to use still have their uses, but we also now need something a lot more powerful to ensure that all processes and users play nice with each other. Enter cgroups.</p>
+			<p>With cgroups, an administrator can:</p>
+			<ul>
+				<li>Manage resource usage by either processes or users.</li>
+				<li>Keep track of resource usage by users on multi-tenant systems to provide accurate billing.</li>
+				<li>More easily isolate running processes from each other. This not only makes for better security but also allows us to have better containerization technologies than we had previously.</li>
+				<li>Run servers that are densely packed with virtual machines and containers due to better resource management and process isolation.</li>
+				<li>Enhance performance by ensuring that processes always run on the same CPU core or set of CPU cores, instead of allowing the Linux kernel to move them around to different cores.</li>
+				<li>Whitelist or blacklist hardware devices.</li>
+				<li>Set up <a id="_idIndexMarker369"/>network traffic shaping.</li>
+			</ul>
+			<p>Now that we've seen the purpose of cgroups, my own purpose now is to show you the structure of cgroups.</p>
+			<h1 id="_idParaDest-150"><a id="_idTextAnchor156"/>Understanding the structure of cgroups Version 1</h1>
+			<p>To understand the structure <a id="_idIndexMarker370"/>of cgroups, you'll need to understand some of the cgroups terminology. Let's start with just a few terms that you need<a id="_idTextAnchor157"/> to know:</p>
+			<ul>
+				<li><strong class="bold">cgroups</strong>: The term <em class="italic">cgroup</em> has <a id="_idIndexMarker371"/>two different meanings. What concerns us most is that a cgroup is a collection of processes. The processes within each cgroup are bound to limits and parameters that are defined within the <em class="italic">cgroup filesystem</em>. (We'll talk more about the cgroup filesystem in a bit.) The term <em class="italic">cgroup</em> can also refer to the Linux kernel code that implements cgroups technology.</li>
+				<li><strong class="bold">services</strong>: These are <a id="_idIndexMarker372"/>groups of processes that are started by systemd, and that are configured by the different unit configuration files. The individual processes in a service are started and stopped as one set. An example of a service would be the Apache web server service, which would be called <strong class="source-inline">httpd.service</strong> or <strong class="source-inline">apache2.service</strong>. (Okay, you already knew this, but I told you again anyway.)</li>
+				<li><strong class="bold">scopes</strong>: A scope<a id="_idIndexMarker373"/> is a group of processes that are started by some external means. Virtual machines, containers, and user sessions are examples of scopes.</li>
+				<li><strong class="bold">slices</strong>: A slice<a id="_idIndexMarker374"/> does not contain any processes. Rather, it's a group of hierarchically organized units. A slice manages processes that are running in either scopes or services. The four default slices are as follows:<ul><li><strong class="source-inline">-.slice</strong>: This is the <em class="italic">root</em> slice, which is the root of the whole slice hierarchy. Normally, it won't directly<a id="_idIndexMarker375"/> contain any other units. However, you can use it to create default settings for the entire slice tree.</li><li><strong class="source-inline">system.slice</strong>: By default, system services that have been started by systemd would go here.</li><li><strong class="source-inline">user.slice</strong>: By default, user-mode services would go here. An implicit slice is assigned to each logged-in user.</li><li><strong class="source-inline">machine-slice</strong>: If you're running containers or virtual machines, their services will show up here.</li></ul></li>
+			</ul>
+			<p>In addition, the <a id="_idIndexMarker376"/>system administrator can define custom slices, and assign scopes and services to them.</p>
+			<p>To see a more graphical representation of all this, use the <strong class="source-inline">systemd-cgls</strong> command as a normal user. Just for fun, let's look at the Alma 8 virtual machine that we used to create the WordPress containers back in <a href="B17491_05_Final_NM_ePub.xhtml#_idTextAnchor063"><em class="italic">Chapter 5</em></a>, <em class="italic">Creating and Editing Services</em>. The output of <strong class="source-inline">systemd-cgls</strong> should look something like this:</p>
+			<p class="source-code">Control group /:</p>
+			<p class="source-code">-.slice</p>
+			<p class="source-code">├─user.slice</p>
+			<p class="source-code">│ └─user-1000.slice</p>
+			<p class="source-code">│   ├─user@1000.service</p>
+			<p class="source-code">│   │ ├─wordpress-noroot.service</p>
+			<p class="source-code">│   │ │ ├─ 918 /usr/bin/podman</p>
+			<p class="source-code">│   │ │ ├─1013 /usr/bin/slirp4netns --disable-host-loopback --mtu 65520 --enabl&gt;</p>
+			<p class="source-code">│   │ │ ├─1019 containers-rootlessport</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>I don't have a desktop environment installed on this virtual machine, so we can't see any of the Gnome stuff that you would see on a machine that does have a desktop. However, we do see the user-mode WordPress container service that we created in <a href="B17491_05_Final_NM_ePub.xhtml#_idTextAnchor063"><em class="italic">Chapter 5</em></a>, <em class="italic">Creating and Editing Services</em>. (If you have Gnome on your virtual machine, that's fine. It just means that you'll have to scroll down a bit more to see your WordPress container service.)</p>
+			<p>The <strong class="source-inline">systemd-cgls</strong> tool <a id="_idIndexMarker377"/>shows us a hierarchical listing of the cgroups that are running on the system. The first one listed is the <strong class="source-inline">/</strong> cgroup, which is how the root cgroup is <a id="_idIndexMarker378"/>designated. The second line begins the listing for the root slice ( <strong class="source-inline">-.slice</strong> ), and directly under it is <strong class="source-inline">user.slice</strong>. Next, we can see <strong class="source-inline">user-1000.slice</strong>, which is a child of <strong class="source-inline">user.slice</strong>. In this case, I'm the only user who's logged into the system, so this slice belongs to me. The <strong class="source-inline">user-1000.slice</strong> designation corresponds to my User ID number, which is <strong class="source-inline">1000</strong>. Following that, we can see the services that are running in my slice, which we'll get to in just a bit.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">If you want to see user slices, you'll need to run the <strong class="source-inline">systemd-cgls</strong> command from <em class="italic">outside</em> of the cgroup filesystem. If you <strong class="source-inline">cd</strong> into the <strong class="source-inline">/sys/fs/cgroup/</strong> directory, you won't see the user slices. The further down you go into the cgroup filesystem, the less you'll see with <strong class="source-inline">systemd-cgls</strong>.</p>
+			<p>The <strong class="source-inline">user.slice</strong> is defined by the <strong class="source-inline">/lib/systemd/system/user.slice</strong> unit file, which looks like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=User and Session Slice</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">Before=slices.target</p>
+			<p>Here, we can see that this slice has to finish starting before the <strong class="source-inline">slices.target</strong> can start. The <strong class="source-inline">slices.target</strong> file looks like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Slices</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">Wants=-.slice system.slice</p>
+			<p class="source-code">After=-.slice system.slice</p>
+			<p>According to<a id="_idIndexMarker379"/> the <strong class="source-inline">systemd.special</strong> man page, <strong class="source-inline">slices.target</strong> is responsible for setting up the slices that are to run when you boot up your machine. By default, it starts up <strong class="source-inline">system.slice</strong> and the root slice ( <strong class="source-inline">-.slice</strong> ), as we see here in the <strong class="source-inline">Wants=</strong> line, and the <strong class="source-inline">After=</strong> line. We can also add more slices to that list, as we've just seen in the <strong class="source-inline">user.slice</strong> file. We'll look at <strong class="source-inline">-.slice</strong> and <strong class="source-inline">system.slice</strong> in a moment. For now, let's get back to <strong class="source-inline">user.slice</strong>.</p>
+			<p>In my <strong class="source-inline">user-1000.slice</strong>, the first listed service is <strong class="source-inline">user@1000.service</strong>. This service is responsible for all the other services that run within my slice. It's set up by the <strong class="source-inline">user@.service</strong> template. The <strong class="source-inline">[Unit]</strong> section of the <strong class="source-inline">user@.service</strong> file looks like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=User Manager for UID %i</p>
+			<p class="source-code">After=systemd-user-sessions.service</p>
+			<p class="source-code">After=user-runtime-dir@%i.service</p>
+			<p class="source-code">Requires=user-runtime-dir@%i.service</p>
+			<p>When this service runs, the <strong class="source-inline">%i</strong> variable will be replaced with a User ID number. The <strong class="source-inline">[Service]</strong> section of the file looks like this:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">User=%i</p>
+			<p class="source-code">PAMName=systemd-user</p>
+			<p class="source-code">Type=notify</p>
+			<p class="source-code">ExecStart=-/usr/lib/systemd/systemd --user</p>
+			<p class="source-code">Slice=user-%i.slice</p>
+			<p class="source-code">KillMode=mixed</p>
+			<p class="source-code">Delegate=pids memory</p>
+			<p class="source-code">TasksMax=infinity</p>
+			<p class="source-code">TimeoutStopSec=120s</p>
+			<p>Here's the breakdown:</p>
+			<ul>
+				<li><strong class="source-inline">ExecStart=</strong>: This line causes systemd to start a new systemd session for each user who logs in. </li>
+				<li><strong class="source-inline">Slice=</strong>: This line creates a separate slice for each user. </li>
+				<li><strong class="source-inline">TasksMax=</strong>: This line is set to infinity, which means that there's no limit to the number of processes that a user can run. </li>
+				<li><strong class="source-inline">Delegate=</strong>: We'll discuss this directive in <a href="B17491_12_Final_NM_ePub.xhtml#_idTextAnchor164"><em class="italic">Chapter 12</em></a>, <em class="italic">Controlling Resource Usage with cgroups Version 1</em>.</li>
+			</ul>
+			<p>The next thing we<a id="_idIndexMarker380"/> see in the output of <strong class="source-inline">systemd-cgls</strong> is that all of the services that are running in my user slice are children of the <strong class="source-inline">user@1000.service</strong>. When I scroll down, I'll eventually get past the list of services, and will see the <em class="italic">scope</em> for my login session. In this case, my login session at the local terminal is designated as <strong class="source-inline">session-2.scope</strong>, and my remote login session is designated as <strong class="source-inline">session-3.scope</strong>. Here's what this looks like:</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">├─session-2.scope</p>
+			<p class="source-code">│   │ ├─ 794 login -- donnie</p>
+			<p class="source-code">│   │ └─1573 -bash</p>
+			<p class="source-code">│   └─session-3.scope</p>
+			<p class="source-code">│     ├─ 1644 sshd: donnie [priv]</p>
+			<p class="source-code">│     ├─ 1648 sshd: donnie@pts/0</p>
+			<p class="source-code">│     ├─ 1649 -bash</p>
+			<p class="source-code">│     ├─11493 systemd-cgls -l</p>
+			<p class="source-code">│     └─11494 systemd-cgls -l</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>According to the <strong class="source-inline">systemd.scope</strong> man page, scopes can't be created by creating unit files. Instead, they're created programmatically at runtime. So, don't expect to see any <strong class="source-inline">.scope</strong> files in the <strong class="source-inline">/lib/systemd/system/</strong> directory.</p>
+			<p>Further down in<a id="_idIndexMarker381"/> the <strong class="source-inline">systemd-cgls</strong> output, we finally get past my user slice. The next thing we can see after my user slice is the <strong class="source-inline">init.scope</strong> and the <strong class="source-inline">system.slice</strong>, as we see here:</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">├─init.scope</p>
+			<p class="source-code">│ └─1 /usr/lib/systemd/systemd --switched-root --system --deserialize 18</p>
+			<p class="source-code">├─system.slice</p>
+			<p class="source-code">│ ├─rngd.service</p>
+			<p class="source-code">│ │ └─732 /sbin/rngd -f --fill-watermark=0</p>
+			<p class="source-code">│ ├─systemd-udevd.service</p>
+			<p class="source-code">│ │ └─620 /usr/lib/systemd/systemd-udevd</p>
+			<p class="source-code">│ ├─wordpress-container.service</p>
+			<p class="source-code">│ │ └─1429 /usr/bin/conmon --api-version 1 -c cc06c35f21cedd4d2384cf2c048f01374&gt;</p>
+			<p class="source-code">│ ├─polkit.service</p>
+			<p class="source-code">│. . .</p>
+			<p>Here, we can see system services that have nothing to do with my user session. One service that we see here is the WordPress container service that's running in system mode.</p>
+			<p>The fact that I have a<a id="_idIndexMarker382"/> system-mode container service running means that there's something in <strong class="source-inline">machine.slice</strong>, as we see here:</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">└─machine.slice</p>
+			<p class="source-code">  └─libpod-cc06c35f21cedd4d2384cf2c048f013748e84cabdc594b110a8c8529173f4c81.sco&gt;</p>
+			<p class="source-code">    ├─1438 apache2 -DFOREGROUND</p>
+			<p class="source-code">    ├─1560 apache2 -DFOREGROUND</p>
+			<p class="source-code">    ├─1561 apache2 -DFOREGROUND</p>
+			<p class="source-code">    ├─1562 apache2 -DFOREGROUND</p>
+			<p class="source-code">    ├─1563 apache2 -DFOREGROUND</p>
+			<p class="source-code">    └─1564 apache2 -DFOREGROUND</p>
+			<p>The <strong class="source-inline">libpod</strong> branch of this <strong class="source-inline">machine.slice</strong> tree represents our <strong class="source-inline">podman-docker</strong> container. (Note that the user-mode container service only shows up directly under the user slice, and doesn't show up here under the machine slice.)</p>
+			<p>Okay, let's shift back to an Alma machine that's running with the Gnome desktop. As we see here, there's a lot more going on with the output of <strong class="source-inline">systemd-cgls</strong>:</p>
+			<p class="source-code">Control group /:</p>
+			<p class="source-code">-.slice</p>
+			<p class="source-code">├─user.slice</p>
+			<p class="source-code">│ └─user-1000.slice</p>
+			<p class="source-code">│   ├─user@1000.service</p>
+			<p class="source-code">│   │ ├─gvfs-goa-volume-monitor.service</p>
+			<p class="source-code">│   │ │ └─2682 /usr/libexec/gvfs-goa-volume-monitor</p>
+			<p class="source-code">│   │ ├─xdg-permission-store.service</p>
+			<p class="source-code">│   │ │ └─2563 /usr/libexec/xdg-permission-store</p>
+			<p class="source-code">│   │ ├─tracker-store.service</p>
+			<p class="source-code">│   │ │ └─3041 /usr/libexec/tracker-store</p>
+			<p class="source-code">│   │ ├─evolution-calendar-factory.service</p>
+			<p class="source-code">│   │ │ ├─2725 /usr/libexec/evolution-calendar-factory</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>On any desktop machine, you'll always have a lot more running services than you'd have on a strictly text-mode machine.</p>
+			<p>Next, create a new user <a id="_idIndexMarker383"/>account for Frank. Then, have Frank log in to this machine via a remote SSH session. The top part of the output of <strong class="source-inline">systemd-cgls</strong> now looks like this:</p>
+			<p class="source-code">Control group /:</p>
+			<p class="source-code">-.slice</p>
+			<p class="source-code">├─user.slice</p>
+			<p class="source-code">│ ├─user-1001.slice</p>
+			<p class="source-code">│ │ ├─session-10.scope</p>
+			<p class="source-code">│ │ │ ├─8215 sshd: frank [priv]</p>
+			<p class="source-code">│ │ │ ├─8250 sshd: frank@pts/1</p>
+			<p class="source-code">│ │ │ └─8253 -bash</p>
+			<p class="source-code">│ │ └─user@1001.service</p>
+			<p class="source-code">│ │   ├─pulseaudio.service</p>
+			<p class="source-code">│ │   │ └─8248 /usr/bin/pulseaudio --daemonize=no --log-target=journal</p>
+			<p class="source-code">│ │   ├─gvfs-daemon.service</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Frank now has his own user slice, which is <strong class="source-inline">user-1001.slice</strong>. We see that he's logged in remotely, as well as the name of the virtual terminal that he used to log in. (In case you're wondering, <em class="italic">Frank</em> is the name of my formerly feral Flame Point Siamese kitty, who has been with me for many years. Until just a moment ago, he was sleeping on the computer table where my keyboard should be, which was making it quite awkward for me to type.)</p>
+			<p>If you don't want to see the<a id="_idIndexMarker384"/> entire cgroups tree, you can use <strong class="source-inline">systemctl status</strong> to see just one part of it. For example, to just see the <strong class="source-inline">user.slice</strong>, I'd do <strong class="source-inline">systemctl status user.slice</strong>. The output would look something like<a id="_idTextAnchor158"/> this:</p>
+			<div>
+				<div id="_idContainer039" class="IMG---Figure">
+					<img src="image/Figure_11.1_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 11.1 – user.slice on Alma Linux with the Gnome desktop</p>
+			<p>Here, we see that Frank has logged out and that I'm now the only user who is logged in. (After all, Frank is a cat, which means that he spends most of his time sleeping.) We can also view information about the other slices, as well as about scopes. For example, doing <strong class="source-inline">systemctl status session-3.scope</strong> shows me information about the session scope that's running <a id="_idIndexMarker385"/>under my user slice, which would look like this:</p>
+			<div>
+				<div id="_idContainer040" class="IMG---Figure">
+					<img src="image/Figure_11.2_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 11.2 – Session scope on Alma Linux</p>
+			<p>All right, that pretty much covers it for the basic structure of cgroups. Now, let's move on and look at the cgroup filesystem.</p>
+			<h1 id="_idParaDest-151"><a id="_idTextAnchor159"/>Understanding the cgroup filesystem</h1>
+			<p>On any system that runs <a id="_idIndexMarker386"/>cgroups, you'll see a <strong class="source-inline">cgroup</strong> directory under the <strong class="source-inline">/sys/fs/</strong> virtual filesystem, as shown here:</p>
+			<p class="source-code">[donnie@localhost ~]$ cd /sys/fs</p>
+			<p class="source-code">[donnie@localhost fs]$ ls -ld cgroup/</p>
+			<p class="source-code">drwxr-xr-x. 14 root root 360 Jul  3 15:52 cgroup/</p>
+			<p class="source-code">[donnie@localhost fs]$</p>
+			<p>As with all virtual filesystems, the cgroup filesystem only exists in memory at runtime and disappears when you shut down the machine. There's no permanent copy of it on the machine's drive.</p>
+			<p>When you look inside the <strong class="source-inline">/sys/fs/cgroup/</strong> directory, you'll see something like this:</p>
+			<div>
+				<div id="_idContainer041" class="IMG---Figure">
+					<img src="image/Figure_11.3_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 11.3 – cgroupfs on Alma Linux</p>
+			<p>Each of these <a id="_idIndexMarker387"/>directories represents a cgroup <em class="italic">susbsystem</em>. (You'll also see them referred to as either <em class="italic">controllers</em> or <em class="italic">resource controllers</em>.) Inside each of these directories is a set of files that represent the cgroup's <em class="italic">tunables</em>. These files hold information about any resource control or tuning parameters that you would set. (We'll talk more about that in <a href="B17491_12_Final_NM_ePub.xhtml#_idTextAnchor164"><em class="italic">Chapter 12</em></a>, <em class="italic">Controlling Resource Usage with cgroups Version 1</em>.) For example, here's what we have in the <strong class="source-inline">blkio</strong> directory:</p>
+			<div>
+				<div id="_idContainer042" class="IMG---Figure">
+					<img src="image/Figure_11.4_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 11.4 – The blkio filesystem</p>
+			<p>Each of these files <a id="_idIndexMarker388"/>represents a parameter that can be custom-tuned for the best performance. Toward the bottom, we also see directories for <strong class="source-inline">init.scope</strong>, <strong class="source-inline">machine.slice</strong>, <strong class="source-inline">system.slice</strong>, and <strong class="source-inline">user.slice</strong>. Each also has its own set of tunable parameters.</p>
+			<p>When we use the <strong class="source-inline">mount</strong> command and pipe it through <strong class="source-inline">grep</strong>, we'll see that each of these resource controllers is mounted on its own virtual partition. Here's what that looks like:</p>
+			<p class="source-code">[donnie@localhost ~]$ mount | grep 'cgroup'</p>
+			<p class="source-code">tmpfs on /sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,seclabel,mode=755)</p>
+			<p class="source-code">cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,seclabel,xattr,release_agent=/usr/lib/systemd/systemd-cgroups-agent,name=systemd)</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,seclabel,freezer)</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Okay, I think that that should do it for our basic introduction to cgroups Version 1. So, let's wrap up this chapter and move on!</p>
+			<h1 id="_idParaDest-152"><a id="_idTextAnchor160"/>Summary</h1>
+			<p>In this chapter, we looked at the history of the cgroups technology, what cgroups are, and why we need them. We then looked at the structure of cgroups and the cgroup filesystem.</p>
+			<p>A major challenge that comes with learning about cgroup technology is that there isn't much available documentation about it. I mean, you'll see a lot of blog posts and YouTube videos about it, but much of it either isn't very comprehensive or is woefully out of date. Hopefully, I've been able to give you a better understanding of cgroup technology and how it works together with systemd.</p>
+			<p>In the next chapter, we'll look at controlling resource usage with cgroups Version 1. I'll see you there.</p>
+			<h1 id="_idParaDest-153"><a id="_idTextAnchor161"/>Questions</h1>
+			<ol>
+				<li value="1">What is the default location of the cgroup filesystem?<p>a. <strong class="source-inline">/proc/fs/cgroup/</strong></p><p>b. <strong class="source-inline">/sys/cgroup/</strong></p><p>c. <strong class="source-inline">/sys/fs/cgroup/</strong></p><p>d. <strong class="source-inline">/proc/cgroup/</strong></p></li>
+				<li>What must you do to see user slices with <strong class="source-inline">systemd-cgls</strong>?<p>a. Run the command only from the local terminal.</p><p>b. Run the command only from outside the cgroup filesystem.</p><p>c. Run the command with root privileges.</p><p>d. You can't. User slices never show up.</p></li>
+				<li>How can you create your own cgroup scope?<p>a. Use <strong class="source-inline">systemctl edit --full --force</strong>, just as you would with other systemd units.</p><p>b. Manually create a unit file in the <strong class="source-inline">/etc/systemd/system/</strong> directory.</p><p>c. You can't. Scopes are created programmatically, and there are no <strong class="source-inline">.scope</strong> unit files.</p><p>d. Manually create a unit file in the <strong class="source-inline">/lib/systemd/system/</strong> directory.</p></li>
+				<li>What does a slice do?<p>a. It directly manages user mode processes.</p><p>b. It directly manages system mode processes.</p><p>c. It manages processes that are in either scopes or services.</p><p>d.  It manages user login sessions.</p></li>
+			</ol>
+			<h1 id="_idParaDest-154"><a id="_idTextAnchor162"/>Answers</h1>
+			<ol>
+				<li value="1">c</li>
+				<li>b</li>
+				<li>c</li>
+				<li>c</li>
+			</ol>
+			<h1 id="_idParaDest-155"><a id="_idTextAnchor163"/>Further reading</h1>
+			<p>Take a look at the following links for more information about cgroups:</p>
+			<ul>
+				<li>A Linux sysadmin's introduction to cgroups:<p><a href="https://www.redhat.com/sysadmin/cgroups-part-one">https://www.redhat.com/sysadmin/cgroups-part-one</a></p></li>
+				<li>cgroups documentation at kernel.org:<p><a href="https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt">https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt</a></p></li>
+			</ul>
+		</div>
+	</body></html>

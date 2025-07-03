@@ -1,0 +1,702 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer156" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor542"/>17</h1>
+    <h1 id="_idParaDest-476" class="chapterTitle"><a id="_idTextAnchor543"/>Learning about Processes and Threads</h1>
+    <p class="normal">In the preceding chapters, we considered the various aspects of creating an embedded Linux platform. Now, it is time to start looking at how you can use the platform to create a working device. In this chapter, I will talk about the implications of the Linux process model and how it encompasses multithreaded programs. I will look at the pros and cons of using single-threaded and multithreaded processes, as well as asynchronous message passing between processes and coroutines. Lastly, I will look at scheduling and differentiate between timeshare and real-time scheduling policies.</p>
+    <p class="normal">While these topics are not specific to embedded computing, it is important for a designer of any embedded device to have an overview of these topics. There are many good references on the subject, some of which I will list at the end of this chapter, but in general, they do not consider the embedded use cases. Due to this, I will be concentrating on the concepts and design decisions rather than on the function calls and code.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Process or thread?</li>
+      <li class="bulletList">Processes</li>
+      <li class="bulletList">Threads</li>
+      <li class="bulletList">ZeroMQ</li>
+      <li class="bulletList">Scheduling</li>
+    </ul>
+    <h1 id="_idParaDest-477" class="heading-1"><a id="_idTextAnchor544"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">Python: Python 3 interpreter and standard library</li>
+      <li class="bulletList">Miniconda: Minimal installer for the conda package and virtual environment manager</li>
+    </ul>
+    <p class="normal">See the section on <code class="inlineCode">conda</code> in <a href="Chapter_15.xhtml#_idTextAnchor483"><em class="italic">Chapter 15</em></a> for directions on how to install Miniconda if you haven’t already. The GCC C compiler and GNU Make are also needed for this chapter’s exercises, but these tools already come with most Linux distributions.</p>
+    <p class="normal">The code used in this chapter can be found in the <code class="inlineCode">Chapter17</code> folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter17"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter17</span></a>.</p>
+    <h1 id="_idParaDest-478" class="heading-1"><a id="_idTextAnchor545"/>Process or thread?</h1>
+    <p class="normal">Many embedded developers who are familiar <a id="_idIndexMarker1196"/>with <strong class="keyWord">real-time operating systems</strong> (<strong class="keyWord">RTOSs</strong>) consider the Unix process model to be cumbersome. On the other hand, they see a similarity between an RTOS task and a Linux thread, and they have a tendency to transfer an existing design using a one-to-one mapping of RTOS tasks to threads. I have, on several occasions, seen designs in which the entire application is implemented with one process containing 40 or more threads. I want to spend some time considering whether this is a good idea or not. Let’s begin with some definitions.</p>
+    <p class="normal">A <strong class="keyWord">process</strong> is a<a id="_idIndexMarker1197"/> memory address space and a thread of execution, as shown in the following diagram. The address space is private to the process, so threads running in different processes cannot access it. This <strong class="keyWord">memory separation</strong> is <a id="_idIndexMarker1198"/>created by the memory management subsystem in the kernel, which keeps a memory page mapping for each process and reprograms the memory management unit on each context switch. I will describe how this works in detail in <a href="Chapter_18.xhtml#_idTextAnchor581"><em class="italic">Chapter 18</em></a>. Part of the address space is mapped to a file that contains the code and static data that the program is running, as shown here:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_17_01.png" alt="Figure 17.1 – Process" width="547" height="392"/></figure>
+    <p class="packt_figref">Figure 17.1 – Process</p>
+    <p class="normal">As the program runs, it will allocate resources such as stack space, heap memory, references to files, and so on. When the process terminates, these resources are reclaimed by the system: all the memory is freed up and all the file descriptors are closed.</p>
+    <p class="normal">Processes can communicate with each other <a id="_idIndexMarker1199"/>using <strong class="keyWord">inter-process communication</strong> (<strong class="keyWord">IPC</strong>), such as local sockets. I will talk about IPC later on.</p>
+    <p class="normal">A <strong class="keyWord">thread</strong> is a <a id="_idIndexMarker1200"/>thread of execution within a process. All processes begin with one thread that runs the <code class="inlineCode">main()</code> function and is called the main thread. You can create additional threads, for example, using the <code class="inlineCode">pthread_create(3)</code> POSIX function, which results in multiple threads executing in the same address space, as shown in the following diagram:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_17_02.png" alt="Figure 17.2 – Multiple threads" width="549" height="389"/></figure>
+    <p class="packt_figref">Figure 17.2 – Multiple threads</p>
+    <p class="normal">Being in the same process, the threads share resources with each other. They can read and write the same memory and use the same file descriptors. Communication between threads is easy, as long as you take care of the synchronization and locking issues.</p>
+    <p class="normal">So, based on these brief details, you can imagine two extreme designs for a hypothetical system with 40 RTOS tasks being ported to Linux.</p>
+    <p class="normal">You could map tasks to processes and have 40 individual programs communicating through IPC, for example, with messages being sent through sockets. You would greatly reduce memory corruption problems since the main thread running in each process is protected from the others, and you would reduce resource leakage since each process is cleaned up after it exits. However, the message interface between processes is quite complex and, where there is tight cooperation between a group of processes, the number of messages might be large and become a limiting factor regarding the performance of the system. Furthermore, any one of those 40 processes may terminate, perhaps because of a bug causing it to crash, leaving the other 39 to carry on. Each process would have to handle the fact that its neighbors are no longer running and recover gracefully.</p>
+    <p class="normal">At the other extreme, you could map tasks to threads and implement the system as a single process containing 40 threads. Cooperation becomes much easier because they share the same address space and file descriptors. The overhead of sending messages is reduced or eliminated, and context switches between threads are faster than between processes. The downside is that you have introduced the possibility of one task corrupting the heap or the stack of another. If any of the threads encounters a fatal bug, the whole process will terminate, taking all the threads with it. Finally, debugging a complex multithreaded process can be a nightmare.</p>
+    <p class="normal">The conclusion you should <a id="_idIndexMarker1201"/>draw is that neither design is ideal and that there is a better way to do things. But before we get to that point, I will delve a little more deeply into the APIs and the behavior of processes and threads.</p>
+    <h1 id="_idParaDest-479" class="heading-1"><a id="_idTextAnchor546"/>Processes</h1>
+    <p class="normal">A process holds the<a id="_idIndexMarker1202"/> environment in which threads can run: it holds the memory mappings, the file descriptors, the user and group IDs, and more. The first process is the <code class="inlineCode">init</code> process, which is created by the kernel during boot and has a PID of 1. Thereafter, processes are created by duplication in an operation<a id="_idIndexMarker1203"/> known as <strong class="keyWord">forking</strong>.</p>
+    <h2 id="_idParaDest-480" class="heading-2"><a id="_idTextAnchor547"/>Creating a new process</h2>
+    <p class="normal">The POSIX function to <a id="_idIndexMarker1204"/>create a process is <code class="inlineCode">fork(2)</code>. It is an odd function because, for each successful call, there are two returns: one in the process that made the call, known as the <strong class="keyWord">parent</strong>, and <a id="_idIndexMarker1205"/>one in the newly created process, known<a id="_idIndexMarker1206"/> as the <strong class="keyWord">child</strong>, as shown in the following diagram:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_17_03.png" alt="Figure 17.3 – Forking" width="669" height="526"/></figure>
+    <p class="packt_figref">Figure 17.3 – Forking</p>
+    <p class="normal">Immediately after the call, the child is an exact copy of the parent: it has the same stack, the same heap, and the same file descriptors, and it executes the same line of code – the one following <code class="inlineCode">fork</code>. </p>
+    <p class="normal">The only way the programmer can tell them apart is by looking at the return value of <code class="inlineCode">fork</code>: it is <em class="italic">zero</em> for the child and <em class="italic">greater than zero</em> for the parent. Actually, the value that’s returned to the parent is the PID of the newly created child process. There is a third possibility, which is that the return value is negative, which means that the <code class="inlineCode">fork</code> call failed and there is still only one process.</p>
+    <p class="normal">Although the two processes are mostly identical, they are in separate address spaces. Changes that are made to a variable by one will not be seen by the other. Under the hood, the kernel does not make a physical copy of the parent’s memory, which would be quite a slow operation and consume memory unnecessarily. Instead, the memory is shared but marked with a <strong class="keyWord">copy-on-write</strong> (<strong class="keyWord">CoW</strong>) flag. If <a id="_idIndexMarker1207"/>either parent or child modifies this memory, the kernel makes a copy and then writes to the copy. This makes it an efficient fork function that also retains the logical separation of process address spaces. I will discuss CoW in <a href="Chapter_18.xhtml#_idTextAnchor581"><em class="italic">Chapter 18</em></a>.</p>
+    <h2 id="_idParaDest-481" class="heading-2"><a id="_idTextAnchor548"/>Terminating a process</h2>
+    <p class="normal">A process may be<a id="_idIndexMarker1208"/> stopped voluntarily by calling the <code class="inlineCode">exit(3)</code> function or, involuntarily, by receiving a signal that is not handled. One signal in particular, <code class="inlineCode">SIGKILL</code>, cannot be handled, so it will always kill a process. In all cases, terminating the process will stop all threads, close all file descriptors, and release all memory. The system sends a signal, <code class="inlineCode">SIGCHLD</code>, to the parent so that it knows this has happened.</p>
+    <p class="normal">Processes have a return value that is composed of either the argument to <code class="inlineCode">exit</code>, if it terminated normally, or the signal number if it was killed. The chief use for this is in shell scripts: it allows you to test the return value from a program. By convention, <code class="inlineCode">0</code> indicates success and any other values indicate a failure of some sort.</p>
+    <p class="normal">The parent can collect the return value with the <code class="inlineCode">wait(2)</code> or <code class="inlineCode">waitpid(2)</code> function. This causes a problem: there will be a delay between a child terminating and its parent collecting the return value. In that period, the return value must be stored somewhere, and the PID number of the now-dead process cannot be reused. A process in this state is known as a <strong class="keyWord">zombie</strong>, which is displayed as <code class="inlineCode">state Z</code> in the <code class="inlineCode">ps</code> and <code class="inlineCode">top</code> commands. As long as the parent calls <code class="inlineCode">wait</code> or <code class="inlineCode">waitpid</code> whenever it is notified of a child’s termination (by means of the <code class="inlineCode">SIGCHLD</code> signal; refer to <em class="italic">Linux System Programming</em>, by Robert Love and O’Reilly Media, or <em class="italic">The Linux Programming Interface</em>, by Michael Kerrisk, No Starch Press, for details on handling signals). Usually, zombies exist for too short a time to show up in process listings. They will become a problem if the parent fails to collect the return value because, eventually, there will not be enough resources to create any more processes.</p>
+    <p class="normal">The program in <code class="inlineCode">MELD/Chapter17/fork-demo</code> illustrates process creation and termination:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdlib.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/types.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/wait.h&gt;</span>
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params">)</span>
+{
+    <span class="hljs-type">int</span> pid;
+    <span class="hljs-type">int</span> status;
+    pid = fork();
+    <span class="hljs-keyword">if</span> (pid == <span class="hljs-number">0</span>) {
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"I am the child, PID %d\n"</span>, <span class="hljs-built_in">getpid</span>());
+        <span class="hljs-built_in">sleep</span>(<span class="hljs-number">10</span>);
+        <span class="hljs-built_in">exit</span>(<span class="hljs-number">42</span>);
+    } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (pid &gt; <span class="hljs-number">0</span>) {
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"I am the parent, PID %d\n"</span>, <span class="hljs-built_in">getpid</span>());
+        <span class="hljs-built_in">wait</span>(&amp;status);
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Child terminated, status %d\n"</span>, <span class="hljs-built_in">WEXITSTATUS</span>(status));
+    } <span class="hljs-keyword">else</span> {
+        <span class="hljs-built_in">perror</span>(<span class="hljs-string">"fork:"</span>);
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">The <code class="inlineCode">wait</code> function blocks until a child process exits and stores the exit status. When you run it, you will see something like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">I am the parent, PID 13851
+I am the child, PID 13852
+Child terminated with status 42
+</code></pre>
+    <p class="normal">The child process <a id="_idIndexMarker1209"/>inherits most of the attributes of the parent, including the user and group IDs, all open file descriptors, signal handling, and scheduling characteristics.</p>
+    <h2 id="_idParaDest-482" class="heading-2"><a id="_idTextAnchor549"/>Running a different program</h2>
+    <p class="normal">The <code class="inlineCode">fork</code> function<a id="_idIndexMarker1210"/> creates a copy of a running program, but it does not run a different program. For that, you need one of the <code class="inlineCode">exec</code> functions:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">execl</span><span class="hljs-params">(</span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *path, </span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *arg, ...)</span>;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">execlp</span><span class="hljs-params">(</span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *file, </span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *arg, ...)</span>;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">execle</span><span class="hljs-params">(</span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *path, </span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *arg, ..., </span><span class="hljs-type">char</span><span class="hljs-params"> * </span><span class="hljs-type">const</span><span class="hljs-params"> envp[])</span>;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">execv</span><span class="hljs-params">(</span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *path, </span><span class="hljs-type">char</span><span class="hljs-params"> *</span><span class="hljs-type">const</span><span class="hljs-params"> argv[])</span>;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">execvp</span><span class="hljs-params">(</span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *file, </span><span class="hljs-type">char</span><span class="hljs-params"> *</span><span class="hljs-type">const</span><span class="hljs-params"> argv[])</span>;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">execvpe</span><span class="hljs-params">(</span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">char</span><span class="hljs-params"> *file, </span><span class="hljs-type">char</span><span class="hljs-params"> *</span><span class="hljs-type">const</span><span class="hljs-params"> argv[], ..., </span><span class="hljs-type">char</span><span class="hljs-params"> *</span><span class="hljs-type">const</span><span class="hljs-params"> envp[])</span>;
+</code></pre>
+    <p class="normal">Each takes a path to the program file to load and run. If the function succeeds, the kernel discards all the resources of the current process, including memory and file descriptors, and allocates memory to the new program being loaded. When the thread that called <code class="inlineCode">exec*</code> returns, it returns not to the line of code after the call but to the <code class="inlineCode">main()</code> function of the new program. There is an example of a command launcher in <code class="inlineCode">MELD/Chapter17/exec-demo</code>: it prompts for a command, such as <code class="inlineCode">/bin/ls</code>, and forks and executes the string you enter. Here is the code:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdlib.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;string.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/types.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/wait.h&gt;</span>
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">int</span><span class="hljs-params"> argc, </span><span class="hljs-type">char</span><span class="hljs-params"> *argv[])</span>
+{
+    <span class="hljs-type">char</span> command_str[<span class="hljs-number">128</span>];
+    <span class="hljs-type">int</span> pid;
+    <span class="hljs-type">int</span> child_status;
+    <span class="hljs-type">int</span> wait_for = <span class="hljs-number">1</span>;
+    <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"sh&gt; "</span>);
+        <span class="hljs-built_in">scanf</span>(<span class="hljs-string">"%s"</span>, command_str);
+        pid = fork();
+        <span class="hljs-keyword">if</span> (pid == <span class="hljs-number">0</span>) {
+            <span class="hljs-comment">/* child */</span>
+            <span class="hljs-built_in">printf</span>(<span class="hljs-string">"cmd '%s'\n"</span>, command_str);
+            <span class="hljs-built_in">execl</span>(command_str, command_str, (<span class="hljs-type">char</span> *)<span class="hljs-literal">NULL</span>);
+            <span class="hljs-comment">/* We should not return from execl, so only get</span>
+<span class="hljs-comment">              to this line if it failed */</span>
+            <span class="hljs-built_in">perror</span>(<span class="hljs-string">"exec"</span>);
+            <span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+        }
+        <span class="hljs-keyword">if</span> (wait_for) {
+            <span class="hljs-built_in">waitpid</span>(pid, &amp;child_status, <span class="hljs-number">0</span>);
+            <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Done, status %d\n"</span>, child_status);
+        }
+     }
+     <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">This is what you <a id="_idIndexMarker1211"/>will see when you run it:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ./exec-demo
+sh&gt; /bin/ls
+cmd '/bin/ls'
+bin etc lost+found proc sys var
+boot home media run tmp
+dev lib mnt sbin usr
+Done, status 0
+sh&gt;
+</code></pre>
+    <p class="normal">You can terminate the program by typing <em class="italic">Ctrl + C</em>.</p>
+    <p class="normal">It might seem odd to have one function that duplicates an existing process and another that discards its resources and loads a different program into memory, especially since it is common for a <code class="inlineCode">fork</code> to be followed almost immediately by one of the <code class="inlineCode">exec</code> functions. Most operating systems combine the two actions into a single call.</p>
+    <p class="normal">There are distinct advantages to this, however. For example, it makes it very easy to implement redirection and pipes in the shell. Imagine that you want to get a directory listing. This is the sequence of events:</p>
+    <ol>
+      <li class="numberedList" value="1">You type <code class="inlineCode">ls</code> in the shell prompt.</li>
+      <li class="numberedList">The shell forks a child copy of itself.</li>
+      <li class="numberedList">The shell waits for the child process to finish.</li>
+      <li class="numberedList">The child execs <code class="inlineCode">/bin/ls</code>.</li>
+      <li class="numberedList">The <code class="inlineCode">ls</code> program prints the directory listing to <code class="inlineCode">stdout</code> (file descriptor 1), which is attached to the terminal. You will see the directory listing.</li>
+      <li class="numberedList">The <code class="inlineCode">ls</code> program terminates, and the shell regains control.</li>
+    </ol>
+    <p class="normal">Now, imagine that you want the directory listing to be written to a file by redirecting the output using the &gt; character. Now, the <a id="_idIndexMarker1212"/>sequence is as follows:</p>
+    <ol>
+      <li class="numberedList" value="1">You type <code class="inlineCode">ls &gt; listing.txt</code>.</li>
+      <li class="numberedList">The shell forks a child copy of itself.</li>
+      <li class="numberedList">The shell waits for the child process to finish.</li>
+      <li class="numberedList">The child opens and truncates the <code class="inlineCode">listing.txt</code> file and uses <code class="inlineCode">dup2(2)</code> to copy the file descriptor of the file over file descriptor 1 (<code class="inlineCode">stdout</code>).</li>
+      <li class="numberedList">The child execs <code class="inlineCode">/bin/ls</code>.</li>
+      <li class="numberedList">The program prints the listing as it did previously, but this time, it is writing to <code class="inlineCode">listing.txt</code>.</li>
+      <li class="numberedList">The <code class="inlineCode">ls</code> program terminates, and the shell regains control.<div class="note">
+          <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+          <p class="normal">There was an opportunity in <em class="italic">step 4</em> to modify the environment of the child process before executing the program. The <code class="inlineCode">ls</code> program does not need to know that it is writing to a file rather than a terminal. Instead of a file, <code class="inlineCode">stdout</code> could be connected to a pipe so that the <code class="inlineCode">ls</code> program, still unchanged, can send output to another program. This is part of the Unix philosophy of combining many small components that each do a job well, as described in <em class="italic">The Art of Unix Programming</em>, by Eric Steven Raymond and Addison Wesley, especially in the <em class="italic">Pipes, Redirection, and Filters</em> section.</p>
+        </div>
+      </li>
+    </ol>
+    <p class="normal">So far, the programs we’ve <a id="_idIndexMarker1213"/>looked at in this section all run in the foreground. But what about programs that run in the background, waiting for things to happen? Let’s take a look.</p>
+    <h2 id="_idParaDest-483" class="heading-2"><a id="_idTextAnchor550"/>Daemons</h2>
+    <p class="normal">We have encountered <a id="_idIndexMarker1214"/>daemons in several places<a id="_idIndexMarker1215"/> already. A <strong class="keyWord">daemon</strong> is a process that runs in the background, is owned by the <code class="inlineCode">init</code> process, and is not connected to a controlling terminal. The steps to create a daemon are as follows:</p>
+    <ol>
+      <li class="numberedList" value="1">Call <code class="inlineCode">fork</code> to create a new process, after which the parent should exit, thus creating an orphan that will be re-parented to <code class="inlineCode">init</code>.</li>
+      <li class="numberedList">The child process calls <code class="inlineCode">setsid(2)</code>, creating a new session and process group that it is the sole member of. The exact details do not matter here; you can simply consider this a way of isolating the process from any controlling terminal.</li>
+      <li class="numberedList">Change the working directory to the root directory.</li>
+      <li class="numberedList">Close all file descriptors and redirect <code class="inlineCode">stdin</code>, <code class="inlineCode">stdout</code>, and <code class="inlineCode">stderr</code> (descriptors <code class="inlineCode">0</code>, <code class="inlineCode">1</code>, and <code class="inlineCode">2</code>) to <code class="inlineCode">/dev/null</code> so that there is no input, and all output is hidden.</li>
+    </ol>
+    <p class="normal">Thankfully, all of the preceding steps can be achieved with a single function call, <code class="inlineCode">daemon(3)</code>.</p>
+    <h2 id="_idParaDest-484" class="heading-2"><a id="_idTextAnchor551"/>Inter-process communication</h2>
+    <p class="normal">Each process is an <a id="_idIndexMarker1216"/>island of memory. You can pass information<a id="_idIndexMarker1217"/> from one to another in two ways. Firstly, you can move it from one address space to the other. Secondly, you can create an area of memory that both can access and share the data.</p>
+    <p class="normal">The first is usually combined with a queue or buffer so that there is a sequence of messages passing between processes. This implies copying the message twice: first to a holding area and then to the destination. Some examples of this are sockets, pipes, and message queues.</p>
+    <p class="normal">The second way requires not only a method of creating memory that is mapped to two (or more) address spaces at once, but it is also a means of synchronizing access to that memory, for example, using semaphores or mutexes.</p>
+    <p class="normal">POSIX has functions for all of these. There is an older set of APIs known <a id="_idIndexMarker1218"/>as <strong class="keyWord">System V IPC</strong>, which provides message queues, shared memory, and semaphores, but it is not as flexible as the POSIX equivalents, so I will not describe them here. The manual page on <code class="inlineCode">svipc(7)</code> gives an overview of these facilities, and there are more details in <em class="italic">The Linux Programming Interface</em>, by Michael Kerrisk, and <em class="italic">Unix Network Programming, Volume 2</em>, by W. Richard Stevens.</p>
+    <p class="normal">Message-based protocols are usually easier to program and debug than shared memory, but are slow if the messages are large or there are many of them.</p>
+    <h3 id="_idParaDest-485" class="heading-3"><a id="_idTextAnchor552"/>Message-based IPC</h3>
+    <p class="normal">There are several options <a id="_idIndexMarker1219"/>for message-based IPC, all <a id="_idIndexMarker1220"/>of which I will summarize as follows. The attributes that differentiate one from the other are as follows:</p>
+    <ul>
+      <li class="bulletList">Whether the message flow is uni- or bi-directorial.</li>
+      <li class="bulletList">Whether the data flow is a byte stream with no message boundary or discrete messages with boundaries preserved. In the latter case, the maximum size of a message is important.</li>
+      <li class="bulletList">Whether messages are tagged with a priority.</li>
+    </ul>
+    <p class="normal">The following table summarizes these properties for FIFOs, sockets, and message queues:</p>
+    <table id="table001-4" class="table-container">
+      <tbody>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Property</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">FIFO</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Unix socket: stream</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Unix socket: datagram</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">POSIX message queue</strong></p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">Message boundary</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Byte stream</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Byte stream</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Discrete</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Discrete</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">Uni/bi-directional</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Uni</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Bi</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Uni</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Uni</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">Max message size</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Unlimited</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Unlimited</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">In the range of 100 KB to 200 KB</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Fefault: 8 KB absolute</p>
+            <p class="normal">maximum: 1 MB</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal">Priority levels</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">None</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">None</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">None</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">0 to 32767</p>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="packt_figref">Table 17.1 – Properties for FIFOs, sockets, and message queues</p>
+    <p class="normal">The first form <a id="_idIndexMarker1221"/>of message-based IPC we will look <a id="_idIndexMarker1222"/>at is Unix sockets.</p>
+    <h3 id="_idParaDest-486" class="heading-3"><a id="_idTextAnchor553"/>Unix (or local) sockets</h3>
+    <p class="normal"><strong class="keyWord">Unix sockets</strong> fulfill <a id="_idIndexMarker1223"/>most requirements and, coupled with the<a id="_idIndexMarker1224"/> familiarity of the sockets API, are by far the most common mechanism.</p>
+    <p class="normal">Unix sockets are created with the <code class="inlineCode">AF_UNIX</code> address family and bound to a pathname. Access to the socket is determined by the access permission of the socket file. As with internet sockets, the socket type can be <code class="inlineCode">SOCK_STREAM</code> or <code class="inlineCode">SOCK_DGRAM</code>, the former giving a bidirectional byte stream and the latter providing discrete messages with preserved boundaries. Unix socket datagrams are reliable, which means that they will not be dropped or reordered. The maximum size for a datagram is system-dependent and is available via <code class="inlineCode">/proc/sys/net/core/wmem_max</code>. It is typically 100 KB or more.</p>
+    <p class="normal">Unix sockets do not have a mechanism to indicate the priority of a message.</p>
+    <h3 id="_idParaDest-487" class="heading-3"><a id="_idTextAnchor554"/>FIFOs and named pipes</h3>
+    <p class="normal"><strong class="keyWord">FIFO</strong> and <strong class="keyWord">named pipe</strong> are <a id="_idIndexMarker1225"/>just <a id="_idIndexMarker1226"/>different terms for the same thing. They are an extension of the anonymous pipe that is used to communicate between parent and child processes when implementing pipes in the shell.</p>
+    <p class="normal">A FIFO is a special sort of file, created by the <code class="inlineCode">mkfifo(1)</code> command. As with Unix sockets, the file access permissions determine who can read and write. They are unidirectional, which means that there is one reader and usually one writer, though there may be several. The data is a pure byte stream but guarantees the atomicity of messages that are smaller than the buffer associated with the pipe. In other words, writes less than this size will not be split into several smaller writes, so you will read the whole message in one go as long as the size of the buffer on your end is large enough. The<a id="_idIndexMarker1227"/> default size of the FIFO <a id="_idIndexMarker1228"/>buffer is 64 KB on modern kernels and can be increased using <code class="inlineCode">fcntl(2)</code> with <code class="inlineCode">F_SETPIPE_SZ</code>, up to the value in <code class="inlineCode">/proc/sys/fs/pipe-max-size</code>, which is typically 1 MB. There is no concept of priority.</p>
+    <h3 id="_idParaDest-488" class="heading-3"><a id="_idTextAnchor555"/>POSIX message queues</h3>
+    <p class="normal">Message queues <a id="_idIndexMarker1229"/>are identified by a name beginning <a id="_idIndexMarker1230"/>with a forward slash and containing only one <code class="inlineCode">/</code> character. Message queues are kept in a pseudo filesystem of the <code class="inlineCode">mqueue</code> type. You create a queue and get a reference to an existing queue through <code class="inlineCode">mq_open(3)</code>, which returns a file descriptor. Each message has a priority, and messages are read from the queue based on priority and then on the age order. Messages can be up to <code class="inlineCode">/proc/sys/kernel/msgmax</code> bytes long.</p>
+    <p class="normal">The default value is 8 KB, but you can set it to be any size in the range of 128 bytes to 1 MB by writing the value to <code class="inlineCode">/proc/sys/kernel/msgmax</code>. Since the reference is a file descriptor, you can use <code class="inlineCode">select(2)</code>, <code class="inlineCode">poll(2)</code>, and other similar functions to wait for activity in the queue.</p>
+    <p class="normal">Refer to the Linux <code class="inlineCode">mq_overview(7)</code> man page for more details.</p>
+    <h2 id="_idParaDest-489" class="heading-2"><a id="_idTextAnchor556"/>Summary of message-based IPC</h2>
+    <p class="normal">Unix sockets are used the most often because they offer all that is needed, except perhaps message priority. They<a id="_idIndexMarker1231"/> are implemented on most operating systems, so they confer maximum portability.</p>
+    <p class="normal">FIFOs are less frequently used, mostly because they lack an equivalent to a <strong class="keyWord">datagram</strong>. On the other hand, the API is very simple, since it provides the normal <code class="inlineCode">open(2)</code>, <code class="inlineCode">close(2)</code>, <code class="inlineCode">read(2)</code>, and <code class="inlineCode">write(2)</code> file calls.</p>
+    <p class="normal">Message queues are the least commonly used of this group. The code paths in the kernel are not optimized in the way that socket (network) and FIFO (filesystem) calls are.</p>
+    <p class="normal">There are also higher-level abstractions such as D-Bus, which are moving from mainstream Linux to embedded devices. D-Bus uses Unix sockets and shared memory under the surface.</p>
+    <h2 id="_idParaDest-490" class="heading-2"><a id="_idTextAnchor557"/>Shared memory-based IPC</h2>
+    <p class="normal">Sharing memory<a id="_idIndexMarker1232"/> removes the need to copy data between address<a id="_idIndexMarker1233"/> spaces but introduces the problem of synchronizing accesses to it. Synchronization between processes is commonly achieved using semaphores.</p>
+    <h3 id="_idParaDest-491" class="heading-3"><a id="_idTextAnchor558"/>POSIX shared memory</h3>
+    <p class="normal">To share memory <a id="_idIndexMarker1234"/>between processes, you must<a id="_idIndexMarker1235"/> create a new area of memory and then map it to the address space of each process that wants access to it, as shown in the following diagram:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_17_04.png" alt="Figure 17.4 – POSIX shared memory" width="773" height="506"/></figure>
+    <p class="packt_figref">Figure 17.4 – POSIX shared memory</p>
+    <p class="normal">Naming POSIX shared memory segments follows the pattern we encountered with message queues. The segments are identified by names that begin with a / character and have exactly one such character:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">define</span><span class="hljs-meta"> SHM_SEGMENT_NAME </span><span class="hljs-string">"/demo-shm"</span>
+</code></pre>
+    <p class="normal">The <code class="inlineCode">shm_open(3)</code> function takes the name and returns a file descriptor for it. If it does not exist already and the <code class="inlineCode">O_CREAT</code> flag is set, then a new segment is created. Initially, it has a size of zero. You can use the (misleadingly named) <code class="inlineCode">ftruncate(2)</code> function to expand it to the desired size:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">int</span> shm_fd;
+<span class="hljs-keyword">struct</span> <span class="hljs-title">shared_data</span> *shm_p;
+<span class="hljs-comment">/* Attempt to create the shared memory segment */</span>
+shm_fd = <span class="hljs-built_in">shm_open</span>(SHM_SEGMENT_NAME, O_CREAT | O_EXCL | O_RDWR, <span class="hljs-number">0666</span>);
+<span class="hljs-keyword">if</span> (shm_fd &gt; <span class="hljs-number">0</span>) {
+    <span class="hljs-comment">/* succeeded: expand it to the desired size (Note: dont't</span>
+<span class="hljs-comment">       do this every time because ftruncate fills it with zeros) */</span>
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Creating shared memory and setting size=%d\n"</span>,
+    SHM_SEGMENT_SIZE);
+    <span class="hljs-keyword">if</span> (<span class="hljs-built_in">ftruncate</span>(shm_fd, SHM_SEGMENT_SIZE) &lt; <span class="hljs-number">0</span>) {
+        <span class="hljs-built_in">perror</span>(<span class="hljs-string">"ftruncate"</span>);
+        <span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+    }
+    &lt;…&gt;
+} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (shm_fd == <span class="hljs-number">-1</span> &amp;&amp; errno == EEXIST) {
+    <span class="hljs-comment">/* Already exists: open again without O_CREAT */</span>
+    Shm_fd = <span class="hljs-built_in">shm_open</span>(SHM_SEGMENT_NAME, O_RDWR, <span class="hljs-number">0</span>);
+    &lt;…&gt;
+}
+</code></pre>
+    <p class="normal">Once you have a descriptor for the shared memory, you map it to the address space of the process using <code class="inlineCode">mmap(2)</code> so that threads in different processes can access the memory:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-comment">/* Map the shared memory */</span>
+shm_p = <span class="hljs-built_in">mmap</span>(<span class="hljs-literal">NULL</span>, SHM_SEGMENT_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, <span class="hljs-number">0</span>);
+</code></pre>
+    <p class="normal">The program in <code class="inlineCode">MELD/Chapter17/shared-mem-demo</code> provides an example of using a shared memory segment to<a id="_idIndexMarker1236"/> communicate between<a id="_idIndexMarker1237"/> processes. Here is the <code class="inlineCode">main</code> function:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">static</span> <span class="hljs-type">sem_t</span> *demo_sem;
+&lt;…&gt;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">int</span><span class="hljs-params"> argc, </span><span class="hljs-type">char</span><span class="hljs-params"> *argv[])</span>
+{
+    <span class="hljs-type">char</span> *shm_p;
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s PID=%d\n"</span>, argv[<span class="hljs-number">0</span>], <span class="hljs-built_in">getpid</span>());
+    shm_p = <span class="hljs-built_in">get_shared_memory</span>();
+    <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Press enter to see the current contents of shm\n"</span>);
+        <span class="hljs-built_in">getchar</span>();
+        <span class="hljs-built_in">sem_wait</span>(demo_sem);
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s\n"</span>, shm_p);
+        <span class="hljs-comment">/* Write our signature to the shared memory */</span>
+        <span class="hljs-built_in">sprintf</span>(shm_p, <span class="hljs-string">"Hello from process %d\n"</span>, <span class="hljs-built_in">getpid</span>());
+        <span class="hljs-built_in">sem_post</span>(demo_sem);
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">The program uses a shared memory segment to communicate a message from one process to another. The message is <code class="inlineCode">Hello from process string</code>, followed by its PID. The <code class="inlineCode">get_shared_memory</code> function is responsible for creating the memory segment, if it does not exist, or getting the file descriptor for it if it does. It returns a pointer to the memory segment. Notice that there is a semaphore to synchronize access to the memory so that one process does not overwrite a message from another.</p>
+    <p class="normal">To try it out, you need two instances of the program running in separate terminal sessions. In the first terminal, you will see something like this:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ./shared-mem-demo
+./shared-mem-demo PID=271
+Creating shared memory and setting size=65536
+Press enter to see the current contents of shm
+Press enter to see the current contents of shm
+Hello from process 271
+</code></pre>
+    <p class="normal">Because this is the first time the program is being run, it creates the memory segment. Initially, the message area is empty, but after one run through the loop, it contains the PID of this process, which is 271. Now, you can run a second instance in another terminal:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ./shared-mem-demo
+./shared-mem-demo PID=279
+Press enter to see the current contents of shm
+Hello from process 271
+Press enter to see the current contents of shm
+Hello from process 279
+</code></pre>
+    <p class="normal">It does not create<a id="_idIndexMarker1238"/> the <a id="_idIndexMarker1239"/>shared memory segment because it exists already, and it displays the message that it contains already, which is the PID of the other program. Pressing <em class="italic">Enter</em> causes it to write its own PID, which the first program would be able to see. By doing this, the two programs can communicate with each other.</p>
+    <p class="normal">The POSIX IPC functions are part of the POSIX real-time extensions, so you need to link them with <code class="inlineCode">librt</code>. Oddly, the POSIX semaphores are implemented in the POSIX threads library, so you need to link to the <code class="inlineCode">pthreads</code> library as well. Hence, the compilation arguments are as follows when you’re targeting 64-bit Arm SoCs:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ aarch64-buildroot-linux-gnu-gcc shared-mem-demo.c -lrt -pthread -o shared-mem-demo
+</code></pre>
+    <p class="normal">This concludes our<a id="_idIndexMarker1240"/> survey <a id="_idIndexMarker1241"/>of IPC methods. We will revisit message-based IPC when we cover ZeroMQ. Now, it is time to look at multithreaded processes.</p>
+    <h1 id="_idParaDest-492" class="heading-1"><a id="_idTextAnchor559"/>Threads</h1>
+    <p class="normal">The programming<a id="_idIndexMarker1242"/> interface for threads is the POSIX threads API, which was first defined in the <em class="italic">IEEE POSIX 1003.1c standard (1995)</em> and is commonly known<a id="_idIndexMarker1243"/> as <strong class="keyWord">pthreads</strong>. It is implemented as an additional part of the <code class="inlineCode">libpthread.so.0</code> C library. There have been two implementations of <code class="inlineCode">pthreads</code> over the last 20 years or <a id="_idIndexMarker1244"/>so: <strong class="keyWord">LinuxThreads</strong> and <strong class="keyWord">Native POSIX Thread Library</strong> (<strong class="keyWord">NPTL</strong>). The latter is much more compliant with the specification, especially<a id="_idIndexMarker1245"/> in regard to the handling of signals and process IDs. NPTL is dominant now. If you happen to come across any C standard library that still employs <code class="inlineCode">LinuxThreads</code>, I would refrain from using it.</p>
+    <h2 id="_idParaDest-493" class="heading-2"><a id="_idTextAnchor560"/>Creating a new thread</h2>
+    <p class="normal">The function <a id="_idIndexMarker1246"/>you can use to create a thread is <code class="inlineCode">pthread_create(3)</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">pthread_create</span><span class="hljs-params">(</span><span class="hljs-type">pthread_t</span><span class="hljs-params"> *restrict thread, </span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-type">pthread_attr_t</span><span class="hljs-params"> *restrict attr, typeof(</span><span class="hljs-type">void</span><span class="hljs-params"> *(</span><span class="hljs-type">void</span><span class="hljs-params"> *)) *start_routine, </span><span class="hljs-type">void</span><span class="hljs-params"> *restrict arg)</span>;
+</code></pre>
+    <p class="normal">It creates a new thread of execution that begins in the <code class="inlineCode">start_routine</code> function and places a descriptor in <code class="inlineCode">pthread_t</code>, which is pointed to by <code class="inlineCode">thread</code>. It inherits the scheduling parameters of the calling thread, but these can be overridden by passing a pointer to the thread attributes in <code class="inlineCode">attr</code>. The thread will start executing immediately.</p>
+    <p class="normal"><code class="inlineCode">pthread_t</code> is the main way to refer to the thread within the program, but the thread can also be seen from outside using a command such as <code class="inlineCode">ps -eLf</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">UID PID PPID LWP C NLWP STIME TTY TIME CMD
+&lt;...&gt;
+chris 6072 5648 6072 0 3 21:18 pts/0 00:00:00 ./thread-demo
+chris 6072 5648 6073 0 3 21:18 pts/0 00:00:00 ./thread-demo
+</code></pre>
+    <p class="normal">The BusyBox <code class="inlineCode">ps</code> applet does not support the <code class="inlineCode">-eLf</code> option so make sure to install the full <code class="inlineCode">procps</code> package on embedded targets.</p>
+    <p class="normal">In the preceding output, the <code class="inlineCode">thread-demo</code> program has two threads. The <code class="inlineCode">PID</code> and <code class="inlineCode">PPID</code> columns show that they all belong to the same process and have the same parent, as you would expect. The column marked <code class="inlineCode">LWP</code> is interesting, though. <strong class="keyWord">LWP</strong> stands<a id="_idIndexMarker1247"/> for <strong class="keyWord">Light Weight Process</strong>, which, in this context, is another name for a thread. The numbers in that column are also <a id="_idIndexMarker1248"/>known as <strong class="keyWord">Thread ID</strong>s or <strong class="keyWord">TID</strong>s. In the main thread, the TID is<a id="_idIndexMarker1249"/> the same as the PID, but for the others, it is a different (higher) value. You can use a TID in places where the documentation states that you must give a PID, but be aware that this behavior is specific to Linux and is not portable. Here is a simple program that illustrates the life cycle of a thread (the code is in <code class="inlineCode">MELD/Chapter17/thread-demo</code>):</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;pthread.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;sys/syscall.h&gt;</span>
+<span class="hljs-type">static</span><span class="hljs-function"> </span><span class="hljs-type">void</span><span class="hljs-function"> *</span><span class="hljs-title">thread_fn</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params"> *arg)</span>
+{
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"New thread started, PID %d TID %d\n"</span>,
+        <span class="hljs-built_in">getpid</span>(), (<span class="hljs-type">pid_t</span>)<span class="hljs-built_in">syscall</span>(SYS_gettid));
+    <span class="hljs-built_in">sleep</span>(<span class="hljs-number">10</span>);
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"New thread terminating\n"</span>);
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">main</span><span class="hljs-params">(</span><span class="hljs-type">int</span><span class="hljs-params"> argc, </span><span class="hljs-type">char</span><span class="hljs-params"> *argv[])</span>
+{
+    <span class="hljs-type">pthread_t</span> t;
+    <span class="hljs-built_in">printf</span>(<span class="hljs-string">"Main thread, PID %d TID %d\n"</span>,
+        <span class="hljs-built_in">getpid</span>(), (<span class="hljs-type">pid_t</span>)<span class="hljs-built_in">syscall</span>(SYS_gettid));
+    <span class="hljs-built_in">pthread_create</span>(&amp;t, <span class="hljs-literal">NULL</span>, thread_fn, <span class="hljs-literal">NULL</span>);
+    <span class="hljs-built_in">pthread_join</span>(t, <span class="hljs-literal">NULL</span>);
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+    <p class="normal">Note that, in the <code class="inlineCode">thread_fn</code> function, I am retrieving the TID using <code class="inlineCode">syscall(SYS_gettid)</code>. Prior to <code class="inlineCode">glibc</code> 2.30, you had to call Linux directly through a <code class="inlineCode">syscall</code> because there was no C library wrapper for <code class="inlineCode">gettid()</code>.</p>
+    <p class="normal">There is a limit to the total number of threads that a given kernel can schedule. The limit scales according to the size<a id="_idIndexMarker1250"/> of the system, from around 1,000 on small devices up to tens of thousands on larger embedded devices. The actual number is available in <code class="inlineCode">/proc/sys/kernel/threads-max</code>. Once you reach this limit, fork and <code class="inlineCode">pthread_create</code> will fail.</p>
+    <h2 id="_idParaDest-494" class="heading-2"><a id="_idTextAnchor561"/>Terminating a thread</h2>
+    <p class="normal">A thread <a id="_idIndexMarker1251"/>terminates when any of the following occurs:</p>
+    <ul>
+      <li class="bulletList">It reaches the end of its <code class="inlineCode">start_routine</code>.</li>
+      <li class="bulletList">It calls <code class="inlineCode">pthread_exit(3)</code>.</li>
+      <li class="bulletList">It is canceled by another thread calling <code class="inlineCode">pthread_cancel(3)</code>.</li>
+      <li class="bulletList">The process that contains the thread terminates, for example, because of a thread calling <code class="inlineCode">exit(3)</code>, or the process receiving a signal that is not handled, masked, or ignored.</li>
+    </ul>
+    <p class="normal">Note that if a multithreaded program calls <code class="inlineCode">fork</code>, only the thread that made the call will exist in the new child process. Forking does not replicate all threads.</p>
+    <p class="normal">A thread has a return value, which is a void pointer. One thread can wait for another to terminate and collect its return value by calling <code class="inlineCode">pthread_join(2)</code>. There is an example of this in the code for <code class="inlineCode">thread-demo</code>, as we mentioned in the preceding section. This produces a problem that is very similar to the zombie problem among processes: the resources of the thread, such as the stack, cannot be freed up until another thread has joined with it. If threads remain <em class="italic">unjoined</em>, there is <a id="_idIndexMarker1252"/>a resource leak in the program.</p>
+    <h2 id="_idParaDest-495" class="heading-2"><a id="_idTextAnchor562"/>Compiling a program with threads</h2>
+    <p class="normal">The support for POSIX <a id="_idIndexMarker1253"/>threads is part of the C library in the <code class="inlineCode">libpthread.so.0</code> library. However, there<a id="_idIndexMarker1254"/> is more to building programs with threads than linking the library: there must be changes to the way the compiler generates code to make sure that certain global variables, such as <code class="inlineCode">errno</code>, have one instance per thread rather than one for the whole process.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">When building a threaded program, add the <code class="inlineCode">-pthread</code> switch. Adding <code class="inlineCode">-pthread</code> will automatically add <code class="inlineCode">-lpthread</code> to the linker command from the compiler driver. </p>
+    </div>
+    <h2 id="_idParaDest-496" class="heading-2"><a id="_idTextAnchor563"/>Inter-thread communication</h2>
+    <p class="normal">The big advantage <a id="_idIndexMarker1255"/>of threads is that they share the address space and can share memory variables. This is also a big disadvantage because it requires synchronization to preserve data consistency in a manner similar to memory segments shared between processes but with the provision that, with threads, all memory is shared. In fact, threads can create private memory <a id="_idIndexMarker1256"/>using <strong class="keyWord">thread local storage</strong> (<strong class="keyWord">TLS</strong>), but I will not cover that here.</p>
+    <p class="normal">The <code class="inlineCode">pthreads</code> interface provides the basics necessary to achieve synchronization: mutexes and condition variables. If you want more complex structures, you will have to build them yourself.</p>
+    <p class="normal">It is worth noting that all the IPC methods we described earlier – that is, sockets, pipes, and message queues – work equally well between threads in the same process.</p>
+    <h2 id="_idParaDest-497" class="heading-2"><a id="_idTextAnchor564"/>Mutual exclusion</h2>
+    <p class="normal">To write robust <a id="_idIndexMarker1257"/>programs, you need to protect each shared resource with a mutex lock and make sure that every code path that reads or writes the resource has locked the mutex first. If you apply this rule consistently, most of the problems should be solved. The ones that remain are associated with the fundamental behavior of mutexes. I will list them briefly here but will not go into too much detail:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">Deadlock</strong>: This occurs when mutexes become permanently locked. A classic situation is the <strong class="keyWord">deadly embrace</strong>, in which two threads each require two mutexes and have managed to lock one of them but not the other. Each thread blocks, waiting for the lock the other has, and so they remain as they are. One simple rule for avoiding the deadly embrace problem is to make sure that mutexes are always locked in the same order. Other solutions involve timeouts and back-off periods.</li>
+      <li class="bulletList"><strong class="keyWord">Priority inversion</strong>: The delays caused by waiting for a mutex can cause a real-time thread to miss deadlines. The specific case of priority inversion happens when a high-priority thread becomes blocked, waiting for a mutex locked by a low-priority thread. If the low-priority thread is preempted by other threads of intermediate priority, the high-priority thread is forced to wait for an unbounded length of time. There are mutex protocols <a id="_idIndexMarker1258"/>called <strong class="keyWord">priority inheritance</strong> and <strong class="keyWord">priority ceiling</strong> that <a id="_idIndexMarker1259"/>resolve the problem at the expense of greater processing overhead in the kernel for each lock and unlock call.</li>
+      <li class="bulletList"><strong class="keyWord">Poor performance</strong>: Mutexes introduce minimal overhead to the code, as long as threads don’t have to block on them most of the time. If your design has a resource that is needed by a lot of threads, however, the contention ratio becomes significant. This is usually a design issue that can be resolved using finer-grained locking or a different algorithm.</li>
+    </ul>
+    <p class="normal">Mutexes are not the<a id="_idIndexMarker1260"/> only way to synchronize between threads. We witnessed how two processes can use a semaphore to notify each other back when we covered POSIX shared memory. Threads have a similar construct.</p>
+    <h2 id="_idParaDest-498" class="heading-2"><a id="_idTextAnchor565"/>Changing conditions</h2>
+    <p class="normal">Cooperating threads <a id="_idIndexMarker1261"/>need to be able to alert one another that something has changed and needs attention. This is <a id="_idIndexMarker1262"/>called a <strong class="keyWord">condition</strong>, and the alert is sent<a id="_idIndexMarker1263"/> through a <strong class="keyWord">condition variable</strong>, or <strong class="keyWord">condvar</strong>.</p>
+    <p class="normal">A condition is just something that you can test to give a true or false result. A simple example is a buffer that contains either zero or some items. One thread takes items from the buffer and sleeps when it is empty. Another thread places items into the buffer and signals to the other thread that it has done so because the condition that the other thread is waiting on has changed. If it is sleeping, it needs to wake up and do something. The only complexity is that the condition is, by definition, a shared resource, so it must be protected by a mutex.</p>
+    <p class="normal">Here is a simple program with two threads. The first is the producer: it wakes every second and puts some data into a global variable before signaling that there has been a change. The second thread is the consumer: it waits on the condition variable and tests the condition (that there is a string in the buffer of nonzero length) each time it wakes up. You can find the code in <code class="inlineCode">MELD/Chapter17/condvar-demo</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdio.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;stdlib.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;pthread.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;unistd.h&gt;</span>
+<span class="hljs-meta">#</span><span class="hljs-keyword">include</span><span class="hljs-meta"> </span><span class="hljs-string">&lt;string.h&gt;</span>
+<span class="hljs-type">char</span> g_data[<span class="hljs-number">128</span>];
+<span class="hljs-type">pthread_cond_t</span> cv = PTHREAD_COND_INITIALIZER;
+<span class="hljs-type">pthread_mutex_t</span> mutx = PTHREAD_MUTEX_INITIALIZER;
+<span class="hljs-type">void</span><span class="hljs-function"> *</span><span class="hljs-title">consumer</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params"> *arg)</span>
+{
+    <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+        <span class="hljs-built_in">pthread_mutex_lock</span>(&amp;mutx);
+        <span class="hljs-keyword">while</span> (<span class="hljs-built_in">strlen</span>(g_data) == <span class="hljs-number">0</span>)
+            <span class="hljs-built_in">pthread_cond_wait</span>(&amp;cv, &amp;mutx);
+        <span class="hljs-comment">/* Got data */</span>
+        <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s\n"</span>, g_data);
+        <span class="hljs-comment">/* Truncate to null string again */</span>
+        g_data[<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>;
+        <span class="hljs-built_in">pthread_mutex_unlock</span>(&amp;mutx);
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+<span class="hljs-type">void</span><span class="hljs-function"> *</span><span class="hljs-title">producer</span><span class="hljs-params">(</span><span class="hljs-type">void</span><span class="hljs-params"> *arg)</span>
+{
+    <span class="hljs-type">int</span> i = <span class="hljs-number">0</span>;
+    <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+        <span class="hljs-built_in">sleep</span>(<span class="hljs-number">1</span>);
+        <span class="hljs-built_in">pthread_mutex_lock</span>(&amp;mutx);
+        <span class="hljs-built_in">sprintf</span>(g_data, <span class="hljs-string">"Data item %d"</span>, i);
+        <span class="hljs-built_in">pthread_mutex_unlock</span>(&amp;mutx);
+        <span class="hljs-built_in">pthread_cond_signal</span>(&amp;cv);
+        i++;
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+</code></pre>
+    <p class="normal">Note that when the<a id="_idIndexMarker1264"/> consumer thread blocks on the condvar, it does so while holding a locked mutex, which would seem to be a recipe for deadlock the next time the producer thread tries to update the condition. To avoid this, <code class="inlineCode">pthread_cond_wait(3</code>) unlocks the mutex after the thread is blocked and then locks it again before waking it and <a id="_idIndexMarker1265"/>returning from the wait.</p>
+    <h2 id="_idParaDest-499" class="heading-2"><a id="_idTextAnchor566"/>Partitioning the problem</h2>
+    <p class="normal">Now that we have <a id="_idIndexMarker1266"/>covered the basics of processes and threads and the ways in which they communicate, it is time to see what we can do with them.</p>
+    <p class="normal">Here are some of the rules I use when building systems:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">Rule 1</strong>: Keep tasks that have a lot of interaction together: It is important to minimize overheads by keeping closely inter-operating threads together in one process.</li>
+      <li class="bulletList"><strong class="keyWord">Rule 2</strong>: Don’t put all your threads in one basket: On the other hand, try and keep components with limited interaction in separate processes, in the interests of resilience and modularity.</li>
+      <li class="bulletList"><strong class="keyWord">Rule 3</strong>: Don’t mix critical and noncritical threads in the same process: This is an amplification of <em class="italic">Rule 2</em>: the critical part of the system, which might be a machine control program, should be kept as simple as possible and written in a more rigorous way than other parts. It must be able to continue, even if other processes fail. If you have real-time threads, by definition, they must be critical and should go into a process by themselves.</li>
+      <li class="bulletList"><strong class="keyWord">Rule 4</strong>: Threads shouldn’t get too intimate: One of the temptations when writing a multithreaded program is to intermingle the code and variables between threads because it is an all-in-one program and easy to do. Keep the threads modular, with well-defined interactions.</li>
+      <li class="bulletList"><strong class="keyWord">Rule 5</strong>: Don’t think that threads are free: It is very easy to create additional threads, but there is a high cost in terms of the additional complexity needed to coordinate their activities.</li>
+      <li class="bulletList"><strong class="keyWord">Rule 6</strong>: Threads can work in parallel: Threads can run simultaneously on a multicore processor, giving higher throughput. If you have a large computing job, you can create one thread per core and make maximum use of the hardware. There are libraries to help you do this, such as OpenMP. You should probably not be coding parallel programming algorithms from scratch.</li>
+    </ul>
+    <p class="normal">The Android design is a good illustration. Each application is a separate Linux process that helps modularize memory management and ensures that one app crashing does not affect the whole system. The process model is also used for access control: a process can only access the files and resources that its UID and GIDs allow it to. There is a group of threads in each process. There is one to manage and update the user interface, one to handle signals from the operating system, several to manage dynamic memory allocation and freeing up Java objects, and a worker pool of at least two threads for receiving messages from other parts of the system using the Binder protocol.</p>
+    <p class="normal">To summarize, processes provide resilience because each process has a protected memory space, and when the process terminates, all resources, including memory and file descriptors, are freed up, reducing resource leaks. On the other hand, threads share resources, can communicate easily through shared variables, and can cooperate by sharing access to files and other resources. Threads<a id="_idIndexMarker1267"/> give parallelism through worker pools and other abstractions, which is useful in multicore processors.</p>
+    <h1 id="_idParaDest-500" class="heading-1"><a id="_idTextAnchor567"/>ZeroMQ</h1>
+    <p class="normal">Sockets, named pipes, and <a id="_idIndexMarker1268"/>shared memory are the means by which inter-process communication takes place. They act as the transport layers for the message-passing process that makes up most non-trivial applications. Concurrency primitives such as mutexes and condition variables are used to manage shared access and coordinate work between threads running inside the same process. Multithreaded programming is notoriously difficult, and sockets and named pipes come with their own set of gotchas. A higher-level API is needed to abstract the complex details of asynchronous message passing. Enter ZeroMQ.</p>
+    <p class="normal"><strong class="keyWord">ZeroMQ</strong> is an asynchronous messaging library that acts like a concurrency framework. It has facilities for in-process, inter-process, TCP, and multicast transports, as well as bindings for various programming languages, including C, C++, Go, and Python. Those bindings, along with ZeroMQ’s socket-based abstractions, allow teams to easily mix programming languages within the same distributed application. Support for common messaging patterns such as request/reply, publish/subscribe, and parallel pipeline is also built into the library. The <em class="italic">zero</em> in ZeroMQ stands for <em class="italic">zero cost</em>, while the <em class="italic">MQ</em> part stands for <em class="italic">message queue</em>.</p>
+    <p class="normal">We will explore both inter-process and in-process message-based communication using ZeroMQ. Let’s start by installing ZeroMQ for Python.</p>
+    <h2 id="_idParaDest-501" class="heading-2"><a id="_idTextAnchor568"/>Getting pyzmq</h2>
+    <p class="normal">We are going to <a id="_idIndexMarker1269"/>use ZeroMQ’s official Python binding for the following <a id="_idIndexMarker1270"/>exercises. I recommend installing this <code class="inlineCode">pyzmq</code> package inside a new virtual environment. Creating a Python virtual environment is easy if you already have <code class="inlineCode">conda</code> on your system. Here are the steps for provisioning the necessary virtual environment using <code class="inlineCode">conda</code>:</p>
+    <ol>
+      <li class="numberedList" value="1">Navigate to the <code class="inlineCode">zeromq</code> directory containing the examples:
+        <pre class="programlisting con"><code class="hljs-con">(base) $ cd MELD/Chapter17/zeromq
+</code></pre>
+      </li>
+      <li class="numberedList">Create a new virtual environment named <code class="inlineCode">zeromq</code>:
+        <pre class="programlisting con"><code class="hljs-con">(base) $ conda create --name zeromq python=3.12 pyzmq
+</code></pre>
+      </li>
+      <li class="numberedList">Activate your new virtual environment:
+        <pre class="programlisting con"><code class="hljs-con">(base) $ conda activate zeromq
+</code></pre>
+      </li>
+      <li class="numberedList">Check that the version of Python is 3.12:
+        <pre class="programlisting con"><code class="hljs-con">(zeromq) $ python –-version
+</code></pre>
+      </li>
+      <li class="numberedList">List the packages that have been installed in your environment:
+        <pre class="programlisting con"><code class="hljs-con">(zeromq) $ conda list
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">If you see <code class="inlineCode">pyzmq</code> and <a id="_idIndexMarker1271"/>its dependencies in the list of packages, then you<a id="_idIndexMarker1272"/> are now ready to run the following exercises.</p>
+    <h2 id="_idParaDest-502" class="heading-2"><a id="_idTextAnchor569"/>Messaging between processes</h2>
+    <p class="normal">We will begin <a id="_idIndexMarker1273"/>our exploration of ZeroMQ with a simple echo server. The server expects a name in the form of a string from a client and replies with <code class="inlineCode">Hello &lt;name&gt;</code>. The code is in <code class="inlineCode">MELD/Chapter17/zeromq/server.py</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-con-keyword">import</span> time
+<span class="hljs-con-keyword">import</span> zmq
+context = zmq.<span class="hljs-built_in">Context</span>()
+socket = context.<span class="hljs-built_in">socket</span>(zmq.REP)
+socket.<span class="hljs-built_in">bind</span>(<span class="hljs-string">"tcp://*:5555"</span>)
+<span class="hljs-con-keyword">while</span> True:
+    # Wait <span class="hljs-con-keyword">for</span> next request from client
+    message = socket.<span class="hljs-built_in">recv</span>_pyobj()
+    <span class="hljs-built_in">print</span>(f<span class="hljs-string">"Received request: {message}"</span>)
+    # Do some <span class="hljs-string">'work'</span>
+    time.<span class="hljs-built_in">sleep</span>(<span class="hljs-number">1</span>)
+    # Send reply back to client
+    socket.<span class="hljs-built_in">send</span>_pyobj(f<span class="hljs-string">"Hello {message}"</span>)
+</code></pre>
+    <p class="normal">The server process creates a socket of the <code class="inlineCode">REP</code> type for its response, binds that socket to port <code class="inlineCode">5555</code>, and waits for messages. A 1-second sleep is used to simulate some work being done in between the time when a request is received and a reply is sent back.</p>
+    <p class="normal">The code for the echo client is in <code class="inlineCode">MELD/Chapter17/zeromq/client.py</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-con-keyword">import</span> zmq
+def <span class="hljs-title">main</span>(who):
+    context = zmq.<span class="hljs-built_in">Context</span>()
+    # Socket to talk to server
+    <span class="hljs-title">print</span>(<span class="hljs-string">"Connecting to echo server..."</span>)
+    socket = context.<span class="hljs-built_in">socket</span>(zmq.REQ)
+    socket.<span class="hljs-built_in">connect</span>(<span class="hljs-string">"tcp://localhost:5555"</span>)
+    # Do <span class="hljs-number">5</span> requests, waiting each time <span class="hljs-con-keyword">for</span> a response
+    <span class="hljs-con-keyword">for</span> request in <span class="hljs-title">range</span>(<span class="hljs-number">5</span>):
+        print(f<span class="hljs-string">"Sending request {request} ..."</span>)
+        socket.send_pyobj<span class="hljs-string">(who)</span>
+        # Get the reply.
+        message = socket.<span class="hljs-built_in">recv</span>_pyobj()
+        <span class="hljs-built_in">print</span>(f<span class="hljs-string">"Received reply {request} [ {message} ]"</span>)
+<span class="hljs-con-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    <span class="hljs-con-keyword">import</span> sys
+    <span class="hljs-con-keyword">if</span> <span class="hljs-built_in">len</span>(sys.argv) != <span class="hljs-number">2</span>:
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">"usage: client.py &lt;username&gt;"</span>)
+        raise SystemExit
+    <span class="hljs-built_in">main</span>(sys.argv[<span class="hljs-number">1</span>])
+</code></pre>
+    <p class="normal">The client process takes a username as a command-line argument. The client creates a socket of the <code class="inlineCode">REQ</code> type for requests, connects to the server process listening on port <code class="inlineCode">5555</code>, and begins sending messages containing the username that was passed in. Like <code class="inlineCode">socket.recv()</code> in the server, <code class="inlineCode">socket.recv()</code> in the client blocks until a message arrives in the queue.</p>
+    <p class="normal">To see the echo server and client code in action, activate your <code class="inlineCode">zeromq</code> virtual environment and run the <code class="inlineCode">planets.sh</code> script from the <code class="inlineCode">MELD/Chapter17/zeromq</code> directory:</p>
+    <pre class="programlisting con"><code class="hljs-con">(zeromq) $ ./planets.sh
+</code></pre>
+    <p class="normal">The <code class="inlineCode">planets.sh</code> script spawns three client processes called <code class="inlineCode">Mars</code>, <code class="inlineCode">Jupiter</code>, and <code class="inlineCode">Venus</code>. We can see that the requests from the three clients are interleaved because each client waits for a reply from the server <a id="_idIndexMarker1274"/>before sending its next request. Since each client sends five requests, we should receive a total of 15 replies from the server. Message-based IPC is remarkably easy with ZeroMQ. Now, let’s use Python’s built-in <code class="inlineCode">asyncio</code> module, along with ZeroMQ, to do in-process messaging.</p>
+    <h2 id="_idParaDest-503" class="heading-2"><a id="_idTextAnchor570"/>Messaging within processes</h2>
+    <p class="normal">The <code class="inlineCode">asyncio</code> module<a id="_idIndexMarker1275"/> was introduced in version 3.4 of Python. It adds a pluggable event loop for executing single-threaded concurrent code using coroutines. <strong class="keyWord">Coroutines</strong> (also known as <em class="italic">green threads</em>) in Python are declared with the <code class="inlineCode">async</code>/<code class="inlineCode">await</code> syntax, which has been adopted from C#. They are much lighter weight than POSIX threads and work more like resumable functions. Because coroutines operate in the single-threaded context of an event loop, we can use <code class="inlineCode">pyzmq</code> in conjunction with <code class="inlineCode">asyncio</code> for in-process socket-based messaging.</p>
+    <p class="normal">Here is a slightly<a id="_idIndexMarker1276"/> modified version of an example of coroutines taken from the <a href="https://github.com/zeromq/pyzmq"><span class="url">https://github.com/zeromq/pyzmq</span></a> repository:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-keyword">import</span> asyncio
+<span class="hljs-keyword">import</span> time
+<span class="hljs-keyword">import</span> zmq
+from zmq.asyncio <span class="hljs-keyword">import</span> Context, Poller
+url = <span class="hljs-string">'inproc://#1'</span>
+ctx = Context.<span class="hljs-built_in">instance</span>()
+async def <span class="hljs-built_in">ping</span>() -&gt; None:
+    <span class="hljs-string">"""print dots to indicate idleness"""</span>
+    <span class="hljs-keyword">while</span> True:
+        await asyncio.<span class="hljs-built_in">sleep</span>(<span class="hljs-number">0.5</span>)
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">'.'</span>)
+async def <span class="hljs-built_in">receiver</span>() -&gt; None:
+    <span class="hljs-string">"""receive messages with polling"""</span>
+    pull = ctx.<span class="hljs-built_in">socket</span>(zmq.PAIR)
+    pull.<span class="hljs-built_in">connect</span>(url)
+    poller = <span class="hljs-built_in">Poller</span>()
+    poller.<span class="hljs-built_in">register</span>(pull, zmq.POLLIN)
+    <span class="hljs-keyword">while</span> True:
+        events = await poller.<span class="hljs-built_in">poll</span>()
+        <span class="hljs-keyword">if</span> pull in <span class="hljs-built_in">dict</span>(events):
+            <span class="hljs-built_in">print</span>(<span class="hljs-string">"recving"</span>, events)
+            msg = await pull.<span class="hljs-built_in">recv_multipart</span>()
+            <span class="hljs-built_in">print</span>(<span class="hljs-string">'recvd'</span>, msg)
+async def <span class="hljs-built_in">sender</span>() -&gt; None:
+    <span class="hljs-string">"""send a message every second"""</span>
+    tic = time.<span class="hljs-built_in">time</span>()
+    push = ctx.<span class="hljs-built_in">socket</span>(zmq.PAIR)
+    push.<span class="hljs-built_in">bind</span>(url)
+    <span class="hljs-keyword">while</span> True:
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">"sending"</span>)
+        await push.<span class="hljs-built_in">send_multipart</span>([<span class="hljs-built_in">str</span>(time.<span class="hljs-built_in">time</span>() - tic).<span class="hljs-built_in">encode</span>(<span class="hljs-string">'ascii'</span>)])
+        await asyncio.<span class="hljs-built_in">sleep</span>(<span class="hljs-number">1</span>)
+async def <span class="hljs-built_in">main</span>() -&gt; None:
+    tasks = [asyncio.<span class="hljs-built_in">create_task</span>(<span class="hljs-built_in">coroutine</span>()) <span class="hljs-keyword">for</span> coroutine in [ping, receiver, sender]]
+    await asyncio.<span class="hljs-built_in">wait</span>(tasks)
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">"__main__"</span>:
+    asyncio.<span class="hljs-built_in">run</span>(<span class="hljs-built_in">main</span>())
+</code></pre>
+    <p class="normal">Notice that the <code class="inlineCode">receiver() </code>and <code class="inlineCode">sender()</code> coroutines share the same context. The <code class="inlineCode">inproc</code> transport method specified in the <code class="inlineCode">url</code> part of the socket is meant for inter-thread communications and is much faster than the <code class="inlineCode">tcp</code> transport we used in the previous example. The <code class="inlineCode">PAIR</code> pattern connects two sockets exclusively. Like the <code class="inlineCode">inproc</code> transport, this messaging pattern only works in-process and is intended for signaling between threads. Neither the <code class="inlineCode">receiver()</code> or <code class="inlineCode">sender()</code> coroutines returns. The <code class="inlineCode">asyncio</code> event loop alternates between the two coroutines, suspending and resuming each on blocking or completing I/O.</p>
+    <p class="normal">To run the coroutines example from your active <code class="inlineCode">zeromq</code> virtual environment, use the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">(zeromq) $ python coroutines.py
+</code></pre>
+    <p class="normal"><code class="inlineCode">sender()</code> sends timestamps to <code class="inlineCode">receiver()</code>, which displays them. Use <em class="italic">Ctrl + C</em> to terminate the process. Congratulations! You have just witnessed in-process asynchronous messaging without the use of explicit threads. There is much more to say and learn about coroutines and <code class="inlineCode">asyncio</code>. This example was<a id="_idIndexMarker1277"/> only meant to give you a taste of what is now possible with Python when paired with ZeroMQ. Let’s leave single-threaded event loops behind for the time being and get back to the subject of Linux.</p>
+    <h1 id="_idParaDest-504" class="heading-1"><a id="_idTextAnchor571"/>Scheduling</h1>
+    <p class="normal">The second big topic I want to cover in this chapter is scheduling. The Linux scheduler has a queue of threads that are <a id="_idIndexMarker1278"/>ready to run, and its job is to schedule them on CPUs as they become available. Each thread has a scheduling policy that may be time-shared or real-time. The time-shared threads have a <strong class="keyWord">niceness</strong> value that increases or reduces their entitlement to CPU time. The real-time threads have <strong class="keyWord">priority</strong> in that a higher-priority thread will preempt a lower one. The scheduler works with threads, not processes. Each thread is scheduled regardless of which process it is running in.</p>
+    <p class="normal">The scheduler runs when any of the following occurs:</p>
+    <ul>
+      <li class="bulletList">A thread is blocked by calling <code class="inlineCode">sleep()</code> or another blocking system call.</li>
+      <li class="bulletList">A time-shared thread exhausts its time slice.</li>
+      <li class="bulletList">An interruption causes a thread to be unblocked, for example, because of I/O completing.</li>
+    </ul>
+    <p class="normal">For background information on the Linux scheduler, I recommend that you read the chapter on process<a id="_idIndexMarker1279"/> scheduling in <em class="italic">Linux Kernel Development, 3rd Edition</em>, by Robert Love.</p>
+    <h2 id="_idParaDest-505" class="heading-2"><a id="_idTextAnchor572"/>Fairness versus determinism</h2>
+    <p class="normal">I have grouped the<a id="_idIndexMarker1280"/> scheduling policies into two categories: time-shared <a id="_idIndexMarker1281"/>and real-time. Time-shared policies are based on the principle of <em class="italic">fairness</em>. They are designed to make sure that each thread gets a fair amount of processor time and that no thread can hog the system. If a thread runs for too long, it is put to the back of the queue so that others can have a go. At the same time, a fairness policy needs to adjust to threads that are doing a lot of work and give them the resources to get the job done. Time-shared scheduling is good because of the way it automatically adjusts to a wide range of workloads.</p>
+    <p class="normal">On the other hand, if you have a real-time program, fairness is not helpful. In this case, you want a policy that is <strong class="keyWord">deterministic</strong>, which will give you at least minimal guarantees that your real-time threads will be scheduled at the right time so that they don’t miss their deadlines. This means that a real-time thread must preempt time-shared threads. Real-time threads also have a static priority that the scheduler can use to choose between them when there are several of them to run at once. The Linux real-time scheduler implements a fairly standard algorithm that runs the highest-priority real-time thread. Most RTOS schedulers are also written in this way.</p>
+    <p class="normal">Both types of thread can coexist. Those requiring deterministic scheduling are scheduled first, and any remaining time is divided between the time-shared threads.</p>
+    <h2 id="_idParaDest-506" class="heading-2"><a id="_idTextAnchor573"/>Time-shared policies</h2>
+    <p class="normal">Time-shared <a id="_idIndexMarker1282"/>policies are designed for fairness. From Linux 2.6.23 onward, the <a id="_idIndexMarker1283"/>scheduler that’s been used has been<a id="_idIndexMarker1284"/> the <strong class="keyWord">completely fair scheduler</strong> (<strong class="keyWord">CFS</strong>). It does not use time slices in the normal sense of the word. Instead, it calculates a running tally of the length of time a thread would be entitled to run if it had its fair share of CPU time, and it balances that with the actual amount of time it has run for. If it exceeds its entitlement and there are other time-shared threads waiting to run, the scheduler will suspend the thread and run a waiting thread instead.</p>
+    <p class="normal">The time-shared policies are as follows:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">SCHED_NORMAL</code> (also known as <code class="inlineCode">SCHED_OTHER</code>): This is the default policy. The vast majority of Linux threads use this policy.</li>
+      <li class="bulletList"><code class="inlineCode">SCHED_BATCH</code>: This is similar to <code class="inlineCode">SCHED_NORMAL</code>, except that threads are scheduled with a larger granularity; that is, they run for longer but have to wait longer until they are scheduled again. The intention is to reduce the number of context switches for background processing (batch jobs) and reduce the amount of CPU cache churn.</li>
+      <li class="bulletList"><code class="inlineCode">SCHED_IDLE</code>: These threads are run only when there are no threads from any other policy that are ready to run. It is the lowest possible priority.</li>
+    </ul>
+    <p class="normal">There are two pairs of functions you can use to get and set the policy and priority of a thread. The first pair takes a PID as a parameter and affects the main thread in a process:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-keyword">struct</span> <span class="hljs-title">sched_param</span> {
+    &lt;…&gt;
+    <span class="hljs-type">int</span> sched_priority;
+    &lt;…&gt;
+};
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">sched_setscheduler</span><span class="hljs-params">(</span><span class="hljs-type">pid_t</span><span class="hljs-params"> pid, </span><span class="hljs-type">int</span><span class="hljs-params"> policy,</span>
+<span class="hljs-params">    </span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-keyword">struct</span><span class="hljs-params"> sched_param *param)</span>;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">sched_getscheduler</span><span class="hljs-params">(</span><span class="hljs-type">pid_t</span><span class="hljs-params"> pid)</span>;
+</code></pre>
+    <p class="normal">The second pair operates on <code class="inlineCode">pthread_t</code> and can change the parameters of the other threads in a process:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">pthread_setschedparam</span><span class="hljs-params">(</span><span class="hljs-type">pthread_t</span><span class="hljs-params"> thread, </span><span class="hljs-type">int</span><span class="hljs-params"> policy,</span>
+<span class="hljs-params">    </span><span class="hljs-type">const</span><span class="hljs-params"> </span><span class="hljs-keyword">struct</span><span class="hljs-params"> sched_param *param)</span>;
+<span class="hljs-type">int</span><span class="hljs-function"> </span><span class="hljs-title">pthread_getschedparam</span><span class="hljs-params">(</span><span class="hljs-type">pthread_t</span><span class="hljs-params"> thread, </span><span class="hljs-type">int</span><span class="hljs-params"> *policy,</span>
+<span class="hljs-params">    </span><span class="hljs-keyword">struct</span><span class="hljs-params"> sched_param *param)</span>;
+</code></pre>
+    <p class="normal">See the <code class="inlineCode">sched(7</code>) man <a id="_idIndexMarker1285"/>page for more on thread policies and <a id="_idIndexMarker1286"/>priorities. Now that we know what time-shared policies and priorities are, let’s talk about niceness.</p>
+    <h3 id="_idParaDest-507" class="heading-3"><a id="_idTextAnchor574"/>Niceness</h3>
+    <p class="normal">Some time-shared <a id="_idIndexMarker1287"/>threads are more important than others. You can indicate this with the nice value, which multiplies a thread’s CPU entitlement by a scaling factor. The name comes from the function call, <code class="inlineCode">nice(2)</code>, which has been part of Unix since the early days. A thread becomes nice by reducing its load on the system or moving in the opposite direction by increasing it. The range of values is from <code class="inlineCode">19</code>, which is really nice, to <code class="inlineCode">-20</code>, which is really not nice. The default value is <code class="inlineCode">0</code>, which is averagely nice, or so-so.</p>
+    <p class="normal">The nice value can be changed for <code class="inlineCode">SCHED_NORMAL</code> and <code class="inlineCode">SCHED_BATCH</code> threads. To reduce niceness, which increases the CPU load, you need the <code class="inlineCode">CAP_SYS_NICE</code> capability, which is available to the <code class="inlineCode">root</code> user. See the <code class="inlineCode">capabilities(7)</code> man page for more information on capabilities.</p>
+    <p class="normal">Almost all the documentation for functions and commands that change the <code class="inlineCode">nice</code> value (<code class="inlineCode">nice(2)</code> and the <code class="inlineCode">nice</code> and <code class="inlineCode">renice</code> commands) talk in terms of processes. However, it really relates to threads. As we mentioned in the preceding section, you can use a TID in place of a PID to change the <code class="inlineCode">nice</code> value of an individual thread. One other discrepancy in the standard descriptions of <code class="inlineCode">nice</code> is this: the <code class="inlineCode">nice</code> value is referred to as the priority of a thread (or sometimes, mistakenly, a process). I believe <a id="_idIndexMarker1288"/>this is misleading and confuses the concept with real-time priority, which is a completely different thing.</p>
+    <h2 id="_idParaDest-508" class="heading-2"><a id="_idTextAnchor575"/>Real-time policies</h2>
+    <p class="normal">Real-time policies are<a id="_idIndexMarker1289"/> intended for determinism. The real-time <a id="_idIndexMarker1290"/>scheduler will always run the highest-priority real-time thread that is ready to run. Real-time threads always preempt timeshare threads. In essence, by selecting a real-time policy over a timeshare policy, you are saying that you have inside knowledge of the expected scheduling of this thread and wish to override the scheduler’s built-in assumptions.</p>
+    <p class="normal">There are two real-time policies:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">SCHED_FIFO</code>: This is a <strong class="keyWord">run-to-completion</strong> algorithm, which <a id="_idIndexMarker1291"/>means that once the thread starts to run, it will continue until it is preempted by a higher-priority real-time thread, it is blocked in a system call, or until it terminates (completes).</li>
+      <li class="bulletList"><code class="inlineCode">SCHED_RR</code>: This a <strong class="keyWord">round-robin</strong> algorithm <a id="_idIndexMarker1292"/>that will cycle between threads of the same priority if they exceed their time slice, which is 100 ms by default. Since Linux 3.9, it has been possible to control the <code class="inlineCode">timeslice</code> value through <code class="inlineCode">/proc/sys/kernel/sched_rr_timeslice_ms</code>. Apart from this, it behaves in the same way as <code class="inlineCode">SCHED_FIFO</code>.</li>
+    </ul>
+    <p class="normal">Each real-time thread has a priority in the range of <code class="inlineCode">1</code> to <code class="inlineCode">99</code>, with <code class="inlineCode">99</code> being the highest.</p>
+    <p class="normal">To give a thread a real-time policy, you need <code class="inlineCode">CAP_SYS_NICE</code>, which is given only to the root user by default.</p>
+    <p class="normal">One problem with real-time scheduling, both in terms of Linux and elsewhere, is that a thread that becomes compute-bound, often because a bug has caused it to loop indefinitely, will prevent real-time threads of a lower priority from running along with all the timeshare threads. In this case, the system becomes erratic and may lock up completely. There are a couple of ways to guard against this possibility.</p>
+    <p class="normal">First, since Linux 2.6.25, the scheduler has, by default, reserved 5% of its CPU time for non-real-time threads so that even a runaway real-time thread cannot completely halt the system. It is configured via two kernel controls:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">/proc/sys/kernel/sched_rt_period_us</code></li>
+      <li class="bulletList"><code class="inlineCode">/proc/sys/kernel/sched_rt_runtime_us</code></li>
+    </ul>
+    <p class="normal">They have default values of 1,000,000 (1 second) and 950,000 (950 ms), respectively, which means that every second, 50 ms is reserved for non-real-time processing. If you want real-time threads to be able to take 100%, then set <code class="inlineCode">sched_rt_runtime_us</code> to <code class="inlineCode">-1</code>.</p>
+    <p class="normal">The second option is to use a watchdog, either hardware or software, to monitor the execution of key threads and take action when they begin to miss deadlines. I mentioned watchdogs in <a href="Chapter_13.xhtml#_idTextAnchor431"><em class="italic">Chapter 13</em></a>.</p>
+    <h2 id="_idParaDest-509" class="heading-2"><a id="_idTextAnchor576"/>Choosing a policy</h2>
+    <p class="normal">In practice, time-shared<a id="_idIndexMarker1293"/> policies satisfy the majority of computing workloads. Threads that are I/O-bound spend a lot of time blocked and always have some spare entitlement in hand. When they are unblocked, they will be scheduled almost immediately. Meanwhile, CPU-bound threads will naturally take up any CPU cycles left over. Positive nice values can be applied to the less important threads and negative values to the more important ones.</p>
+    <p class="normal">Of course, this is only average behavior; there are no guarantees that this will always be the case. If more deterministic behavior is needed, then real-time policies will be required. The things that mark out a thread as being real-time are as follows:</p>
+    <ul>
+      <li class="bulletList">It has a deadline by which it must generate an output.</li>
+      <li class="bulletList">Missing the deadline would compromise the effectiveness of the system.</li>
+      <li class="bulletList">It is event-driven.</li>
+      <li class="bulletList">It is not compute-bound.</li>
+    </ul>
+    <p class="normal">Examples of real-time tasks include the classic robot arm servo controller, multimedia processing, and communication processing. I will discuss real-time system design later, in <a href="Chapter_19.xhtml#_idTextAnchor654"><em class="italic">Chapter 21</em></a>.</p>
+    <h2 id="_idParaDest-510" class="heading-2"><a id="_idTextAnchor577"/>Choosing a real-time priority</h2>
+    <p class="normal">Choosing real-time <a id="_idIndexMarker1294"/>priorities that work for all expected <a id="_idIndexMarker1295"/>workloads is a tricky business and a good reason to avoid real-time policies in the first place.</p>
+    <p class="normal">The most widely used procedure for choosing priorities is known as <strong class="keyWord">rate monotonic analysis</strong> (<strong class="keyWord">RMA</strong>), after <a id="_idIndexMarker1296"/>the 1973 paper by Liu and Layland. It applies to real-time systems with periodic threads, which is a very important class. Each thread has a period and a utilization, which is the proportion of the period it will be executing. The goal is to balance the load so that all the threads can complete their execution phase before the next period. RMA states that this can be achieved if the following occurs:</p>
+    <ul>
+      <li class="bulletList">The highest priorities are given to the threads with the shortest periods.</li>
+      <li class="bulletList">The total utilization is less than 69%.</li>
+    </ul>
+    <p class="normal">The total utilization is the sum of all the individual utilizations. It also makes the assumption that the interaction between threads or the time spent blocked on mutexes and the like is negligible.</p>
+    <h1 id="_idParaDest-511" class="heading-1"><a id="_idTextAnchor578"/>Summary</h1>
+    <p class="normal">The long Unix heritage that is built into Linux and the accompanying C libraries provides almost everything you need in order to write stable and resilient embedded applications. The issue is that for every job, there are at least two ways to achieve the end you desire.</p>
+    <p class="normal">In this chapter, I focused on two aspects of system design: partitioning into separate processes, each with one or more threads to get the job done, and scheduling those threads. I hope that I shed some light on this and have given you the basis to study them further.</p>
+    <p class="normal">In the next chapter, I will examine another important aspect of system design: memory management.</p>
+    <h1 id="_idParaDest-512" class="heading-1"><a id="_idTextAnchor579"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">The Art of Unix Programming</em>, by Eric Steven Raymond</li>
+      <li class="bulletList"><em class="italic">Linux System Programming, 2nd Edition</em>, by Robert Love</li>
+      <li class="bulletList"><em class="italic">Linux Kernel Development, 3rd Edition</em>, by Robert Love</li>
+      <li class="bulletList"><em class="italic">The Linux Programming Interface</em>, by Michael Kerrisk</li>
+      <li class="bulletList"><em class="italic">UNIX Network Programming, Volume 2: Interprocess Communications, 2nd Edition</em>, by W. Richard Stevens</li>
+      <li class="bulletList"><em class="italic">Programming with POSIX Threads</em>, by David R. Butenhof</li>
+      <li class="bulletList"><em class="italic">Scheduling Algorithms for Multiprogramming in a Hard-Real-Time Environment</em>, by C. L. Liu and James W. Layland, Journal of ACM, 1973, vol 20, no 1, pp. 46-61</li>
+    </ul>
+    <h1 id="_idParaDest-513" class="heading-1"><a id="_idTextAnchor580"/>Join our community on Discord</h1>
+    <p class="normal">Join our community’s Discord space for discussions with the authors and other readers: <span class="url">https://packt.link/embeddedsystems</span></p>
+    <p class="normal"><img src="../Images/QR_Code12308107448340296.png" alt="" role="presentation" width="354" height="354"/></p>
+  </div>
+</div></div></body></html>

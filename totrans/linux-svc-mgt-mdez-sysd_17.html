@@ -1,0 +1,364 @@
+<html><head></head><body>
+		<div id="_idContainer064">
+			<h1 id="_idParaDest-190"><em class="italic"><a id="_idTextAnchor200"/>Chapter 14</em>: Using journald</h1>
+			<p>In this chapter, we will turn our attention to a new way of logging. Although the <strong class="source-inline">journald</strong> logging system isn't part of systemd's <strong class="source-inline">init</strong> system, it is part of the <strong class="source-inline">systemd</strong> ecosystem. The <strong class="source-inline">journald</strong> system<a id="_idIndexMarker489"/> has its advantages over the old <strong class="source-inline">rsyslog</strong> system. However, there are also a couple of big reasons why we still haven't completed the transition to <strong class="source-inline">journald</strong>. Still, <strong class="source-inline">journald</strong> is an important tool that can help a busy Linux administrator easily see what's going on. </p>
+			<p>Specific topics in this chapter include:</p>
+			<ul>
+				<li>Understanding the pros and cons of <strong class="source-inline">rsyslog</strong></li>
+				<li>Understanding the pros and cons of <strong class="source-inline">journald</strong></li>
+				<li>Understanding <strong class="source-inline">journald</strong> on Ubuntu</li>
+				<li>Using <strong class="source-inline">journalctl</strong></li>
+				<li>Sealing <strong class="source-inline">journald</strong> log files for security</li>
+				<li>Setting up remote logging with <strong class="source-inline">journald</strong></li>
+			</ul>
+			<h1 id="_idParaDest-191"><a id="_idTextAnchor201"/>Technical requirements</h1>
+			<p>All you need for this chapter is your normal Ubuntu Server 20.04 and Alma Linux 8 virtual machines. (You'll need both because <strong class="source-inline">journald</strong> is implemented differently on each.) Now, let's start by looking at the old <strong class="source-inline">rsyslog</strong>.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/3dbJmJR">https://bit.ly/3dbJmJR</a></p>
+			<h1 id="_idParaDest-192"><a id="_idTextAnchor202"/>Understanding the pros and cons of rsyslog</h1>
+			<p>Fedora was the first Linux distro<a id="_idIndexMarker490"/> to come with <strong class="source-inline">rsyslog</strong> as its default logging <a id="_idIndexMarker491"/>system, way back in 2007. It has quite a few improvements over the old syslog, and it eventually replaced syslog as the standard logging system on Linux, Unix, and Unix-like operating systems. Despite now having <strong class="source-inline">journald</strong>, <strong class="source-inline">rsyslog</strong> is still with us, as we'll see in just a bit.</p>
+			<p>One of the best<a id="_idIndexMarker492"/> features of <strong class="source-inline">rsyslog</strong> is also its biggest weakness. That is, it stores log files in plaintext format. That's great in a way because you can use your <a id="_idIndexMarker493"/>normal text search and viewing utilities to view the log files and find whatever information that you need to find. The less, head, tail, awk, and grep utilities are your friends when it comes to working with these plaintext log files. This also makes it very easy to write shell scripts to extract and parse information automatically.</p>
+			<p>But there are a few <a id="_idIndexMarker494"/>problems with using plaintext log files. The first one is that plaintext files can become quite large and eventually consume a lot of disk space. To deal with this, Linux distros all come with the <strong class="source-inline">logrotate</strong> system, which automatically deletes all the log files except the ones for the previous four weeks. If you need to keep log files for longer than that, you'll need to either edit the <strong class="source-inline">/etc/logrotate.conf</strong> file or transfer the older log files to another location before <strong class="source-inline">logrotate</strong> automatically deletes them. This can also make it a bit awkward to find things. If you search through the current log file soon after a log rotation has taken place, you'll see that the file is mostly empty. Then, you'll have to search through the archive files to find what you need.</p>
+			<p>The second problem, according to the <strong class="source-inline">journald</strong> developers at least, is that there's no built-in way to structure the view of <strong class="source-inline">rsyslog</strong> log files, as shown in the following snippet from the AlmaLinux messages file:</p>
+			<p class="source-code">Jul 30 16:31:02 localhost rsyslogd[1286]: [origin software="rsyslogd" swVersion=</p>
+			<p class="source-code">"8.1911.0-7.el8_4.2" x-pid="1286" x-info="https://www.rsyslog.com"] rsyslogd was</p>
+			<p class="source-code"> HUPed</p>
+			<p class="source-code">Jul 30 17:10:55 localhost journal[3086]: Could not delete runtime/persistent state file: Error removing file /run/user/1000/gnome-shell/runtime-state-LE.:0/screenShield.locked: No such file or directory</p>
+			<p class="source-code">Jul 30 17:10:56 localhost NetworkManager[1056]: &lt;info&gt;  [1627679456.0025] agent-manager: agent[24ffba3d1b1cfac7,:1.270/org.gnome.Shell.NetworkAgent/1000]: agent registered</p>
+			<p class="source-code">Jul 30 17:26:17 localhost systemd[1]: Starting dnf makecache...</p>
+			<p class="source-code">Jul 30 17:26:17 localhost dnf[4951]: Metadata cache refreshed recently.</p>
+			<p class="source-code">Jul 30 17:26:17 localhost systemd[1]: dnf-makecache.service: Succeeded.</p>
+			<p>You see here that every entry begins with the <strong class="bold">date</strong>, <strong class="bold">timestamp</strong>, <strong class="bold">hostname/IPaddress</strong>, and <strong class="bold">subsystem[PID]</strong> fields. The last field is unstructured free-form text, so you'd need to <a id="_idIndexMarker495"/>use external programs to create <a id="_idIndexMarker496"/>any kind of structured view. These external programs include<a id="_idIndexMarker497"/> the<a id="_idIndexMarker498"/> text manipulation utilities that are already installed on your Linux distro, as well as various third-party utilities. By default, <strong class="source-inline">journald</strong> displays log <a id="_idIndexMarker499"/>data in <strong class="source-inline">rsyslog</strong>-compatible format. However, <strong class="source-inline">journald</strong> also includes an API that allows developers to define custom fields for log messages, and the <strong class="source-inline">journalctl</strong> utility allows you to view log data in many different ways.  </p>
+			<p>Another argument against <strong class="source-inline">rsyslog</strong> is its security. Any hacker who breaks into your system and gains root privileges could easily alter plaintext log files to delete any record of his or her malicious deeds. The theory is that the binary log files that <strong class="source-inline">journald</strong> creates are harder for an attacker to alter. Is it impossible, though? Well, perhaps not, because a bit later we'll see how to verify if <strong class="source-inline">journald</strong> log files have been altered. Also, the <strong class="source-inline">lastlog</strong>, <strong class="source-inline">utmp</strong>, <strong class="source-inline">wtmp</strong>, and <strong class="source-inline">btmp</strong> binary log files have been in Linux for many years, and it is possible to alter them. It might be a bit harder, but not impossible.</p>
+			<p>The final problem with <strong class="source-inline">rsyslog</strong> is that there are no built-in search capabilities. Yeah, it's good that we can use tools such as awk, grep, and the built-in search function of less to search for text strings or text string patterns. But, wouldn't it be nice to have a built-in function that could make those searches a bit easier? As we'll soon see, we have that capability with <strong class="source-inline">journald</strong>.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">I must mention that not everyone agrees that not having searching and formatting capabilities built into <strong class="source-inline">rsyslog</strong> is a problem. The <strong class="source-inline">journald</strong> developers <em class="italic">do</em> see it as a problem, of course. But, a lot of text manipulation and search utilities come installed on pretty much every Linux distro, and it's not hard to use them. Even a shell-scripting beginner could easily whip up a script that would automate the process of finding and formatting pertinent information from plaintext log files. For example, several years ago, I wrote such a shell script to help out one of my buddies. (It was for Apache log files, but the principle still applies.) Anyway, you can check out the article that I wrote about it here:  </p>
+			<p class="callout"><a href="http://beginlinux.com/blog/2009/08/detect-cross-site-scripting-attacks-with-a-bash-shell-script/">http://beginlinux.com/blog/2009/08/detect-cross-site-scripting-attacks-with-a-bash-shell-script/</a>.</p>
+			<p class="callout">(It says at the top that the article was posted by <em class="italic">Mike</em>, but if you scroll to the bottom, you'll see that I wrote it.) </p>
+			<p class="callout">Having said all this, I should also mention that some things are still a bit difficult to do with plaintext files, such as converting them into JSON format. As we'll see shortly, <strong class="source-inline">journald</strong> is much better for that.</p>
+			<p>Another<a id="_idIndexMarker500"/> advantage of <strong class="source-inline">rsyslog</strong> is that it's extremely easy to set up a central <strong class="source-inline">rsyslog</strong> server that can receive log files from other machines on the network. Of course, configuring the server to separate the files from different machines into their own sets of log files is a bit awkward, but it isn't that complex once you know how to do it.</p>
+			<h1 id="_idParaDest-193"><a id="_idTextAnchor203"/>Understanding the pros and cons of journald</h1>
+			<p>In contrast to <strong class="source-inline">rsyslog</strong>, <strong class="source-inline">journald</strong> stores its log files in binary format. This allows us to store more <a id="_idIndexMarker501"/>data in a smaller amount of disk space, which reduces the need to constantly rotate the log files. Reducing the need for rotation allows us to keep log files for the long term, without having to worry about moving them elsewhere.</p>
+			<p>Using binary files also gives us an extra bit of security. It's harder for an attacker to alter binary files, and there's also a way to see if the files have been altered.</p>
+			<p>The <strong class="source-inline">journalctl</strong> utility comes with built-in filtering and viewing functions. We can even view the log information in JSON format, which makes it easier to export log data into other log-parsing programs.</p>
+			<p>Yet another<a id="_idIndexMarker502"/> cool thing about <strong class="source-inline">journald</strong> is that it stores system log files and user log files separately. Each user has his or her own set of log files. A user with administrative privileges can view files for the system and all users, and a non-privileged user can just view his or her log files. With <strong class="source-inline">rsyslog</strong>, only users with administrator privileges can view any of these log files.</p>
+			<p>Unfortunately, this<a id="_idIndexMarker503"/> cloud's silver lining does have a bit of tarnish. It is possible to set up a central log server that can receive <strong class="source-inline">journald</strong> logs from other machines, but this feature is still in development and isn't considered production-ready. So, because of that and the fact that most third-party log aggregation tools still expect to see plaintext <strong class="source-inline">rsyslog</strong> files, <strong class="source-inline">rsyslog</strong> is still with us, and likely will be with us for quite some time to come. At the time of this writing, I don't know of any Linux distros that have completely transitioned to <strong class="source-inline">journald</strong>. Every Linux distro that I know of runs both <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong> together. </p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">It's just been pointed out to me that the Fedora team initially had Fedora 21 running with nothing but <strong class="source-inline">journald</strong>. However, they received so many complaints about it that they had to do an update that brought back <strong class="source-inline">rsyslog</strong>. I didn't know this, because I had abandoned Fedora quite a few years ago due to its instability issues. I didn't start working with it again until Fedora 23, after the instability issues had gotten worked out. Anyway, you can read a bit more about this drama here:</p>
+			<p class="callout"><a href="https://www.linuxquestions.org/questions/linux-newbie-8/where-are-var-log-dmesg-and-var-log-messages-4175533513/">https://www.linuxquestions.org/questions/linux-newbie-8/where-are-var-log-dmesg-and-var-log-messages-4175533513/</a>.</p>
+			<p>However, there are differences between how the various distros do this. In the next section, we'll look at how Ubuntu does it.</p>
+			<h1 id="_idParaDest-194"><a id="_idTextAnchor204"/>Understanding journald on Ubuntu</h1>
+			<p>On <a id="_idIndexMarker504"/>Ubuntu systems, the <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong> services are both enabled by default, and they both run as completely independent entities. The <strong class="source-inline">journald</strong> logs are <a id="_idIndexMarker505"/>persistent, which means that they are permanently stored on disk, instead of getting deleted every time you shut down the machine. The <strong class="source-inline">rsyslog</strong> log files are also present, and they get rotated every week.</p>
+			<p>Two things make the <strong class="source-inline">journald</strong> log files persistent. First, is the very first configuration option in the <strong class="source-inline">/etc/systemd/journald.conf</strong> file, which looks like this:</p>
+			<p class="source-code">[Journal]</p>
+			<p class="source-code">#Storage=auto</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>When you look at this whole file, you'll see that every line in it is commented out. This just means that all of these options have been set to their default values. To change something, just uncomment the line and change the value. However, we don't need to do anything with this <strong class="source-inline">#Storage=auto</strong> line. The <strong class="source-inline">auto</strong> here means that if the <strong class="source-inline">/var/log/journal/</strong> directory exists, then <strong class="source-inline">journald</strong> will permanently store its log files there. If the <strong class="source-inline">/var/log/journal/</strong> directory doesn't exist, a transient set of log files will be created in the <strong class="source-inline">/run/log/journal/</strong> directory every time you boot the machine. When you shut the machine down, these transient log files will be deleted. On Ubuntu machines, the <strong class="source-inline">/var/log/journal/</strong> directory is already there for you, which means that the log files are persistent. To show you how persistent the <strong class="source-inline">journald</strong> log files are, let's take a quick look at what I have on the host machine that I'm using to write this. This machine is running <strong class="source-inline">Lubuntu 18.04</strong>, which is just Ubuntu with an alternate desktop environment. I'll use the <strong class="source-inline">journalctl</strong> command without any options, like this:</p>
+			<p class="source-code">donnie@siftworkstation: ~</p>
+			<p class="source-code">$ journalctl</p>
+			<p class="source-code">-- Logs begin at Wed 2018-11-21 17:38:02 EST, end at Mon 2021-08-09 16:42:10 EDT. --</p>
+			<p class="source-code">Nov 21 17:38:02 lubuntu1a kernel: microcode: microcode updated early to revision 0x713, date = 2018-01-26</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Here, we can<a id="_idIndexMarker506"/> see that the logs begin in November 2018, which is almost three years ago. (I'm writing this in August 2021.) Surely, three years of logs would take up lots of disk space, right? Well, let's use the <strong class="source-inline">journalctl --disk-usage</strong> command to find out:</p>
+			<p class="source-code">donnie@siftworkstation: ~</p>
+			<p class="source-code">$ journalctl --disk-usage</p>
+			<p class="source-code">Archived and active journals take up 904.1M in the file system.</p>
+			<p class="source-code">donnie@siftworkstation: ~</p>
+			<p class="source-code">$</p>
+			<p>So, three years' worth of <strong class="source-inline">journald</strong> log files doesn't even take up a whole GB of disk space. That's a lot<a id="_idIndexMarker507"/> less space than what three years' worth of <strong class="source-inline">rsyslog</strong> text files would require. To see the actual <strong class="source-inline">journald</strong> log files, go into the <strong class="source-inline">/var/log/journal/</strong> directory. There, you'll see a directory with a rather long hexadecimal number as its directory name, like this:</p>
+			<p class="source-code">donnie@siftworkstation: ~</p>
+			<p class="source-code">$ cd /var/log/journal/</p>
+			<p class="source-code">donnie@siftworkstation: /var/log/journal</p>
+			<p class="source-code">$ ls</p>
+			<p class="source-code">92fe2206f513462da1869220d8191c1e</p>
+			<p class="source-code">donnie@siftworkstation: /var/log/journal</p>
+			<p class="source-code">$ </p>
+			<p>Within that directory, you'll see the log files:</p>
+			<p class="source-code">donnie@siftworkstation: /var/log/journal</p>
+			<p class="source-code">$ cd 92fe2206f513462da1869220d8191c1e/</p>
+			<p class="source-code">donnie@siftworkstation: /var/log/journal/92fe2206f513462da1869220d8191c1e</p>
+			<p class="source-code">$ ls -l</p>
+			<p class="source-code">total 925888</p>
+			<p class="source-code">-rw-r-----+ 1 root systemd-journal 16777216 Nov 28  2018 system@00057bbf27f5178e-5ed563c9fd14588f.journal~</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">-rw-r-----+ 1 root systemd-journal  8388608 Aug  9 13:12 user-1000.journal</p>
+			<p class="source-code">donnie@siftworkstation: /var/log/journal/92fe2206f513462da1869220d8191c1e</p>
+			<p>We <a id="_idIndexMarker508"/>can <a id="_idIndexMarker509"/>use <strong class="source-inline">wc -l</strong> to easily count how many files there are, like this:</p>
+			<p class="source-code">donnie@siftworkstation: /var/log/journal/92fe2206f513462da1869220d8191c1e</p>
+			<p class="source-code">$ ls -l | wc -l</p>
+			<p class="source-code">75</p>
+			<p class="source-code">donnie@siftworkstation: /var/log/journal/92fe2206f513462da1869220d8191c1e</p>
+			<p class="source-code">$ </p>
+			<p>So, there are 75 <strong class="source-inline">journald</strong> log files on this machine. That's because <strong class="source-inline">journald</strong> is configured to store information in lots of smaller files instead of storing everything in one big honkin' monolithic file. </p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">When those of us in the southern United States say that something is <em class="italic">big honkin'</em>, we mean that it's <em class="italic">really big</em>.</p>
+			<p>The coolest part is that when you use <strong class="source-inline">journalctl</strong> to view the files, it will automatically open all of these files as necessary, instead of making you open each file with a separate command. (This is another huge advantage that <strong class="source-inline">journald</strong> has over <strong class="source-inline">rsyslog</strong>.)</p>
+			<p>If you ever do <a id="_idIndexMarker510"/>need to limit the amount of disk space that <strong class="source-inline">journald</strong> uses for log file storage, you <a id="_idIndexMarker511"/>can set the proper parameters in the <strong class="source-inline">/etc/systemd/journald.conf</strong> file. (See the <strong class="source-inline">journald.conf</strong> man page for details.) Also, the <strong class="source-inline">journalctl</strong> man page shows you how to rotate log files and then delete old archived log files with the <strong class="source-inline">--vacuum-size=</strong>, <strong class="source-inline">--vacuum-time=</strong>, and <strong class="source-inline">--vacuum-files=</strong> options. Let's look at an example of how to do that.</p>
+			<p>First, shut down the virtual machine and take a snapshot of it. (You'll need to have plenty of log files for the upcoming demos.) Then, restart the virtual machine and ensure that the persistent logs are up-to-date with the transient logs, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo journalctl --flush</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Next, combine the <strong class="source-inline">--rotate</strong> and <strong class="source-inline">--vacuum-time</strong> options to archive the current log files, create new empty log files, and delete all the archived log files that are older than five days, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo journalctl --rotate --vacuum-time=5d</p>
+			<p class="source-code">Deleted archived journal /var/log/journal/55520bc0900c428ab8a27f5c7d8c3927/system@a2d77617383f477da0a4d539e137b488-0000000000000001-0005b8317f856d88.journal (8.0M).</p>
+			<p class="source-code">Deleted archived journal /var/log/journal/55520bc0900c428ab8a27f5c7d8c3927/user-1000@d713d47989e84072bc1445c9829a0c1f-0000000000000415-0005b8318153a5b1.journal (8.0M)</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">Vacuuming done, freed 2.1G of archived journals from /var/log/journal/55520bc0900c428ab8a27f5c7d8c3927.</p>
+			<p class="source-code">Vacuuming done, freed 0B of archived journals from /var/log/journal.</p>
+			<p class="source-code">Vacuuming done, freed 0B of archived journals from /run/log/journal.</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Finally, shut<a id="_idIndexMarker512"/> down the virtual machine, restore from the snapshot, and <a id="_idIndexMarker513"/>restart the virtual machine.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">If you don't want your Ubuntu machine to persistently store <strong class="source-inline">journald</strong> log files, either delete the <strong class="source-inline">/var/log/journal/</strong> directory or go into the <strong class="source-inline">/etc/systemd/journald.conf</strong> file and change the <strong class="source-inline">#Storage=auto</strong> line to <strong class="source-inline">Storage=volatile</strong>. </p>
+			<p>The final thing I want to mention about Ubuntu is that when you install the operating system, the user that gets created by the installer is a member of both the <strong class="source-inline">sudo</strong> and <strong class="source-inline">adm</strong> groups. Members of the <strong class="source-inline">sudo</strong> group have full <strong class="source-inline">sudo</strong> privileges, as you probably already know. On most other distros, you'd need to use <strong class="source-inline">sudo</strong> to view system log files. On Ubuntu machines, members of the <strong class="source-inline">adm</strong> group can view all <strong class="source-inline">rsyslog</strong> or <strong class="source-inline">journald</strong> logs without <strong class="source-inline">sudo</strong> privileges.</p>
+			<p>Okay, that does it for <strong class="source-inline">journald</strong> on Ubuntu. Now, let's move on and look at <strong class="source-inline">journald</strong> on RHEL-type systems.</p>
+			<h1 id="_idParaDest-195"><a id="_idTextAnchor205"/>Understanding journald on RHEL-type systems</h1>
+			<p>There are a <a id="_idIndexMarker514"/>few big differences in how things are done in the <a id="_idIndexMarker515"/>Red Hat world. First, on your AlmaLinux machine, you'll see that there is no <strong class="source-inline">/var/log/journal/</strong> directory, which means that <strong class="source-inline">journald</strong> log files will only be created in the <strong class="source-inline">/run/log/journal/</strong> directory and will disappear every time you shut down or reboot the machine. If you want to change that, all you have to do is create that journal subdirectory, like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo mkdir /var/log/journal</p>
+			<p>You'll immediately see that the <strong class="source-inline">journald</strong> log files are now persistent.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Before you make the <strong class="source-inline">journald</strong> log files persistent on a production machine, evaluate whether or not you need to.</p>
+			<p>The other <a id="_idIndexMarker516"/>big difference<a id="_idIndexMarker517"/> is that on RHEL-type systems, <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong> work together, instead of independently. Instead of having both <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong> gather information from the rest of the operating system, only <strong class="source-inline">journald</strong> does. Then, <strong class="source-inline">rsyslog</strong> obtains the information from <strong class="source-inline">journald</strong> and stores it in the normal <strong class="source-inline">rsyslog</strong> text files. We can see how that's enabled in the top portion of the <strong class="source-inline">/etc/rsyslog.conf</strong> file:</p>
+			<p class="source-code">#### MODULES ####</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">module(load="imjournal"             # provides access to the systemd journal</p>
+			<p class="source-code">       StateFile="imjournal.state") # File to store the position in the journal</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Unlike the old <strong class="source-inline">syslog</strong> service that <strong class="source-inline">rsyslog</strong> replaced, you can extend the capabilities of <strong class="source-inline">rsyslog</strong> by adding new modules to it. Here, we can see the <strong class="source-inline">imjournal</strong> module, that allows <strong class="source-inline">rsyslog</strong> to receive data from the <strong class="source-inline">journald</strong> service. So, on RHEL 8-type machines, <strong class="source-inline">journald</strong> gathers the data from the rest of the system and passes it to <strong class="source-inline">rsyslog</strong>.</p>
+			<p>The final big difference is that on RHEL-type systems, you'll need the proper <strong class="source-inline">sudo</strong> privileges to<a id="_idIndexMarker518"/> view all of the log files. The <strong class="source-inline">adm</strong> group is there, but adding yourself to it doesn't do anything for you.</p>
+			<p>Now that we've seen<a id="_idIndexMarker519"/> the differences between how <strong class="source-inline">journald</strong> is set up on Ubuntu and RHEL, let's look at how to use <strong class="source-inline">journalctl</strong>, which works the same across all distros.</p>
+			<h1 id="_idParaDest-196"><a id="_idTextAnchor206"/>Using journalctl</h1>
+			<p>The <strong class="source-inline">journalctl</strong> utility is<a id="_idIndexMarker520"/> cool because it has so much flexibility. Let's start by looking at the various ways to search for and display log data. We'll do this on the Ubuntu machine because Ubuntu's persistent <strong class="source-inline">journald</strong> logs will give us more to look at.</p>
+			<h2 id="_idParaDest-197"><a id="_idTextAnchor207"/>Searching for and viewing log data with journalctl</h2>
+			<p>The <a id="_idIndexMarker521"/>simplest command for viewing log files is just <strong class="source-inline">journalctl</strong>. As we see <a id="_idIndexMarker522"/>here, this will show you pretty much the same information that you'd see when you open a normal <strong class="source-inline">rsyslog</strong> file in <strong class="source-inline">less</strong>. You'll also see that the <strong class="source-inline">journalctl</strong> output is automatically piped into <strong class="source-inline">less</strong>:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-10 14:23:17 ED&gt;</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel: Linux version 5.4.0-59-generic (buildd@lcy01&gt;</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel: Command line: BOOT_IMAGE=/vmlinuz-5.4.0-59-g&gt;</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel: KERNEL supported cpus:</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel:   Intel GenuineIntel</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel:   AMD AuthenticAMD</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel:   Hygon HygonGenuine</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel: BIOS-e820: [mem 0x00000000fffc0000-0x0000000&gt;</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel: BIOS-e820: [mem 0x0000000100000000-0x0000000&gt;</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel: NX (Execute Disable) protection: active</p>
+			<p class="source-code">Jan 05 20:46:55 ubuntu2004 kernel: SMBIOS 2.5 present.</p>
+			<p class="source-code">lines 1-26</p>
+			<p>A big difference from what you're used to with <strong class="source-inline">rsyslog</strong> is that long lines don't wrap around. Instead, they extend beyond the right-hand side of the visible window. To see the rest of these lines, you'll need to use the right cursor key. Other than that, you can use the <a id="_idIndexMarker523"/>same search and navigation commands that you'd normally use with the <strong class="source-inline">less</strong> utility. For example, to go directly to the bottom of the <strong class="source-inline">journalctl</strong> output, just use the <em class="italic">Shift</em> + <em class="italic">G</em> key combination. (Be patient, though, because <strong class="source-inline">journalctl</strong> has to read through all of those files that I showed you earlier, which takes a while.) To go to a specific line, just enter the line number followed by the lowercase <strong class="source-inline">g</strong>. To search for a text string, hit the <strong class="source-inline">/</strong> key and enter the search term. When you're done, just hit the <em class="italic">Q</em> key to quit.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">I should point out that since I'm using the Ubuntu virtual machine for this, where I'm a member of the <strong class="source-inline">adm</strong> group, I don't need <strong class="source-inline">sudo</strong> privileges to view all system logs. If you decide to try this on the AlmaLinux machine, you'll need to use <strong class="source-inline">sudo</strong>. Otherwise, you'll only see your user logs.</p>
+			<p>If you look at the <strong class="source-inline">journalctl</strong> man page, you'll see a wide selection of display and search options. I can't demonstrate all of them to you, but we can look at a few examples.</p>
+			<p>On a machine with persistent <strong class="source-inline">journald</strong> log files, you might just want to see the log entries from the current boot-up session. Now, to make this work, reboot your machine a few times so that you'll have more to see. Then, use <strong class="source-inline">journalctl -b</strong>, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -b</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-10 15:03:43 ED&gt;</p>
+			<p class="source-code">Aug 10 14:20:38 ubuntu2004 kernel: Linux version 5.4.0-80-generic (buildd@lcy01&gt;</p>
+			<p class="source-code">Aug 10 14:20:38 ubuntu2004 kernel: Command line: BOOT_IMAGE=/vmlinuz-5.4.0-80-g&gt;</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Here, you can <a id="_idIndexMarker524"/>see that the logs began in January 2021, but the first entry it shows here is for the current date of August 10 at 2:20 P.M., which is when I last booted this virtual machine. To see the log entries from the previous boot-up session, just add a <strong class="source-inline">-1</strong>, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -b -1</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-10 15:07:27 ED&gt;</p>
+			<p class="source-code">Aug 10 13:36:44 ubuntu2004 kernel: Linux version 5.4.0-80-generic (buildd@lcy01&gt;</p>
+			<p class="source-code">Aug 10 13:36:44 ubuntu2004 kernel: Command line: BOOT_IMAGE=/vmlinuz-5.4.0-80-g&gt;</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>So, it looks like I had booted this machine earlier today, at 1:36 P.M. You can also view files from earlier boot-up sessions by specifying a different number. For example, you can use <strong class="source-inline">-2</strong> to display files from two boot-up sessions ago, <strong class="source-inline">-10</strong> to show files from 10 boot-up sessions ago, and so on.</p>
+			<p>To see a list of all bootups, use the <strong class="source-inline">--list-boots</strong> option:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl --list-boots</p>
+			<p class="source-code">-46 7c611db8974b4cdb897853c4367048cf Tue 2021-01-05 20:46:55 EST—Tue 2021-01-05 20:57:29 EST</p>
+			<p class="source-code">-45 643f70296ebf4b5c8e798f8f878c0ac5 Thu 2021-02-11 16:16:06 EST—Thu 2021-02-11 20:03:42 EST</p>
+			<p class="source-code">-44 139f7be3bc3d43c69421c68e2a5c76b8 Mon 2021-03-15 15:36:01 EDT—Mon 2021-03-15 16:42:32 EDT</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">-1 9a4781c6b0414e6e924cc391b6129185 Wed 2021-08-25 17:24:56 EDT—Wed 2021-08-25 21:48:06 EDT</p>
+			<p class="source-code">  0 354575e3e3d747039f047094ffaaa0d2 Mon 2021-08-30 16:28:29 EDT—Mon 2021-08-30 16:39:49 EDT</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>It looks like I've booted this virtual machine 47 times since I've created it. The long hexadecimal number you can see in the second field is the ID number of the boot-up session.</p>
+			<p>The <strong class="source-inline">-g</strong> option <a id="_idIndexMarker525"/>allows you to grep for either specific text strings or Perl-compatible regular expressions. If your search term consists only of lowercase letters, then the search will be case-insensitive. If the search term includes any uppercase letters, then the search is case-sensitive. For example, using <strong class="source-inline">journalctl -g fail</strong> shows you all the entries that contain some form of <em class="italic">fail</em>, regardless of whether <em class="italic">fail</em> contains lowercase, uppercase, or both upper and lowercase letters. But if you use <strong class="source-inline">journalctl -g Fail</strong>, you'll only see entries that contain the specific specific string, <strong class="source-inline">Fail</strong>. If your search term consists of only lowercase letters and you want to make the search case-sensitive, just use the <strong class="source-inline">--case-sensitive=</strong> option, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -g fail --case-sensitive=true</p>
+			<p>The priority levels<a id="_idIndexMarker526"/> for <strong class="source-inline">journald</strong> log messages are the same as for the <strong class="source-inline">ryslog</strong> log messages. The only difference is that you can now use either the name or the number of the priority level in your searches. In order of descending importance, the <a id="_idIndexMarker527"/>priority levels are:</p>
+			<ul>
+				<li><strong class="source-inline">0</strong> or <strong class="source-inline">emerg</strong>: This is the emergency level, for things such as kernel panics. (Hopefully, you'll rarely ever see these.)</li>
+				<li><strong class="source-inline">1</strong> or <strong class="source-inline">alert</strong>: These aren't quite an emergency, but they're still bad news.</li>
+				<li><strong class="source-inline">2</strong> or <strong class="source-inline">crit</strong>: Don't be too surprised if you see some critical messages. These can be caused by something as simple as a user fumble-fingering his or her password. They could also be caused by someone trying to brute-force a password, so it's worth your while to pay attention to these.</li>
+				<li><strong class="source-inline">3</strong> or <strong class="source-inline">err</strong>: These could be caused by a service that fails to start, a program that runs out of memory, problems with accessing a hardware device, and so forth.</li>
+				<li><strong class="source-inline">4</strong> or <strong class="source-inline">warning</strong>: You'll see lots of these, but most are nothing to worry about. Normally, most of them will be kernel messages from when you boot up the machine.</li>
+				<li><strong class="source-inline">5</strong> or <strong class="source-inline">notice</strong>: These don't constitute an emergency, but you still want to take <em class="italic">notice</em> of them. (See what I did there?)</li>
+				<li><strong class="source-inline">6</strong> or <strong class="source-inline">info</strong>: Most log messages you see should be of the <strong class="source-inline">info</strong> level.</li>
+				<li><strong class="source-inline">7</strong> or <strong class="source-inline">debug</strong>: This is is the lowest priority. It's not enabled by default on <strong class="source-inline">rsyslog</strong>, but it is on <strong class="source-inline">journald</strong>.</li>
+			</ul>
+			<p>Now, let's say that you want to only see the <strong class="source-inline">emerg</strong> (emergency) messages. Use the <strong class="source-inline">-p</strong> option with either the number or the name of the priority level, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -p 0</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-31 14:50:38 EDT. --</p>
+			<p class="source-code">-- No entries --</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -p emerg</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-31 14:50:39 EDT. --</p>
+			<p class="source-code">-- No entries --</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>So, there are no emergency messages, which is a good thing. What about <strong class="source-inline">alert</strong> messages? Let's see:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -p 1</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-31 14:51:35 EDT. --</p>
+			<p class="source-code">-- No entries --</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Cool. There <a id="_idIndexMarker528"/>are none of them, either. But from priority level <strong class="source-inline">2</strong> (<strong class="source-inline">crit</strong>) on down, it's a different story, as we see here:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -p 2</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-31 14:51:38 EDT. --</p>
+			<p class="source-code">Apr 03 17:09:22 ubuntu2004 sudo[185694]: pam_unix(sudo:auth): auth could not identify password for [donnie]</p>
+			<p class="source-code">-- Reboot --</p>
+			<p class="source-code">Jul 23 15:16:14 ubuntu2004 sudo[48285]: pam_unix(sudo:auth): auth could not identify password for [donnie]</p>
+			<p class="source-code">-- Reboot --</p>
+			<p class="source-code">Jul 27 15:27:54 ubuntu2004 sudo[156593]: pam_unix(sudo:auth): auth could not identify password for [donnie]</p>
+			<p class="source-code">-- Reboot --</p>
+			<p class="source-code">Aug 17 17:10:51 ubuntu2004 sudo[222044]: pam_unix(sudo:auth): auth could not identify password for [donnie]</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>So, there are a few <strong class="source-inline">critical</strong> messages. Now, things get a bit trickier. It's just that when you specify a priority level, you'll see messages from that priority up through all of the upper priorities that also have messages. So, if I were to specify level <strong class="source-inline">3</strong> (<strong class="source-inline">err</strong>) right now, I'd also see the level <strong class="source-inline">2</strong> (<strong class="source-inline">crit</strong>) messages. To see nothing but level <strong class="source-inline">3</strong> messages, specify a range with level <strong class="source-inline">3</strong> as both the starting point and the ending point, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -p 3..3</p>
+			<p>Curiously, the <strong class="source-inline">journalctl</strong> man page tells you that you can specify ranges, but it doesn't tell you that you have to use two dots for it. I had to do a DuckDuckGo search to find out.</p>
+			<p>Another <a id="_idIndexMarker529"/>carryover from <strong class="source-inline">rsyslog</strong> is the concept of <em class="italic">facilities</em>. Different Linux subsystems create different types, or facilities, of messages. The standard facilities <a id="_idIndexMarker530"/>are:</p>
+			<ul>
+				<li><strong class="source-inline">auth</strong>: Messages generated by the authorization system, login, <strong class="source-inline">su</strong>, and so on.</li>
+				<li><strong class="source-inline">authpriv</strong>: Messages generated by the authorization system but only readable by selected users.</li>
+				<li><strong class="source-inline">cron</strong>: Messages generated by the cron service.</li>
+				<li><strong class="source-inline">daemon</strong>: Messages generated by all system daemons (<strong class="source-inline">sshd</strong>, <strong class="source-inline">ftpd</strong>, and so on),</li>
+				<li><strong class="source-inline">ftp</strong>: Messages generated by <a id="_idIndexMarker531"/>a <strong class="bold">File Transfer Protocol</strong> (<strong class="bold">FTP</strong>) service.</li>
+				<li><strong class="source-inline">kern</strong>: Messages generated by the Linux kernel.</li>
+				<li><strong class="source-inline">lpr</strong>: Messages generated by the line printer spooling.</li>
+				<li><strong class="source-inline">mail</strong>: Messages generated by the operating system's internal mail system.</li>
+				<li><strong class="source-inline">mark</strong>: These are periodic timestamps that can be inserted into the logs.</li>
+				<li><strong class="source-inline">news</strong>: This facility deals with messages from Usenet newsgroup services, which have pretty much died off. So, you'll likely never see any of these messages.</li>
+				<li><strong class="source-inline">syslog</strong>: Messages that are generated by rsyslog.</li>
+				<li><strong class="source-inline">user</strong>: Messages generated by users.</li>
+				<li><strong class="source-inline">uucp</strong>: Messages from the Unix-to-Unix copy system. This system also has pretty much died off, so you'll likely never see any of these messages, either.</li>
+				<li><strong class="source-inline">local0</strong> through <strong class="source-inline">local7</strong>: You can use these to define custom facilities.</li>
+			</ul>
+			<p>To see messages <a id="_idIndexMarker532"/>from one specific facility, use the <strong class="source-inline">--facility</strong> option, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl --facility uucp</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-31 15:46:58 EDT. --</p>
+			<p class="source-code">-- No entries --</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Okay, I did <a id="_idIndexMarker533"/>tell you that there would likely be no <strong class="source-inline">uucp</strong> messages. For a more realistic example, let's look at <strong class="source-inline">auth</strong> and <strong class="source-inline">authpriv</strong> messages, and compare the difference between them:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl --facility authpriv</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl --facility auth</p>
+			<p>For our final example, let's get fancy. Let's look at priority <strong class="source-inline">4</strong> <strong class="source-inline">daemon</strong> messages that have come up since yesterday:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl --facility daemon -p 4..4 -S yesterday</p>
+			<p>All right, that about covers it for priorities and facilities.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">To see a list of all of the available facilities, just do:</p>
+			<p class="callout"><strong class="bold">journalctl --facility=help</strong></p>
+			<p>You can also view log entries for a certain user. To do that, you must obtain the user's UID, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ id frank</p>
+			<p class="source-code">uid=1002(frank) gid=1002(frank) groups=1002(frank)</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>So, Frank's UID is <strong class="source-inline">1002</strong>. Now, let's <a id="_idIndexMarker534"/>view his log entries:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl _UID=1002</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-10 15:47:17 ED&gt;</p>
+			<p class="source-code">Jul 23 15:10:01 ubuntu2004 systemd[40881]: Reached target Paths.</p>
+			<p class="source-code">Jul 23 15:10:01 ubuntu2004 systemd[40881]: Reached target Timers.</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Okay, that's good. But all I want to see is his log entries for today. I can use either the <strong class="source-inline">-S</strong> or <strong class="source-inline">--since</strong> option for this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl _UID=1002 -S today</p>
+			<p class="source-code">-- Logs begin at Tue 2021-01-05 20:46:55 EST, end at Tue 2021-08-10 15:49:27 ED&gt;</p>
+			<p class="source-code">-- No entries --</p>
+			<p class="source-code">lines 1-2/2 (END)</p>
+			<p>Okay, Frank hasn't logged in today, which isn't surprising. Remember that Frank is a cat, which means that he spends most of his time sleeping.</p>
+			<p>Now, let's say that you want to view information about the Apache web server service, but you want to see it in JSON format. All right, let's do this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -u apache2 -o json</p>
+			<p class="source-code">{"_EXE":"/usr/lib/systemd/systemd","SYSLOG_IDENTIFIER":"systemd","_CMDLINE":"/s&gt;</p>
+			<p class="source-code">{"__CURSOR":"s=a2d77617383f477da0a4d539e137b488;i=37181;b=88df3ae40cb9468a8d13a&gt;</p>
+			<p class="source-code">{"_HOSTNAME":"ubuntu2004","JOB_ID":"3311","__CURSOR":"s=a2d77617383f477da0a4d53&gt;</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Is this <a id="_idIndexMarker535"/>output not pretty enough for you? No problem; we can make it pretty:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -u apache2 -o json-pretty</p>
+			<p class="source-code">{</p>
+			<p class="source-code">        "_UID" : "0",</p>
+			<p class="source-code">        "_CMDLINE" : "/sbin/init maybe-ubiquity",</p>
+			<p class="source-code">        "_CAP_EFFECTIVE" : "3fffffffff",</p>
+			<p class="source-code">        "JOB_TYPE" : "start",</p>
+			<p class="source-code">        "_PID" : "1",</p>
+			<p class="source-code">        "_GID" : "0",</p>
+			<p class="source-code">        "CODE_FILE" : "src/core/job.c",</p>
+			<p class="source-code">        "__CURSOR" : "s=a2d77617383f477da0a4d539e137b488;i=3717c;b=88df3ae40cb9&gt;</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Note that more data fields show up in JSON format than in the standard default format. That's because the default output format for <strong class="source-inline">journalctl</strong> is meant to emulate the standard <strong class="source-inline">rsyslog</strong> format.</p>
+			<p>Now, let's say that you just want to see Apache information from yesterday, and you want to save it to a JSON file and view the output on the screen at the same time. The <strong class="source-inline">--no-pager</strong> option allows you to pipe the <strong class="source-inline">journalctl</strong> output into another utility, as we're doing here with the tee utility:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ journalctl -u apache2 -S yesterday -U today -o json --no-pager | tee apache2.json</p>
+			<p>You can <a id="_idIndexMarker536"/>also use <strong class="source-inline">--no-pager</strong> to pipe output into the standard Linux text filtering and manipulation utilities, such as grep or awk. This can be handy if you need to write shell scripts for use in Nagios or Icinga plugins, for example.</p>
+			<p>I could give you a lot more examples, but you get the idea. Besides, this is one of those rare instances in the world of free-as-in-speech software where the documentation that other people have written is so good that I can't improve upon their efforts. So, if you want to see more, I'll direct your attention to the <strong class="source-inline">journalctl</strong> man page and the resources in the <em class="italic">Further reading</em> section.</p>
+			<h1 id="_idParaDest-198"><a id="_idTextAnchor208"/>Sealing journald log files for security</h1>
+			<p>I've already <a id="_idIndexMarker537"/>told you how easy it is for a malicious person to tamper with the text-mode <strong class="source-inline">rsyslog</strong> files to delete his or her nefarious activities. The <strong class="source-inline">journald</strong> log files are already harder to tamper with because they're in binary<a id="_idIndexMarker538"/> format. We can make it even harder to tamper with them by <em class="italic">sealing</em> them. (Of course, this only works if you have persistent <strong class="source-inline">journald</strong> logs.)</p>
+			<p>The first step is to create a<a id="_idIndexMarker539"/> set of <strong class="bold">Forward Secure Sealing</strong> (<strong class="bold">FSS</strong>) keys, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo journalctl --setup-keys</p>
+			<p>This command <a id="_idIndexMarker540"/>creates two keys. The <em class="italic">sealing key</em> is named <strong class="source-inline">fss</strong> and is stored in the same directory as the <strong class="source-inline">journald</strong> log files, as we see here:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ cd /var/log/journal/55520bc0900c428ab8a27f5c7d8c3927/</p>
+			<p class="source-code">donnie@ubuntu2004:/var/log/journal/55520bc0900c428ab8a27f5c7d8c3927$ ls -l fss</p>
+			<p class="source-code">-rw-------+ 1 root systemd-journal 482 Aug 10 16:50 fss</p>
+			<p class="source-code">donnie@ubuntu2004:/var/log/journal/55520bc0900c428ab8a27f5c7d8c3927$</p>
+			<p>The verification key only appears as a text s<a id="_idTextAnchor209"/>tring on your screen, as we see here:</p>
+			<div>
+				<div id="_idContainer063" class="IMG---Figure">
+					<img src="image/Figure_14.1_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 14.1 – Creating the Forward Secure Sealing (FSS) keys</p>
+			<p>It says to <a id="_idIndexMarker541"/>write this key down, but I'd rather cheat by <a id="_idIndexMarker542"/>copying and pasting it into a text file that I can store in a secure location. (For this demo, you can just store the text file in your home directory.)</p>
+			<p>Now, you can periodically run a <strong class="source-inline">verify</strong> operation to ensure that nobody has tampered with your log files. Just copy and paste the verification key into the command, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo journalctl --verify --verify-key=43e654-62c3e2-519f3b-7d2850/1b9cb3-35a4e900</p>
+			<p class="source-code">PASS: /var/log/journal/55520bc0900c428ab8a27f5c7d8c3927/user-1000@3ebae2fd52f7403bac3983eb8a90d2ef-0000000000052181-0005beefb66cbef3.journal</p>
+			<p class="source-code">PASS: /var/log/journal/55520bc0900c428ab8a27f5c7d8c3927/user-1000@53aedefe543040f48dd89ba98d7f9aae-00000000000a33c1-0005c704cacbdd12.journal</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>That's<a id="_idIndexMarker543"/> about it for sealing your log files. Now, let's talk very briefly about setting up remote logging with <strong class="source-inline">journald</strong>.</p>
+			<h1 id="_idParaDest-199"><a id="_idTextAnchor210"/>Setting up remote logging with journald</h1>
+			<p>Sometimes, it's handy<a id="_idIndexMarker544"/> to set up a central log collection server and have all the other machines on the network send their log files to it.</p>
+			<p>As I've<a id="_idIndexMarker545"/> already said, <strong class="source-inline">journald</strong> remote logging is still in a proof-of-concept phase and isn't considered ready for production use. Also, most third-party log-aggregation utilities are still set up to use plaintext <strong class="source-inline">rsyslog</strong> files. So, if you have remote logging on your site or if you need to set up remote logging, you'll most likely use <strong class="source-inline">rsyslog</strong>.</p>
+			<p>However, I do realize that some of you might be interested in playing around with a remote <strong class="source-inline">journald</strong> logging setup. If that's the case, I'd like to direct your attention to the procedure that's linked in the <em class="italic">Further reading</em> section. However, be aware that you'll need to install security certificates on the <strong class="source-inline">journald</strong> log server and all of the clients. This procedure has you install certificates from <em class="italic">Let's Encrypt</em>, which requires you to have your machines in a domain that's registered on the public <strong class="bold">Domain Name Service</strong> (<strong class="bold">DNS</strong>) servers. If the<a id="_idIndexMarker546"/> Let's Encrypt installer can't find your machines on a public DNS server, the install operation will abort.</p>
+			<p>Fortunately, if you just want to set up centralized <strong class="source-inline">journald</strong> logging for an internal LAN, you can modify the procedure so that it uses certificates that you create locally from a local Certificate Authority server. (Showing you how to set up a local Certificate Authority is beyond the scope of this book, but you can read about it in my other book, <em class="italic">Mastering Linux Security and Hardening</em>.)</p>
+			<p>Well, I think that that should do it for <strong class="source-inline">journald</strong>. Let's wrap things up and move on.</p>
+			<h1 id="_idParaDest-200"><a id="_idTextAnchor211"/>Summary</h1>
+			<p>In this chapter, we covered the <strong class="source-inline">journald</strong> logging system and compared it to the tried-and-true <strong class="source-inline">rsyslog</strong>. First, we looked at the pros and cons of both <strong class="source-inline">rsyslog</strong> and <strong class="source-inline">journald</strong>. Then, we saw how the two logging systems are implemented in both Ubuntu and RHEL distros. After that, we saw the various viewing, searching, and formatting options that we can use with the <strong class="source-inline">journalctl</strong> utility. We wrapped up by learned how to make our <strong class="source-inline">journald</strong> log files more tamper-resistant and briefly discussed setting up a centralized <strong class="source-inline">journald</strong> log server.</p>
+			<p>In the next chapter, we'll look at using systemd's own network services. I'll see you there!</p>
+			<h1 id="_idParaDest-201"><a id="_idTextAnchor212"/>Questions</h1>
+			<p>Answer the following questions to test your knowledge of this chapter:</p>
+			<ol>
+				<li>What is the major difference between <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong>?<p>A. <strong class="source-inline">journald</strong> stores files in plaintext format, while <strong class="source-inline">rsyslog</strong> stores files in binary format.</p><p>B. There is no difference.</p><p>C. <strong class="source-inline">rsyslog</strong> stores files in plaintext format, while <strong class="source-inline">journald</strong> stores files in binary format.</p></li>
+				<li>Which of the following statements is true?<p>A. Modern systemd-based Linux distros come with either <strong class="source-inline">rsyslog</strong> or <strong class="source-inline">journald</strong>, but not both.</p><p>B. <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong> always work independently of each other.</p><p>C. Modern systemd-based Linux distros come with both <strong class="source-inline">rsyslog</strong> and <strong class="source-inline">journald</strong>.</p><p>D. <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong> can never work independently of each other.</p></li>
+				<li>What are two major differences in how <strong class="source-inline">journald</strong> is implemented on Ubuntu and RHEL? (Choose 2.)<p>A. <strong class="source-inline">journald</strong> logs are persistent on RHEL, but not on Ubuntu.</p><p>B. On RHEL, <strong class="source-inline">journald</strong> works completely independently of <strong class="source-inline">rsyslog</strong>. On Ubuntu, they work together.</p><p>C. On RHEL, <strong class="source-inline">journald</strong> and <strong class="source-inline">rsyslog</strong> work together. On Ubuntu, they work independently.</p><p>D. On Ubuntu, <strong class="source-inline">journald</strong> logs are persistent. On RHEL, they are not.</p><p>E. There is no difference.</p></li>
+				<li>Which of the following commands would delete all but the most recent one GB worth of <strong class="source-inline">journald</strong> log files?<p>A. <strong class="source-inline">sudo journalctl --vacuum-size=1G</strong></p><p>B. <strong class="source-inline">sudo journalctl --rotate</strong></p><p>C. <strong class="source-inline">sudo journalctl --size=1G</strong></p><p>D. <strong class="source-inline">sudo journalctl --clean=1G</strong></p></li>
+			</ol>
+			<h1 id="_idParaDest-202"><a id="_idTextAnchor213"/>Answers</h1>
+			<ol>
+				<li value="1">C</li>
+				<li>C</li>
+				<li>C, D</li>
+				<li>A</li>
+			</ol>
+			<h1 id="_idParaDest-203"><a id="_idTextAnchor214"/>Further reading</h1>
+			<p>The rocket-fast syslog server (the <strong class="source-inline">rsyslog</strong> project page):</p>
+			<ul>
+				<li><a href="https://www.rsyslog.com/">https://www.rsyslog.com/</a></li>
+				<li>Why <strong class="source-inline">journald</strong>?</li>
+				<li><a href="https://www.loggly.com/blog/why-journald/">https://www.loggly.com/blog/why-journald/</a></li>
+				<li>Understanding <strong class="source-inline">journald</strong>:</li>
+				<li><a href="https://linuxconcept.com/tutorial/understanding-journald/">https://linuxconcept.com/tutorial/understanding-journald/</a></li>
+				<li>How to use <strong class="source-inline">journalctl</strong> to view and manipulate <strong class="source-inline">systemd</strong> logs:</li>
+				<li><a href="https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs">https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs</a></li>
+				<li>Did you know that <strong class="source-inline">journald</strong> can give JSON output?</li>
+				<li><a href="https://ailogs.design.blog/2020/02/01/linux-logs-did-you-know-systemd-journald-can-give-json-output/">https://ailogs.design.blog/2020/02/01/linux-logs-did-you-know-systemd-journald-can-give-json-output/</a></li>
+				<li>Logging with <strong class="source-inline">journald</strong>:</li>
+				<li><a href="https://sematext.com/blog/journald-logging-tutorial/">https://sematext.com/blog/journald-logging-tutorial/</a></li>
+				<li>How to centralize logs with <strong class="source-inline">journald</strong> on Ubuntu 20.04:</li>
+				<li><a href="https://www.digitalocean.com/community/tutorials/how-to-centralize-logs-with-journald-on-ubuntu-20-04">https://www.digitalocean.com/community/tutorials/how-to-centralize-logs-with-journald-on-ubuntu-20-04</a></li>
+			</ul>
+		</div>
+	</body></html>

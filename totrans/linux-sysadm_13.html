@@ -1,0 +1,769 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer079">
+<h1 class="chapter-number" id="_idParaDest-186"><a id="_idTextAnchor216"/>13</h1>
+<h1 id="_idParaDest-187"><a id="_idTextAnchor217"/>High Availability</h1>
+<p>All computer hardware has limits regarding its performance and reliability, so systems that must process requests from large numbers of users without interruptions are always composed of multiple individual worker machines and dedicated load-balancing nodes that spread the load among <span class="No-Break">those workers.</span></p>
+<p>Linux includes functionality for load balancing and redundancy in the kernel, and multiple user-space daemons manage that built-in functionality and implement additional protocols <span class="No-Break">and features.</span></p>
+<p>In this chapter, we will learn about <span class="No-Break">the following:</span></p>
+<ul>
+<li>Different types of redundancy and <span class="No-Break">load balancing</span></li>
+<li>Link and network layer redundancy mechanisms <span class="No-Break">in Linux</span></li>
+<li>Transport layer load balancing with <strong class="bold">Linux Virtual </strong><span class="No-Break"><strong class="bold">Server</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">LVS</strong></span><span class="No-Break">)</span></li>
+<li>Using Keepalived to share a virtual IP address between multiple nodes and automate <span class="No-Break">LVS configuration</span></li>
+<li>Application layer load-balancing solutions, using HAProxy as <span class="No-Break">an example</span></li>
+</ul>
+<h1 id="_idParaDest-188"><a id="_idTextAnchor218"/>Types of redundancy and load balancing</h1>
+<p>Before we delve into <a id="_idIndexMarker617"/>specific high-availability features and their configuration, let’s <a id="_idIndexMarker618"/>discuss possible types of redundancy and load balancing, their advantages, and <span class="No-Break">their limitations.</span></p>
+<p>First of all, we need to remember that the modern TCP/IP networking stack is <em class="italic">layered</em>. Multiple layering models include different numbers of layers but the idea is the same: protocols at the <a id="_idIndexMarker619"/>upper layer are unaware of the protocols at any lower levels and <a id="_idIndexMarker620"/>vice versa. The most commonly used models are the seven-layer <strong class="bold">Open Systems Interconnection</strong> (<strong class="bold">OSI</strong>) model and the four-level DoD model (developed by the United States Department of Defense). We have summarized them in the <span class="No-Break">following table:</span></p>
+<table class="T---Table _idGenTablePara-1" id="table001-2">
+<colgroup>
+<col/>
+<col/>
+<col/>
+<col/>
+</colgroup>
+<tbody>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">OSI model</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">DoD model</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Purpose</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Examples</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Physical</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="2">
+<p><span class="No-Break">Link</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="2">
+<p>Transmission of electrical/optical signals that represent <span class="No-Break">bit streams</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="2">
+<p><span class="No-Break">Ethernet, Wi-Fi</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Data link</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Network</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Internet</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Transmission of packets in segmented, <span class="No-Break">routed networks</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">IPv4, IPv6</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Transport</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Transport</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Reliable transmission of data segments (integrity checking, acknowledgment, congestion control, <span class="No-Break">and more)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>TCP, <span class="No-Break">UDP, SSTP</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Session</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="3">
+<p><span class="No-Break">Application</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="3">
+<p>Transmission of <span class="No-Break">application-specific data</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="3">
+<p>HTTP, <span class="No-Break">SMTP, SSH</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Presentation</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Application</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 13.1 — OSI and DoD network stack models</p>
+<p>Since the network stack is layered, to make a network resistant to different types of failures, redundancy can and should be implemented at multiple levels. For example, connecting a single server to the network with two cables rather than one protects it from a single broken cable or a malfunctioning network card but will not protect the users from failures of the server software – in that case, the server will remain connected to the network but unable to serve <span class="No-Break">any requests.</span></p>
+<p>This problem can usually be solved by setting up multiple servers and introducing a dedicated load-balancer node to the network, which acts as an intermediary: it receives connections from users and distributes the load across all <span class="No-Break">those servers.</span></p>
+<p>Having a load balancer <a id="_idIndexMarker621"/>adds redundancy at the transport or application layer since the <a id="_idIndexMarker622"/>system remains able to serve requests, so long as at least one server is available. It also increases the total service capacity beyond the performance limit of a <span class="No-Break">single server.</span></p>
+<p>However, the load balancer itself becomes a single point of failure – if its software fails or it ends up disconnected from the network, the entire service becomes unavailable. Additionally, it becomes subject to the greatest network traffic load compared to any individual server. This makes link layer and network layer redundancy especially relevant. Finally, to make sure that requests that users send to the IP address of the load balancer are always accepted, the <a id="_idIndexMarker623"/>public address is often shared between multiple physical load-balancing servers in a cluster using the <strong class="bold">First Hop Redundancy </strong><span class="No-Break"><strong class="bold">Protocol</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">FHRP</strong></span><span class="No-Break">):</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer078">
+<img alt="Figure 13.1 — Typical high-availability setup" height="576" src="image/B18575_13_01.jpg" width="700"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 13.1 — Typical high-availability setup</p>
+<p><span class="No-Break"><em class="italic">Figure 13</em></span><em class="italic">.1</em> shows a fully redundant setup with three application servers and two load balancers that are <a id="_idIndexMarker624"/>protected from cable or network card failures with aggregated<a id="_idIndexMarker625"/> <span class="No-Break">Ethernet links.</span></p>
+<p>Before we learn about different redundancy types and their implementations in Linux, we should review the terminology. Different protocols and technologies use different names for node roles, and some of them still use terminology that is inaccurate and may be offensive, but it’s important to know it to understand what their documentation is <span class="No-Break">talking about.</span></p>
+<p class="callout-heading">Notes on terminology</p>
+<p class="callout">To describe redundant setups, we will use <em class="italic">active</em>/<em class="italic">standby</em> terminology by default: only one <em class="italic">active</em> node performs any work at a time and one or more additional <em class="italic">standby</em> nodes are waiting to take its place if <span class="No-Break">it fails.</span></p>
+<p class="callout">A lot of older literature, including protocol standards, configuration files, and official documentation for high-availability solutions, may use <em class="italic">master</em>/<em class="italic">slave</em> terminology instead. That terminology is getting phased out by many projects due to its associations with human slavery and also because it is misleading since in most protocols, the active node does not have any control over standby nodes. We will use that terminology when we discuss protocols and software that still use it, for consistency with <span class="No-Break">their documentation.</span></p>
+<h2 id="_idParaDest-189"><a id="_idTextAnchor219"/>Link layer redundancy</h2>
+<p>Broken cables and Ethernet switch ports are quite common, especially in outdoor installations and industrial networks. In those situations, it is very useful to have more than one link layer <a id="_idIndexMarker626"/>connection. However, simply connecting two different network cards of a Linux machine to different ports of the same switch does not make them work as a single connection. The user needs to explicitly set up those two network cards so that they <span class="No-Break">work together.</span></p>
+<p>Luckily, Linux supports multiple ways to use several network cards together – both in active/standby and load-balancing configurations. Some of them do not require any support from the Ethernet switch and will work even with very basic unmanaged switches. Other modes require that <a id="_idIndexMarker627"/>the switch supports either the older EtherChannel protocol (designed by Cisco Systems) or the newer and vendor-neutral IEEE 802.3ad <strong class="bold">Link Aggregation and Control Protocol</strong> (<strong class="bold">LACP</strong>), and the ports must be configured explicitly to enable those protocols. We can summarize all these methods in the <span class="No-Break">following table:</span></p>
+<table class="T---Table _idGenTablePara-1" id="table002-1">
+<colgroup>
+<col/>
+<col/>
+<col/>
+</colgroup>
+<tbody>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Type</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Operation</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Switch Requirements</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="source-inline">active-backup</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="source-inline">1</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>One network card remains disabled while the other <span class="No-Break">is up</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>None; will work for any switch (<span class="No-Break">even unmanaged)</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="source-inline">802.3ad</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="source-inline">4</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body" rowspan="3">
+<p>Frames are balanced across <span class="No-Break">all ports</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Requires 803.3ad <span class="No-Break">LACP support</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><strong class="source-inline">balance-xor</strong> (<strong class="source-inline">2</strong>) and <span class="No-Break"><strong class="source-inline">broadcast</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="source-inline">3</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Requires <span class="No-Break">EtherChannel support</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><strong class="source-inline">balance-tlb</strong> (<strong class="source-inline">5</strong>) and <span class="No-Break"><strong class="source-inline">balance-alb</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="source-inline">6</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">None</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 13.2 — Link layer redundancy methods in Linux</p>
+<p>The simplest mode is active-backup, which requires no special setup on the Ethernet switch and can even work with the simplest and cheapest unmanaged switches. Unlike modes such as 802.3ad LACP, it only <a id="_idIndexMarker628"/>provides active-standby redundancy rather than load balancing. Using the following command, you can join the <strong class="source-inline">eth0</strong> and <strong class="source-inline">eth1</strong> network interfaces to a single <strong class="source-inline">bond0</strong> interface using the active-backup method, on a system that uses NetworkManager <span class="No-Break">for configuration:</span></p>
+<pre class="source-code">
+$ sudo nmcli connection add type bond con-name bond0 ifname bond0 bond.options "mode=active-backup"
+$ sudo nmcli connection add type ethernet slave-type bond con-name bond0-port1 ifname eth0 master bond0
+$ sudo nmcli connection add type ethernet slave-type bond con-name bond0-port2 ifname eth1 master bond0
+$ sudo nmcli connection up bond0</pre>
+<p>Now, if either <strong class="source-inline">eth0</strong> or <strong class="source-inline">eth1</strong> are physically disconnected from the switch, link layer connectivity will <span class="No-Break">be preserved.</span></p>
+<p>The cost of that configuration simplicity and low requirements for the Ethernet switch is wasted bandwidth. Whenever possible, high-performance servers should be connected to Ethernet networks using the current industry-standard 802.3ad LACP protocol, which allows them to benefit from the combined bandwidth of multiple links and also automatically exclude failed links to <span class="No-Break">provide redundancy.</span></p>
+<h2 id="_idParaDest-190"><a id="_idTextAnchor220"/>Network layer redundancy and load balancing</h2>
+<p>If a system has multiple independent connections to the internet or an internal network, it is possible to either provide <a id="_idIndexMarker629"/>a backup route or balance IP packets across multiple <a id="_idIndexMarker630"/>routes. However, in practice, network layer redundancy is only used by routers rather than hosts, and its simplest forms are only applicable to networks with public, globally <span class="No-Break">routed addresses.</span></p>
+<p>Suppose your Linux system is connected to two different routers, one with IPv4 address 192.0.2.1, and the other with 203.0.113.1. If you are fine with one connection being completely unused and acting purely as a standby, you can create two default routes with different <em class="italic">metrics</em> and assign a higher metric to the standby connection. The metric’s value determines the route’s priority, and if multiple routes with different metrics exist, the kernel will always use the route with the lowest metric. When that route disappears (for example, due to a network card going down), the kernel will switch to using the route with the next lowest metric of those <span class="No-Break">still available.</span></p>
+<p>For example, you can use the following commands if you want <strong class="source-inline">192.0.2.1</strong> to be the <span class="No-Break">backup router:</span></p>
+<pre class="source-code">
+$ sudo ip route add 0.0.0.0/0 via 192.0.2.1 metric 200
+$ sudo ip route add 0.0.0.0/0 via 203.0.113.1 metric 100</pre>
+<p>The advantage of this method <a id="_idIndexMarker631"/>is that it is compatible with <strong class="bold">Network Address Translation</strong> (<strong class="bold">NAT</strong>) set up on the same system. If you want to create a load-balancing configuration instead, many more issues come into play because network layer load balancing is per-packet and unaware of any concept of <span class="No-Break">a connection.</span></p>
+<p>On the surface, the <a id="_idIndexMarker632"/>configuration for multi-path routes is quite simple. You can <a id="_idIndexMarker633"/>specify as many gateway addresses as you want and, optionally, assign weights to them to direct more traffic to faster links. For example, if you wanted twice as much traffic to flow through <strong class="source-inline">203.0.113.1</strong>, you could achieve this with the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+$ sudo ip route add 0.0.0.0/0 nexthop via 192.0.2.1 weight 5 nexthop via 203.0.113.1 weight 10</pre>
+<p>The problem is that this configuration, by itself, is incompatible with NAT because it will send packets that belong to the same TCP connection or a UDP stream to different gateways. If you have a publicly routed network, that is considered normal and even inevitable. However, if you only have a single external address from each provider and have to use NAT to map a private network to that single outgoing address, packets that belong to a single connection must always flow through the same gateway for the setup to work as expected. There are ways to set up per-connection load balancing using policy-based routing but that is outside the scope of this book. If you are interested, you can find more information in other sources, such as <em class="italic">Policy Routing </em><em class="italic">With</em><em class="italic"> Linux</em>, by <em class="italic">Matthew G. Marsh</em>, which is freely <span class="No-Break">available online.</span></p>
+<h2 id="_idParaDest-191"><a id="_idTextAnchor221"/>Transport layer load balancing with LVS</h2>
+<p>The main disadvantage of all network layer mechanisms is that the network layer operates with individual <a id="_idIndexMarker634"/>packets and has no concept of connections. Many <a id="_idIndexMarker635"/>network services are connection-oriented so at the very least, all packets that belong to the same connection must always be sent to the same server. While the NAT implementation in Linux is smart enough to detect packets from the same connection, simple load balancing with one-to-many NAT is still too simplistic for many use cases. For example, it does not provide an easy way to track how many connections each server gets and cannot preferentially send new connections to the least loaded servers (that is, to servers that are handling the smallest number of existing connections at <span class="No-Break">the moment).</span></p>
+<p>To account for this use case, Linux includes the <strong class="bold">LVS</strong> framework and a tool for managing it – <span class="No-Break"><strong class="source-inline">ipvsadm</strong></span><span class="No-Break">.</span></p>
+<p>The key concepts of the LVS framework are <em class="italic">virtual servers</em> and <em class="italic">real servers</em>. Virtual servers are Linux machines <a id="_idIndexMarker636"/>that provide the public address of the <a id="_idIndexMarker637"/>service, accept <a id="_idIndexMarker638"/>connections to it, and then distribute those connections to multiple real servers. Real servers can run <a id="_idIndexMarker639"/>any OS and software and can be unaware of the virtual <span class="No-Break">server’s existence.</span></p>
+<p>LVS is a flexible framework <a id="_idIndexMarker640"/>that provides multiple load-scheduling algorithms, load-balancing mechanisms, and configuration options, all with their advantages and disadvantages. Let’s examine them <span class="No-Break">in detail.</span></p>
+<h3>Scheduling algorithms</h3>
+<p>There are multiple ways to <a id="_idIndexMarker641"/>distribute the load between multiple servers, each with its advantages and disadvantages. We can summarize them in the <span class="No-Break">following table:</span></p>
+<table class="T---Table _idGenTablePara-1" id="table003">
+<colgroup>
+<col/>
+<col/>
+</colgroup>
+<tbody>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Algorithm</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Description</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Round <span class="No-Break">Robin (</span><span class="No-Break"><strong class="source-inline">rr</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Distributes a connection across all <span class="No-Break">servers equally.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Weighted Round <span class="No-Break">Robin (</span><span class="No-Break"><strong class="source-inline">wrr</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>This is similar to Round Robin but allows you to send more connections to certain servers by assigning a higher weight value <span class="No-Break">to them.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Least <span class="No-Break">Connection (</span><span class="No-Break"><strong class="source-inline">lc</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Preferentially sends new connections to the server with the least number of <span class="No-Break">current connections.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Weighted Least <span class="No-Break">Connection (</span><span class="No-Break"><strong class="source-inline">wlc</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>The default scheduling algorithm. This is similar to Least Connection but allows you to assign weights <span class="No-Break">to servers.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Locality-Based <span class="No-Break">Least-Connection (</span><span class="No-Break"><strong class="source-inline">lblc</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Sends new connections with the same destination IP address to the same server, and switches to the next server if the first one is unavailable <span class="No-Break">or overloaded.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Locality-Based Least-Connection with <span class="No-Break">Replication (</span><span class="No-Break"><strong class="source-inline">lblcr</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Sends new connections with the same destination IP address to the same server, if it is not overloaded. Otherwise, it sends them to the server with the <span class="No-Break">least connections.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Destination <span class="No-Break">Hashing (</span><span class="No-Break"><strong class="source-inline">dh</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Creates a hash table that maps destination IP addresses <span class="No-Break">to servers.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Source <span class="No-Break">Hashing (</span><span class="No-Break"><strong class="source-inline">sh</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Creates a hash table that maps source IP addresses <span class="No-Break">to servers.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Shortest Expected <span class="No-Break">Delay (</span><span class="No-Break"><strong class="source-inline">sed</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Sends new connections to the server with the shortest <span class="No-Break">expected delay.</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Never <span class="No-Break">Queue (</span><span class="No-Break"><strong class="source-inline">nq</strong></span><span class="No-Break">)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Sends new connections to the first idle servers, and switches to Shortest Expected Delay if there are no <span class="No-Break">idle servers.</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 13.3 – LVS scheduling algorithms</p>
+<p>The right choice of scheduling algorithm depends on the type of service; none of them is inherently better than others for all use cases. For example, Round Robin and Weighted Round Robin work best for services with short-lived connections, such as web servers that serve static pages or files (such as content <span class="No-Break">delivery networks).</span></p>
+<p>Services that use very long-lived, persistent connections, such as online game servers, can benefit from Least Connection algorithms instead. Using Round Robin methods for such services can be <a id="_idIndexMarker642"/>counter-productive because if new connections are relatively infrequent but resource consumption per connection is high, it can overload some of the servers or create a very unequal load distribution. Least Connection algorithms that keep track of the number of active connections to each server were designed to counter <span class="No-Break">that problem.</span></p>
+<p>Finally, if response latency is a big factor in the quality of service, the Shorted Expected Delay and Never Queue algorithms can improve it, while Round Robin and Least Connection do not take response time into account <span class="No-Break">at all.</span></p>
+<h2 id="_idParaDest-192"><a id="_idTextAnchor222"/>LVS load-balancing methods</h2>
+<p>First, we will examine the<a id="_idIndexMarker643"/> load-balancing methods that LVS provides. It supports three methods: direct routing, IP tunneling, and NAT. We will summarize the differences between them and their advantages and disadvantages in a table, then examine <a id="_idIndexMarker644"/>them in detail with <span class="No-Break">configuration </span><span class="No-Break"><a id="_idIndexMarker645"/></span><span class="No-Break">examples:</span></p>
+<table class="T---Table _idGenTablePara-1" id="table004">
+<colgroup>
+<col/>
+<col/>
+<col/>
+<col/>
+</colgroup>
+<tbody>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Mechanism</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Implementation</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Advantages</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Disadvantages</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Direct routing</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Replaces the destination <span class="No-Break">MAC address</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Best performance; real servers send replies directly <span class="No-Break">to clients</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>All servers must be on the <span class="No-Break">same network</span></p>
+<p>It has difficulties <span class="No-Break">with ARP</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">IP tunneling</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Sends client requests encapsulated in a <span class="No-Break">tunneling protocol</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Real servers send replies directly <span class="No-Break">to clients</span></p>
+<p>Real servers can be on <span class="No-Break">any network</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Real servers must support IPIP tunneling and must have tunnels to the <span class="No-Break">virtual server</span></p>
+<p>The return packets may be rejected <span class="No-Break">as spoofed</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">NAT</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Creates NAT rules behind <span class="No-Break">the scenes</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Real servers don’t need public addresses or any <span class="No-Break">special configuration</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Relatively resource-intensive</span></p>
+<p>All traffic goes through the <span class="No-Break">virtual server</span></p>
+<p>The best method in practice despite <span class="No-Break">its drawbacks</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 13.4 – LVS load-balancing methods</p>
+<p>Let’s examine these load-balancing mechanisms in detail, starting <span class="No-Break">with NAT.</span></p>
+<h3>NAT</h3>
+<p>NAT is the most practical <a id="_idIndexMarker646"/>load-balancing method of LVS because of two factors: real servers <a id="_idIndexMarker647"/>do not need to have publicly routable IP addresses and also do not need to be aware of the virtual server or specially configured to work <span class="No-Break">with it.</span></p>
+<p>The ability to use non-public internal addresses is especially important in IPv4 networks, considering the shortage of IPv4 addresses. The lack of special configuration requirements on the real servers also makes it possible to use any OS on them, and it simplifies the configuration process <span class="No-Break">as well.</span></p>
+<p>An additional advantage of this method is that TCP or UDP ports do not have to be the same on the virtual server and <a id="_idIndexMarker648"/>real servers since the virtual server performs translation anyway rather than forwarding unmodified <span class="No-Break">IP packets.</span></p>
+<p>We will set up the virtual server to listen for HTTP requests on <strong class="source-inline">192.168.56.100:80</strong> and forward those requests to port <strong class="source-inline">8000</strong> of <span class="No-Break">real servers:</span></p>
+<pre class="source-code">
+root@virtual-server# ipvsadm --add-service --tcp-service 192.168.56.100:80
+root@virtual-server# ipvsadm --add-server --tcp-service 192.168.56.100:80 --real-server 10.20.30.2:8000 --masquerading</pre>
+<p>The first command creates a virtual server instance. The second command adds a real server to forward packets to – in our case, <strong class="source-inline">10.20.30.2:8000</strong>. Finally, the <strong class="source-inline">--masquearding (-m)</strong> option tells it to<a id="_idIndexMarker649"/> use the NAT method when sending connections to <a id="_idIndexMarker650"/><span class="No-Break">that server.</span></p>
+<p>We used the long versions of all the <strong class="source-inline">ipvsadm</strong> command-line options here but the command could also be written in short form (with the Round-Robin scheduling algorithm specified, <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">s rr</strong></span><span class="No-Break">):</span></p>
+<pre class="source-code">
+ipvsadm -A -t 192.168.56.100:80 -s rr.</pre>
+<p>Now, we can ensure that the virtual server is configured using the <strong class="source-inline">ipvsadm –list</strong> or <strong class="source-inline">ipvsadm -</strong><span class="No-Break"><strong class="source-inline">l</strong></span><span class="No-Break"> command:</span></p>
+<pre class="source-code">
+root@virtual-server# ipvsadm –list
+IP Virtual Server version 1.2.1 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -&gt; RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  192.168.56.100:http rr
+  -&gt; 10.20.30.2:8000              Masq    1      0          0</pre>
+<p>Now, if we run <strong class="source-inline">wget http://192.168.56.100:80</strong> on the client machine and run a traffic capture on the real server, we will see the <span class="No-Break">following output:</span></p>
+<pre class="source-code">
+root@real-server# tcpdump -n -i eth1 -q tcp port 8000
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth1, link-type EN10MB (Ethernet), capture size 262144 bytes
+23:56:16... IP 192.168.56.1.44320 &gt; 10.20.30.2.8000: tcp 0
+23:56:16... IP 10.20.30.2.8000 &gt; 192.168.56.1.44320: tcp 0
+23:56:16... IP 192.168.56.1.44320 &gt; 10.20.30.2.8000: tcp 0
+23:56:16... IP 192.168.56.1.44320 &gt; 10.20.30.2.8000: tcp 129</pre>
+<p>On the virtual server, we will see a notably <span class="No-Break">different output:</span></p>
+<pre class="source-code">
+root@virtual-server# tcpdump -n -i eth0 -q tcp port 80
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+00:02:19... IP 192.168.56.1.32890 &gt; 192.168.56.100.80: tcp 0
+00:02:19... IP 192.168.56.100.80 &gt; 192.168.56.1.32890: tcp 0
+00:02:19... IP 192.168.56.1.32890 &gt; 192.168.56.100.80: tcp 0
+00:02:19... IP 192.168.56.1.32890 &gt; 192.168.56.100.80: tcp 129</pre>
+<p>As you can see, the virtual server completely takes over the communication between the client and the real server. Theoretically, this is a disadvantage because it greatly increases the amount of traffic that flows through the virtual server. In practice, Linux network performance is pretty <a id="_idIndexMarker651"/>good even on modest hardware, so it is not a <a id="_idIndexMarker652"/>serious issue. Besides, application-specific load-balancing solutions also proxy all traffic through the server, so this is no worse than using a service such as HAProxy. Since packet forwarding and port/address translation happen in the kernel space, this method offers better performance than user-space <span class="No-Break">load-balancing applications.</span></p>
+<p>We will briefly examine the other load-balancing mechanisms, but for a variety of reasons, they are much less practical than NAT and normally need not <span class="No-Break">be used.</span></p>
+<h3>Direct routing</h3>
+<p>To set up LVS for direct routing, we <a id="_idIndexMarker653"/>need to use the <strong class="source-inline">--gatewaying (-g)</strong> option <a id="_idIndexMarker654"/>when we add a <span class="No-Break">real server:</span></p>
+<pre class="source-code">
+root@virtual-server# ipvsadm --add-service --tcp-service 10.20.30.1:8000
+root@virtual-server# ipvsadm --add-server --tcp-service 10.20.30.1:8000 --real-server 10.20.30.2 --gatewaying</pre>
+<p>With this setup, when the virtual server receives a request on <strong class="source-inline">10.20.30.1:8000</strong>, it will simply change the MAC address in that packet to the MAC address of the <strong class="source-inline">10.20.30.2</strong> real server and re-send it to the Ethernet network for the real server to receive. The real server will then reply directly to the client without creating any additional load on the <span class="No-Break">virtual server.</span></p>
+<p>While this method is theoretically the most performant and conceptually simplest, in reality, it places the hardest requirements on the real servers. The minimal requirement is that all real servers must be in the same broadcast network segment. The other requirement is that all real servers must also be able to respond to packets from the same virtual IP as the service IP, usually by having the virtual service IP assigned as <span class="No-Break">an alias.</span></p>
+<p>However, assigning the same IP address to multiple hosts creates an address conflict. To make the network function <a id="_idIndexMarker655"/>properly in the presence of an address <a id="_idIndexMarker656"/>conflict, all nodes except the virtual server must be made to ignore ARP requests for the virtual IP. This can be done, for example, with the <span class="No-Break"><strong class="source-inline">arptables</strong></span><span class="No-Break"> tool:</span></p>
+<pre class="source-code">
+root@real-server# arptables -A IN -d 10.20.30.1 -j DROP
+root@real-server# arptables -A OUT -d 10.20.30.1 -j mangle --mangle-ip-s 10.20.30.2</pre>
+<p>To truly avoid this conflict and ensure that no real server answers an ARP request for the virtual IP, those rules need to be inserted before the address is assigned. This fact makes it difficult or even impossible to correctly configure real servers for this scheme using the usual network configuration methods, such as distribution-specific scripts <span class="No-Break">or NetworkManager.</span></p>
+<p>This fact makes this scheme impractical to implement in most networks, despite its <span class="No-Break">theoretical advantages.</span></p>
+<h3>Tunneling</h3>
+<p>To set up a virtual <a id="_idIndexMarker657"/>server for tunneling, we need to use the <strong class="source-inline">--ipip (-i)</strong> option <a id="_idIndexMarker658"/>when we add a <span class="No-Break">real server:</span></p>
+<pre class="source-code">
+root@virtual-server# ipvsadm --add-service --tcp-service 192.168.56.100:8000
+root@virtual-server# ipvsadm --add-server --tcp-service 192.168.56.100:8000 --real-server 10.20.30.2 --ipip</pre>
+<p>Then, we need to set up an IPIP tunnel on the real server so that it can handle incoming tunneled traffic from the virtual server and assign the virtual server IP <span class="No-Break">to it:</span></p>
+<pre class="source-code">
+root@real-server# ip tunnel add ipip1 mode ipip local 10.20.30.2
+root@real-server# ip link set dev ipip1 up
+root@real-server# ip address add 192.168.56.100/32 dev ipip1</pre>
+<p>Now, if we make an HTTP request to the virtual server and run a traffic capture on the real server, we will see incoming IPIP packets with requests for the virtual <span class="No-Break">IP inside:</span></p>
+<pre class="source-code">
+root@real-server# tcpdump -vvvv -n -i eth1
+tcpdump: listening on eth1, link-type EN10MB (Ethernet), capture size 262144 bytes
+01:06:05.545444 IP (tos 0x0, ttl 63, id 0, offset 0, flags [DF], proto IPIP (4), length 80)
+    10.20.30.1 &gt; 10.20.30.2: IP (tos 0x0, ttl 63, id 44915, offset 0, flags [DF], proto TCP (6), length 60)
+    192.168.56.1.51886 &gt; 192.168.56.106.8000: tcp 0</pre>
+<p>While this approach theoretically enables real servers to be in any network, it comes with several difficulties in <a id="_idIndexMarker659"/>practice. First, the real server OS must support IPIP tunneling. This can be a serious difficulty even with Linux systems if they run in containers <a id="_idIndexMarker660"/>and do not have permission to create tunnels, even if the host system kernel is built with IPIP support. Second, since replies are supposed to be sent directly to the client rather than back through the tunnel, this scheme falls apart in networks that take measures against source IP spoofing – as <span class="No-Break">they should.</span></p>
+<h2 id="_idParaDest-193"><a id="_idTextAnchor223"/>Saving and restoring LVS configurations</h2>
+<p>It is possible to <a id="_idIndexMarker661"/>export the current LVS configuration in a format that it can <a id="_idIndexMarker662"/>load from <span class="No-Break">standard input:</span></p>
+<pre class="source-code">
+root@virtual-server# ipvsadm --save
+-A -t 192.168.56.100:http -s wlc
+-a -t 192.168.56.100:http -r 10.20.30.2:8000 -m -w 1</pre>
+<p>You can save the output to a file and then feed it to <span class="No-Break"><strong class="source-inline">ipvsadm –restore</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+root@virtual-server# ipvsadm –save &gt; lvs.conf
+root@virtual-server# cat lvs.conf | ipvsadm --restore</pre>
+<p>However, in practice, it is better to automate LVS configuration with Keepalived or another user-space daemon, as we will learn later in <span class="No-Break">this chapter.</span></p>
+<h2 id="_idParaDest-194"><a id="_idTextAnchor224"/>Additional LVS options</h2>
+<p>In addition to scheduling algorithms and balancing between real servers, LVS offers a few additional features <span class="No-Break">and options.</span></p>
+<h3>Connection persistence</h3>
+<p>By default, LVS balances connections from clients across all servers and does not match clients with specific <a id="_idIndexMarker663"/>servers. This approach works well for serving web pages over HTTP, for example. However, some services use long-lasting and stateful connections and would not work well without persistence. One extreme example is remote desktop connections: if such connections are balanced between multiple servers, sending a user to a different server after a disconnect will create a completely new session rather than get the user back to their already <span class="No-Break">running applications.</span></p>
+<p>To make LVS remember client-to-server mappings and send new connections from the same client to the same server, you need to specify <strong class="source-inline">--persistent</strong> and, optionally, specify a <span class="No-Break">persistence timeout:</span></p>
+<pre class="source-code">
+ipvsadm --add-service --tcp-service 192.168.56.100:80 --persistent 600</pre>
+<p>This preceding command creates a server that remembers client-to-server associations for <span class="No-Break"><strong class="source-inline">600</strong></span><span class="No-Break"> seconds.</span></p>
+<h3>Connection state synchronization</h3>
+<p>One notable feature of LVS is its connection state synchronization daemon. In that case, the word <em class="italic">daemon</em> is partially <a id="_idIndexMarker664"/>a misnomer since it is implemented in the kernel and is not a user-space process. Connection synchronization is unidirectional, with dedicated primary (master) and replica (<span class="No-Break">backup) nodes.</span></p>
+<p>There is no explicit peer configuration. Instead, connection states are sent to peers using IP multicast. It is possible to specify the network interface to use for <span class="No-Break">synchronization messages:</span></p>
+<pre class="source-code">
+root@first-virtual-server# ipvsadm --start-daemon=master --mcast-interface=eth0
+root@second-virtual-server# ipvsadm --start-daemon=backup --mcast-interface=eth0</pre>
+<p>However, connection state synchronization by itself is useless, unless there’s also a failover mechanism that allows you to transfer the virtual IP to the backup node if the primary load-balancer <span class="No-Break">node fails.</span></p>
+<p>In the next section, we will learn how to configure failover using the Keepalive<a id="_idTextAnchor225"/>d daemon <span class="No-Break">for VRRP.</span></p>
+<h1 id="_idParaDest-195"><a id="_idTextAnchor226"/>Active/backup configurations and load balancing with Keepalived</h1>
+<p>A Linux server that is set up as a load balancer for multiple worker servers and keeps the service available, even if any of those workers fail. However, the load balancer itself becomes a single point of failure in that scheme, unless the administrator also takes care to provide a failover mechanism for <span class="No-Break">multiple balancers.</span></p>
+<p>The usual way to achieve failover is by using a floating <em class="italic">virtual IP address</em>. Suppose <strong class="source-inline">www.example.com</strong> is configured to point at <strong class="source-inline">192.0.2.100</strong>. If you assign that address directly to a load-balancing server in a <strong class="source-inline">192.0.2.0/24</strong> network, it becomes a single point of failure. However, if you set up two servers with primary addresses from that network (say, <strong class="source-inline">192.0.2.10</strong> and <strong class="source-inline">192.0.2.20</strong>), you can use a special failover protocol to allow two or more servers to decide which one will hold the virtual <strong class="source-inline">192.0.2.100</strong> address and automatically transfer it to a different server if the primary <span class="No-Break">server fails.</span></p>
+<p>The most popular protocol for that purpose is called <strong class="bold">Virtual Router Redundancy Protocol</strong> (<strong class="bold">VRRP</strong>). Despite its <a id="_idIndexMarker665"/>name, machines that use VRRP do not have to be routers – even though it was originally implemented by router OSs, now, its use is <span class="No-Break">much wider.</span></p>
+<p>The most popular VRRP implementation for Linux is the Keepalived project. Apart from VRRP, it also implements a configuration frontend for LVS, so it is possible to write a configuration file for both failover and load balancing, without setting up LVS by hand <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">ipvsadm</strong></span><span class="No-Break">.</span></p>
+<h2 id="_idParaDest-196"><a id="_idTextAnchor227"/>Installing Keepalived</h2>
+<p>Most Linux distributions have Keepalived in their repositories, so installing it is a straightforward <a id="_idIndexMarker666"/>process. On Fedora, RHEL, and its community derivatives such as Rocky Linux, you can install it using the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+sudo dnf install keepalived</pre>
+<p>On Debian, Ubuntu, and other distributions that use APT,  run the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+sudo apt-get install keepalived</pre>
+<p>Now that we have installed Keepalived, let’s look at the basics of the <span class="No-Break">VRRP protocol.</span></p>
+<h2 id="_idParaDest-197"><a id="_idTextAnchor228"/>Basics of the VRRP protocol operation</h2>
+<p>VRRP and similar <a id="_idIndexMarker667"/>protocols, such as the older <strong class="bold">Hot Standby Router Protocol</strong> (<strong class="bold">HSRP</strong>) and the <a id="_idIndexMarker668"/>community-developed <strong class="bold">Common Address Redundancy Protocol</strong> (<strong class="bold">CARP</strong>), are based on the idea of electing the primary <a id="_idIndexMarker669"/>node and continually <a id="_idIndexMarker670"/>checking its status by listening to its keepalive packets. Collectively, such protocols are known as <strong class="bold">First Hop Redundancy </strong><span class="No-Break"><strong class="bold">Protocols</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">FHRPs</strong></span><span class="No-Break">).</span></p>
+<p>Initially, every node assumes that it may be the primary node and starts transmitting keepalive packets (named <em class="italic">advertisements</em> in the VRRP terminology) that include a unique identifier of the VRRP instance and a priority value. At the same time, they all start listening to incoming VRRP advertisement packets. If a node receives a packet with a priority value higher than its own, it assumes the backup role and stops transmitting keepalive packets. The node with the highest priority becomes the primary node and assigns the virtual address <span class="No-Break">to itself.</span></p>
+<p>The elected primary node keeps sending VRRP advertisement packets at regular intervals to signal that it is functional. Other nodes remain in the backup state, so long as they receive those packets. If the original primary node ceases to transmit VRRP packets, a new election <span class="No-Break">is initiated.</span></p>
+<p>If the original primary node reappears after a failure, there are two possible scenarios. By default, in the Keepalived implementation, the highest priority node will always preempt and the node that assumed its role during its downtime will go back to the backup state. This is usually a good idea because it keeps the primary router predictable under normal circumstances. However, preemption also causes an additional failover event that may lead to dropped connections and brief service interruptions. If such interruptions are undesirable, it is possible to <span class="No-Break">disable preemption.</span></p>
+<h2 id="_idParaDest-198"><a id="_idTextAnchor229"/>Configuring VRRP</h2>
+<p>Let’s look at a simple example <a id="_idIndexMarker671"/>of VRRP configuration and then examine its options <span class="No-Break">in detail:</span></p>
+<pre class="source-code">
+vrrp_instance LoadBalancers {
+    state BACKUP
+    interface eth1
+    virtual_router_id 100
+    priority 100
+    advert_int 1
+    nopreempt
+    virtual_ipaddress {
+        10.20.30.100/24
+    }
+}</pre>
+<p>You will need to save that configuration to the Keepalived configuration file – typically, <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">/etc/keepalived/keepalived.conf</strong></span><span class="No-Break">.</span></p>
+<p>The Keepalived configuration file may include one or more VRRP instances. Their names are purely informational and can be arbitrary, so long as they are unique within the <span class="No-Break">configuration file.</span></p>
+<p>The <strong class="source-inline">state</strong> option defines the initial state of the router. It is safe to specify <strong class="source-inline">BACKUP</strong> on all routers because they will elect the active router automatically, even if none of them has the <strong class="source-inline">MASTER</strong> state in <span class="No-Break">its configuration.</span></p>
+<p>VRRP instances are bound to network interfaces and exist in a single broadcast domain only, so we need to specify the network interface from which VRRP advertisements will originate. In that example, it is <span class="No-Break"><strong class="source-inline">interface eth1</strong></span><span class="No-Break">.</span></p>
+<p>The <strong class="bold">Virtual Router ID</strong> (<strong class="bold">VRID</strong>) defines the VRRP instance from the protocol’s point of view. It is a number <a id="_idIndexMarker672"/>from 1 to 255, so there can be up to 254 distinct VRRP instances within the same broadcast network, so long as they use different VRIDs. There is no default value for that option and you cannot omit it. In our case, we used <span class="No-Break"><strong class="source-inline">virtual_router_id 100</strong></span><span class="No-Break">.</span></p>
+<p>The next two parameters are optional. The default VRRP router priority is 100 unless specified otherwise. If you want to specify router priorities manually, you can use numbers from 1 to 254 – priority numbers <strong class="source-inline">0</strong> and <strong class="source-inline">255</strong> are reserved and cannot be used. A higher priority value means that the router is more likely to be elected as an active (<span class="No-Break">master) router.</span></p>
+<p>The advertisement packet transmission interval (<strong class="source-inline">advertise_interval</strong>) defaults to one second and for most <a id="_idIndexMarker673"/>installations, it is a sensible setting. VRRP does not create much traffic, so there are no strong reasons to make the <span class="No-Break">interval longer.</span></p>
+<p>Finally, we specified a single virtual address, <strong class="source-inline">10.20.30.100/24</strong>. It is possible to specify up to 20 virtual addresses, separated by spaces. One thing to note is that all virtual addresses do not have to belong to the same network and do not have to be in the same network as the permanent, non-floating address of the network interface where the VRRP instance is running. It may even be possible to create redundant internet connections by assigning private IPv4 addresses to <a id="_idIndexMarker674"/>the WAN interfaces of two routers and setting up the public IPv4 addresses allocated by the internet service provider as <span class="No-Break">virtual addresses.</span></p>
+<h3>Verifying VRRP’s status</h3>
+<p>When you save the sample configuration to <strong class="source-inline">/etc/keepalived/keepalived.conf</strong> and start the process with <strong class="source-inline">sudo systemctl start keepalived.service</strong> (on Linux distributions with systemd), your server will become the active (master) node and assign the virtual address to <a id="_idIndexMarker675"/>its network interface, until and unless you add a second server with a higher priority to the <span class="No-Break">same network.</span></p>
+<p>The simplest way to verify this is to view IP addresses for the interface that we configured VRRP to <span class="No-Break">run on:</span></p>
+<pre class="source-code">
+$ ip address show eth1
+3: eth1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+  link/ether 08:00:27:33:48:b8 brd ff:ff:ff:ff:ff:ff
+  inet 10.20.30.1/24 brd 10.20.30.255 scope global eth1
+  valid_lft forever preferred_lft forever
+  inet 10.20.30.100/24 scope global secondary eth1
+  valid_lft forever preferred_lft forever
+  inet6 fe80::a00:27ff:fe33:48b8/64 scope link
+  valid_lft forever preferred_lft forever</pre>
+<p>You can also use traffic capture tools such as <strong class="source-inline">tcpdump</strong> to verify that the server is indeed sending VRRP <span class="No-Break">advertisement packets:</span></p>
+<pre class="source-code">
+$ sudo tcpdump -i eth1
+listening on eth1, link-type EN10MB (Ethernet), capture size 262144 bytes
+04:38:54.038630 IP 10.20.30.1 &gt; 224.0.0.18: VRRPv2, Advertisement, vrid 100, prio 100, authtype none, intvl 1s, length 20
+04:38:55.038799 IP 10.20.30.1 &gt; 224.0.0.18: VRRPv2, Advertisement, vrid 100, prio 100, authtype none, intvl 1s, length 20
+04:38:56.039018 IP 10.20.30.1 &gt; 224.0.0.18: VRRPv2, Advertisement, vrid 100, prio 100, authtype none, intvl 1s, length 20</pre>
+<p>However, there is also a way to request VRRP’s status data directly from Keepalived. Unlike some other services, Keepalived (as of its 2.2.7 release) does not include a socket interface or a command-line utility for interacting with it and uses POSIX signals to trigger state file creation. This is less convenient than a dedicated utility <span class="No-Break">would be.</span></p>
+<p>First, you need to look up the identifier (PID) of the Keepalived process. The best way to retrieve it is to read its PID file, most often located <span class="No-Break">at </span><span class="No-Break"><strong class="source-inline">/run/keepalived.pid</strong></span><span class="No-Break">.</span></p>
+<p>Sending the <strong class="source-inline">SIGUSR1</strong> signal to <a id="_idIndexMarker676"/>the process with <strong class="source-inline">kill -USR1 &lt;PID&gt;</strong> will produce a data file at <strong class="source-inline">/tmp/keepalived.data</strong>. This file contains multiple sections, and the section of immediate interest for us to find out the status of our VRRP instance is named <span class="No-Break"><strong class="bold">VRRP Topology</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ cat /run/keepalived/keepalived.pid
+3241
+$ sudo kill -USR1 3241
+$ sudo cat /etc/keepalived.data
+...
+------&lt; VRRP Topology &gt;------
+  VRRP Instance = LoadBalancers
+   VRRP Version = 2
+   State = MASTER
+   Flags: none
+   Wantstate = MASTER
+   Last transition = ...
+   Interface = eth1
+   Using src_ip = 10.20.30.1
+   Multicast address 224.0.0.18
+   ...
+   Virtual Router ID = 100
+   Priority = 100
+   ...
+   Preempt = enabled
+   Promote_secondaries = disabled
+   Authentication type = none
+   Virtual IP (1):
+     10.20.30.100/24 dev eth1 scope global set
+   ...</pre>
+<p>It is also possible<a id="_idIndexMarker677"/> to request a statistics file (<strong class="source-inline">/tmp/keepalived.stats</strong>) by sending the Keepalived process the <strong class="source-inline">SIGUSR2</strong> <span class="No-Break">signal instead:</span></p>
+<pre class="source-code">
+$ sudo kill -USR1 $(cat /run/keepalived.pid)
+$ sudo cat /etc/keepalived.stats
+VRRP Instance: LoadBalancers
+  Advertisements:
+    Received: 0
+    Sent: 112
+  Became master: 1
+  Released master: 0
+  Packet Errors:
+    Length: 0
+    TTL: 0
+    Invalid Type: 0
+    Advertisement Interval: 0
+    Address List: 0
+  Authentication Errors:
+    Invalid Type: 0
+    Type Mismatch: 0
+    Failure: 0
+  Priority Zero:
+    Received: 0
+    Sent: 0</pre>
+<p>While the information <a id="_idIndexMarker678"/>method is somewhat unwieldy at the moment, you can glean a lot of information about your VRRP instances from those <span class="No-Break">data files.</span></p>
+<h2 id="_idParaDest-199"><a id="_idTextAnchor230"/>Configuring virtual servers</h2>
+<p>As we already said, Keepalived can also create and maintain LVS configurations. The advantage over configuring LVS manually is that Keepalived is easy to start at boot time since it always comes <a id="_idIndexMarker679"/>with service management integration (typically, a systemd unit), while LVS is a kernel component that does not have a configuration persistence mechanism. Additionally, Keepalived can perform health checks and reconfigure the LVS subsystem when <span class="No-Break">servers fail.</span></p>
+<p>For demonstration purposes, let’s consider a minimal load-balancing configuration with a Weighted Round Robin balancing algorithm, NAT as the load-balancing method, and two real servers with <span class="No-Break">equal weights:</span></p>
+<pre class="source-code">
+global_defs {
+  lvs_id WEB_SERVERS
+}
+virtual_server 192.168.56.1 80 {
+    ! Weighted Round Robin
+    lb_algo wrr
+    lb_kind NAT
+    protocol TCP
+    ! Where to send requests if all servers fail
+    sorry_server 192.168.56.250 80
+    real_server 192.168.56.101 80 {
+        weight 1
+    }
+    real_server 192.168.56.102 80 {
+       weight 1
+    }
+}</pre>
+<p>Every load-balancing algorithm that we discussed in the <em class="italic">Transport layer load balancing with LVS</em> section can be specified in the <strong class="source-inline">lb_algo</strong> option, so it could be <strong class="source-inline">lb_algo wlc</strong> (Weighted Least Connection), <span class="No-Break">for example.</span></p>
+<p>If you save that configuration to <strong class="source-inline">/etc/keepalived/keepalived.conf</strong> and restart the daemon with <strong class="source-inline">systemctl restart keepalived</strong>, you can verify that it created an <span class="No-Break">LVS configuration:</span></p>
+<pre class="source-code">
+$ sudo systemctl restart keepalived
+$ sudo ipvsadm
+IP Virtual Server version 1.2.1 (size=4096)
+Prot LocalAddress:Port Scheduler Flags
+  -&gt; RemoteAddress:Port           Forward Weight ActiveConn InActConn
+TCP  server:http wrr
+  -&gt; 192.168.56.101:http          Masq    1      0      0
+  -&gt; 192.168.56.102:http          Masq    1      0       0</pre>
+<p>Now that we know <a id="_idIndexMarker680"/>how to make a basic virtual server configuration, let’s learn how to monitor the status of real servers and exclude them if <span class="No-Break">they fail.</span></p>
+<h3>Server health tracking</h3>
+<p>LVS by itself is purely a load-balancing solution and it does not include a server health monitoring component. However, in real-world installations, prompt exclusion of servers that are not functioning <a id="_idIndexMarker681"/>correctly or are under scheduled maintenance is an essential task, since directing user requests to non-functional servers defeats the purpose of a high-availability configuration. Keepalived includes monitoring capabilities so that it can detect and remove servers that fail <span class="No-Break">health checks.</span></p>
+<p>Health checks are configured separately for each real server, although in most real-world installations, they should logically be the same for all servers, and using different health check settings for different servers is usually a <span class="No-Break">bad idea.</span></p>
+<h4>TCP and UDP connection checks</h4>
+<p>The simplest <a id="_idIndexMarker682"/>but the least specific health check type is a simple <a id="_idIndexMarker683"/>connection check. It exists in two variants – <strong class="source-inline">UDP_CHECK</strong> and <strong class="source-inline">TCP_CHECK</strong> for UDP and TCP protocols, respectively. Here is a configuration example for that <span class="No-Break">check type:</span></p>
+<pre class="source-code">
+real_server 192.168.56.101 80 {
+    weight 1
+    TCP_CHECK {
+        connect_timeout 3
+        retry 3
+        delay_before_retry 2
+    }
+}</pre>
+<p>As you can see, there is no need to specify the TCP port for connection checks explicitly: Keepalived will use the port specified in the server address configuration (port <strong class="source-inline">80</strong> in <span class="No-Break">this case).</span></p>
+<p>When you start Keepalived with that configuration, it will activate the health-checking subsystem and begin connection checks. If there is no running web server on <strong class="source-inline">192.168.56.101</strong> listening on port <strong class="source-inline">80</strong>, Keepalived will remove that server from the LVS configuration once its check fails three times (as defined by the <strong class="source-inline">retry</strong> option). You will see the following in the system log (which you can view, for example, with <strong class="source-inline">sudo journalctl -</strong><span class="No-Break"><strong class="source-inline">u keepalived</strong></span><span class="No-Break">):</span></p>
+<pre class="source-code">
+Keepalived_healthcheckers: Activating healthchecker for service [192.168.56.101]:tcp:80 for VS [192.168.56.1]:tcp:80
+Keepalived: Startup complete
+Keepalived_healthcheckers: TCP_CHECK on service [192.168.56.101]:tcp:80 failed.
+Keepalived_healthcheckers: Removing service [192.168.56.101]:tcp:80 from VS [192.168.56.1]:tcp:80</pre>
+<p>The advantage of this simple TCP check is that it works for any TCP-based service, no matter what its application layer protocol is: you can use it for web applications, as well as SMTP servers or any custom protocols. However, the fact that a server responds to TCP connections by itself does not always mean that it is also functioning correctly. For example, a web server may <a id="_idIndexMarker684"/>respond to TCP connections but reply to every request <a id="_idIndexMarker685"/>with a <strong class="bold">500 Internal Server </strong><span class="No-Break"><strong class="bold">Error</strong></span><span class="No-Break"> result.</span></p>
+<p>If you want perfect, fine-grained control over the check logic, Keepalived gives you that option in the form of the <span class="No-Break"><strong class="source-inline">MISC_CHECK</strong></span><span class="No-Break"> method.</span></p>
+<h4>Misc (arbitrary script) check</h4>
+<p>The most universal <a id="_idIndexMarker686"/>check is <strong class="source-inline">MISC_CHECK</strong>, which does not have any built-in checking logic and relies on an external script instead. For example, this is how you can make Keepalived execute the <strong class="source-inline">/tmp/my_check.sh</strong> script and consider the server unavailable if that script returns a non-zero <span class="No-Break">exit code:</span></p>
+<pre class="source-code">
+real_server 192.168.56.101 80 {
+    MISC_CHECK {
+        misc_path "/tmp/my_check.sh"
+        misc_timeout 5
+        user nobody
+    }
+}</pre>
+<p>With this type of health check, you can monitor any kind of server, although the disadvantage is that you have to implement all the checking logic yourself in <span class="No-Break">a script.</span></p>
+<h4>HTTP and HTTPS checks</h4>
+<p>While <strong class="source-inline">MISC_CHECK</strong> gives you total control, it is also overkill in <span class="No-Break">most cases.</span></p>
+<p>As a compromise <a id="_idIndexMarker687"/>between specificity and flexibility, you can also use protocol-specific checks. For <a id="_idIndexMarker688"/>example, there is the <strong class="source-inline">HTTP_GET</strong> check, which makes an HTTP request to a URL and can check the hash sum of the response, or its HTTPS equivalent <span class="No-Break">named </span><span class="No-Break"><strong class="source-inline">SSL_CHECK</strong></span><span class="No-Break">.</span></p>
+<p>For example, suppose you want to serve a simple static page. In that case, you can calculate an MD5 hash sum from that page by hand using the <span class="No-Break"><strong class="source-inline">md5sum</strong></span><span class="No-Break"> command:</span></p>
+<pre class="source-code">
+$ cat index.xhtml
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+  &lt;body&gt;
+    &lt;p&gt;hello world&lt;/p&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+$ md5sum index.xhtml
+fecf605e44acaaab933e7b509dbde185  index.xhtml</pre>
+<p>To calculate the expected hash sum of a dynamically generated page, you can use the <strong class="source-inline">genhash</strong> utility that <a id="_idIndexMarker689"/>comes with Keepalived. If you run it with <strong class="source-inline">--verbose</strong>, it will <a id="_idIndexMarker690"/>show you detailed information about the HTTP request <span class="No-Break">it performs:</span></p>
+<pre class="source-code">
+$ genhash --verbose --server 192.168.56.101 --port 80 --url /index.xhtml
+----------[    HTTP Header Buffer    ]----------
+0000  48 54 54 50 2f 31 2e 30 - 20 32 30 30 20 4f 4b 0d   HTTP/1.0 200 OK.
+...
+----------[ HTTP Header Ascii Buffer ]----------
+HTTP/1.0 200 OK
+...
+----------[        HTML Buffer        ]----------
+0000  3c 21 44 4f 43 54 59 50 - 45 20 68 74 6d 6c 3e 0a   &lt;!DOCTYPE html&gt;.
+...
+---------[    HTML hash resulting    ]---------
+0000  fe cf 60 5e 44 ac aa ab - 93 3e 7b 50 9d bd e1 85   ..`^D....&gt;{P....
+--------[ HTML hash final resulting ]--------
+fecf605e44acaaab933e7b509dbde185
+Global response time for [/index.xhtml] = 2468 usecs</pre>
+<p>However, it only calculates the hash sum of the HTTP response body rather than the complete response with headers, so you do not have to use it – you can retrieve the response body with any other HTTP request utility if <span class="No-Break">you prefer.</span></p>
+<p>Once you have the expected response hash sum, you can configure the <strong class="source-inline">HTTP_GET</strong> check to periodically perform a request and check its response body against the given <span class="No-Break">MD5 sum:</span></p>
+<pre class="source-code">
+real_server 192.168.56.101 80 {
+    weight 1
+    HTTP_GET {
+         url {
+             path /index.xhtml
+             digest fecf605e44acaaab933e7b509dbde185
+        }
+        connect_timeout 3
+        retry 3
+        delay_before_retry 2
+    }
+}</pre>
+<p>Since normal, user-visible <a id="_idIndexMarker691"/>pages can change at any time, it is better to create a special <a id="_idIndexMarker692"/>page whose content stays constant if you want to use the hash sum check. Otherwise, the hash sum will change when its content changes, and the check will <span class="No-Break">start failing.</span></p>
+<h3>Email notifications</h3>
+<p>It is also possible to configure Keepalived to send email notifications to one or more addresses when any status <a id="_idIndexMarker693"/>changes occur – that is, when VRRP transitions from master to backup or the other way around, or when real servers become unavailable and fail checks, or pass checks that were failing earlier and are added back to the LVS configuration in <span class="No-Break">the kernel.</span></p>
+<p>Here is a <span class="No-Break">configuration example:</span></p>
+<pre class="source-code">
+global_defs {
+    notification_email {
+        admin@example.com
+        webmaster@example.com
+    }
+    notification_email_from keepalived@example.com
+    smtp_server 203.0.113.100
+    smtp_connect_timeout 30
+}</pre>
+<p>Unfortunately, there is no support for SMTP authentication, so if you choose to use the built-in email notification <a id="_idIndexMarker694"/>mechanism, you need to configure a server as an open relay and take appropriate measures to ensure that only the servers running Keepalived can send messages through it – for example, by limiting access to it to your private network using <span class="No-Break">firewall rules.</span></p>
+<h1 id="_idParaDest-200"><a id="_idTextAnchor231"/>Application layer load balancing</h1>
+<p>LVS is a flexible framework for load balancing and the fact that it is implemented within the kernel makes it a high-performance <a id="_idIndexMarker695"/>solution since it does not require context switches and data transfer between user-space programs and the kernel. The fact that it works at the TCP or UDP protocol level also makes it application-agnostic and allows you to use it with any <span class="No-Break">application service.</span></p>
+<p>However, its lack of application protocol awareness is also its greatest weakness because it means that it cannot perform any protocol-specific optimizations. For example, one obvious way to improve performance for applications that may return the same reply to multiple users is to cache replies. LVS operates with TCP connections or UDP streams, so it has no way to know what a request or a reply looks like in any application layer protocol – it simply does not inspect TCP or UDP payloads <span class="No-Break">at all.</span></p>
+<p>Additionally, many modern application layer protocols are encrypted, so it is impossible to look inside the payload of a connection that the server does not initiate <span class="No-Break">or terminate.</span></p>
+<p>There are more potential disadvantages to forwarding connections directly from users to real servers. For example, it exposes servers to TCP-based attacks such as SYN flood and requires appropriate security measures on all servers or a dedicated firewall setup at the <span class="No-Break">entry point.</span></p>
+<p>One way to solve these issues is to use a user-space daemon that implements the protocol of the service you are running, terminates TCP connections, and forwards application layer protocol requests to <span class="No-Break">target servers.</span></p>
+<p>Since most applications in the world are currently web applications, most such solutions target HTTP and HTTPS. They provide in-memory response caching to speed up replies, terminate SSL connections, and manage certificates, and can optionally provide security features as well. HAProxy and Varnish are prominent examples of web application load-balancing servers, although there are other solutions for that purpose <span class="No-Break">as well.</span></p>
+<p>There are also solutions for other protocols that include high availability and load balancing. For example, OpenSIPS and FreeSWITCH can provide load balancing for <strong class="bold">Voice over Internet Protocol</strong> (<strong class="bold">VoIP</strong>) calls made using the <a id="_idIndexMarker696"/>SIP protocol. Such solutions are beyond the scope of this book, however. We <a id="_idIndexMarker697"/>will take a quick look at HAProxy as one of the most popular high-availability solutions for <span class="No-Break">web applications.</span></p>
+<h2 id="_idParaDest-201"><a id="_idTextAnchor232"/>Web application load balancing with HAProxy</h2>
+<p>HAProxy configuration is<a id="_idIndexMarker698"/> a large subject since it <a id="_idIndexMarker699"/>includes a lot of functionality. We will examine a simple configuration example to get a sense of <span class="No-Break">its capabilities:</span></p>
+<pre class="source-code">
+frontend main
+    bind *:80
+    acl url_static path_beg -i /static /images /javascript /stylesheets
+    acl url_static path_end -i .jpg .gif .png .css .js
+    use_backend static          if url_static
+    default_backend             app
+backend static
+    balance     roundrobin
+    server static 192.168.56.200:80 check
+backend app
+    balance     roundrobin
+    server  srv1 192.168.56.101:5000 check
+    server  srv2 192.168.56.102:5000 check</pre>
+<p>As you can see, at its core, any HAProxy configuration maps frontends (that is, load-balancing instances) with backends – sets of actual <span class="No-Break">application servers.</span></p>
+<p>In this case, a single frontend is mapped to two backends: a single server specially for serving static files and two application servers. This is only possible for HAProxy because it handles HTTP requests itself, sends new requests to its backends, and prepares a reply to the user, instead of simply <span class="No-Break">balancing connections.</span></p>
+<h1 id="_idParaDest-202"><a id="_idTextAnchor233"/>Summary</h1>
+<p>In this chapter, we learned about the concepts of high availability: redundancy, failover, and load balancing. We also learned how to configure link-layer redundancy by creating bonding interfaces, as well as how to set up redundant routes at the network layer. To ensure transport layer redundancy, we learned how to configure the LVS subsystem by hand with <strong class="source-inline">ipvsadm</strong> or using Keepalived and also learned how to provide failover for load-balancing nodes using VRRP. Finally, we took a brief look at HAProxy as an application layer load-balancing solution for <span class="No-Break">web servers.</span></p>
+<p>In the next chapter, we will learn about managing Linux systems with configuration <span class="No-Break">automation tools.</span></p>
+<h1 id="_idParaDest-203"><a id="_idTextAnchor234"/>Further reading</h1>
+<p>To learn more about the topics that were covered in this chapter, take a look at the <span class="No-Break">following resources:</span></p>
+<ul>
+<li><em class="italic">Policy Routing </em><em class="italic">With</em><em class="italic"> Linux</em>, by Matthew G. <span class="No-Break">Marsh: </span><a href="https://web.archive.org/web/20230322065520/http://www.policyrouting.org/PolicyRoutingBook/ONLINE/TOC.xhtml"><span class="No-Break">https://web.archive.org/web/20230322065520/http://www.policyrouting.org/PolicyRoutingBook/ONLINE/TOC.xhtml</span></a><a href="http://www.policyrouting.org/PolicyRoutingBook/ONLINE/TOC.xhtml%0D"/></li>
+<li>Keepalived <span class="No-Break">documentation: </span><a href="https://keepalived.readthedocs.io/en/latest/%0D"><span class="No-Break">https://keepalived.readthedocs.io/en/latest/</span></a></li>
+<li><span class="No-Break">HAProxy: </span><a href="http://www.haproxy.org/"><span class="No-Break">http://www.haproxy.org/</span></a></li>
+</ul>
+</div>
+</div></body></html>

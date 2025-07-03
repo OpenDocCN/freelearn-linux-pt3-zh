@@ -1,0 +1,619 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer052">
+<h1 class="chapter-number" id="_idParaDest-124"><a id="_idTextAnchor152"/>9</h1>
+<h1 id="_idParaDest-125"><a id="_idTextAnchor153"/>Network Configuration and Debugging</h1>
+<p>All modern systems are networked, so network configuration and troubleshooting are fundamental skills for every systems administrator. In this chapter, we will learn how the Linux network stack works and how to use the tools for working on it—both universal <span class="No-Break">and distribution-specific.</span></p>
+<p>In this chapter, we will cover the <span class="No-Break">following topics:</span></p>
+<ul>
+<li>Linux <span class="No-Break">network stack</span></li>
+<li>Network interfaces and addresses <span class="No-Break">in Linux</span></li>
+<li>Routes and <span class="No-Break">neighbor tables</span></li>
+<li><span class="No-Break">NetworkManager</span></li>
+<li>Distribution-specific <span class="No-Break">configuration methods</span></li>
+<li><span class="No-Break">Network troubleshooting</span></li>
+</ul>
+<h1 id="_idParaDest-126"><a id="_idTextAnchor154"/>Linux network stack</h1>
+<p>To end users who only interact with the network through applications and only configure network access through <a id="_idIndexMarker408"/>a graphical user interface, the network stack of their operating system looks like a single abstraction. However, for administrators, it is important to understand its structure because different parts of the stack are implemented by different software and administered by <span class="No-Break">different tools.</span></p>
+<p>This contrasts Linux distributions with many proprietary operating systems where most network functions are built-in and cannot be replaced individually. In a Linux distribution, performance-critical functionality is implemented by the Linux kernel itself, but many other functions, such as the dynamic <a id="_idIndexMarker409"/>configuration of IP addresses and routes through <strong class="bold">Dynamic Host Configuration Protocol</strong> (<strong class="bold">DHCP</strong>), are done by third-party tools, and there can be multiple <span class="No-Break">competing implementations.</span></p>
+<p>There are also different tools for managing the network functionality of the Linux kernel. The kernel allows userspace processes to retrieve and change its network configuration via <em class="italic">Netlink</em> protocol sockets and, technically, anyone can write a tool for managing IP addresses and routes. In practice, there are two suites of network administration tools: the legacy tools (<strong class="source-inline">ifconfig</strong>, <strong class="source-inline">vconfig</strong>, <strong class="source-inline">route</strong>, <strong class="source-inline">brctl</strong>, and so on), which are only kept for compatibility and do not support many new features of the kernel network stack, and the modern <strong class="source-inline">iproute2</strong> toolkit, which provides access to all kernel functionality via <strong class="source-inline">ip</strong> and <span class="No-Break"><strong class="source-inline">tc</strong></span><span class="No-Break"> utilities.</span></p>
+<p>Sometimes, more than one implementation of the same or similar functionality may exist in the kernel as well. One prominent example is the Netfilter firewall subsystem, which currently includes the older <strong class="source-inline">iptables</strong> framework and the newer <span class="No-Break"><strong class="source-inline">nftables</strong></span><span class="No-Break"> implementation.</span></p>
+<p>Different implementations of userspace tools may also be either legacy implementations that are being gradually replaced with newer alternatives, or there can also be multiple alternative implementations <a id="_idIndexMarker410"/>with different design goals. For example, in 2022, the ISC DHCP server was declared unsupported by its maintainers who went on to work on the newer Kea project. However, Kea is not the only alternative to the ISC DHCP server. Some people may want to switch to other projects instead. For example, small networks can benefit from <strong class="source-inline">dnsmasq</strong>, which combines a DHCP server with DNS forwarding and other functions, which is especially useful for running it on small office routers with limited <span class="No-Break">hardware resources.</span></p>
+<p>Some of the most commonly used Linux network functionality backends and management tools are summarized in the <span class="No-Break">following table:</span></p>
+<table class="T---Table _idGenTablePara-1" id="table001-1">
+<colgroup>
+<col/>
+<col/>
+<col/>
+</colgroup>
+<thead>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Header">
+<p><span class="No-Break"><strong class="bold">Component</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Header">
+<p><span class="No-Break"><strong class="bold">Implementation(s)</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Header">
+<p><span class="No-Break"><strong class="bold">Tools</strong></span></p>
+</td>
+</tr>
+</thead>
+<tbody>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Ethernet</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Linux kernel</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Network card settings <span class="No-Break">tweaking: </span><span class="No-Break"><strong class="source-inline">ethtool</strong></span></p>
+<p>MAC address settings, VLANs: <strong class="source-inline">iproute2</strong> (modern); <span class="No-Break"><strong class="source-inline">vconfig</strong></span><span class="No-Break"> (legacy)</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Wi-Fi (framing <span class="No-Break">and forwarding)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Linux kernel</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="source-inline">iw</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Wi-Fi (authentication and access <span class="No-Break">point functionality)</span></p>
+</td>
+<td class="T---Table T---Body T---Body" colspan="2">
+<p><span class="No-Break"><strong class="source-inline">hostapd</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>IPv4 and <span class="No-Break">IPv6 routing</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Linux kernel</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="source-inline">iproute2</strong></span><span class="No-Break"> (modern)</span></p>
+<p><strong class="source-inline">ifconfig</strong>, <strong class="source-inline">route</strong>, <span class="No-Break">etc. (legacy)</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>Bridging (<span class="No-Break">software switch)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Linux kernel</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="source-inline">iproute2</strong></span><span class="No-Break"> (modern);</span></p>
+<p><span class="No-Break"><strong class="source-inline">brctl</strong></span><span class="No-Break"> (legacy)</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>QoS and <span class="No-Break">traffic shaping</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Linux kernel</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><strong class="source-inline">tc</strong> (part <span class="No-Break">of </span><span class="No-Break"><strong class="source-inline">iproute2</strong></span><span class="No-Break">)</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>IPsec (packet encryption and <span class="No-Break">checksum calculation)</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Linux kernel</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="source-inline">iproute2</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>IPsec (IKE <span class="No-Break">session management)</span></p>
+</td>
+<td class="T---Table T---Body T---Body" colspan="2">
+<p>strongSwan, Openswan, <span class="No-Break">Raccoon (legacy)...</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">DHCP client</span></p>
+</td>
+<td class="T---Table T---Body T---Body" colspan="2">
+<p>ISC <span class="No-Break">DHCP, </span><span class="No-Break"><strong class="source-inline">dhcpcd</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">DHCP server</span></p>
+</td>
+<td class="T---Table T---Body T---Body" colspan="2">
+<p>ISC DHCP, ISC <span class="No-Break">Kea, </span><span class="No-Break"><strong class="source-inline">dnsmasq</strong></span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 9.1 – Linux network stack components</p>
+<p>Finally, there are <a id="_idIndexMarker411"/>high-level management tools such as NetworkManager that tie multiple tools and components under a single user interface. Let’s learn about the kernel parts of the network stack and how to manage them with <strong class="source-inline">iproute2</strong> first. Then, we will see how to simplify and automate that with high-level tools in <span class="No-Break">different distributions.</span><a id="_idTextAnchor155"/></p>
+<h1 id="_idParaDest-127"><a id="_idTextAnchor156"/>Network interfaces and addresses in Linux</h1>
+<p><em class="italic">Network interface</em> is a generic term for physical and virtual network links that can carry addresses. The correspondence <a id="_idIndexMarker412"/>between physical network cards and network interfaces as the kernel sees them is not one-to-one. A network card with four ports is a single PCI device, but every one of its ports is seen as a separate link by <span class="No-Break">the kernel.</span></p>
+<p>There are also virtual links. Some virtual links are tied to physical network ports, but other types are fully independent. For example, MACVLAN links allow administrators to send traffic from certain IP addresses using a different MAC address. Since an Ethernet interface by definition cannot have multiple MAC addresses, Linux solves that problem by creating virtual interfaces on top of a physical Ethernet port and assigning different MAC and IP addresses to it. Multiplexing Ethernet traffic using 802.1Q VLAN or 802.3ad QinQ (nested VLAN) is also done by creating a virtual link that is bound to a specific <span class="No-Break">underlying link.</span></p>
+<p>However, interfaces for tunneling protocols such as IPIP and GRE are not tied to any underlying links. They require <a id="_idIndexMarker413"/>tunnel endpoint addresses, but those addresses can belong to any interface. There are also dummy interfaces that are used either for local process communication or for assigning addresses that must be reachable through any <span class="No-Break">physical interface:</span></p>
+<table class="T---Table _idGenTablePara-1" id="table002">
+<colgroup>
+<col/>
+<col/>
+</colgroup>
+<tbody>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break"><strong class="bold">Link type</strong></span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><strong class="bold">Relationship with </strong><span class="No-Break"><strong class="bold">physical devices</strong></span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Ethernet, Wi-Fi</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Associated with physical cards or ports on <span class="No-Break">those cards</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>802.1Q VLAN, 802.3ad <span class="No-Break">QinQ, MACVLAN</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p>Tied to a single <span class="No-Break">physical link</span></p>
+</td>
+</tr>
+<tr class="T---Table">
+<td class="T---Table T---Body T---Body">
+<p>IPIP, <span class="No-Break">GRE, dummy</span></p>
+</td>
+<td class="T---Table T---Body T---Body">
+<p><span class="No-Break">Purely virtual</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 9.2 – Network link types and their relationships with physical devices</p>
+<p>In the following sections, we will learn how to retrieve information about network interfaces and <span class="No-Break">configure them.</span></p>
+<h2 id="_idParaDest-128"><a id="_idTextAnchor157"/>Discovering physical network devices</h2>
+<p>Discovering all physical network devices in a Linux system can be a challenging task. They can be connected <a id="_idIndexMarker414"/>to different buses, including PCI and USB, and those buses use different device <span class="No-Break">class identifiers.</span></p>
+<p>Consider the following PCI device listing from <span class="No-Break">a laptop:</span></p>
+<pre class="source-code">
+$ lspci
+00:00.0 Host bridge: Intel Corporation 11th Gen Core Processor Host Bridge/DRAM Registers (rev 01)
+00:02.0 VGA compatible controller: Intel Corporation TigerLake-LP GT2 [Iris Xe Graphics] (rev 01)
+00:04.0 Signal processing controller: Intel Corporation TigerLake-LP Dynamic Tuning Processor Participant (rev 01)
+00:06.0 PCI bridge: Intel Corporation 11th Gen Core Processor PCIe Controller (rev 01)
+...
+00:14.3 Network controller: Intel Corporation Wi-Fi 6 AX201 (rev 20)
+...
+02:00.0 Non-Volatile memory controller: Samsung Electronics Co Ltd NVMe SSD Controller 980
+03:00.0 Ethernet controller: Realtek Semiconductor Co., Ltd. RTL8111/8168/8411 PCI Express Gigabit Ethernet Controller (rev 15)</pre>
+<p>Network devices are easy to identify visually here. There is a Wi-Fi controller (00:14.3) and an Ethernet card (03:00.0). Automatically filtering out everything but network devices from that listing is a <a id="_idIndexMarker415"/>bit trickier. We can use the fact that the PCI class for network devices is <strong class="source-inline">02xx</strong>, and there is a way to include device class numbers in the output with <span class="No-Break"><strong class="source-inline">lspci -nn</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ lspci -nn | grep -E '\[02[0-9]+\]'
+00:14.3 Network controller [0280]: Intel Corporation Wi-Fi 6 AX201 [8086:a0f0] (rev 20)
+03:00.0 Ethernet controller [0200]: Realtek Semiconductor Co., Ltd. RTL8111/8168/8411 PCI Express Gigabit Ethernet Controller [10ec:8168] (rev 15)</pre>
+<p>Given that, to see all network devices you will need to look in both PCI and USB device listings, it is better to use high-level third-party tools such as <strong class="source-inline">lshw</strong>. With the <strong class="source-inline">lshw -class</strong> command you can view all available network devices in one step: both wired and wireless, connected to any buses. It also shows a lot of additional information <span class="No-Break">about devices:</span></p>
+<pre class="source-code">
+$ sudo lshw -class network
+  *-network
+       description: Wireless interface
+       product: Wi-Fi 6 AX201
+       vendor: Intel Corporation
+       physical id: 14.3
+       bus info: pci@0000:00:14.3
+       logical name: wlp0s20f3
+       version: 20
+       serial: 12:15:81:65:d2:2e
+       width: 64 bits
+       clock: 33MHz
+       capabilities: pm msi pciexpress msix bus_master cap_list ethernet physical wireless
+       configuration: broadcast=yes driver=iwlwifi driverversion=5.19.16-200.fc36.x86_64 firmware=71.058653f6.0 QuZ-a0-jf-b0-71.u latency=0 link=no multicast=yes wireless=IEEE 802.11
+       resources: iomemory:600-5ff irq:16 memory:6013038000-601303bfff
+  *-network
+       description: Ethernet interface
+       product: RTL8111/8168/8411 PCI Express Gigabit Ethernet Controller
+       vendor: Realtek Semiconductor Co., Ltd.
+       physical id: 0
+       bus info: pci@0000:03:00.0
+       logical name: enp3s0
+       version: 15
+       serial: 60:18:95:39:ca:d0
+       capacity: 1Gbit/s
+       width: 64 bits
+       clock: 33MHz
+       capabilities: pm msi pciexpress msix bus_master cap_list ethernet physical tp mii 10bt 10bt-fd 100bt 100bt-fd 1000bt-fd autonegotiation
+       configuration: autonegotiation=on broadcast=yes driver=r8169 driverversion=5.19.16-200.fc36.x86_64 firmware=rtl8168h-2_0.0.2 02/26/15 latency=0 link=no multicast=yes port=twisted pair
+       resources: irq:16 ioport:3000(size=256) memory:72004000-72004fff memory:72000000-72003fff</pre>
+<p>As you can see, the <strong class="source-inline">lshw</strong> output also includes logical interface names rather than just bus addresses. Every <a id="_idIndexMarker416"/>network interface in Linux has a unique name, but their names are not completely determined by their hardware type and bus port. Let us examine the issue of interface naming in <span class="No-Break">more detail.</span></p>
+<h2 id="_idParaDest-129"><a id="_idTextAnchor158"/>Network interface names</h2>
+<p>The Linux <a id="_idIndexMarker417"/>kernel does not ascribe any special significance to network interface names. In some operating systems, interface names are completely determined by the kernel so that the first Ethernet device might always be named Ethernet0, and there is no way for an administrator to change that. In Linux, that is not the case, and names can be arbitrary. In fact, most distributions include a userspace helper for renaming network interfaces at boot time according to a default policy or custom configuration. Formerly, the most common helper was <strong class="source-inline">udev</strong>. Now, it is <span class="No-Break">usually </span><span class="No-Break"><strong class="source-inline">systemd-udevd</strong></span><span class="No-Break">.</span></p>
+<p>Historically, Ethernet devices were named <strong class="source-inline">ethX</strong> by default, as per the kernel’s built-in naming scheme. By <a id="_idIndexMarker418"/>the 2020s, most distributions switched to systemd for service management and adopted its <strong class="bold">predictable network interface names</strong> scheme as their <span class="No-Break">default option.</span></p>
+<p>The issue with the original naming scheme is that the kernel’s device probing is not deterministic, so in some situations, especially when new network cards were added or old cards were removed, old names could be assigned to different physical devices (for example, a card formerly named <strong class="source-inline">eth2</strong> would become <strong class="source-inline">eth1</strong>). On the other hand, if a machine had a single network interface, it was guaranteed to be <span class="No-Break">named </span><span class="No-Break"><strong class="source-inline">eth0</strong></span><span class="No-Break">.</span></p>
+<p>The naming <a id="_idIndexMarker419"/>scheme of systemd is predictable in the sense that network interface names are guaranteed to stay the same across reboot and hardware changes. The price for that is that users and scriptwriters cannot make any assumptions about names. Even if a machine only has a single network card, it can be named, for example, <strong class="source-inline">eno1</strong> (Ethernet network, onboard, number 1) or <strong class="source-inline">enp3s0</strong> (Ethernet network, PCI, <span class="No-Break">slot 3:0).</span></p>
+<p>It is possible to switch to the original naming scheme, either by adding <strong class="source-inline">net.ifnames=0</strong> to the kernel command line in the GRUB configuration, or by executing the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+$ sudo ln -s /dev/null /etc/systemd/network/99-default.link</pre>
+<p>It is also possible to permanently assign custom names to certain network interfaces by creating systemd <span class="No-Break">link files.</span></p>
+<h2 id="_idParaDest-130"><a id="_idTextAnchor159"/>Using the ip command</h2>
+<p>In modern Linux distributions, all network discovery and setup are done either with utilities from the <strong class="source-inline">iproute2</strong> package or with high-level tools such as NetworkManager. We will omit the legacy tools such as <strong class="source-inline">ifconfig</strong> and focus on the <strong class="source-inline">ip</strong> utility <span class="No-Break">from </span><span class="No-Break"><strong class="source-inline">iproute2</strong></span><span class="No-Break">.</span></p>
+<p>Even though <a id="_idIndexMarker420"/>that utility is named <strong class="source-inline">ip</strong>, its functionality is much broader, and it provides an interface to all features of the kernel network stack that are related to network interfaces, addresses, <span class="No-Break">and routing.</span></p>
+<p>One thing to note is that in some distributions such as Fedora, that utility may be installed in <strong class="source-inline">/sbin</strong> or <strong class="source-inline">/usr/sbin—d</strong>irectories meant for administrative tools and often absent from the <strong class="source-inline">$PATH</strong> environment variable in shell configurations for unprivileged users. Thus, attempts to execute it from an unprivileged shell will result in a command not found error even though <strong class="source-inline">iproute2</strong> is installed. In that case, you may want to either add <strong class="source-inline">/sbin</strong> to your <strong class="source-inline">$PATH</strong> or always run <strong class="source-inline">sudo ip</strong> instead. Commands that change network settings indeed require administrative privileges but commands for viewing them usually <span class="No-Break">do not.</span></p>
+<p>Note that <a id="_idIndexMarker421"/>changes you make with <strong class="source-inline">ip</strong> only remain active until the next reboot and permanent changes must be made in distribution-specific configuration files instead or added to a script executed at boot time. If you are experimenting on a desktop or a laptop computer with NetworkManager running, then it may also override your changes on, for example, <span class="No-Break">Wi-Fi reconnects.</span></p>
+<h2 id="_idParaDest-131"><a id="_idTextAnchor160"/>Discovering and inspecting logical links</h2>
+<p>To view <a id="_idIndexMarker422"/>all network interfaces, both <a id="_idIndexMarker423"/>physical and virtual, you can run <strong class="source-inline">ip link list</strong> or simply <strong class="source-inline">ip link</strong>. Note that <strong class="source-inline">ip</strong> allows abbreviating subcommands and options, so you can also write <strong class="source-inline">ip li li</strong>, but we will use full forms throughout the chapter for <span class="No-Break">better readability:</span></p>
+<pre class="source-code">
+$ ip link list
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: ens192: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 00:50:56:91:a2:b6 brd ff:ff:ff:ff:ff:ff</pre>
+<p>In this output from a VM, we see the loopback device (<strong class="source-inline">lo</strong>) and a single Ethernet card named according to the systemd predictable network interface naming <span class="No-Break">convention (</span><span class="No-Break"><strong class="source-inline">ens192</strong></span><span class="No-Break">).</span></p>
+<p>The loopback device is present in every Linux system. Its role is to enable communication between local processes over IP and it carries addresses designated for that use: <strong class="source-inline">127.0.0.1/8</strong> for IPv4 and <strong class="source-inline">::1/128</strong> <span class="No-Break">for IPv6.</span></p>
+<p>The output for the <strong class="source-inline">ens192</strong> Ethernet device has more data. In the <strong class="source-inline">link/ether</strong> field, you can see its MAC <span class="No-Break">address (</span><span class="No-Break"><strong class="source-inline">00:50:56:91:a2:b6</strong></span><span class="No-Break">).</span></p>
+<p>You may also notice seemingly redundant <strong class="source-inline">&lt;...UP,LOWER_UP&gt;</strong> and <strong class="source-inline">state UP</strong> bits in the output. They refer to different facts about that network interface: <strong class="source-inline">UP</strong> inside the angle brackets tells us that the link is not intentionally disabled by the administrator, while <strong class="source-inline">state UP</strong> refers to the actual state (whether it is connected to any other network device or not—with a physical cable or a virtual link, in the case <span class="No-Break">of VMs).</span></p>
+<p>To illustrate the distinction, let us examine a physical network on another machine that is not connected to anything. To view information about a single link, you can use <strong class="source-inline">ip link </strong><span class="No-Break"><strong class="source-inline">show &lt;name&gt;</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ /sbin/ip link show enp3s0
+2: enp3s0: &lt;NO-CARRIER,BROADCAST,MULTICAST,UP&gt; mtu 1500 qdisc fq_codel state DOWN mode DEFAULT group default qlen 1000
+    link/ether 60:18:95:39:ca:d0 brd ff:ff:ff:ff:ff:ff</pre>
+<p>As you can see, in the angle brackets its state is <strong class="source-inline">UP</strong>, but <strong class="source-inline">state DOWN</strong> tells us that it is not active, and <strong class="source-inline">NO-CARRIER</strong> explains why—it is disconnected (an Ethernet link can also be down despite being <a id="_idIndexMarker424"/>connected to something, for example, due to a settings mismatch with the <span class="No-Break">other side).</span></p>
+<p>Now let’s <a id="_idIndexMarker425"/>disable a link to see what an intentionally disabled link looks like. You can do it with <strong class="source-inline">sudo ip link set dev &lt;</strong><span class="No-Break"><strong class="source-inline">name&gt; down</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ ip link show eth2
+6: eth2: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000
+    link/ether 00:50:56:9b:18:ed brd ff:ff:ff:ff:ff:ff
+$ sudo ip link set dev eth2 down
+$ ip link show eth2
+6: eth2: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc pfifo_fast state DOWN mode DEFAULT group default qlen 1000
+    link/ether 00:50:56:9b:18:ed brd ff:ff:ff:ff:ff:ff</pre>
+<p>You can see that when the link was taken down, the <strong class="source-inline">UP</strong> token disappeared from the part inside the angle brackets, and also its <strong class="source-inline">state</strong> field changed <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">DOWN</strong></span><span class="No-Break">.</span></p>
+<h2 id="_idParaDest-132"><a id="_idTextAnchor161"/>Viewing and changing Ethernet link MAC addresses</h2>
+<p>Every <a id="_idIndexMarker426"/>Ethernet and <a id="_idIndexMarker427"/>Wi-Fi card has a globally unique, burnt-in MAC address. To make sure that no two network devices will ever conflict if they are connected to the same network, manufacturers request blocks of MAC addresses and keep track of every MAC address they assign to their hardware products so that no address is ever <span class="No-Break">assigned twice.</span></p>
+<p>However, end users may have reasons to assign their own MAC address to a network interface. For example, many internet service providers register the first MAC address of the subscriber’s router port <a id="_idIndexMarker428"/>and then require all future connection attempts to use the same address. If the user replaces or upgrades <a id="_idIndexMarker429"/>the router (or a network card in it), it is often easier to just assign the original port’s MAC address than ask the ISP support to update their records. You can change the MAC address (until the next reboot) with <strong class="source-inline">ip link set dev &lt;name&gt; </strong><span class="No-Break"><strong class="source-inline">address &lt;MAC&gt;</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ ip link show enp3s0
+2: enp3s0: &lt;NO-CARRIER,BROADCAST,MULTICAST,UP&gt; mtu 1500 qdisc fq_codel state DOWN mode DEFAULT group default qlen 1000
+    link/ether 60:18:95:39:ca:d0 brd ff:ff:ff:ff:ff:ff
+$ sudo ip link set dev enp3s0 address de:ad:be:ef:ca:fe
+$ /sbin/ip link show enp3s0
+2: enp3s0: &lt;NO-CARRIER,BROADCAST,MULTICAST,UP&gt; mtu 1500 qdisc fq_codel state DOWN mode DEFAULT group default qlen 1000
+    link/ether de:ad:be:ef:ca:fe brd ff:ff:ff:ff:ff:ff permaddr 60:18:95:39:ca:d0</pre>
+<p>Note that <strong class="source-inline">ip link show</strong> displays the new, manually assigned MAC address <span class="No-Break">now (</span><span class="No-Break"><strong class="source-inline">de:ad:be:ef:ca:fe</strong></span><span class="No-Break">).</span></p>
+<p>While <strong class="source-inline">ip</strong> only shows the MAC address that the kernel uses for sending Ethernet frames, it’s possible to retrieve the default, burnt-in address with <strong class="source-inline">ethtool</strong> instead. You can use either <strong class="source-inline">ethtool --show-permaddr</strong> or its short version, <strong class="source-inline">ethtool -P</strong>, <span class="No-Break">as follows:</span></p>
+<pre class="source-code">
+$ ethtool --show-permaddr enp3s0
+Permanent address: 60:18:95:39:ca:d0
+$ ethtool -P enp3s0
+Permanent address: 60:18:95:39:ca:d0</pre>
+<p>It is useful to know how to change MAC addresses even though it is not a very common task. Next, we will learn how to manage <span class="No-Break">IP addresses.</span></p>
+<h2 id="_idParaDest-133"><a id="_idTextAnchor162"/>Viewing and changing IP addresses</h2>
+<p>Commands <a id="_idIndexMarker430"/>for viewing and changing <a id="_idIndexMarker431"/>IP addresses are similar to those for links and MAC addresses but use the <strong class="source-inline">address</strong> command family instead of <strong class="source-inline">link</strong>. To view addresses on all links, you can run <strong class="source-inline">ip address show</strong>, just <strong class="source-inline">ip address</strong>, or an abbreviated <span class="No-Break">version—i</span><span class="No-Break"><strong class="source-inline">p a</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ ip address show
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: ens192: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP group default qlen 1000
+    link/ether 00:50:56:91:a2:b6 brd ff:ff:ff:ff:ff:ff
+    inet 10.217.40.163/24 brd 10.217.40.255 scope global dynamic ens192
+       valid_lft 58189sec preferred_lft 58189sec
+    inet6 fe80::250:56ff:fe91:a2b6/64 scope link 
+       valid_lft forever preferred_lft forever</pre>
+<p>You can also limit the output to just one interface, such as in <strong class="source-inline">ip address </strong><span class="No-Break"><strong class="source-inline">show lo</strong></span><span class="No-Break">.</span></p>
+<p>The output of <strong class="source-inline">ip address show</strong> includes MAC addresses for Ethernet and other data link layer interfaces, so often, you can use that command instead of <strong class="source-inline">ip link list</strong>, unless you specifically want to exclude IP addresses from <span class="No-Break">the output.</span></p>
+<p>It is possible to show only IPv4 or only IPv6 addresses with the <strong class="source-inline">-4</strong> and <strong class="source-inline">-6</strong> options. We can demonstrate it on the loopback interface (<strong class="source-inline">lo</strong>) since it is guaranteed to have both IPv4 and IPv6 addresses (unless IPv6 is <span class="No-Break">disabled explicitly):</span></p>
+<pre class="source-code">
+$ ip -4 address show lo
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+$ ip -6 address show lo
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 state UNKNOWN qlen 1000
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever</pre>
+<p>Now let’s see how to add and remove addresses. For safe experiments that knowingly will not affect any network interface used for real traffic, we will create a dummy interface. Dummy interfaces are conceptually similar to the loopback interface. However, there can be multiple dummy interfaces in the same system, while there can only be one loopback (this situation is unique to Linux; many other operating systems allow multiple loopback interfaces instead of using a different <span class="No-Break">interface type):</span></p>
+<pre class="source-code">
+$ sudo ip link add name dummy1 type dummy
+$ sudo ip link set dev dummy1 up
+$ ip link list type dummy
+16: dummy1: &lt;BROADCAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/ether 9a:9c:10:42:a6:ea brd ff:ff:ff:ff:ff:ff</pre>
+<p>All virtual interfaces are created in the <strong class="source-inline">DOWN</strong> state in Linux, so we brought the <strong class="source-inline">dummy1</strong> link up by hand. Now it is ready for experiments <span class="No-Break">with addresses.</span></p>
+<p>You can <a id="_idIndexMarker432"/>assign an address with <strong class="source-inline">ip address add &lt;addr&gt; dev &lt;name&gt;</strong>. Just as with MAC addresses, such changes will not <a id="_idIndexMarker433"/>survive reboots, so this method is only good for experiments and troubleshooting sessions. We will use addresses from <strong class="source-inline">192.0.2.0/24—a</strong> network reserved for examples <span class="No-Break">and documentation:</span></p>
+<pre class="source-code">
+$ sudo ip address add 192.0.2.1/24 dev dummy1
+$ ip address show dev dummy1
+16: dummy1: &lt;BROADCAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/ether 9a:9c:10:42:a6:ea brd ff:ff:ff:ff:ff:ff
+    inet 192.0.2.1/24 scope global dummy1
+       valid_lft forever preferred_lft forever
+    inet6 fe80::989c:10ff:fe42:a6ea/64 scope link 
+       valid_lft forever preferred_lft forever</pre>
+<p>Note that executing <strong class="source-inline">ip address add</strong> for the second time with a different address will not replace the old address but rather add a second address. There is no limit on the number of addresses on a single network interface in Linux; you can assign as many as you want. If you want to replace an address, you can add the new one first and then remove the old one. Let’s see how we can replace <strong class="source-inline">192.0.2.1</strong> <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">192.0.2.2</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ sudo ip address add 192.0.2.2/24 dev dummy1
+$ sudo ip address show dummy1
+16: dummy1: &lt;BROADCAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/ether 9a:9c:10:42:a6:ea brd ff:ff:ff:ff:ff:ff
+    inet 192.0.2.1/24 scope global dummy1
+       valid_lft forever preferred_lft forever
+    inet 192.0.2.2/24 scope global secondary dummy1
+       valid_lft forever preferred_lft forever
+$ sudo ip address delete 192.0.2.1/24 dev dummy1
+$ sudo ip address show dummy1
+16: dummy1: &lt;BROADCAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/ether 9a:9c:10:42:a6:ea brd ff:ff:ff:ff:ff:ff
+    inet 192.0.2.2/24 scope global dummy1
+       valid_lft forever preferred_lft forever</pre>
+<p>It is also possible to remove all addresses from a network interface at once using <strong class="source-inline">sudo ip address flush </strong><span class="No-Break"><strong class="source-inline">dev &lt;name&gt;</strong></span><span class="No-Break">.</span></p>
+<p>Most of <a id="_idIndexMarker434"/>the time, you will configure <a id="_idIndexMarker435"/>IP addresses using high-level configuration tools that we will discuss later in this chapter. However, knowing those commands can help you verify address configuration and change network interface addresses temporarily during troubleshooting sessions or emergency <span class="No-Break">c<a id="_idTextAnchor163"/>onfiguration changes.</span></p>
+<h1 id="_idParaDest-134"><a id="_idTextAnchor164"/>Routes and neighbor tables</h1>
+<p>To be able to communicate with other hosts over the network, it’s not enough for a host to have an address. It also <a id="_idIndexMarker436"/>needs to know how to reach other hosts. Modern networks use layered <a id="_idIndexMarker437"/>protocol stacks, and the Linux kernel is responsible for the <strong class="bold">Data Link</strong> and <strong class="bold">Network</strong> layers <a id="_idIndexMarker438"/>according to the <span class="No-Break">OSI model.</span></p>
+<p>At the data <a id="_idIndexMarker439"/>link layer, there are protocols such as Ethernet and Wi-Fi — both are multiple-access broadcast networks and require dynamic discovery of neighbors in the same network segment. At the data link layer, hosts are identified by their MAC addresses. Direct communication at the data link layer is only possible within the same segment. If a network layer protocol packet encapsulated in a data link layer protocol frame must travel further, it’s extracted from the original frame and encapsulated in a <span class="No-Break">new one.</span></p>
+<p>Above the data link layer are network layer protocols—IPv4 and IPv6. IP packets can be sent either to hosts in the same data link layer segment or routed to other networks and may traverse many data link layer connections on their way to <span class="No-Break">their destination.</span></p>
+<p>However, to be able to send an IP packet to another host or a router, the kernel needs to build an association between the IP addresses of those machines and their MAC addresses and maintain tables of <span class="No-Break">such associations.</span></p>
+<h2 id="_idParaDest-135"><a id="_idTextAnchor165"/>ARP and NDP neighbor tables</h2>
+<p>IPv4 and IPv6 <a id="_idIndexMarker440"/>protocols share many similarities but use different <a id="_idIndexMarker441"/>neighbor discovery mechanisms. The older IPv4 protocol uses <strong class="bold">Address Resolution Protocol</strong> (<strong class="bold">ARP</strong>) to determine the MAC addresses of hosts with given IP <a id="_idIndexMarker442"/>addresses. ARP was not designed to be extensible, and the switch from 32-bit addresses in IPv4 to 128-bit ones in IPv6 required the development <a id="_idIndexMarker443"/>of a new protocol, so its designers used it as a chance to revise many <a id="_idIndexMarker444"/>old assumptions and add many new features. The result was named <strong class="bold">Neighbor Discovery Protocol</strong> (<strong class="bold">NDP</strong>), and, unlike ARP, it allows hosts to <a id="_idIndexMarker445"/>discover routers and dynamically configure public addresses, and detect <span class="No-Break">address conflicts.</span></p>
+<p>To view the ARP table, you can run <strong class="source-inline">ip -4 neighbor show</strong>. You can also shorten it to just <strong class="source-inline">ip -4 neighbor</strong> or <strong class="source-inline">ip -4 neigh</strong>. Note that those commands also support the British spelling (<strong class="source-inline">neighbour</strong>) if you prefer to use it. If you omit <strong class="source-inline">-4</strong> or <strong class="source-inline">-6</strong>, that command will show entries for both protocols, so if your system does not have IPv6 configured or if you do not want to filter, you can <span class="No-Break">omit </span><span class="No-Break"><strong class="source-inline">-4</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ ip -4 neighbor show
+10.217.32.199 dev eth1 lladdr 00:0c:29:62:27:03 REACHABLE
+10.217.32.132 dev eth1  FAILED
+10.217.32.111 dev eth1  FAILED
+10.217.32.102 dev eth1 lladdr 00:50:56:85:d9:72 DELAY
+10.217.32.201 dev eth1 lladdr 00:50:56:9b:dd:47 STALE
+10.217.32.99 dev eth1 lladdr 00:0c:29:5f:92:1d REACHABLE
+10.217.32.202 dev eth1 lladdr 00:50:56:9b:bc:28 STALE
+10.217.32.117 dev eth1 lladdr 00:50:56:9b:7e:e3 REACHABLE</pre>
+<p>It is also possible to filter the output and only show entries for one network interface, for example, with <strong class="source-inline">ip -4 neighbor show </strong><span class="No-Break"><strong class="source-inline">dev eth1</strong></span><span class="No-Break">.</span></p>
+<p>The field for MAC <a id="_idIndexMarker446"/>addresses is called the <strong class="bold">Link-Layer Address</strong> (<strong class="bold">lladdr</strong>). The reason is that the neighbor table output format is the same for multiple data link layer protocols that may not name their link-layer addresses MAC addresses. There are also situations when the link-layer address for an IPv4 host is itself an IPv4 address—that’s how multipoint GRE tunnels work, for example (it’s part of the dynamic multipoint VPN technology that also includes IPsec for encryption and the next-hop resolution protocol for <span class="No-Break">neighbor discovery).</span></p>
+<p>Every association is a triple rather than a pair: MAC address, IPv4 address, and network interface. Every Ethernet interface belongs to its own data link layer segment, so to send an IP packet correctly, the system needs to know which network card to send it from. MAC addresses must only be unique within the <span class="No-Break">same segment.</span></p>
+<p>It is possible to only show entries with a specific state. For example, this is how to view only address associations that have been recently discovered <span class="No-Break">or confirmed:</span></p>
+<pre class="source-code">
+ip neighbor show dev &lt;name&gt; nud reachable</pre>
+<p>Stale entries <a id="_idIndexMarker447"/>eventually disappear from the table. When an IP address <a id="_idIndexMarker448"/>is moved to a machine with a different MAC address, the kernel <a id="_idIndexMarker449"/>will also eventually discover it. But if waiting is not an option <a id="_idIndexMarker450"/>and an IP address must be moved with minimum downtime, you can manually remove an entry and force a new ARP request as soon as traffic to that IP address is seen. The command to remove an entry for a specific IP address is <span class="No-Break">as follows:</span></p>
+<pre class="source-code">
+sudo ip neighbor del dev &lt;name&gt; &lt;IP address&gt;</pre>
+<p>There is also a command that removes all entries for a specific <span class="No-Break">network interface:</span></p>
+<pre class="source-code">
+ip neighbor flush dev &lt;name&gt;</pre>
+<p>Even though the inner workings of the ARP and NDP protocols are different, all commands we discussed are applicable to both IPv4 and IPv6 <span class="No-Break">neighbor tables.</span></p>
+<h2 id="_idParaDest-136"><a id="_idTextAnchor166"/>Routes and route tables</h2>
+<p>IPv4 and IPv6 are routed protocols, which allows them to be used in large-scale networks that consist of multiple independent segments, such as the internet. An Ethernet network segment is flat and there are <a id="_idIndexMarker451"/>no mechanisms for grouping MAC addresses: if there are a hundred hosts in a network, the switch must maintain a MAC address table of hundred entries, and every host needs to keep the MAC address of every host it needs to communicate with in its table. That approach puts obvious limits on the maximum network size. It also makes it impossible to have multiple paths to the same part of the network, since all hosts in a data link layer segment must <span class="No-Break">communicate directly.</span></p>
+<p>By contrast, IP networks are broken into subnets that are connected to one another through routers—devices dedicated to forwarding packets between hosts (many routers, both home/small office and enterprise/service provider ones, are running Linux these days). The most important property of the IP addressing architecture is that subnets can be aggregated. For example, if a network internally consists of two consecutive subnets that contain 32 hosts each, say <strong class="source-inline">192.0.2.0/27</strong> and <strong class="source-inline">192.0.2.32/27</strong>, then other networks can refer to it as a single network of <span class="No-Break">64 hosts—1</span><span class="No-Break"><strong class="source-inline">92.0.2.0/26</strong></span><span class="No-Break">.</span></p>
+<p>Hosts and routers <a id="_idIndexMarker452"/>that are only connected to a single upstream router (typically, an internet service provider) thus can store only one route to the entire IP range: <strong class="source-inline">0.0.0.0/0</strong> for IPv4 or <strong class="source-inline">::/0</strong> for IPv6. Such a <a id="_idIndexMarker453"/>route is called a <span class="No-Break"><strong class="bold">default route</strong></span><span class="No-Break">.</span></p>
+<h3>Viewing routing tables and routes</h3>
+<p>Let us inspect the routing table of a Linux host connected to a single router. You can view IPv4 routes with <strong class="source-inline">ip route show</strong>, or just <strong class="source-inline">ip route</strong>. Unlike <strong class="source-inline">ip neigh</strong>, which displays both IPv4 and IPv6 neighbors <a id="_idIndexMarker454"/>unless filtered with <strong class="source-inline">-4</strong> or <strong class="source-inline">-6</strong>, this command defaults to IPv4 and requires the <strong class="source-inline">-6</strong> option to show IPv6 <span class="No-Break">routes instead:</span></p>
+<pre class="source-code">
+$ ip route show
+default via 172.20.10.1 dev eth0 proto dhcp src 172.20.10.2 metric 100
+172.20.10.0/28 dev eth0 proto kernel scope link src 172.20.10.2 metric 100</pre>
+<p>The first entry is the default route—a route to the <strong class="source-inline">0.0.0.0/0</strong> network that covers every possible IPv4 address. The gateway is <strong class="source-inline">172.20.10.1</strong>. The outgoing interface is <strong class="source-inline">eth0</strong>. From <strong class="source-inline">proto dhcp</strong>, we can infer that it was received from a DHCP server. The protocol field is purely informational, and the kernel does not use it for route selection. Internally, it is a number from <strong class="source-inline">0</strong> to <strong class="source-inline">255</strong>, and some of those numbers are mapped to protocol names in the <strong class="source-inline">/etc/iproute2/rt_protos</strong> <span class="No-Break">configuration file.</span></p>
+<p>The second route to the <strong class="source-inline">172.20.10.0/28</strong> network is a connected route that simply tells the system that it can communicate with hosts from a certain subnet directly by sending packets from a certain network interface. Notice that it lacks a gateway and only has an interface field (<strong class="source-inline">dev</strong>). If we examine the IPv4 addresses on that machine, we will see that its address <span class="No-Break">is </span><span class="No-Break"><strong class="source-inline">172.20.10.2/28</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ ip address show eth0
+17: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    link/ether 4e:79:75:4e:61:9a brd ff:ff:ff:ff:ff:ff
+    altname enp0s20f0u3u3c4i2
+    inet 172.20.10.2/28 brd 172.20.10.15 scope global dynamic noprefixroute eth0
+       valid_lft 65207sec preferred_lft 65207sec
+    inet6 fe80::a487:4fbe:9961:ced2/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever</pre>
+<p>Whenever an IP address is added to a network interface, the kernel calculates its subnet address and adds a route to that subnet. Since the <strong class="source-inline">172.20.10.0/28</strong> subnet is smaller than <strong class="source-inline">0.0.0.0/0</strong>, that route will be used for communication with hosts from that subnet rather than the default route. This is known as <strong class="bold">the longest </strong><span class="No-Break"><strong class="bold">match rule</strong></span><span class="No-Break">.</span></p>
+<p>The kernel protocol <a id="_idIndexMarker455"/>number is reserved for marking such auxiliary routes that are created without a direct request from an administrator. It is possible to view routes only for a specific protocol by running the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+$ ip route show proto kernel 
+172.20.10.0/28 dev eth0 scope link src 172.20.10.2 metric 100</pre>
+<p>The kernel can also tell you which route it would use for accessing a certain host or network. For example, if you want to know how it would reach a host with a <strong class="source-inline">192.0.2.1</strong> address, run the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+$ ip route get 192.0.2.1
+192.0.2.1 via 172.20.10.1 dev eth0 src 172.20.10.2 uid 1000 cache</pre>
+<p>Since this machine only has a single default route, the answer for every host is its default gateway — <strong class="source-inline">172.20.10.1</strong>. However, on routers with multiple connections to multiple networks, the <strong class="source-inline">ip route get</strong> command can <span class="No-Break">be helpful.</span></p>
+<h3>Configuring routes</h3>
+<p>Many host systems just get their default route from DHCP, but routing functionality in the Linux kernel is much <span class="No-Break">more advanced.</span></p>
+<p>One problem with <a id="_idIndexMarker456"/>configuring routes through the <strong class="source-inline">ip</strong> utility is that, as with everything configured that way, such routes only survive until the next reboot, in perfect conditions. The other problem is that if a network interface goes down (due to a disconnected cable in the case of physical network cards or protocol reset in the case of virtual links), all routes associated with that interface are permanently deleted and need to be restored by a userspace program. On enterprise and service provider routers, the userspace program is usually a routing protocol stack service such as Free Range Routing or BIRD. Those routing stack services implement dynamic routing protocols but also help manage static routes and keep them active across network interface state changes. On host systems, it can be NetworkManager or another network configuration frontend. However, it is still good to know how to create routes by hand when you need to experiment or make an emergency fix on a <span class="No-Break">running machine.</span></p>
+<p>To create a static route with a specific gateway address, you can use <span class="No-Break">this command:</span></p>
+<pre class="source-code">
+ip route add &lt;network&gt; via &lt;gateway&gt;</pre>
+<p>Let us demonstrate it on a dummy interface. First, we will create a dummy interface and assign the <strong class="source-inline">192.0.2.1/24</strong> address to it to force the kernel to create a connected route to <strong class="source-inline">192.0.2.0/24</strong> and give us space for imaginary gateways. We will use <strong class="source-inline">203.0.113.0/24</strong> for our experiments—it is another network reserved for examples and documentation that is guaranteed not to appear on the public internet, so we can be sure that we do not disturb any <span class="No-Break">real traffic:</span></p>
+<pre class="source-code">
+$ sudo ip link add name dummy1 type dummy
+$ sudo ip link set dev dummy1 up
+$ sudo ip address add 192.0.2.1/24 dev dummy1</pre>
+<p>Now we can <a id="_idIndexMarker457"/>add a route, verify that it exists, and try to take <strong class="source-inline">dummy1</strong> down to see <span class="No-Break">what happens:</span></p>
+<pre class="source-code">
+$ sudo ip route add 203.0.113.0/24 via 192.0.2.10
+$ ip route
+default via 172.20.10.1 dev eth0 proto dhcp src 172.20.10.2 metric 100  
+172.20.10.0/28 dev eth0 proto kernel scope link src 172.20.10.2 metric 100 
+192.0.2.0/24 dev dummy1 proto kernel scope link src 192.0.2.1 
+203.0.113.0/24 via 192.0.2.10 dev dummy1
+$ sudo ip link set dev dummy1 down
+$ ip route
+default via 172.20.10.1 dev eth0 proto dhcp src 172.20.10.2 metric 100  
+172.20.10.0/28 dev eth0 proto kernel scope link src 172.20.10.2 metric 100</pre>
+<p>You can see that the newly added route automatically had the right network interface in its entry: <strong class="source-inline">203.0.113.0/24 via 192.0.2.10 dev dummy1</strong>. The kernel checked the route to <strong class="source-inline">192.0.2.10—t</strong>he address we set as a gateway—and found that it is reachable through <strong class="source-inline">dummy1</strong> (nominally, <span class="No-Break">at least).</span></p>
+<p>When we took <strong class="source-inline">dummy1</strong> down, the kernel also removed the connected route to <strong class="source-inline">192.0.2.0/24</strong> associated with it. That made the <strong class="source-inline">192.0.2.10</strong> gateway unreachable, so the kernel also removed every route whose gateway became unreachable because of that change. The kernel also does not normally allow the user to create a route whose gateway is not reachable and can detect recursive routes (that is, routes whose gateway is not reachable directly via a connected route). However, it is possible to disable that reachability check by adding a special <strong class="source-inline">onlink</strong> flag to the command, <span class="No-Break">for example:</span></p>
+<pre class="source-code">
+sudo ip route add 203.0.113.0/24 via 192.0.2.10 onlink</pre>
+<p>If you are connected to an Ethernet switch or some other kind of a multiple access network, you must specify the gateway in your routes because simply sending packets from an Ethernet device is impossible—there must be a destination address in the packet since there may be multiple hosts in the same segment. However, some network interfaces are point-to-point and have only one system on the other side. Physical point-to-point connections, such as serial WAN links, are mostly extinct now, but virtual point-to-point links are common. If you are connected to the internet via PPPoE, you can create a default route with just <strong class="source-inline">sudo ip route add 0.0.0.0/0 dev ppp0</strong> or similar—no gateway address <span class="No-Break">is needed.</span></p>
+<p>If you have only <a id="_idIndexMarker458"/>one route to a certain network and want to delete it, you can do it with just <strong class="source-inline">sudo ip route del &lt;network&gt;</strong>, and if you have multiple routes to the same network, you will need to specify the gateway or the interface to delete exactly the route you want, as in <strong class="source-inline">sudo ip route del 203.0.113.0/24 </strong><span class="No-Break"><strong class="source-inline">via 192.0.2.10</strong></span><span class="No-Break">.</span></p>
+<p>There are two situations when there may be more than one route to the same destination. First, it is possible to create a backup route by setting a <strong class="source-inline">metric</strong> command for it. For example, if we create a route with a <strong class="source-inline">100</strong> metric, it will stay in the table but will not be used while routes with lower metric values still exist. If a route disappears, the kernel will automatically start using the backup route. Let us demonstrate is with the <span class="No-Break">following commands:</span></p>
+<pre class="source-code">
+$ sudo ip route add 203.0.113.0/24 via 192.0.2.10
+$ sudo ip route add 203.0.113.0/24 via 192.0.2.20 metric 100
+$ ip route
+...
+192.0.2.0/24 dev dummy1 proto kernel scope link src 192.0.2.1 
+203.0.113.0/24 via 192.0.2.10 dev dummy1 
+203.0.113.0/24 via 192.0.2.20 dev dummy1 metric 100 
+$ ip route get 203.0.113.100
+203.0.113.100 via 192.0.2.10 dev dummy1 src 192.0.2.1 uid 1000 cache
+$ sudo ip route del 203.0.113.0/24 via 192.0.2.10
+$ ip route get 203.0.113.100
+203.0.113.100 via 192.0.2.20 dev dummy1 src 192.0.2.1 uid 1000 cache</pre>
+<p>Second, the kernel can use more than one route to the same destination in parallel for load balancing and redundancy. If different paths have different bandwidths, you can specify different weights for each gateway <span class="No-Break">as follows:</span></p>
+<pre class="source-code">
+$ sudo ip route add 203.0.113.0/24 nexthop via 192.0.2.10 weight 1 nexthop via 192.0.2.20 weight 10
+$ ip route 
+...
+192.0.2.0/24 dev dummy1 proto kernel scope link src 192.0.2.1 
+203.0.113.0/24 
+	nexthop via 192.0.2.10 dev dummy1 weight 1 
+	nexthop via 192.0.2.20 dev dummy1 weight 10</pre>
+<p>Note that this method of load balancing is only applicable in networks that have direct routed connectivity throughout because packets that belong to the same connection will be sent over both paths and the return path of replies to those packets is also unpredictable. Systems that are connected to multiple ISPs but use NAT to share a public IPv4 address between all internal network hosts need more complex load-balancing configurations that ensure that entire connections are balanced and use the same outgoing path for every packet, but that is out of the scope of <span class="No-Break">this book.</span></p>
+<p>There are also special-purpose routes that ensure that the destination network is made unreachable. There are two types of those routes: <strong class="source-inline">blackhole</strong> and <strong class="source-inline">unreachable/prohibit/throw</strong>. Both make the kernel discard all packets sent to certain networks, but the <strong class="source-inline">blackhole</strong> route tells it to discard packets silently, while the other type also makes it send an ICMP error to <span class="No-Break">the originator.</span></p>
+<p>The <strong class="source-inline">blackhole</strong> route is commonly <a id="_idIndexMarker459"/>used as a crude but highly efficient filter for outgoing traffic. These routes can be used to stop hosts inside the network from communicating with a known bad destination, such as a botnet command and control node. In case of an incoming DDoS attack, they can also be <a id="_idIndexMarker460"/>used to stop its traffic at the router and keep it from reaching its target so that you can reconfigure the target host for better performance or at least avoid overloading it until the attack is over. You can create a <strong class="source-inline">blackhole</strong> route with <strong class="source-inline">sudo ip route add </strong><span class="No-Break"><strong class="source-inline">blackhole &lt;network&gt;</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ sudo ip route add blackhole 203.0.113.0/24 
+$ ip route
+... 
+blackhole 203.0.113.0/24
+$ ping 203.0.113.10
+ping: connect: Invalid argument</pre>
+<p>If a network is blackholed, you will not be able to connect to any host in it from the local machine. For hosts that use that machine as a router, it will look like their packets receive <span class="No-Break">no replies.</span></p>
+<p>The other three types of routes (<strong class="source-inline">unreachable,</strong> <strong class="source-inline">discard</strong>, and <strong class="source-inline">throw</strong>) cannot be used for DDoS protection because when the packet destination matches such a route, the kernel will not only discard the packet but also generate an ICMP packet to notify the sender that their packets are not reaching their destination, which will only make the situation worse by generating more traffic. They are best used inside corporate networks for enforcing policies in a way that will be easy to debug. If you do not want your hosts to send any traffic to a hypothetical <strong class="source-inline">203.0.113.113</strong> host, you can run <strong class="source-inline">sudo ip route add prohibit 203.0.113.113/32</strong>, and everyone who tries to connect to it will receive a message saying that the host is administratively prohibited (while with a <strong class="source-inline">blackhole</strong> route clients could not easily tell whether it is a policy or a <span class="No-Break">network problem).</span></p>
+<p>As you can see, the <strong class="source-inline">ip</strong> command provides rich functionality for both configuring and viewing routing and <a id="_idIndexMarker461"/>neighbor tables. Configuring routes by hand is not a common task but it is still important to know how to do it, and information retrieval commands for route and neighbor tables are very useful in day-to-day diagnostic and <span class="No-Break">debugging work.</span></p>
+<h1 id="_idParaDest-137"><a id="_idTextAnchor167"/>NetworkManager</h1>
+<p>Servers and embedded devices usually have fixed, statically assigned IP addresses, but desktop and especially laptop computers may need to dynamically connect to multiple networks of different types. A systems administrator with a laptop may need to connect to a wired Ethernet network in their server closet, to Wi-Fi networks in their office, home, and public spaces such as cafes, and also use a VPN tunnel to connect to the corporate network from home. Since many laptops no longer have an <a id="_idIndexMarker462"/>onboard wired network card, there may be a need to use a USB Ethernet adapter instead, so the system must handle not just on-demand network connections, but also hot-plug <span class="No-Break">network devices.</span></p>
+<p>Managing such configurations by hand through configuration files and commands would be tedious, so people created software projects to automate it. Those projects rely on the usual tools such as the <strong class="source-inline">ip</strong> utility and third-party projects such as strongSwan or <strong class="source-inline">xl2tpd</strong> for VPN connections but tie them under a unified user interface and include an event handling mechanism to deal with hot-plug hardware changes and users' requests to connect to <span class="No-Break">different networks.</span></p>
+<p>The most popular solution is the NetworkManager project, which was started by Red Hat in 2004. These days, most Linux distributions include it at least in <span class="No-Break">desktop installations.</span></p>
+<p><strong class="bold">NetworkManager</strong> is a modular project. At its core, it is a daemon that handles events and keeps track of connections so that it can re-apply settings when a network interface is unplugged and then plugged back in, or the user requests a reconnect. However, most functionality for configuring the kernel and userspace tools to establish different types of connections is implemented by plugins. If you run <strong class="source-inline">dnf search NetworkManager</strong> (on Fedora or RHEL) or <strong class="source-inline">apt-cache search NetworkManager</strong> (on Debian-based distros), you will see packages with various plugins for connection types that range from well-known and widely used such as <strong class="source-inline">NetworkManager-wifi</strong> or <strong class="source-inline">NetworkManager-openvpn</strong> to obscure and experimental such as <strong class="source-inline">NetworkManager-iodine—a</strong> solution for bypassing firewalls by transmitting data inside <span class="No-Break">DNS packets.</span></p>
+<p>There are also <a id="_idIndexMarker463"/>multiple user interfaces for it. The network applet you can see in the tray area of desktop environment panels is a NetworkManager user interface. In MATE Desktop and many other desktop environments, you can verify that if you right-click on the network icon and choose the <strong class="bold">About</strong> menu point. You will see the <span class="No-Break">following screen:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer049">
+<img alt="Figure 9.1 – NetworkManager applet version information dialog" height="435" src="image/B18575_09_01.jpg" width="449"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 9.1 – NetworkManager applet version information dialog</p>
+<p>In the <strong class="bold">Edit Connections</strong> section in the right-click menu, you can create new connections or edit <span class="No-Break">existing ones:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer050">
+<img alt="Figure 9.2 – NetworkManager connection editing dialog" height="509" src="image/B18575_09_02.jpg" width="522"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 9.2 – NetworkManager connection editing dialog</p>
+<p>Recent versions <a id="_idIndexMarker464"/>of NetworkManager save connection configuration files to a dedicated directory, while old versions would use distribution-specific formats. If you save a connection, you can find its file under <strong class="source-inline">/etc/NetworkManager/system-connections</strong>. Note that those files are not readable for unprivileged users. You can view the connection file for the Office Wi-Fi connection <span class="No-Break">as follows:</span></p>
+<pre class="source-code">
+$ sudo cat /etc/NetworkManager/system-connections/Office\ Wi-Fi.nmconnection
+[connection]
+id=Office Wi-Fi
+uuid=6ab1d913-bb4e-40dd-85a7-ae03c8b62f06
+type=wifi
+[wifi]
+mode=infrastructure
+ssid=Office Wi-Fi
+[wifi-security]
+key-mgmt=wpa-psk
+psk=SomePassword
+[ipv4]
+may-fail=false
+method=auto
+[ipv6]
+addr-gen-mode=stable-privacy
+method=auto
+[proxy]</pre>
+<p>There is also a <a id="_idIndexMarker465"/>text-mode interface for NetworkManager that can provide a GUI-like experience on headless machines. It’s usually not installed by default, but on Fedora, it can be installed from the <span class="No-Break"><strong class="source-inline">NetworkManager-tui</strong></span><span class="No-Break"> package.</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer051">
+<img alt="Figure 9.3 – nmtui, a text-based interface for NetworkManager" height="485" src="image/B18575_09_03.jpg" width="685"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 9.3 – nmtui, a text-based interface for NetworkManager</p>
+<p>Finally, the <strong class="source-inline">nmcli</strong> tool allows managing NetworkManager connections from the command line. If you've already created a connection, you can bring it up with <strong class="source-inline">nmcli connection up &lt;name&gt;</strong> (similar to <strong class="source-inline">nmcli connection up "Office Wi-Fi"</strong>) or bring it down with <strong class="source-inline">nmcli connection down &lt;name&gt;</strong>. It also provides interactive connection editing functionality that you can use if neither <strong class="source-inline">nmtui</strong> nor a graphical desktop environment <span class="No-Break">is available.</span></p>
+<p>As you can see, NetworkManager makes it easy to manage typical network configurations, especially on desktop machines. Next, we will learn about distribution-specific configuration methods that do not <span class="No-Break">use NetworkManager.</span></p>
+<h1 id="_idParaDest-138"><a id="_idTextAnchor168"/>Distribution-specific configuration methods</h1>
+<p>NetworkManager is used by many distributions on desktop systems, but many Linux distributions have also <a id="_idIndexMarker466"/>used custom network configuration files and scripts. Some still use them, while other systems migrated to NetworkManager but maintain old methods as an alternative or in legacy long-term <span class="No-Break">support releases.</span></p>
+<h2 id="_idParaDest-139"><a id="_idTextAnchor169"/>Debian</h2>
+<p>In Debian, the configuration file for network interfaces is <strong class="source-inline">/etc/network/interfaces</strong>. Unlike NetworkManager’s native format, this allows keeping configurations for all interfaces in a single file. To make <a id="_idIndexMarker467"/>the configuration more modular <a id="_idIndexMarker468"/>and easier to read, it is possible to store files for individual interfaces in the <strong class="source-inline">/</strong><span class="No-Break"><strong class="source-inline">etc/network/interfaces.d/</strong></span><span class="No-Break"> directory.</span></p>
+<p>Interface configurations are also identified by link names rather than arbitrary descriptions and UUIDs. This is how to set an onboard Ethernet device, <strong class="source-inline">eno1</strong>, to use static addresses for both IPv4 and IPv6, <span class="No-Break">for example:</span></p>
+<pre class="source-code">
+iface eno1 inet static
+      address 203.0.113.123/24
+      gateway 203.0.113.1
+iface eno1 inet6 static
+      address 2001:db8:abcd::123/64
+      gateway 2001:db8:abcd::1</pre>
+<p>You can also execute custom commands when interfaces are brought up and down, using the <strong class="source-inline">pre-up</strong>, <strong class="source-inline">up</strong>, <strong class="source-inline">down</strong>, and <strong class="source-inline">post-down</strong> options. For example, to automatically add a route when <strong class="source-inline">eno1</strong> goes up, run the <span class="No-Break">following command:</span></p>
+<pre class="source-code">
+iface eno1 inet static
+      address 203.0.113.123/24
+      gateway 203.0.113.1
+      up ip route add 192.0.2.0/24 via 203.0.113.1</pre>
+<p>The tools for bringing interfaces up and down are named <strong class="source-inline">ifup</strong> and <strong class="source-inline">ifdown</strong>, respectively. They are only available to privileged users, so you need to run them with <strong class="source-inline">sudo</strong>, as in <strong class="source-inline">sudo ifup eno1</strong> or <strong class="source-inline">sudo </strong><span class="No-Break"><strong class="source-inline">ifdown eno1</strong></span><span class="No-Break">.</span></p>
+<h2 id="_idParaDest-140"><a id="_idTextAnchor170"/>Old Red Hat-based distributions</h2>
+<p>Fedora and RHEL version 8 and above (as well as its derivatives such as Rocky Linux) use NetworkManager as their network configuration system. Up to RHEL7, however, it used a <a id="_idIndexMarker469"/>different system. Its configuration file directory was <strong class="source-inline">/etc/sysconfig/network-scripts</strong>, and each interface used its own file. For example, this is <a id="_idIndexMarker470"/>how you could statically assign the <strong class="source-inline">203.0.113.113/24</strong> address to an onboard Ethernet <span class="No-Break">interface, </span><span class="No-Break"><strong class="source-inline">eno1</strong></span><span class="No-Break">:</span></p>
+<pre class="source-code">
+$ cat /etc/sysconfig/network-scripts/ifcfg-eno1
+DEVICE=eno1
+BOOTPROTO=none
+ONBOOT=yes
+PREFIX=24
+IPADDR=203.0.113.113</pre>
+<p>A Red Hat-specific way to reread and apply all old-style network configurations is by using the <strong class="source-inline">service network </strong><span class="No-Break"><strong class="source-inline">restart</strong></span><span class="No-Break"> command.</span></p>
+<p>As you can see, distribution-specific methods are conceptually similar, although configuration syntax and names for options with the same meaning can vary wildly. If in doubt, you should always consult the documentation. Now that we've covered the most common network configuration methods, we should also learn how to verify whether the configuration works <span class="No-Break">as expected.</span></p>
+<h1 id="_idParaDest-141"><a id="_idTextAnchor171"/>Network troubleshooting</h1>
+<p>Network troubleshooting is a vast subject. However, most of the time, experts use the same tools that are <a id="_idIndexMarker471"/>available to every novice and those tools are not hard to learn to use at a basic level. The main difference between a novice and an expert is how well they can interpret their outputs and choose the <span class="No-Break">correct options.</span></p>
+<h2 id="_idParaDest-142"><a id="_idTextAnchor172"/>Using ping</h2>
+<p>The name of the <strong class="source-inline">ping</strong> utility comes <a id="_idIndexMarker472"/>from the sound of sonar—a device <a id="_idIndexMarker473"/>that uses sound pulses to discover objects underwater. That command metaphorically probes a remote host by sending an ICMP packet and listening for a reply. The sonar metaphor is a bit of a stretch because sound pulses are passively reflected, while the exchange of ICMP packets requires cooperation from a <span class="No-Break">remote host.</span></p>
+<p>Still, a host that runs a correctly implemented network stack should reply with an ICMP echo reply packet if it receives an echo request. At the most basic level, pinging a host tells you whether the host is online and whether there is a working network path <span class="No-Break">to it.</span></p>
+<p>By default, the Linux version of <strong class="source-inline">ping</strong> will keep sending echo requests indefinitely. This is in contrast with <a id="_idIndexMarker474"/>some other versions, such as that of Windows, that terminate <a id="_idIndexMarker475"/>after a finite number of packets by default. If you want the Linux <strong class="source-inline">ping</strong> to behave that way, you can specify the number of requests with <strong class="source-inline">-c</strong>, such as <strong class="source-inline">-c5</strong>, to send five requests <span class="No-Break">as shown:</span></p>
+<pre class="source-code">
+$ ping -c5 9.9.9.9
+PING 9.9.9.9 (9.9.9.9) 56(84) bytes of data.
+64 bytes from 9.9.9.9: icmp_seq=1 ttl=56 time=31.1 ms
+64 bytes from 9.9.9.9: icmp_seq=2 ttl=56 time=24.8 ms
+64 bytes from 9.9.9.9: icmp_seq=3 ttl=56 time=21.7 ms
+64 bytes from 9.9.9.9: icmp_seq=4 ttl=56 time=115 ms
+64 bytes from 9.9.9.9: icmp_seq=5 ttl=56 time=22.8 ms
+--- 9.9.9.9 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4004ms
+rtt min/avg/max/mdev = 21.666/43.061/115.059/36.145 ms</pre>
+<p>If ICMP echo requests successfully reach their target and the target replies, then replies to those packets will come from the <span class="No-Break">target address.</span></p>
+<p>If packets do not reach the target host because there is no route to it, you will get replies from the last router on the path of those packets that fail to send them further because it could not find a route. For example, consider this output from pinging a host in a <span class="No-Break">private network:</span></p>
+<pre class="source-code">
+$ ping 10.217.32.33
+PING 10.217.32.33 (10.217.32.33) 56(84) bytes of data.
+From 10.217.41.49 icmp_seq=1 Destination Host Unreachable
+From 10.217.41.49 icmp_seq=2 Destination Host Unreachable</pre>
+<p>In this case, the last router that received our ICMP echo request packets and failed to forward them further has a <strong class="source-inline">10.217.41.49</strong> address, so if we wanted to check why that host was inaccessible, that router would be our <span class="No-Break">starting point.</span></p>
+<h2 id="_idParaDest-143"><a id="_idTextAnchor173"/>Using traceroute</h2>
+<p>A ping can tell you whether a host is accessible and if not, then where exactly in the network the path of ICMP echo packets ends. However, it cannot tell you what the network <span class="No-Break">path is.</span></p>
+<p>To discover paths <a id="_idIndexMarker476"/>of packets through the network, you can use the <strong class="source-inline">traceroute</strong> utility instead. In short, that utility sends packets with an intentionally small TTL (for IPv4) or hop count (for IPv6) and records to force those routers to discard the test packet and record ICMP error <a id="_idIndexMarker477"/>messages from them to record the <span class="No-Break">packet path.</span></p>
+<p>Every IP packet has a field that shows how many times it was already forwarded between routers. In IPv4, that field <a id="_idIndexMarker478"/>is named <strong class="bold">Time To Live</strong> (<strong class="bold">TTL</strong>), which is a misnomer because it’s not really time. In IPv6, that field is more appropriately named hop count. The purpose of those fields is the same—to prevent packets from endlessly going in circles around the network in case of a routing loop. Every time a router forwards a packet, it decrements the TTL/hop count field, and when its value reaches <strong class="source-inline">0</strong>, the packet is discarded. Whenever a router discards a packet for that reason, it notifies the sender with an ICMP TTL <span class="No-Break">exceeded message.</span></p>
+<p>Thus, if you intentionally set the TTL of a packet to <strong class="source-inline">1</strong>, it is guaranteed to be discarded by the very first router on its path. From the ICMP response about a discarded packet, you can learn the address of that router. By repeating the procedure with increasing TTL values, you can learn about every router on the path—or at least every router that cooperates and sends ICMP <span class="No-Break">TTL-exceeded replies.</span></p>
+<p>In the public internet and other large-scale networks, there are lots of subtleties in interpreting <strong class="source-inline">traceroute</strong> outputs. Some routers may not generate ICMP TTL exceeded messages at all or only generate them if their load is low, so the path may appear to have gaps (you will see <strong class="source-inline">* * *</strong> symbols in place of path entries where the router never generates those responses—t<strong class="source-inline">raceroute</strong> retries its probes three times before giving up). The path shown by <strong class="source-inline">traceroute</strong> may not be the <a id="_idIndexMarker479"/>real path due to network segments that use <strong class="bold">Multi-Protocol Label Switching</strong> (<strong class="bold">MPLS</strong>) instead of IP routing. However, it is still a useful tool, and inside private networks, its output is usually the <span class="No-Break">real path.</span></p>
+<p>Here is what its output may <span class="No-Break">look like:</span></p>
+<pre class="source-code">
+$ traceroute 10.217.32.179
+traceroute to 10.217.32.179 (10.217.32.179), 30 hops max, 60 byte packets
+1  10.217.133.1 (10.217.133.1)  86.830 ms  86.769 ms  98.345 ms
+2  10.217.41.49 (10.217.41.49)  128.365 ms  128.359 ms  128.346 ms
+3  10.217.32.179 (10.217.32.179)  134.007 ms  134.024 ms  134.017 ms</pre>
+<p>By default, <strong class="source-inline">traceroute</strong> tries to resolve IP addresses to domain names by looking up their PTR records. It may slow it down or you may want to see raw addresses instead. If you prefer to see raw addresses, you can disable name resolution with the <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">n</strong></span><span class="No-Break"> option.</span></p>
+<p>There are many more network diagnostic tools. For example, network scanners such as <em class="italic">nmap</em> can tell you which <a id="_idIndexMarker480"/>services are running on a remote machine and <a id="_idIndexMarker481"/>gather information about its operating system and network stack. Packet capture and analysis tools such as <em class="italic">tcpdump</em> and <em class="italic">Wireshark</em> can help you get a detailed picture of network traffic. However, even with just <strong class="source-inline">ping</strong> and <strong class="source-inline">traceroute</strong>, you can verify that your network setup is working or gather debugging information to share with colleagues or <span class="No-Break">support technicians.</span></p>
+<h1 id="_idParaDest-144"><a id="_idTextAnchor174"/>Summary</h1>
+<p>In this chapter, we learned about the components of the Linux network stack, the tools for managing it, and different types of physical and virtual network interfaces. We learned how to assign and view addresses, view and create routes, configure network settings using NetworkManager and distribution-specific methods, and perform basic <span class="No-Break">troubleshooting procedures.</span></p>
+<p>In the next chapter, we will learn about managing <span class="No-Break">storage devices.</span></p>
+</div>
+</div></body></html>

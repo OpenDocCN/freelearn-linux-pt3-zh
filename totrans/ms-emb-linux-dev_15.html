@@ -1,0 +1,356 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer123" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor409"/>12</h1>
+    <h1 id="_idParaDest-366" class="chapterTitle"><a id="_idTextAnchor410"/>Prototyping with Add-On Boards</h1>
+    <p class="normal"><strong class="keyWord">Custom board bring-up</strong> is what embedded Linux engineers are called on to do time and time again. Say a consumer electronics manufacturer wants to build a new device and that device needs to run Linux. The process of assembling the Linux image starts before the hardware is ready and is done with prototypes pieced together from SBCs and add-on boards. Once a proof of concept has been validated then an initial run of prototype PCBs is fabricated with peripherals on board. There is no more satisfying experience than seeing a custom board boot into Linux for the very first time.</p>
+    <p class="normal">The BeaglePlay is unique among SBCs in that it has a mikroBUS socket for quick plug and play peripheral expansion. There is a MikroE Click add-on board for just about any hardware peripheral you can think of. In this chapter, we will integrate a GNSS receiver, environmental sensor module, and OLED display with the BeaglePlay. Leveraging mikroBUS eliminates the need to read schematics and wire up breadboards so that you spend less time troubleshooting hardware and more time coding your application.</p>
+    <p class="normal">Rapid prototyping with real hardware involves lots of trial and error. With a full Debian Linux distribution at our disposal, we can use mainstream tools such as <code class="inlineCode">git</code>, <code class="inlineCode">pip3</code>, and <code class="inlineCode">python3</code> to develop software directly on the BeaglePlay.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">Mapping schematics to pins</li>
+      <li class="bulletList">Prototyping with add-on boards</li>
+      <li class="bulletList">Testing hardware peripherals</li>
+    </ul>
+    <h1 id="_idParaDest-367" class="heading-1"><a id="_idTextAnchor411"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">An Ubuntu 24.04 or later LTS host system</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">balenaEtcher for Linux</li>
+      <li class="bulletList">A BeaglePlay</li>
+      <li class="bulletList">A 5V USB-C power supply capable of delivering 3A</li>
+      <li class="bulletList">A USB to TTL serial cable with 3.3V logic level</li>
+      <li class="bulletList">An Ethernet cable and router with an available port for network connectivity</li>
+      <li class="bulletList">A MikroE-5764 GNSS 7 Click add-on board</li>
+      <li class="bulletList">An external active GNSS antenna</li>
+      <li class="bulletList">A MikroE-5546 Environment Click add-on board</li>
+      <li class="bulletList">A MikroE-5545 OLED C Click add-on board</li>
+    </ul>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter12"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter12</span></a>.</p>
+    <h1 id="_idParaDest-368" class="heading-1"><a id="_idTextAnchor412"/>Mapping schematics to pins</h1>
+    <p class="normal">Because the BeaglePlay’s <strong class="keyWord">Bill Of Materials</strong> (<strong class="keyWord">BOM</strong>), PCB design files, and schematics are all open source, anyone can manufacture a <a id="_idIndexMarker896"/>BeaglePlay as part of their consumer product. Since the BeaglePlay is intended for development, it contains several components that may not be needed for production, such as Ethernet ports, USB ports, and a microSD slot. As a dev board, the BeaglePlay may also be missing one or more peripherals needed for your application such as <a id="_idIndexMarker897"/>sensors, an LTE modem, or an OLED display.</p>
+    <p class="normal">The BeaglePlay is built around Texas Instruments’ AM6254, a quad-core 64-bit Arm Cortex-A53 SoC with <strong class="keyWord">Programmable Real-Time Unit</strong> (<strong class="keyWord">PRU</strong>) and M4 microcontrollers. Like the Raspberry Pi 4, the BeaglePlay has <a id="_idIndexMarker898"/>built-in Wi-Fi and Bluetooth. Unlike other SBCs, it also has a programmable radio capable of sub-GHz and 2.4 GHz low-power wireless communication. While the BeaglePlay is extremely versatile, at some point you may want to design your own custom PCB around the AM6254 to reduce the cost of your finished product.</p>
+    <p class="normal">In <a href="Chapter_11.xhtml#_idTextAnchor373"><em class="italic">Chapter 11</em></a>, we looked at an example of how to bind an Ethernet adapter to a Linux device driver. Binding peripherals is done with device tree<a id="_idIndexMarker899"/> source or C structs known as platform data. Over the years, device tree source has become the preferred means of binding to Linux device drivers, especially on Arm SoCs. As with U-Boot, compiling device tree source into DTBs is also part of the Linux kernel build process.</p>
+    <p class="normal">If you need to transfer lots of packets from a local network to and from the cloud, then running Linux is a sensible choice since it has an extremely mature TCP/IP network stack. The BeaglePlay’s Arm Cortex-A53 CPU meets the requirements (enough addressable RAM and a memory management unit) for running mainstream Linux. This means your product can benefit from security and bug fixes that have been done to the Linux kernel.</p>
+    <p class="normal">Now that we have selected our SBC let’s look at the BeaglePlay’s schematic.</p>
+    <h2 id="_idParaDest-369" class="heading-2"><a id="_idTextAnchor413"/>Reading schematics</h2>
+    <p class="normal">The BeaglePlay has a mikroBUS socket as well as Grove and QWIIC connectors for add-on boards. Of the three standards, mikroBUS is <a id="_idIndexMarker900"/>the only one with UART, I2C, and SPI communications ports as well as <strong class="keyWord">Analog to Digital Converter</strong> (<strong class="keyWord">ADC</strong>), <strong class="keyWord">Pulse Width Modulation</strong> (<strong class="keyWord">PWM</strong>), and GPIO<a id="_idIndexMarker901"/> functionality. Consider I/O expansion options when selecting an SBC for development. More options mean more peripheral modules to choose from when prototyping.</p>
+    <p class="normal">When given the choice, I usually pick SPI over UART and I2C for production. UARTs are scarce on many SoCs and reserved for things <a id="_idIndexMarker902"/>such as Bluetooth and/or a serial console. I2C drivers and hardware can have serious bugs. Some I2C kernel drivers are so poorly implemented that the bus locks up when there are too many connected peripherals talking at once. Other times the bugs are in hardware. The I2C controllers found in Broadcom SoCs such as the one in the Raspberry Pi 4 are notorious for glitching when peripherals attempt to perform <strong class="keyWord">clock stretching</strong>. Clock <a id="_idIndexMarker903"/>stretching is when an I2C subnode device temporarily slows down or stops the bus clock.</p>
+    <p class="normal">Every mikroBUS socket consists of two pairs of 1x8 female headers. We can find both header strips on page 22 of the BeaglePlay’s schematic (<a href="https://github.com/beagleboard/beagleplay/blob/main/BeaglePlay_sch.pdf"><span class="url">https://github.com/beagleboard/beagleplay/blob/main/BeaglePlay_sch.pdf</span></a>).</p>
+    <p class="normal">Here is the right header strip of the BeaglePlay’s mikroBUS socket:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_12_01.png" alt="Figure 12.1 – mikroBUS socket (right header strip)" width="1652" height="484"/></figure>
+    <p class="packt_figref">Figure 12.1 – mikroBUS socket (right header strip)</p>
+    <p class="normal">Pin 1 is tied to ground and pin 2 outputs 5V. Pins 3 (I2C3_SDA) and 4 (I2C3_CL) are connected to the BeaglePlay’s I2C3 bus. Pins 5 (UART5_TXD) and 6 (UART5_RXD) are connected to UART5 on the BeaglePlay. Pins 7 (GPIO1_9) and 8 (GPIO1_11) are GPIOs, with pin 7 acting as an interrupt and pin 8 functioning as a PWM.</p>
+    <p class="normal">Here is the left header strip of the BeaglePlay’s mikroBUS socket:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_12_02.png" alt="Figure 12.2 – mikroBUS socket (left header strip)" width="1652" height="464"/></figure>
+    <p class="packt_figref">Figure 12.2 – mikroBUS socket (left header strip)</p>
+    <p class="normal">Pins 9 (GPIO1_10) and 10 (GPIO1_12) are GPIOs, with pin 9 acting as an analog input and pin 10 functioning as a reset. Pins 11 (SPI2_CS0), 12 (SPI2_CLK), 13 (SPI2_D0), and 14 (SPI2_D1) are connected to the BeaglePlay’s SPI2 bus. Lastly, pin 15 outputs 3.3V, and pin 16 is tied to ground.</p>
+    <p class="normal">Notice that the SPI2 bus has CS0, CLK, D0, and D1 lines. CS stands for chip select. Since each SPI bus is a main-subnode<a id="_idIndexMarker904"/> interface, pulling a CS signal line low typically selects which peripheral to transmit to on the bus. This kind of negative logic is known as <strong class="keyWord">active low</strong>. CLK stands for<a id="_idIndexMarker905"/> clock and is always generated by the bus main, which is the AM6254 in this case. Data transmitted over the SPI bus is synchronized to this CLK signal. SPI supports much higher clock frequencies than I2C. The D0 data line corresponds to main in, subnode out (MISO). </p>
+    <p class="normal">The D1 data line corresponds to main out, subnode in (MOSI). SPI is a full-duplex interface, which means that both the main and selected subnode can send data at the same time.</p>
+    <p class="normal">Here is a block diagram showing the directions of all four SPI signals:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_12_03.png" alt="Figure 12.3 – SPI signals" width="924" height="342"/></figure>
+    <p class="packt_figref">Figure 12.3 – SPI signals</p>
+    <p class="normal">Now let’s enable mikroBUS on the BeaglePlay. The quickest way to do this is to install a prebuilt Debian image from BeagleBoard.org.</p>
+    <h2 id="_idParaDest-370" class="heading-2"><a id="_idTextAnchor414"/>Installing Debian on the BeaglePlay</h2>
+    <p class="normal"><a href="https://BeagleBoard.org"><span class="url">BeagleBoard.org</span></a> provides Debian images for their various dev boards. Debian is a popular Linux distribution that includes a comprehensive set of open source software packages. It is a massive effort, with contributors from <a id="_idIndexMarker906"/>all over the world. Building Debian for the various BeagleBoards is unconventional by embedded Linux standards because the process does <a id="_idIndexMarker907"/>not rely on cross-compilation. Rather than attempting to build Debian for the BeaglePlay yourself, simply download a finished image<a id="_idIndexMarker908"/> directly from BeagleBoard.org.</p>
+    <p class="normal">To download and decompress the Debian Bookworm minimal eMMC flasher image for the BeaglePlay, use the following command::</p>
+    <pre class="programlisting con"><code class="hljs-con">$ wget https://files.beagle.cc/file/beagleboard-public-2021/images/beagleplay-emmc-flasher-debian-12.7-minimal-arm64-2024-09-04-8gb.img.xz
+$ xz -d beagleplay-emmc-flasher-debian-12.7-minimal-arm64-2024-09-04-8gb.img.xz
+</code></pre>
+    <p class="normal">If the above link is broken, visit <a href="https://beagleboard.org/distros"><span class="url">https://beagleboard.org/distros</span></a> for a current list of Debian images available for download. <a href="https://BeagleBoard.org"><span class="url">BeagleBoard.org</span></a> can decide to delete links to Debian images as those images age out. Long-term maintenance of Debian releases is costly and labor-intensive.</p>
+    <p class="normal">At the time of writing, 12.7 was the latest Debian image for AM6254-based BeaglePlay boards. The major version number of 12 indicates that 12.7 is a Bookworm LTS release of Debian. Since Debian 12.0 was originally released on June 10, 2023, Bookworm should receive updates for up to 5 years from that date.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">If possible, download version 12.7 (also known as Bookworm) rather <a id="_idIndexMarker909"/>than the latest Debian image from <a href="https://BeagleBoard.org"><span class="url">BeagleBoard.org</span></a> for the exercises in this chapter. The BeaglePlay bootloader, kernel, DTBs, and command-line tools are in constant flux, so the following instructions may not work with a later Debian release.</p>
+    </div>
+    <p class="normal">Now that you have a Debian flasher image for the BeaglePlay, write it out to a microSD card:</p>
+    <ol>
+      <li class="numberedList" value="1">Insert a microSD card into your Linux host machine.</li>
+      <li class="numberedList">Launch balenaEtcher.</li>
+      <li class="numberedList">Click <strong class="screenText">Flash from file</strong> from <strong class="screenText">Etcher</strong>.</li>
+      <li class="numberedList">Locate the <code class="inlineCode">img</code> file that you downloaded from BeagleBoard.org and open it.</li>
+      <li class="numberedList">Click <strong class="screenText">Select target</strong> from <strong class="screenText">Etcher</strong>.</li>
+      <li class="numberedList">Select the microSD card that you inserted in <em class="italic">step 1</em>.</li>
+      <li class="numberedList">Click <strong class="screenText">Flash from Etcher</strong> to write the image.</li>
+      <li class="numberedList">Eject the microSD card when Etcher is done flashing.</li>
+    </ol>
+    <p class="normal">Next, boot the flasher image from the microSD and flash Debian onto the BeaglePlay’s eMMC. Before proceeding, make sure that your USB to TTL serial cable has a 3.3 V logic level. The three-pin UART connector is right next to the USB-C connector on the BeaglePlay. Do not connect any fourth red wire from your cable. A red wire typically indicates power, which is unnecessary in this instance and could <a id="_idIndexMarker910"/>damage the board.</p>
+    <p class="normal">To copy the Debian image from the microSD to the BeaglePlay’s eMMC:</p>
+    <ol>
+      <li class="numberedList" value="1">Unplug the BeaglePlay from USB-C power.</li>
+      <li class="numberedList">Plug the USB side of your serial cable into your host machine.</li>
+      <li class="numberedList">Connect the TX wire from the serial cable to the RX pin on the BeaglePlay.</li>
+      <li class="numberedList">Connect the RX wire from the<a id="_idIndexMarker911"/> serial cable to the TX pin on the BeaglePlay.</li>
+      <li class="numberedList">Connect the GND (black) wire from the serial cable to the GND pin on the BeaglePlay.</li>
+      <li class="numberedList">Start a suitable terminal program such as <code class="inlineCode">gtkterm</code>, <code class="inlineCode">minicom</code>, or <code class="inlineCode">picocom</code>, and attach it to the port at 115,200 bits <a id="_idIndexMarker912"/>per second (bps) with no flow control. <code class="inlineCode">gtkterm</code> is probably the easiest to set up and use:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo gtkterm -p /dev/ttyUSB0 -s 115200
+</code></pre>
+      </li>
+      <li class="numberedList">Insert the microSD card into the BeaglePlay.</li>
+      <li class="numberedList">Press and hold the USR button on the BeaglePlay.</li>
+      <li class="numberedList">Apply power to the BeaglePlay by way of the USB-C port.</li>
+      <li class="numberedList">Release the USR button once the BeaglePlay begins to boot from the microSD card.</li>
+      <li class="numberedList">Wait for the following prompt:
+        <pre class="programlisting con"><code class="hljs-con">BeaglePlay microSD (extlinux.conf) (swap enabled)
+<a id="_idTextAnchor415"/>1:      microSD disable BCFSERIAL
+<a id="_idTextAnchor416"/>2:      copy microSD to eMMC (default)
+<a id="_idTextAnchor417"/>3:      microSD (debug)
+<a id="_idTextAnchor418"/>4:      microSD
+Enter choice: 2
+</code></pre>
+      </li>
+      <li class="numberedList">Enter <code class="inlineCode">2</code>.</li>
+    </ol>
+    <p class="normal">It takes several minutes for the image to copy. Progress is reported on the serial console. If garbled or no output appears on the serial console, then swap the wires connected to the RX and TX pins on the BeaglePlay. Once the eMMC is done flashing, power off the BeaglePlay and remove the microSD card. Apply power to the BeaglePlay by way of the USB-C port. Plug an Ethernet cable from the BeaglePlay into a free port on your router. When the onboard Ethernet lights start blinking, the BeaglePlay should be online. Internet access allows us to install packages and fetch code from Git repos from within Debian.</p>
+    <p class="normal">To SSH into the BeaglePlay from your Linux host:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ssh debian@beaglebone.local
+</code></pre>
+    <p class="normal">Enter <code class="inlineCode">temppwd</code> at the <code class="inlineCode">debian</code> user’s password prompt. Change the password when prompted. SSH and log in again with your new password <a id="_idIndexMarker913"/>when the connection closes.</p>
+    <p class="normal">Now that Debian is running <a id="_idIndexMarker914"/>on your target, let’s downgrade the<a id="_idIndexMarker915"/> Linux kernel to a version with the necessary mikroBUS driver.</p>
+    <h1 id="_idParaDest-371" class="heading-1"><a id="_idTextAnchor419"/>Prototyping with add-on boards</h1>
+    <p class="normal">ClickID is MikroE’s plug and play solution for MikroE Click add-on boards. ClickID enables Linux to automatically identify a Click add-on board and instructs the mikroBUS driver to load the correct interface driver (UART, I2C, SPI, ADC, or PWM) for communicating with the peripheral. All the information<a id="_idIndexMarker916"/> about a peripheral is located on an EEPROM chip soldered to the bottom right of the add-on board. Linux talks to this EEPROM via 1-Wire at startup to perform the plug and play process. Not all Click add-on boards have this EEPROM so only some support ClickID.</p>
+    <p class="normal">Debian automatically upgrades packages including the Linux kernel without prompting the user. This is problematic because we will use an older Linux 5.10 kernel to talk to MikroE Click add-on boards.</p>
+    <p class="normal">To disable auto-upgrades in Debian:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo apt remove unattended-upgrades
+</code></pre>
+    <p class="normal">To downgrade the Linux kernel from 6.6 to 5.10:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo apt update
+debian@BeagleBone:~$ sudo apt install bbb.io-kernel-5.10-ti-k3-am62
+debian@BeagleBone:~$ sudo apt remove bbb.io-kernel-6.6-ti
+debian@BeagleBone:~$ sudo shutdown -r now
+</code></pre>
+    <p class="normal">SSH back into the BeaglePlay once it is back online.</p>
+    <p class="normal">To confirm that the Linux kernel on the BeaglePlay was built with the necessary mikroBUS driver:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ dmesg | grep mikrobus
+[    1.952311] mikrobus:mikrobus_port_register: registering port mikrobus-0
+[    1.952373] mikrobus mikrobus-0: mikrobus port 0 eeprom empty probing default eeprom
+</code></pre>
+    <p class="normal">Every ClickID EEPROM has a manifest section containing board specifics like pinout, interfaces, or Linux driver. Even if your Click add-on board does not have ClickID, a manifest may already exist for it.</p>
+    <p class="normal">To install the latest manifests on the BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo apt update
+debian@BeagleBone:~$ sudo apt install bbb.io-clickid-manifests
+</code></pre>
+    <p class="normal">To view the complete list of manifest files installed on the BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ ls /lib/firmware/mikrobus/
+</code></pre>
+    <p class="normal">To load a manifest <a id="_idIndexMarker917"/>with the mikroBUS driver, write that manifest to the <code class="inlineCode">mikrobus-0/new_device</code> entry:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo su root
+# cd /lib/firmware/mikrobus
+# cat GNSS-7-CLICK.mnfb &gt; /sys/bus/mikrobus/devices/mikrobus-0/new_device
+# exit
+</code></pre>
+    <p class="normal">The manifest doesn’t stick so you must reload it every time you reboot the BeaglePlay.</p>
+    <p class="normal">Even if you can’t find a manifest for your Click add-on board, not all is lost. BeagleBoard.org has created a simple Python tool for creating new <a id="_idIndexMarker918"/>Click add-on manifests called Manifesto (<a href="https://github.com/beagleboard/manifesto"><span class="url">https://github.com/beagleboard/manifesto</span></a>).</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">Loading the GNSS Click 7 manifest manually as shown is completely unnecessary because the GNSS Click 7 has a ClickID EEPROM built in.</p>
+    </div>
+    <p class="normal">Many Click add-on boards appear<a id="_idIndexMarker919"/> as Linux <strong class="keyWord">Industrial I/O</strong> (<strong class="keyWord">IIO</strong>) devices. The <code class="inlineCode">iio_info</code> tool can be used to discover IIO driver-enabled devices.</p>
+    <p class="normal">To install the <code class="inlineCode">iio_info</code> tool:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeaglePlay:~$ sudo apt install libiio-utils
+</code></pre>
+    <p class="normal">There are peripheral test scripts in the book’s code repository. Debian comes with Git installed, so you can clone the book’s repository to fetch the code:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ cd ~
+debian@BeagleBone:~$ git clone https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development MELD
+</code></pre>
+    <p class="normal">Now we are ready to test each Click add-on board.</p>
+    <h1 id="_idParaDest-372" class="heading-1"><a id="_idTextAnchor420"/>Testing hardware peripherals</h1>
+    <p class="normal">We will incorporate three <a id="_idIndexMarker920"/>peripherals into the BeaglePlay: a u-blox NEO-M9N GNSS receiver, a Bosch BME680 environmental sensor, and a Shenzhen Boxing World Technology PSP27801 OLED display. There are three test programs under <em class="italic">Chapter12</em> in the book’s code repository. The <code class="inlineCode">parse_nmea.py</code> program tests the NEO-M9N; the <code class="inlineCode">sensors.py</code> program tests the BME680; and the <code class="inlineCode">display.py</code> program tests the PSP27801. While it is possible to stack multiple Click add-on boards on a single mikroBUS socket, we will test each peripheral individually one at a time.</p>
+    <h2 id="_idParaDest-373" class="heading-2"><a id="_idTextAnchor421"/>Attaching the GNSS Click 7 add-on board</h2>
+    <p class="normal"><strong class="keyWord">Global Navigation Satellite System</strong> (<strong class="keyWord">GNSS</strong>) receivers <a id="_idIndexMarker921"/>send <strong class="keyWord">National Marine Electronics Association</strong> (<strong class="keyWord">NMEA</strong>) data over UART (serial port), I2C, or SPI. Many GNSS user <a id="_idIndexMarker922"/>space tools like <code class="inlineCode">gpsd</code> only work with modules <a id="_idIndexMarker923"/>connected via serial port.</p>
+    <p class="normal">Download the NEO-M9N series data sheet from u-blox’s product page at <a href="https://www.u-blox.com/en/product/neo-m9n-module"><span class="url">https://www.u-blox.com/en/product/neo-m9n-module</span></a>. Jump to the section describing SPI. It says that SPI is disabled by default because its <a id="_idIndexMarker924"/>pins are shared with the UART and I2C interfaces. To enable SPI on the NEO-M9N, we must connect the D_SEL pin to GND. Pulling down D_SEL converts the two UART and two 12C pins into four SPI pins. This explains why the GNSS 7 Click add-on board defaults to operating over I2C and UART. To select SPI communication on the GNSS 7 Click, you need to insert a jumper.</p>
+    <p class="normal">To attach your GNSS Click 7 add-on board to the BeaglePlay:</p>
+    <ol>
+      <li class="numberedList" value="1">Unplug the BeaglePlay from USB-C power.</li>
+      <li class="numberedList">Insert the GNSS Click 7 add-on board into the mikroBUS socket on the BeaglePlay.</li>
+      <li class="numberedList">Screw the external active GNSS antenna onto the GNSS SMA connector.</li>
+      <li class="numberedList">Apply power to the BeaglePlay by way of the USB-C port.</li>
+      <li class="numberedList">Reconnect the Ethernet cable from the BeaglePlay to a free port on your router if disconnected.</li>
+    </ol>
+    <p class="normal">SSH back into the BeaglePlay once it is back online.</p>
+    <p class="normal">To confirm that your GNSS Click 7 add-on board was correctly attached and recognized:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ dmesg | grep mikrobus
+[    1.969019] mikrobus:mikrobus_port_register: registering port mikrobus-0
+[    1.969093] mikrobus mikrobus-0: mikrobus port 0 eeprom empty probing default eeprom
+[    2.734524] mikrobus_manifest:mikrobus_manifest_attach_device: parsed device 1, driver=neo-8, protocol=4, reg=0
+[    2.739995] mikrobus_manifest:mikrobus_manifest_attach_device: device 1, number of properties=1
+[    2.740005] mikrobus_manifest:mikrobus_manifest_parse:  GNSS 7 Click manifest parsed with 1 devices
+[    2.740073] mikrobus mikrobus-0: registering device : neo-8
+</code></pre>
+    <p class="normal">If the output from <code class="inlineCode">dmesg</code> looks like what’s above, then you have successfully attached your add-on board to the BeaglePlay.</p>
+    <p class="normal">To examine your newly attached GNSS device:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ ls /sys/class/gnss/gnss0/
+dev  device  power  subsystem  type  uevent
+</code></pre>
+    <p class="normal">This means that a GNSS device is now available for use at <code class="inlineCode">/dev/gnss0</code>.</p>
+    <h2 id="_idParaDest-374" class="heading-2"><a id="_idTextAnchor422"/>Receiving NMEA messages</h2>
+    <p class="normal">Lastly, we will install the Python test program and run it on the target. This program simply outputs the live message stream from the GNSS module to the console.</p>
+    <p class="normal">NMEA is a data message format supported by most GNSS receivers. The NEO-M9N outputs NMEA sentences by <a id="_idIndexMarker925"/>default. These sentences are ASCII text starting with the <code class="inlineCode">$</code> character followed by comma-separated fields. What we want to do first is read the stream of NMEA sentences from the NEO-M9N out of the <code class="inlineCode">/dev/gnss0</code> interface. Raw NMEA messages are not always easy to read, so we will use a parser to add helpful annotations to the data fields.</p>
+    <p class="normal">To stream the ASCII input from the GNSS module to <code class="inlineCode">stdout</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo cat /dev/gnss0
+$GNRMC,201929.00,A,3723.40927,N,12204.29313,W,0.159,,181224,,,A,V*04
+$GNVTG,,T,,M,0.159,N,0.294,K,A*3F
+$GNGGA,201929.00,3723.40927,N,12204.29313,W,1,09,1.16,43.4,M,-30.0,M,,*41
+$GNGSA,A,3,30,08,14,07,20,,,,,,,,2.10,1.16,1.75,1*0C
+$GNGSA,A,3,,,,,,,,,,,,,2.10,1.16,1.75,2*04
+$GNGSA,A,3,03,,,,,,,,,,,,2.10,1.16,1.75,3*06
+$GNGSA,A,3,36,20,19,,,,,,,,,,2.10,1.16,1.75,4*0D
+$GPGSV,3,1,11,04,13,142,,07,63,045,35,08,36,068,25,09,39,150,,1*61
+$GPGSV,3,2,11,13,11,316,07,14,46,233,21,17,04,184,,20,19,269,19,1*62
+$GPGSV,3,3,11,22,25,228,32,27,13,041,,30,60,318,28,1*5D
+$GLGSV,1,1,00,1*78
+$GAGSV,1,1,04,02,22,228,23,03,60,310,30,05,63,148,,16,77,040,33,7*76
+$GBGSV,1,1,03,19,47,204,31,20,10,168,25,36,62,293,35,1*4E
+$GNGLL,3723.40927,N,12204.29313,W,201929.00,A,A*66
+&lt;…&gt;
+</code></pre>
+    <p class="normal">You should see a spurt of NMEA sentences once every second. Hit <em class="italic">Ctrl + C</em> to cancel the stream and return to the command-line prompt.</p>
+    <p class="normal">An NMEA parser script is included in the GitHub repo. That <code class="inlineCode">parse_nmea.py</code> script depends on the <code class="inlineCode">pynmea2</code> library.</p>
+    <p class="normal">To install <code class="inlineCode">pynmea2</code> on the BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ sudo apt install python3.11-venv
+debian@BeagleBone:~$ python3 -m venv gnss-click
+debian@BeagleBone:~$ source gnss-click/bin/activate
+(gnss-click) $ pip3 install pynmea2
+</code></pre>
+    <p class="normal">To pipe the output from <code class="inlineCode">/dev/gnss0</code> into the NMEA parser:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gnss-click) $ cd ~/MELD/Chapter12
+(gnss-click) $ sudo cat /dev/gnss0 | ./parse_nmea.py
+</code></pre>
+    <p class="normal">The parsed NMEA output looks like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">&lt;RMC(timestamp=datetime.time(20, 33, 31, tzinfo=datetime.timezone.utc), status='A', lat='3723.40678', lat_dir='N', lon='12204.28976', lon_dir='W', spd_over_grnd=0.389, true_course=None, datestamp=datetime.date(2024, 12, 18), mag_variation='', mag_var_dir='', mode_indicator='A', nav_status='V')&gt;
+&lt;VTG(true_track=None, true_track_sym='T', mag_track=None, mag_track_sym='M', spd_over_grnd_kts=Decimal('0.389'), spd_over_grnd_kts_sym='N', spd_over_grnd_kmph=0.72, spd_over_grnd_kmph_sym='K', faa_mode='A')&gt;
+&lt;GGA(timestamp=datetime.time(20, 33, 31, tzinfo=datetime.timezone.utc), lat='3723.40678', lat_dir='N', lon='12204.28976', lon_dir='W', gps_qual=1, num_sats='11', horizontal_dil='1.10', altitude=50.1, altitude_units='M', geo_sep='-30.0', geo_sep_units='M', age_gps_data='', ref_station_id='')&gt;
+&lt;…&gt;
+</code></pre>
+    <p class="normal">Don’t be discouraged if your GNSS module can’t see any satellites or acquire a fixed position. This could be due to any number of reasons, such as choosing the wrong GNSS antenna or no clear line of sight to the sky. RF is complicated and the goal of this chapter was only to prove we could get communications <a id="_idIndexMarker926"/>with the GNSS module working. Now we can experiment with alternate GNSS antennas and more of the NEO-M9N’s advanced features, like the much richer UBX message protocol.</p>
+    <p class="normal">With NMEA data now streaming out to the terminal, our first project is finished. We succeeded in verifying that the AM6254 can communicate with the NEO-M9N via a combination of I2C and UART.</p>
+    <h2 id="_idParaDest-375" class="heading-2"><a id="_idTextAnchor423"/>Attaching the Environment Click add-on board</h2>
+    <p class="normal">The BME680 environmental <a id="_idIndexMarker927"/>sensor measures temperature, relative humidity, pressure, and gas. It communicates with the AM6254 SoC <a id="_idIndexMarker928"/>over SPI or I2C from the Environment Click add-on board. Like the GNSS 7 Click, the Environment Click defaults to I2C. To select SPI communication on the Environment Click, you need to insert a jumper.</p>
+    <p class="normal">To attach your Environment Click add-on board to the BeaglePlay:</p>
+    <ol>
+      <li class="numberedList" value="1">Unplug the BeaglePay from USB-C power.</li>
+      <li class="numberedList">Insert the Environment Click add-on board into the mikroBUS socket on the BeaglePlay.</li>
+      <li class="numberedList">Apply power to the BeaglePlay by way of the USB-C port.</li>
+      <li class="numberedList">Reconnect the Ethernet cable from the BeaglePlay to a free port on your router if disconnected.</li>
+    </ol>
+    <p class="normal">SSH back into the BeaglePlay once it is back online.</p>
+    <p class="normal">To confirm that your Environment Click add-on board was correctly attached and recognized:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ dmesg | grep mikrobus
+[    1.962765] mikrobus:mikrobus_port_register: registering port mikrobus-0
+[    1.962829] mikrobus mikrobus-0: mikrobus port 0 eeprom empty probing default eeprom
+[    2.413200] mikrobus_manifest:mikrobus_manifest_attach_device: parsed device 1, driver=bme680, protocol=3, reg=77
+[    2.413212] mikrobus_manifest:mikrobus_manifest_parse:  Environment Click manifest parsed with 1 devices
+[    2.413281] mikrobus mikrobus-0: registering device : bme680
+</code></pre>
+    <p class="normal">If the output from <code class="inlineCode">dmesg</code> looks like <a id="_idIndexMarker929"/>what’s above, then you have successfully attached your add-on board to the BeaglePlay.</p>
+    <p class="normal">To examine your newly<a id="_idIndexMarker930"/> attached environmental sensor:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ iio_info
+Library version: 0.24 (git tag: v0.24)
+Compiled with backends: local xml ip usb
+IIO context created with local backend.
+Backend version: 0.24 (git tag: v0.24)
+Backend description string: Linux BeagleBone 5.10.168-ti-arm64-r118 #1bookworm SMP Thu Feb 6 01:00:48 UTC 2025 aarch64
+IIO context has 2 attributes:
+        local,kernel: 5.10.168-ti-arm64-r118
+        uri: local:
+IIO context has 2 devices:
+        iio:device0: bme680
+                4 channels found:
+                        temp:  (input)
+                        2 channel-specific attributes found:
+                                attr  0: input value: 25020
+                                attr  1: oversampling_ratio value: 8
+                        pressure:  (input)
+                        2 channel-specific attributes found:
+                                attr  0: input value: 1014.370000000
+                                attr  1: oversampling_ratio value: 4
+                        resistance:  (input)
+                        1 channel-specific attributes found:
+                                attr  0: input value: 1183
+                        humidityrelative:  (input)
+                        2 channel-specific attributes found:
+                                attr  0: input value: 42.810000000
+                                attr  1: oversampling_ratio value: 2
+                1 device-specific attributes found:
+                                attr  0: oversampling_ratio_available value: 1 2 4 8 16
+                No trigger on this device
+&lt;…&gt;
+</code></pre>
+    <p class="normal">Notice that<a id="_idIndexMarker931"/> the <code class="inlineCode">bme680</code> appears<a id="_idIndexMarker932"/> as <code class="inlineCode">iio:device0</code>.</p>
+    <h2 id="_idParaDest-376" class="heading-2"><a id="_idTextAnchor424"/>Reading sensor values</h2>
+    <p class="normal">Like other Linux IIO devices, the BME680’s register <a id="_idIndexMarker933"/>values are accessible from <code class="inlineCode">sysfs</code>.</p>
+    <p class="normal">To read the humidity, pressure, gas, and temperature values from the BME680:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd /sys/bus/iio/devices/iio\:device0
+$ cat in_humidityrelative_input
+<a id="_idTextAnchor425"/>41.074000000
+$ cat in_pressure_input
+1014.350000000
+$ cat in_resistance_input
+3966
+$ cat in_temp_input
+24540
+</code></pre>
+    <p class="normal">A script to continually poll all four channels is included in the GitHub repo. That <code class="inlineCode">sensors.py</code> script has no dependencies outside of the Python standard library.</p>
+    <p class="normal">To run the script:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/MELD/Chapter12
+$ ./sensors.py
+</code></pre>
+    <p class="normal">With sensor values now streaming out to the terminal, our second project is finished. We succeeded in verifying that the AM6254 can communicate with the BME680 via I2C.</p>
+    <h2 id="_idParaDest-377" class="heading-2"><a id="_idTextAnchor426"/>Attaching the OLED C Click add-on board</h2>
+    <p class="normal">The OLED C Click comes <a id="_idIndexMarker934"/>with a Solomon Systech SSD1351 controller to drive the PSP27801 OLED display. You write to the 128x128 pixel SRAM display <a id="_idIndexMarker935"/>buffer inside the SSD1351 over SPI. The SSD1351 supports two color modes: 65K (6:5:6) and 262K (6:6:6). An (r:g:b) triplet indicates how many bits are used to represent the individual RGB components of a pixel. The PSP27801 has a resolution of 96x96 pixels, noticeably less than that of the SD1351’s display buffer.</p>
+    <p class="normal">To attach your OLED C Click add-on board to the BeaglePlay:</p>
+    <ol>
+      <li class="numberedList" value="1">Unplug the BeaglePay from USB-C power.</li>
+      <li class="numberedList">Insert the OLED C Click add-on board into the mikroBUS socket on the BeaglePlay.</li>
+      <li class="numberedList">Apply power to the BeaglePlay by way of the USB-C port.</li>
+      <li class="numberedList">Reconnect the Ethernet cable from the BeaglePlay to a free port on your router if disconnected.</li>
+    </ol>
+    <p class="normal">SSH back into the BeaglePlay once it is back online.</p>
+    <p class="normal">To confirm that your OLED C Click add-on board was correctly attached and recognized:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ dmesg | grep mikrobus
+[    1.946050] mikrobus:mikrobus_port_register: registering port mikrobus-0
+[    1.946117] mikrobus mikrobus-0: mikrobus port 0 eeprom empty probing default eeprom
+[    3.553403] mikrobus_manifest:mikrobus_manifest_attach_device: parsed device 1, driver=fb_ssd1351, protocol=11, reg=0
+[    3.553416] mikrobus_manifest:mikrobus_manifest_attach_device: device 1, number of properties=7
+[    3.553430] mikrobus_manifest:mikrobus_manifest_attach_device: device 1, number of gpio resource=2
+[    3.553437] mikrobus_manifest:mikrobus_manifest_parse:  OLEDC Click manifest parsed with 1 devices
+[    3.553513] mikrobus mikrobus-0: registering device : fb_ssd1351
+[    3.553520] mikrobus mikrobus-0:  adding lookup table : spi1.0
+</code></pre>
+    <p class="normal">If the output from <code class="inlineCode">dmesg</code> looks like<a id="_idIndexMarker936"/> what’s above, then<a id="_idIndexMarker937"/> you have successfully attached your add-on board to the BeaglePlay.</p>
+    <p class="normal">To examine your newly attached OLED display:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ls /sys/class/graphics/fb0
+bits_per_pixel  console  dev     mode   pan     state      uevent
+bl_curve        coursor  device  modes  power   stride     virtual_size
+blank           debug    gamma   name   rotate  subsystem
+$ cd /sys/class/graphics/fb0
+$ cat name
+fb_ssd1351
+$ cat bits_per_pixel
+<a id="_idTextAnchor427"/>16
+$ cat virtual_size
+128,128
+</code></pre>
+    <p class="normal">Exposing the SSD1351 as a Linux framebuffer greatly simplifies how we interact with the OLED display. You do not need to link a mikroSDK library and deal with its clumsy C API. Just write directly to the <code class="inlineCode">fb0</code> device any way you like.</p>
+    <h2 id="_idParaDest-378" class="heading-2"><a id="_idTextAnchor428"/>Displaying an animation</h2>
+    <p class="normal">A test script for the<a id="_idIndexMarker938"/> OLED display is included in the GitHub repo. That <code class="inlineCode">display.py</code> script depends on the <code class="inlineCode">luma.core</code> and <code class="inlineCode">numpy</code> libraries:</p>
+    <p class="normal">To install <code class="inlineCode">luma.core</code> and <code class="inlineCode">numpy</code> on the BeaglePlay:</p>
+    <pre class="programlisting con"><code class="hljs-con">debian@BeagleBone:~$ python3 -m venv ./oledc-click
+debian@BeagleBone:~$ source ./oledc-click/bin/activate
+(oledc-click) $ pip install luma.core numpy
+</code></pre>
+    <p class="normal">To run the test script:</p>
+    <pre class="programlisting con"><code class="hljs-con">(oledc-click) $ cd ~/MELD/Chapter12
+(oledc-click) $ ./display.py
+</code></pre>
+    <p class="normal">A continuous animation involving a red, a green, and a blue square appears on the OLED display. As the three squares move towards each other, they overlap to form a white square in the center. The squares then separate and move back to their starting places so that the animation repeats itself.</p>
+    <p class="normal">Our third and final project is<a id="_idIndexMarker939"/> now done. We succeeded in verifying that the AM6254 can display moving images on the PSP27801 via SPI.</p>
+    <h1 id="_idParaDest-379" class="heading-1"><a id="_idTextAnchor429"/>Summary</h1>
+    <p class="normal">In this chapter, we learned how to integrate peripherals with an SoC. To do that, we first had to glean knowledge from schematics and data sheets. Without finished hardware in hand, we also had to select and plug in add-on boards. Lastly, we coded simple test programs in Python and ran them to verify peripheral functionality. Now that we have working hardware, we can begin to develop our embedded application.</p>
+    <p class="normal">The next two chapters are all about system startup and the different options you have for the <code class="inlineCode">init</code> program, from the simple BusyBox <code class="inlineCode">init</code> to more complex systems such as System V <code class="inlineCode">init</code> and <code class="inlineCode">systemd</code>. Your choice of <code class="inlineCode">init</code> program can have a big impact on the user experience of your product, both in terms of boot times and fault tolerance.</p>
+    <h1 id="_idParaDest-380" class="heading-1"><a id="_idTextAnchor430"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">Introduction to SPI Interface</em>, by Piyu Dhaker – <a href="https://www.analog.com/en/analog-dialogue/articles/introduction-to-spi-interface.html%0D%0A"><span class="url">https://www.analog.com/en/analog-dialogue/articles/introduction-to-spi-interface.html</span></a></li>
+      <li class="bulletList"><em class="italic">Soldering is Easy</em>, by Mitch Altman, Andie Nordgren, and Jeff Keyzer – <a href="https://mightyohm.com/blog/2011/04/soldering-is-easy-comic-book"><span class="url">https://mightyohm.com/blog/2011/04/soldering-is-easy-comic-book</span></a></li>
+    </ul>
+  </div>
+</div></div></body></html>

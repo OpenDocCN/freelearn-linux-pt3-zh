@@ -1,0 +1,306 @@
+<html><head></head><body>
+		<div id="_idContainer013">
+			<h1 id="_idParaDest-52"><em class="italic"><a id="_idTextAnchor052"/>Chapter 4</em>: Controlling systemd Services</h1>
+			<p>Now that we've seen what <strong class="source-inline">systemd</strong> services are, it's time to learn how to control them. In this chapter, we're going to do just that. Specifically, we'll cover the following skills:</p>
+			<ul>
+				<li>Verifying the status of a service</li>
+				<li>Starting, stopping, and reloading services</li>
+				<li>Enabling and disabling services</li>
+				<li>Killing a service</li>
+				<li>Masking services</li>
+			</ul>
+			<p>These are good skills to have, because you'll be practicing them a lot in your routine as a Linux server administrator. So, if you're ready, let's get started.</p>
+			<h1 id="_idParaDest-53"><a id="_idTextAnchor053"/>Technical requirements</h1>
+			<p>All you need for this chapter is a virtual machine of some sort, with full sudo privileges for your own user account. For my demos, I'll be using the brand-new AlmaLinux 8 for the Red Hat (RHEL) side of things and Ubuntu Server 20.04 for the Ubuntu side.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/3oev29P">https://bit.ly/3oev29P</a></p>
+			<p class="callout-heading">A word about CentOS Linux</p>
+			<p class="callout">I know, you're probably used to seeing CentOS Linux for these demos. But, at the end of 2020, the Red Hat company announced that they would end support for the enterprise-ready version of CentOS 8 at the end of 2021. Its replacement, CentOS Stream, is a rolling-release distro that you might not want to use in the enterprise. Fortunately, there are suitable enterprise-ready replacements for CentOS 8 from other organizations, which include Oracle Enterprise Linux 8, Springdale Linux 8, and Alma Linux 8. At the time of writing, Rocky Linux 8 is in the planning stages and will eventually be released by a founder of the original CentOS project. At this point, it's impossible to know which one will become the most popular replacement for CentOS. (Of course, there's also <strong class="bold">Red Hat Enterprise Linux 8</strong> (<strong class="bold">RHEL 8</strong>), but you'll need to purchase a subscription in order to do anything meaningful with it.)</p>
+			<p>This is going to be hands-on, folks. So, if you're feeling spry, fire up a virtual machine and follow my lead.</p>
+			<h1 id="_idParaDest-54"><a id="_idTextAnchor054"/>Verifying the status of a service</h1>
+			<p>I'll<a id="_idIndexMarker075"/> be using Alma Linux for this first demo, for a reason that will become clear in just a moment. First, let's install the Apache web server by doing the following:</p>
+			<p class="source-code">sudo dnf install httpd</p>
+			<p>Before you can start using Apache, you'll want to know whether it's enabled, so that it will automatically start when you reboot the machine. You'll also want to know whether it's active, which just means that it's running.</p>
+			<p>To see whether it's enabled, do the following:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl is-enabled httpd</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">disabled</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Here, you see why I'm using a RHEL-type distro for this. When you install a service on any RHEL-type machine, it's normally <strong class="source-inline">disabled</strong> by default. When you install a service on Ubuntu, it's normally <strong class="source-inline">enabled</strong> by default. So, by doing this on Alma Linux, I can give you more to look at.</p>
+			<p>Next, let's see whether Apache is running, by doing the following:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl is-active httpd</p>
+			<p class="source-code">inactive</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Okay, it isn't. Now, let's look at both things at once:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl status httpd</p>
+			<p class="source-code"> httpd.service - The Apache HTTP Server</p>
+			<p class="source-code">   Loaded: loaded (/usr/lib/systemd/system/httpd.service; disabled; vendor preset: disabled)</p>
+			<p class="source-code">   Active: inactive (dead)</p>
+			<p class="source-code">     Docs: man:httpd.service(8)</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>There are<a id="_idIndexMarker076"/> a couple of things that I want you to note about these commands. Firstly, if you just want to view information about services, you don't need sudo privileges. Secondly, if you want to do anything with a service, you don't need to append the <strong class="source-inline">.service</strong> filename extension. I mean, you can if you want to, and it won't hurt anything, but you don't have to. If there are multiple types of unit files with the same name, <strong class="source-inline">systemctl</strong> will always invoke the <strong class="source-inline">.service</strong> unit by default. For example, the <strong class="bold">Common Unix Printing System</strong> (<strong class="bold">CUPS</strong>) has <a id="_idIndexMarker077"/>a <strong class="source-inline">.service</strong> unit, a <strong class="source-inline">.path</strong> unit, and a <strong class="source-inline">.socket</strong> unit, as you can see here:</p>
+			<p class="source-code">[donnie@localhost ~]$ ls -l /lib/systemd/system/cups.*</p>
+			<p class="source-code">-r--r--r--. 1 root root 142 Aug 27  2020 /lib/systemd/system/cups.path</p>
+			<p class="source-code">-r--r--r--. 1 root root 248 Aug 27  2020 /lib/systemd/system/cups.service</p>
+			<p class="source-code">-r--r--r--. 1 root root 136 Aug 27  2020 /lib/systemd/system/cups.socket</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Without a filename extension, <strong class="source-inline">systemctl</strong> will show information about <strong class="source-inline">cups.service</strong>, as shown next:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl status cups</p>
+			<p class="source-code">cups.service - CUPS Scheduler</p>
+			<p class="source-code">   Loaded: loaded (/usr/lib/systemd/system/cups.service; enabled; vendor preset: enabled)</p>
+			<p class="source-code">   Active: active (running) since Tue 2021-03-30 16:37:18 EDT; 33min ago</p>
+			<p class="source-code">     Docs: man:cupsd(8)</p>
+			<p class="source-code"> Main PID: 989 (cupsd)</p>
+			<p class="source-code">   Status: "Scheduler is running..."</p>
+			<p class="source-code">    Tasks: 1 (limit: 11274)</p>
+			<p class="source-code">   Memory: 3.2M</p>
+			<p class="source-code">   CGroup: /system.slice/cups.service</p>
+			<p class="source-code">           └─989 /usr/sbin/cupsd -l</p>
+			<p class="source-code">Mar 30 16:37:18 localhost.localdomain systemd[1]: Starting CUPS Scheduler...</p>
+			<p class="source-code">Mar 30 16:37:18 localhost.localdomain systemd[1]: Started CUPS Scheduler.</p>
+			<p class="source-code">Mar 30 16:38:14 localhost.localdomain cupsd[989]: REQUEST localhost - - "POST / HTTP/1.1" 200 362 Create-Printer-Subscriptions successful-ok</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>This shows<a id="_idIndexMarker078"/> a lot more information about a running service than what the <strong class="source-inline">is-active</strong> option does. The <strong class="source-inline">cups.service - CUPS Scheduler</strong> line at the top comes from the <strong class="source-inline">Description=CUPS Scheduler</strong> line in the <strong class="source-inline">[Unit]</strong> section of the <strong class="source-inline">cups.service</strong> file, and information about the man page comes from the <strong class="source-inline">Documentation=man:cupsd(8)</strong> line. The <strong class="source-inline">Main PID:</strong> line shows that the main CUPS process has <a id="_idIndexMarker079"/>a <strong class="bold">Process Identification Number</strong> (<strong class="bold">PID</strong>) of <strong class="source-inline">989</strong>. Verify that with this handy <strong class="source-inline">ps aux</strong> command:</p>
+			<p class="source-code">[donnie@localhost ~]$ ps aux | grep 'cups'</p>
+			<p class="source-code">root         989  0.0  0.5 340316 10196 ?        Ss   16:37   0:00 /usr/sbin/cupsd -l</p>
+			<p class="source-code">donnie      8352  0.0  0.0 221904  1072 pts/1    R+   18:02   0:00 grep --color=auto cups</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Yes indeed, it is PID <strong class="source-inline">989</strong>.</p>
+			<p>Don't worry about that <strong class="source-inline">CGroup:</strong> line for now. We'll talk about cgroups later.</p>
+			<p>The final thing you see is system log entries that got created when the service started. On a RHEL-type system, you'll see them in the <strong class="source-inline">/var/log/messages</strong> file. On Debian and its offspring, such as Ubuntu, you'll see them in the <strong class="source-inline">/var/log/syslog</strong> file.</p>
+			<p>To see information<a id="_idIndexMarker080"/> about the other types of units, you'll need to append the filename extension, as shown:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl status cups.path</p>
+			<p class="source-code"> cups.path - CUPS Scheduler</p>
+			<p class="source-code">   Loaded: loaded (/usr/lib/systemd/system/cups.path; enabled; vendor preset: enabled)</p>
+			<p class="source-code">   Active: active (running) since Tue 2021-03-30 16:37:12 EDT; 1h 16min ago</p>
+			<p class="source-code">Mar 30 16:37:12 localhost.localdomain systemd[1]: Started CUPS Scheduler.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>This makes for a shorter display, since there's less to show about <strong class="source-inline">.path</strong> units.</p>
+			<p>All right, we're off to a good start. Let's get back to that Apache service and see what we can do with it.</p>
+			<h1 id="_idParaDest-55"><a id="_idTextAnchor055"/>Starting, stopping, and reloading services</h1>
+			<p>We've<a id="_idIndexMarker081"/> already seen that when you install a service on a RHEL-type distro, such as Alma Linux, the service is normally disabled and not active by default. So now, I'll give you three guesses about what the command is to start a service. </p>
+			<p>Give up? Okay, here's how we start Apache:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl start httpd</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Well, that's easy enough. Let's take a look at the status. Here's the first part of the command output:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl status httpd</p>
+			<p class="source-code"> httpd.service - The Apache HTTP Server</p>
+			<p class="source-code">   Loaded: loaded (/usr/lib/systemd/system/httpd.service; disabled; vendor preset: disabled)</p>
+			<p class="source-code">   Active: active (running) since Tue 2021-03-30 18:35:05 EDT; 1min 8s ago</p>
+			<p class="source-code">     Docs: man:httpd.service(8)</p>
+			<p class="source-code"> Main PID: 8654 (httpd)</p>
+			<p class="source-code">   Status: "Running, listening on: port 80"</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>You<a id="_idIndexMarker082"/> see here that the service is active, but that it's also still disabled. This means that if I were to reboot the machine, the service won't automatically start. To see more information, use the <strong class="source-inline">ps aux</strong> command, as follows:</p>
+			<p class="source-code">[donnie@localhost ~]$ ps aux | grep httpd</p>
+			<p class="source-code">root        8654  0.0  0.6 275924 11196 ?        Ss   18:35   0:00 /usr/sbin/httpd -DFOREGROUND</p>
+			<p class="source-code">apache      8655  0.0  0.4 289796  8160 ?        S    18:35   0:00 /usr/sbin/httpd -DFOREGROUND</p>
+			<p class="source-code">apache      8656  0.0  0.5 1347588 10032 ?       Sl   18:35   0:00 /usr/sbin/httpd -DFOREGROUND</p>
+			<p class="source-code">apache      8657  0.0  0.5 1347588 10032 ?       Sl   18:35   0:00 /usr/sbin/httpd -DFOREGROUND</p>
+			<p class="source-code">apache      8658  0.0  0.6 1478716 12080 ?       Sl   18:35   0:00 /usr/sbin/httpd -DFOREGROUND</p>
+			<p class="source-code">donnie      8924  0.0  0.0 221904  1044 pts/1    R+   18:39   0:00 grep --color=auto httpd</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>The first process listed here as PID <strong class="source-inline">8654</strong> belongs to the root user and is the main process that we see in the <strong class="source-inline">systemctl status</strong> output. The next four processes, with PIDs <strong class="source-inline">8655</strong> through <strong class="source-inline">8658</strong>, are used whenever someone connects to a website on this server and belong to the non-privileged <strong class="source-inline">apache</strong> user. This is a security feature that's been built into Apache for pretty much forever and has nothing to do with <strong class="source-inline">systemd</strong>. Running these processes under a non-privileged user account helps prevent attackers from taking over the system for their own nefarious purposes.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">If you want to see what the rest of the <strong class="source-inline">ps</strong> output means, view the <strong class="source-inline">ps</strong> man page by doing:</p>
+			<p class="callout"><strong class="source-inline">man ps</strong></p>
+			<p>To<a id="_idIndexMarker083"/> stop the Apache service, just do <strong class="source-inline">sudo systemctl stop httpd</strong>. (Yeah, I bet you didn't see that one coming.)</p>
+			<p>If you change the configuration of a running service, you'll need to reload it. You can do that with the <strong class="source-inline">restart</strong> option, which will restart the service and cause the new configuration to be reloaded. Certain services, such as Apache, also have the <strong class="source-inline">reload</strong> option. This will read in the new configuration without interrupting the running service. Be aware, though, that you can't always use <strong class="source-inline">reload</strong>. With Apache, for example, you can use <strong class="source-inline">reload</strong> to reload changes to website configuration files, but you'll need to use <strong class="source-inline">restart</strong> to read in certain changes to the Apache configuration, such as when you enable or disable an Apache module. To see whether <strong class="source-inline">reload</strong> works for any particular service, try consulting the documentation for that service.</p>
+			<p>The specific commands to start, stop, restart, or reload a service can be defined in its associated <strong class="source-inline">.service</strong> file. Here are the relevant lines from the <strong class="source-inline">httpd.service</strong> file on the Alma machine:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">ExecStart=/usr/sbin/httpd $OPTIONS -DFOREGROUND</p>
+			<p class="source-code">ExecReload=/usr/sbin/httpd $OPTIONS -k graceful</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>For now, don't worry about what the start and reload options you see here mean, because that knowledge is specific to Apache, rather than to <strong class="source-inline">systemd</strong>. What I do want you to notice is the <strong class="source-inline">ExecReload=</strong> line. We see here that Apache has its own built-in way of reloading its configuration. Contrast that with what you see in this <strong class="source-inline">sshd.service</strong> file, which is also from the Alma machine:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">ExecStart=/usr/sbin/sshd -D $OPTIONS $CRYPTO_POLICY</p>
+			<p class="source-code">ExecReload=/bin/kill -HUP $MAINPID</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Here, we<a id="_idIndexMarker084"/> see that the Secure Shell service doesn't have its own internal mechanism for reloading its configuration. Instead, it relies on the old-fashioned <strong class="source-inline">kill</strong> utility that's been in Linux almost forever. Realize though that <strong class="source-inline">kill</strong> doesn't always mean <em class="italic">to kill</em>. When you use the <strong class="source-inline">kill</strong> utility, it sends a signal to a process to make it do something. Normally, you would send a signal that really would kill the process. But you can also use it to send the <strong class="source-inline">HUP</strong> signal to a service, which will cause the service to reload its configuration without service interruption. (In case you're wondering, <strong class="source-inline">HUP</strong> is an acronym for <em class="italic">Hang Up</em>. The original purpose of this signal was to inform running programs when a serial line was dropped. However, the purpose of the <strong class="source-inline">HUP</strong> signal has since been changed to what it is now.) The <strong class="source-inline">$MAINPID</strong> instance that you see is an environmental variable that <strong class="source-inline">systemd</strong> uses to access the PID number of the main Secure Shell process.</p>
+			<p>Optionally, you <a id="_idIndexMarker085"/>can have a line that defines what happens when you issue a <strong class="source-inline">stop</strong> command. You don't see that here on Alma Linux, but you do see it in the <strong class="source-inline">apache2.service</strong> file on Ubuntu as shown here:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">ExecStart=/usr/sbin/apachectl start</p>
+			<p class="source-code">ExecStop=/usr/sbin/apachectl stop</p>
+			<p class="source-code">ExecReload=/usr/sbin/apachectl graceful</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>You haven't seen an <strong class="source-inline">ExecRestart=</strong> parameter, because there isn't one. Restarting a service just consists of stopping it, and then starting it again.</p>
+			<p>Next up, we'll look at how to enable and disable services.</p>
+			<h1 id="_idParaDest-56"><a id="_idTextAnchor056"/>Enabling and disabling services</h1>
+			<p>It's all well and<a id="_idIndexMarker086"/> good that we have Apache running, but if we were to reboot our Alma Linux machine, Apache won't start until you start it manually. To begin this demo, first stop Apache with this:</p>
+			<p class="source-code">sudo systemctl stop httpd</p>
+			<p>Now, enable it by doing this:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl enable httpd</p>
+			<p class="source-code">Created symlink /etc/systemd/system/multi-user.target.wants/httpd.service → /usr/lib/systemd/system/httpd.service.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>When we enable the Apache service, we create a symbolic link in the <strong class="source-inline">/etc/systemd/system/multi-user.target.wants/</strong> directory that points back to the <strong class="source-inline">httpd.service</strong> file. Now, I've been telling you all along that the unit files are in the <strong class="source-inline">/lib/systemd/system/</strong> directory. But the eagle-eyed among you will notice that the symbolic link points to the service file in the <strong class="source-inline">/usr/lib/systemd/system/</strong> directory. That's because the newer versions of many Linux distros have gotten rid of certain top-level directories and now just use the corresponding directories that have always been under the <strong class="source-inline">/usr/</strong> directory. But the Linux <a id="_idIndexMarker087"/>gurus in the sky have been nice enough to accommodate old codgers like me who are used to having those top-level directories. They did this by creating symbolic links in the root level of the filesystem, which you can see here:</p>
+			<p class="source-code">[donnie@localhost /]$ pwd</p>
+			<p class="source-code">/</p>
+			<p class="source-code">[donnie@localhost /]$ ls -l lib*</p>
+			<p class="source-code">lrwxrwxrwx. 1 root root 7 Aug 14  2020 lib -&gt; usr/lib</p>
+			<p class="source-code">lrwxrwxrwx. 1 root root 9 Aug 14  2020 lib64 -&gt; usr/lib64</p>
+			<p class="source-code">[donnie@localhost /]$</p>
+			<p>So, if you're like me and<a id="_idIndexMarker088"/> keep forgetting that those top-level directories are no longer there, it's okay. The symbolic links work just fine. But, I digress. </p>
+			<p>Go into the <strong class="source-inline">/etc/systemd/system/multi-user.target.wants/</strong> directory, and you'll see the symbolic link that got created with our <strong class="source-inline">systemctl enable</strong> command, as shown here:</p>
+			<p class="source-code">[donnie@localhost ~]$ cd /etc/systemd/system/multi-user.target.wants/</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$ ls -l httpd.service </p>
+			<p class="source-code">lrwxrwxrwx. 1 root root 37 Mar 30 19:22 httpd.service -&gt; /usr/lib/systemd/system/httpd.service</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$</p>
+			<p>Okay, so you're now wondering what that <strong class="source-inline">multi-user.target.wants</strong> thing is all about. Well, I'll cover the <strong class="source-inline">.target</strong> concept in detail later. For now, just accept that the multi-user target is the <em class="italic">runlevel</em> in which the operating system is fully booted and is ready for normal operations. The <strong class="source-inline">/etc/systemd/system/multi-user.target.wants/</strong> directory contains the symbolic links for units that will automatically start whenever the operating system goes into multi-user mode. This directory mostly contains symbolic links to service units, but it can sometimes have links to other types of units. On this Alma Linux machine, there's also a link to the <strong class="source-inline">cups.path</strong> unit, as shown here:</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$ ls -l cups*</p>
+			<p class="source-code">lrwxrwxrwx. 1 root root 33 Feb 11 18:14 cups.path -&gt; /usr/lib/systemd/system/cups.path</p>
+			<p class="source-code">lrwxrwxrwx. 1 root root 36 Feb 11 18:14 cups.service -&gt; /usr/lib/systemd/system/cups.service</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$</p>
+			<p>To determine where a symbolic link should be created, the <strong class="source-inline">systemctl enable</strong> command pulls in the setting from the <strong class="source-inline">[Install]</strong> section of the service file. At the bottom of the <strong class="source-inline">httpd.service</strong> file on the Alma machine, you see this:</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=multi-user.target</p>
+			<p>At the bottom of the <strong class="source-inline">accounts-daemon.service</strong> file, you'll see this:</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=graphical.target</p>
+			<p>The symbolic <a id="_idIndexMarker089"/>link for this service, when it's enabled, is in the <strong class="source-inline">/etc/systemd/system/graphical.target.wants/</strong> directory.</p>
+			<p>Be aware that when you enable a service that isn't already running, the service doesn't automatically start until you reboot the machine. You can see that here:</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$ systemctl is-enabled httpd</p>
+			<p class="source-code">enabled</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$ systemctl is-active</p>
+			<p class="source-code"> httpd</p>
+			<p class="source-code">inactive</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$</p>
+			<p>You can issue a separate <strong class="source-inline">start</strong> command to start the service, or you can use the <strong class="source-inline">enable --now</strong> option to enable and start the service with just a single command, as shown here:</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$ sudo systemctl enable --now httpd</p>
+			<p class="source-code">Created symlink /etc/systemd/system/multi-user.target.wants/httpd.service → /usr/lib/systemd/system/httpd.service.</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$</p>
+			<p>When you <a id="_idIndexMarker090"/>disable a unit, the symbolic link for it gets removed. We can see that here with the Apache service:</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$ sudo systemctl disable httpd</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">Removed /etc/systemd/system/multi-user.target.wants/httpd.service.</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$ ls -l httpd*</p>
+			<p class="source-code">ls: cannot access 'httpd*': No such file or directory</p>
+			<p class="source-code">[donnie@localhost multi-user.target.wants]$</p>
+			<p>If the service is running, it will remain running after you issue the <strong class="source-inline">disable</strong> command. You can issue a separate <strong class="source-inline">stop</strong> command or use the <strong class="source-inline">disable --now</strong> option to disable and stop the service at the same time.</p>
+			<p>Now, for you Ubuntu fans, here's the command to install Apache on your Ubuntu machine:</p>
+			<p class="source-code">sudo apt install apache2</p>
+			<p>If you look at the official documentation on the Apache website, you'll see that the official way of doing business is to have <strong class="source-inline">httpd</strong> as the name of the Apache service. For some strange reason that I've never figured out, Debian developers have always marched to the beat of a different drummer in a few different ways. Ubuntu is derived from Debian, so Ubuntu developers generally carry on with Debian traditions. At any rate, you can try out the preceding commands on an Ubuntu machine and just replace <strong class="source-inline">httpd</strong> with <strong class="source-inline">apache2</strong>. The only real difference you'll see is that after you initially install Apache on Ubuntu, the service will already be enabled and running.</p>
+			<p>Another cool thing you can do is to disable the manual start, stop, and restart functions of a service. The best example of this is the <strong class="source-inline">auditd</strong> service on RHEL-type machines. In the <strong class="source-inline">[Unit]</strong> section of the <strong class="source-inline">auditd.service</strong> file on my Alma machine, we see the line that does that:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">RefuseManualStop=yes</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p>Trying to restart the service gives me the following error message:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl restart auditd</p>
+			<p class="source-code">Failed to restart auditd.service: Operation refused, unit auditd.service may be requested by dependency only (it is configured to refuse manual start/stop).</p>
+			<p class="source-code">See system logs and 'systemctl status auditd.service' for details.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Curiously, though, I <a id="_idIndexMarker091"/>can manually stop or restart the <strong class="source-inline">auditd</strong> service just fine if I use the old-fashioned <strong class="source-inline">service</strong> command from the SysV days, as we see here:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo service auditd restart</p>
+			<p class="source-code">Stopping logging:                                          [  OK  ]</p>
+			<p class="source-code">Redirecting start to /bin/systemctl start auditd.service</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>I can understand why we'd want to restrict the ability to stop or restart <strong class="source-inline">auditd</strong>, since it is related to system security. But I've never understood why RHEL maintainers prevent users from doing it with <strong class="source-inline">systemctl</strong>, yet still allow us to do it with <strong class="source-inline">service</strong>. It's just one of those things that makes you go <em class="italic">Hmmmmm</em>. It's also interesting to note that when you install <strong class="source-inline">auditd</strong> on Ubuntu, you won't see the line that disables these functions. So, on Ubuntu, you can stop and restart <strong class="source-inline">auditd</strong> with <strong class="source-inline">systemctl</strong> in the normal manner.</p>
+			<p>Next, let's look at the proper way to kill a service.</p>
+			<h1 id="_idParaDest-57"><a id="_idTextAnchor057"/>Killing a service</h1>
+			<p>It's sad, I know, but<a id="_idIndexMarker092"/> even on Linux things can sometimes crash. A great example is the Firefox web browser. Have you ever accidentally landed on a malicious web page that completely locked up your browser? I mean, you can't close the tab, there's an obnoxious noise blaring out of your computer speakers, and you can't close the browser in the normal way. You're just stuck. (Don't be embarrassed about it if you have, it's happened to all of us.) On a Linux machine, you'd get out of that by opening a terminal, using <strong class="source-inline">ps aux | grep firefox</strong> to find the PID for Firefox, and then issuing a <strong class="source-inline">kill</strong> command. For example, let's say that the PID for Firefox is <strong class="source-inline">3901</strong>. To kill it, just do:</p>
+			<p class="source-code">kill 3901</p>
+			<p>By default, this will<a id="_idIndexMarker093"/> send a number <strong class="source-inline">15</strong>, or <strong class="source-inline">SIGTERM</strong>, signal to Firefox, which will give the process a chance to clean up after itself by shutting down any associated files or network connections. Sometimes, if a process is locked up really badly, the number <strong class="source-inline">15</strong> signal won't do the trick. For times like these, you'll need to pop the cork off a bottle of strong medicine and use the number <strong class="source-inline">9</strong>, or <strong class="source-inline">SIGKILL</strong>, signal, like so:</p>
+			<p class="source-code">kill -9 3901</p>
+			<p>The number <strong class="source-inline">9</strong> signal is something you don't want to use unless you absolutely have to. It stops processes dead in their tracks, without giving them time to clean up after themselves. </p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">For more information about the various Linux signals, you'll want to look at the signal man page on your Ubuntu machine. (For some reason, the man page on the Alma Linux machine doesn't have nearly as much information.) The command is:</p>
+			<p class="callout"><strong class="source-inline">man signal</strong></p>
+			<p>Back in the SysV days, you would use the same method to kill troublesome services, except that you'd need sudo privileges to do it, because services don't run under your own user account. The problem with that is that some services spawn more than one active process, and a normal <strong class="source-inline">kill</strong> command might not shut them all down. Those services might linger on as <em class="italic">zombie</em> processes until the operating system finally reaps them and gets rid of them. (When I say <em class="italic">reaps</em>, think of the Grim Reaper who drives stakes into the hearts of zombies to finally kill them off. Oh, wait. The stake in the heart thing is for vampires, so never mind.) A good example of this would be the Apache service. We've already seen that the Apache <a id="_idIndexMarker094"/>service spawns multiple processes when it starts, and that's just on a machine that isn't yet running active websites. On an actual production web server, Apache might spawn multiple other processes for CGI scripts, PHP scripts, or whatever else. If you ever need to kill Apache, you'll want to make sure that those script processes also get killed, especially if they might be doing something malicious. On my Ubuntu machine with <strong class="source-inline">systemd</strong>, I'll do that with the <strong class="source-inline">sudo systemctl kill apache2</strong> command. The results should look like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ systemctl is-active apache2</p>
+			<p class="source-code">active</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl kill apache2</p>
+			<p class="source-code">donnie@ubuntu2004:~$ systemctl is-active apache2</p>
+			<p class="source-code">inactive</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>As with the normal <strong class="source-inline">kill</strong> command, this sends a number <strong class="source-inline">15</strong>, or <strong class="source-inline">SIGTERM</strong>, signal by default. If you need to send another signal, use the <strong class="source-inline">-s</strong> option along with the signal name. To see what happens with that, I'll start Apache back up on my Ubuntu machine, and send it the number <strong class="source-inline">9</strong>, or <strong class="source-inline">SIGKILL</strong> signal, like this:</p>
+			<p class="source-code">donnie@ubuntu2004:~$ systemctl is-active apache2</p>
+			<p class="source-code">active</p>
+			<p class="source-code">donnie@ubuntu2004:~$ sudo systemctl kill -s SIGKILL apache2</p>
+			<p class="source-code">donnie@ubuntu2004:~$ systemctl is-active apache2</p>
+			<p class="source-code">active</p>
+			<p class="source-code">donnie@ubuntu2004:~$</p>
+			<p>Oh, dear. That didn't do anything for us, did it? To see why, let's look in the <strong class="source-inline">apache2.service</strong> file. In the <strong class="source-inline">[Service]</strong> section, you'll find the answer:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">Restart=on-abort</p>
+			<p>The last line in the <strong class="source-inline">[Service]</strong> section, the <strong class="source-inline">Restart=on-abort</strong> line, causes Apache to automatically restart if it receives an unclean kill signal. It so happens that <strong class="source-inline">SIGKILL</strong> is considered <a id="_idIndexMarker095"/>unclean. You can see the explanation for this in the <strong class="source-inline">systemd.service</strong> man page. Open the page and scroll down to Table 2, and you'll find the different options for the <strong class="source-inline">Restart=</strong> parameter as follows:</p>
+			<div>
+				<div id="_idContainer012" class="IMG---Figure">
+					<img src="image/B17491_4.1_Table.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.1 – Table 2 from the systemd.service man page</p>
+			<p>In the paragraphs just above and just below <em class="italic">Table 2</em>, you'll see explanations for the different options and how they affect using the various kill signals.</p>
+			<p>Back on the Alma Linux machine, things are a bit different. In its <strong class="source-inline">httpd.service</strong> file, there's no <strong class="source-inline">Restart=</strong> line. Instead, we see these lines:</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code">. . .</p>
+			<p class="source-code"># Send SIGWINCH for graceful stop</p>
+			<p class="source-code">KillSignal=SIGWINCH</p>
+			<p class="source-code">KillMode=mixed</p>
+			<p>The <strong class="source-inline">KillSignal=</strong> line changes the default kill action from <strong class="source-inline">SIGTERM</strong> to <strong class="source-inline">SIGWINCH</strong>. This is curious, because <strong class="source-inline">SIGWINCH</strong> is supposed to kill a process only if the terminal window from which the process is running gets resized. Apache normally doesn't run from a terminal window. Still, somebody at Red Hat apparently decided that <strong class="source-inline">SIGWINCH</strong> would be the appropriate signal for killing Apache gracefully, so that's how it is. The <strong class="source-inline">KillMode=mixed</strong> line tells <strong class="source-inline">systemd</strong> to send a <strong class="source-inline">SIGTERM</strong> signal to the main Apache process but to send <strong class="source-inline">SIGKILL</strong> to the remaining processes in the Apache control group. The <strong class="source-inline">systemd.kill</strong> man page doesn't say what this<a id="_idIndexMarker096"/> line does when the preceding <strong class="source-inline">KillSignal=</strong> line is set to <strong class="source-inline">SIGWINCH</strong>, but I would assume that it will replace <strong class="source-inline">SIGTERM</strong> with <strong class="source-inline">SIGWINCH</strong>. Anyway, let's try to kill Apache on the Alma machine, just to see what happens:</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl is-active httpd</p>
+			<p class="source-code">active</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl kill httpd</p>
+			<p class="source-code">[sudo] password for donnie: </p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl is-active httpd</p>
+			<p class="source-code">inactive</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>It looks just the same as it did on the Ubuntu machine. Send Apache a <strong class="source-inline">SIGKILL</strong> though, and you'll see something different as shown here:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl kill -s SIGKILL httpd</p>
+			<p class="source-code">[donnie@localhost ~]$ systemctl is-active httpd</p>
+			<p class="source-code">failed</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>Without the <strong class="source-inline">Restart=on-abort</strong> line that Ubuntu has in its <strong class="source-inline">apache2.service</strong> file, the Apache service on Alma won't automatically restart when it receives the <strong class="source-inline">SIGKILL</strong> signal. Note that the <strong class="source-inline">is-active</strong> output shows <strong class="source-inline">failed</strong> rather than <strong class="source-inline">inactive</strong>, as it does when you use <strong class="source-inline">SIGTERM</strong> or <strong class="source-inline">SIGWINCH</strong>. Either way, the service isn't running, so the end result is the same.</p>
+			<p>Okay, that's all good. But what if you want to prevent a service from ever running? Well, you'd mask it, which is what we'll look at next.</p>
+			<h1 id="_idParaDest-58"><a id="_idTextAnchor058"/>Masking a service</h1>
+			<p>Now, let's say<a id="_idIndexMarker097"/> that you have a service that you never want to start, either manually or automatically. You can accomplish this by masking the service, like this:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl mask httpd</p>
+			<p class="source-code">Created symlink /etc/systemd/system/httpd.service → /dev/null.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>This time, instead of creating a symbolic link that points back to the service file, we've created one that points to the <strong class="source-inline">/dev/null</strong> device. Let's try to start our masked Apache service to see what happens:</p>
+			<p class="source-code">[donnie@localhost ~]$ sudo systemctl start httpd</p>
+			<p class="source-code">Failed to start httpd.service: Unit httpd.service is masked.</p>
+			<p class="source-code">[donnie@localhost ~]$</p>
+			<p>If you change your mind, just use the <strong class="source-inline">unmask</strong> option. </p>
+			<h1 id="_idParaDest-59"><a id="_idTextAnchor059"/>Summary</h1>
+			<p>We've covered a good bit of ground in this chapter, and even got to do some cool hands-on stuff. We looked at how to start, stop, restart, and reload services. We also looked at how to enable and disable services and looked at the symbolic links that get created when we enable a service. We wrapped things up by showing how to kill a service, and then how to mask a service. As a side benefit, we saw what some service parameters can do for us and how the maintainers of different Linux distros can set up services to behave differently on different distros.</p>
+			<p>But what if you don't like the way that a service is set up on the distro that you're using? No worries. We'll discuss that in the next chapter, when we talk about editing and creating service unit files. I'll see you there.</p>
+			<h1 id="_idParaDest-60"><a id="_idTextAnchor060"/>Questions</h1>
+			<ol>
+				<li>When you run the <strong class="source-inline">sudo systemctl enable httpd</strong> command, what will that do for you?<p>a. It will start the <strong class="source-inline">httpd</strong> service.</p><p>b. It will cause <strong class="source-inline">httpd</strong> to start when you boot the machine and will also do an immediate start.</p><p>c. It will only cause <strong class="source-inline">httpd</strong> to start when you reboot the machine.</p><p>d. It creates a symbolic link in the <strong class="source-inline">/lib/systemd/system/</strong> directory.</p></li>
+				<li>What is the effect of using the normal <strong class="source-inline">kill</strong> command on a service?<p>a. It will shut down the service cleanly.</p><p>b. It will shut down the main service process, but it might not shut down the spawned processes.</p><p>c. It won't shut down a service.</p><p>d. You can use <strong class="source-inline">kill</strong> without sudo privileges to shut down a service.</p></li>
+				<li>What is the <strong class="source-inline">SIGTERM</strong> signal?<p>a. It kills a process dead in its tracks without giving it a chance to clean up after itself.</p><p>b. It kills a process when it detects that a terminal window has been resized.</p><p>c. It restarts a process.</p><p>d. It kills a process gracefully, giving it time to clean up after itself.</p></li>
+				<li>How would you enable and start the <strong class="source-inline">httpd</strong> service with just one command?<p>a. You can't</p><p>b.<strong class="source-inline"> sudo systemctl enable httpd</strong></p><p>c.<strong class="source-inline"> sudo systemctl start httpd</strong></p><p>d.<strong class="source-inline"> sudo systemctl start --now httpd</strong></p><p>e.<strong class="source-inline"> sudo systemctl enable --now httpd</strong></p></li>
+				<li>What does the <strong class="source-inline">ExecRestart=</strong> parameter do for us?<p>a. It defines how to restart the service.</p><p>b. It defines how to reload the service configuration.</p><p>c. Nothing, because this parameter doesn't exist.</p><p>d. It defines how to start a service.</p></li>
+			</ol>
+			<h1 id="_idParaDest-61"><a id="_idTextAnchor061"/>Answers</h1>
+			<ol>
+				<li value="1">c</li>
+				<li>b</li>
+				<li>d</li>
+				<li>e</li>
+				<li>c</li>
+			</ol>
+			<h1 id="_idParaDest-62"><a id="_idTextAnchor062"/>Further reading</h1>
+			<p>My <em class="italic">Managing Services</em> video: <a href="https://youtu.be/IuDmg75n6FU">https://youtu.be/IuDmg75n6FU</a></p>
+			<p>How to manage <strong class="source-inline">systemd</strong> services: <a href="https://www.howtogeek.com/216454/how-to-manage-systemd-services-on-a-linux-system/.">https://www.howtogeek.com/216454/how-to-manage-systemd-services-on-a-linux-system/</a></p>
+		</div>
+	</body></html>

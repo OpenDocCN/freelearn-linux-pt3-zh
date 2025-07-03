@@ -1,0 +1,255 @@
+<html><head></head><body><div id="sbo-rt-content"><div id="_idContainer198">
+			<h1 id="_idParaDest-156"><em class="italic"><a id="_idTextAnchor160"/>Chapter 7</em>: Network-Based File Synchronization</h1>
+			<p>Copying content over a network is usually done manually. For example, we just use SCP or FTP to transfer a file and that's that. But what happens if we need to make this process a permanent one? We then need to figure out a way to do file/directory synchronization, which is what <strong class="source-inline">rsync</strong> is all about. That being said, with all of the security-related incidents in the past few years, it's always a good idea to implement some kind of encryption, so using <strong class="source-inline">SSH</strong> and <strong class="source-inline">SCP</strong> seems like a reasonable approach, and that's exactly what we are going to do.</p>
+			<p>In this chapter, we are going to cover the following topics:</p>
+			<ul>
+				<li>Learning how to use SSH and SCP</li>
+				<li>Learning how to use <strong class="source-inline">rsync</strong></li>
+				<li>Using <strong class="source-inline">vsftpd</strong></li>
+			</ul>
+			<h1 id="_idParaDest-157"><a id="_idTextAnchor161"/>Technical requirements </h1>
+			<p>For these recipes, we're going to use two Linux machines – we can use the <strong class="source-inline">client1</strong> and <strong class="source-inline">gui1</strong> virtual machines from our previous chapters. These recipes will work on both CentOS and Ubuntu, so there is no reason to use separate virtual machines for these scenarios.</p>
+			<p>So, let's start our virtual machines and let's get cracking!</p>
+			<h1 id="_idParaDest-158"><a id="_idTextAnchor162"/>Learning how to use SSH and SCP</h1>
+			<p>Back in the 1990s, it was a pretty natural<a id="_idIndexMarker552"/> thing to use the <strong class="source-inline">T</strong><strong class="source-inline">elnet</strong>, <strong class="source-inline">rlogin</strong>, and FTP protocols. Come<a id="_idIndexMarker553"/> to think of it, using (anonymous) FTP is still done a lot. Bearing in mind that most local networks in the 1990s were based around network hubs (not switches) and the fact that all of these protocols are plain-text protocols that are easy to eavesdrop on via network sniffers, it really isn't all that strange that we're not using these devices and/or protocols as much anymore. As book authors, we haven't heard of anyone using rlogin since the late 1990s, although Telnet is still widely used to configure network devices (mostly switches and routers). This is the reason why SSH was developed (as a Telnet/rlogin replacement), and, along with SSH, SCP was developed (as a replacement for FTP). To put things into perspective, the first<a id="_idIndexMarker554"/> version of SSH was released<a id="_idIndexMarker555"/> in the mid-1990s. Let's see how it works.</p>
+			<h2 id="_idParaDest-159"><a id="_idTextAnchor163"/>Getting ready</h2>
+			<p>We just need one Ubuntu and one CentOS machine for this recipe. Let's say we are going to use <strong class="source-inline">cli1</strong> and <strong class="source-inline">cli2</strong> to master these commands.</p>
+			<h2 id="_idParaDest-160"><a id="_idTextAnchor164"/>How to do it…</h2>
+			<p>Our first scenario is going to be connecting from one machine to another by using <strong class="source-inline">SSH</strong>. We are going to presume that we don't have all of the necessary packages installed – just enough to cover our bases. We know that there are a lot of IT people out there who try to install the smallest number of packages possible on their servers/containers, so these extra steps shouldn't be much of a problem.</p>
+			<p>On an Ubuntu-based machine, we can do it like this:</p>
+			<p class="source-code">apt-get -y install libssh-4 openssh-client openssh-server openssh-sftp-server ssh-import-id</p>
+			<p>On a CentOS machine, we can do it like this:</p>
+			<p class="source-code">dnf install openssh-server</p>
+			<p>For both of them, we need to start the service and enable it if we want to use it permanently:</p>
+			<p class="source-code">systemctl start sshd</p>
+			<p class="source-code">systemctl enable sshd</p>
+			<p>As a replacement for insecure technologies such as Telnet, rlogin, and FTP, SSH is pretty straightforward to use. We just need to learn the basic syntax. Let's say that we want to log in <em class="italic">from</em> a user called <strong class="source-inline">student</strong> on Linux machine <strong class="source-inline">cli1</strong> <em class="italic">to</em> a user called <strong class="source-inline">student</strong> on Linux machine <strong class="source-inline">cli2</strong>. As we're logging in from a user called <strong class="source-inline">student</strong> to a user called <strong class="source-inline">student</strong>, there are two ways to do that. Here's the first:</p>
+			<p class="source-code">student@cli1:~$ ssh student@cli2</p>
+			<p>And here's the second:</p>
+			<p class="source-code">student@cli1:~$ ssh cli2</p>
+			<p>The reason is simple: if we're logging in to the same user that we're using on our source Linux machine, we don't need to explicitly say which account we're logging in to. </p>
+			<p>If we, however, wanted<a id="_idIndexMarker556"/> to go from the <strong class="source-inline">student</strong> user on <strong class="source-inline">cli1</strong> to some<a id="_idIndexMarker557"/> other user on <strong class="source-inline">cli2</strong>, then we have to use the remote username as a parameter. Again, we can do it in two ways. Here's the first:</p>
+			<p class="source-code">student@cli1:~$ ssh remoteuser@cli2</p>
+			<p>And here's the second:</p>
+			<p class="source-code">student@cli1:~$ ssh -l remoteuser cli2</p>
+			<p>We can generalize that to cover any remote user on any remote machine. Commands for that scenario would look like this:</p>
+			<p class="source-code">ssh remoteuser@remotemachine</p>
+			<p>Or this:</p>
+			<p class="source-code">ssh -l remoteuser remotemachine</p>
+			<p>Another part of the SSH stack is a command called <strong class="source-inline">SCP</strong>. We use SCP to copy files from one machine to another machine by using SSH as a backend (secure copy). So, let's use an example. Let's say that we want to copy a file called <strong class="source-inline">source.txt</strong> from the <strong class="source-inline">student</strong> user's home directory on <strong class="source-inline">cli1</strong> to the <strong class="source-inline">student</strong> user's home directory on <strong class="source-inline">cli2</strong>. We would use the following command to do that:</p>
+			<p class="source-code">scp /home/student/source.txt student@cli2:/home/student </p>
+			<p>Or, if we were already in the <strong class="source-inline">/home/student</strong> directory on the source machine, we would use this:</p>
+			<p class="source-code">scp source.txt student@cli2:/home/student</p>
+			<p>Generally speaking, <strong class="source-inline">SCP</strong> has a simple syntax:</p>
+			<p class="source-code">scp source destination</p>
+			<p>It's just that the source and destination can have a lot of letters that need to be typed. Let's explain that point by using another interesting use case for SCP. We can use it to download files from remote machines<a id="_idIndexMarker558"/> to local machines as well. The syntax<a id="_idIndexMarker559"/> is similar but can be a bit confusing when we're doing it the first couple of times. So, let's say that we want to copy a file called <strong class="source-inline">source.txt</strong> from the home directory of the <strong class="source-inline">student</strong> user on <strong class="source-inline">cli2</strong> to the <strong class="source-inline">/tmp</strong> directory on <strong class="source-inline">cli1</strong>, logged in as the <strong class="source-inline">student</strong> user on <strong class="source-inline">cli1</strong>. We would use the following command to do that:</p>
+			<p class="source-code">scp cli2:/home/student/source.txt /tmp</p>
+			<p>The syntax follows the same rule (<strong class="source-inline">scp</strong> source destination), it's just that the source is now a remote file, and the destination is a local directory. It makes sense, when we think about it.</p>
+			<p>The next step in our process is going to be installing secure shell keys. This means that – in our example – we will enable <strong class="source-inline">passwordless login</strong> from one server to the other. We can avoid that, but let's forget about that for the time being; we are going to cover it in a second as we are not discussing security implications here. We are only trying to get the environment ready for SSH and SCP from a local user (let's say, <strong class="source-inline">student</strong>) to a remote user (let's say, <strong class="source-inline">student</strong>). So, let's do that:</p>
+			<div>
+				<div id="_idContainer185" class="IMG---Figure">
+					<img src="Images/Figure_7.1_B16269.jpg" alt="Figure 7.1 – Creating an SSH key with an empty private key&#13;&#10;" width="898" height="594"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figu<a id="_idTextAnchor165"/>re 7.1 – Creating an SSH key with an empty private key</p>
+			<p>Let's now copy this key<a id="_idIndexMarker560"/> to the remote machine (<strong class="source-inline">cli2</strong>) and test if the <strong class="source-inline">SSH</strong> key copying<a id="_idIndexMarker561"/> process worked by trying to log in as that user. For the first part, we are going to use the command called <strong class="source-inline">ssh-copy-id</strong> (to copy the key to the remote machine), and then use SSH to try to log in to test if the <strong class="source-inline">SSH</strong> key was properly copied:</p>
+			<div>
+				<div id="_idContainer186" class="IMG---Figure">
+					<img src="Images/Figure_7.2_B16269.jpg" alt="Figure 7.2 – Copying the SSH key to the remote machine and testing if it works&#13;&#10;" width="1387" height="596"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.2 – Copying the SSH key to the remote machine and testing if it works</p>
+			<p>As we can see, everything<a id="_idIndexMarker562"/> works from <strong class="source-inline">cli1</strong> to <strong class="source-inline">cli2</strong>. Let's now repeat the same process <a id="_idIndexMarker563"/>in the opposite direction, because we are going to need that a bit later for another part of this recipe. First, let's create an <strong class="source-inline">SSH</strong> key:</p>
+			<div>
+				<div id="_idContainer187" class="IMG---Figure">
+					<img src="Images/Figure_7.3_B16269.jpg" alt="Figure 7.3 – Creating an SSH key for student@cli2&#13;&#10;" width="846" height="525"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.3 – Creating an SSH key for student@cli2</p>
+			<p>Then, let's copy<a id="_idIndexMarker564"/> it to the remote<a id="_idIndexMarker565"/> server:</p>
+			<div>
+				<div id="_idContainer188" class="IMG---Figure">
+					<img src="Images/Figure_7.4_B16269.jpg" alt="Figure 7.4 – Copying the SSH key from cli2 to cli1 and testing if it works&#13;&#10;" width="1385" height="528"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.4 – Copying the SSH key from cli2 to cli1 and testing if it works</p>
+			<p>We can see that in both of these examples, the remote server that we're connecting to doesn't ask us for a password. The reason for that is simple: when we were creating an <strong class="source-inline">SSH</strong> key, <strong class="source-inline">ssh-keygen</strong> gave us two very important things to input:</p>
+			<p class="source-code">Enter passphrase (empty for no passphrase) :</p>
+			<p class="source-code">Enter same passphrase again:</p>
+			<p>If we pressed the <em class="italic">Enter</em> key on the first question and confirmed it by pressing <em class="italic">Enter</em> again on the second one, that means that we created an <strong class="source-inline">SSH</strong> key that has an empty private key. And that's exactly<a id="_idIndexMarker566"/> what we did in our example. We didn't select<a id="_idIndexMarker567"/> any specific passphrase, therefore leaving it empty. If we wanted to use a custom private key, we just needed to type it in those two steps.</p>
+			<h2 id="_idParaDest-161"><a id="_idTextAnchor166"/>How it works…</h2>
+			<p>As a protocol, SSH is an encrypted answer to the non-existent security of Telnet, <strong class="source-inline">rlogin</strong>, and FTP. These three plain-text protocols were easy to hack, especially in the good old days before we started using network switches (while we were still mostly using network hubs). Its first implementation goes way back to 1995. It can also be used as a tunneling protocol, and it was heavily used for that back in the day – for example, for proxying FTP and HTTP traffic. Nowadays, it's used more for tunneling for remote X applications (XDMCP) or even connections to SSH to servers behind an SSH-based tunneling host.</p>
+			<p>In simple terms, SSH works like this:</p>
+			<ol>
+				<li>The SSH client connects to the SSH server, therefore starting the connection.</li>
+				<li>The server responds and gives the client its public key.</li>
+				<li>The server and client then try to negotiate the necessary encryption parameters, followed by a secure channel being opened between the server and client.</li>
+				<li>The application or user logs in the server.</li>
+			</ol>
+			<p>For those of us familiar with SSL/TLS, it's kind of similar to both of these protocols as all of these protocols are TCP-based; they have a negotiating mechanism and are generally used for security purposes. Yes, they go about it in a slightly different way and their use cases are a bit different, but that still doesn't mean that they're vastly different in terms of the general principle.</p>
+			<p>The next stop on our journey is <strong class="source-inline">rsync</strong>, and we are going to explicitly use <strong class="source-inline">SSH</strong> as a backend to <strong class="source-inline">rsync</strong>. That's the reason<a id="_idIndexMarker568"/> why we made our <strong class="source-inline">SSH</strong> keys, especially the ones<a id="_idIndexMarker569"/> without an additional private key (passphrase). Let's now learn how to work with <strong class="source-inline">rsync</strong>.</p>
+			<h2 id="_idParaDest-162"><a id="_idTextAnchor167"/>There's more…</h2>
+			<p>If you need more information about networking in CentOS and Ubuntu, make sure that you check out the following:</p>
+			<ul>
+				<li>How<a id="_idIndexMarker570"/> does SSH work: <a href="https://www.hostinger.com/tutorials/ssh-tutorial-how-does-ssh-work">https://www.hostinger.com/tutorials/ssh-tutorial-how-does-ssh-work</a></li>
+				<li>What<a id="_idIndexMarker571"/> is the <strong class="bold">Secure Shell</strong> (<strong class="bold">SSH</strong>) protocol: <a href="https://www.sdxcentral.com/security/definitions/what-is-the-secure-shell-ssh-protocol/">https://www.sdxcentral.com/security/definitions/what-is-the-secure-shell-ssh-protocol/</a></li>
+			</ul>
+			<h1 id="_idParaDest-163"><a id="_idTextAnchor168"/>Learning how to use rsync</h1>
+			<p>In our previous recipe, we worked with SSH from the client standpoint. We used SSH and <strong class="source-inline">SCP</strong> to both log in and copy files from<a id="_idIndexMarker572"/> source to destination. We discussed how to use a username/password combination to log in to a remote system, as well as how to use SSH key-based authentication. If we focus on SCP for a second, there's one thing that we didn't discuss, and that is how to <em class="italic">synchronize</em> the local source to the local destination, or, even better, how to create a scenario in which we synchronize the local source to a remote destination and vice versa between two Linux servers in place. This is where it's best to use <strong class="source-inline">rsync</strong>, a tool that's meant to do just that. Let's get cracking.</p>
+			<h2 id="_idParaDest-164"><a id="_idTextAnchor169"/>Getting ready</h2>
+			<p>We will continue using our <strong class="source-inline">cli1</strong> and <strong class="source-inline">cli2</strong> machines, running Ubuntu and CentOS. Let's get ready by making sure that the necessary<a id="_idIndexMarker573"/> packages are installed. We need to use this command for Ubuntu:</p>
+			<p class="source-code">apt -y install rsync</p>
+			<p>We use the following command for CentOS:</p>
+			<p class="source-code">dnf -y install rsync</p>
+			<p>After that, we are ready to start.</p>
+			<h2 id="_idParaDest-165"><a id="_idTextAnchor170"/>How to do it…</h2>
+			<p>We are going to talk about a couple of scenarios:</p>
+			<ul>
+				<li>Synchronization between local source and local destination</li>
+				<li>Synchronization between local source and remote destination, or vice versa</li>
+			</ul>
+			<p>There could be a number of other sub-scenarios, such as dealing with one-way sync and deleting files on source, <strong class="source-inline">rsync</strong> is just one subdirectory, and so on. We are just going to deal with these two in detail, and then add a couple of bits and pieces from these sub-scenarios.</p>
+			<p>Let's deal with the simple scenario first: how to synchronize a folder that's placed locally to another locally placed folder. Let's say that we want to synchronize (basically, create a backup of) the <strong class="source-inline">/etc</strong> folder, and that we want to synchronize it to the <strong class="source-inline">/root/etc</strong> folder. We can do that by using the following commands as <strong class="source-inline">root</strong> (using the <strong class="source-inline">cli1</strong> machine as an example):</p>
+			<p class="source-code">rsync -av /etc /root </p>
+			<p>The two options used, <strong class="source-inline">a</strong> and <strong class="source-inline">v</strong>, are there to use archiving mode (preserve permissions and ownerships) and verbose mode so that we can see the output of every copy operation. We don't need to create the <strong class="source-inline">/etc</strong> folder in the <strong class="source-inline">/root</strong> directory up front or put <strong class="source-inline">/root/etc</strong> as the destination folder because a folder named <strong class="source-inline">etc</strong> is going to be created automatically in <strong class="source-inline">/root</strong> upon command execution. </p>
+			<p>If we wanted to exclude some files from copying (for example, all files that have the <strong class="source-inline">.conf</strong> extension), we can do it like this:</p>
+			<p class="source-code">rsync -av --exclude="*.conf" /etc /root </p>
+			<p>There are other cool options<a id="_idIndexMarker574"/> available in <strong class="source-inline">rsync</strong> that could make certain scenarios possible. Let's say that we want to copy files that are a maximum of 5 MB in size, or a minimum of 3 MB in size. We could do that by using the following syntax:</p>
+			<p class="source-code">rsync -av --max-size=5M source destination</p>
+			<p class="source-code">rsync -av --min-size=3M source destination</p>
+			<p>For example, if the source directory has a lot of large files in the second example (minimum size), we might want to add a <strong class="source-inline">--progress</strong> option to the <strong class="source-inline">rsync</strong> command so that we can have interactive output telling us about the progress being made.</p>
+			<p>Now let's work on one-way sync from a remote to a local destination. The opposite direction is almost the same, we just need to change the source and destination fields in <strong class="source-inline">rsync</strong>. So, let's say that we have a source directory on <strong class="source-inline">cli2</strong> called <strong class="source-inline">/home/student/source</strong>. That directory has files and subfolders; it has a hierarchy of files and folders. We want to synchronize that content to <strong class="source-inline">cli1</strong>, specifically, to the <strong class="source-inline">/tmp</strong> directory. Here's the content of our source directory:</p>
+			<div>
+				<div id="_idContainer189" class="IMG---Figure">
+					<img src="Images/Figure_7.5_B16269.jpg" alt="Figure 7.5 – Source directory on cli2, located at /home/student/source&#13;&#10;" width="798" height="791"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.5 – Source directory on cli2, located at /home/student/source</p>
+			<p>This is what we should do, provided<a id="_idIndexMarker575"/> that we have the source material ready:</p>
+			<div>
+				<div id="_idContainer190" class="IMG---Figure">
+					<img src="Images/Figure_7.6_B16269.jpg" alt="Figure 7.6 – rsync from the remote source directory&#13;&#10;" width="925" height="855"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.6 – rsync from the remote source directory</p>
+			<p>So, we just used one simple command, <strong class="source-inline">rsync -rt</strong> (<strong class="source-inline">-r</strong> means recursive, <strong class="source-inline">-t</strong> is to preserve times), with the source and destination as parameters, and the source directory was successfully transferred<a id="_idIndexMarker576"/> to our local directory. This is because we copied the <strong class="source-inline">SSH</strong> keys in the previous recipe, so we didn't need to do any authentication, which makes the overall process very easy and straightforward.</p>
+			<p>The next scenario is going to be about syncing the source and destination and then deleting source files. Specifically, we're syncing <em class="italic">files</em>, <em class="italic">not folders</em>, as there are different options for those scenarios. Let's see how that's done:</p>
+			<div>
+				<div id="_idContainer191" class="IMG---Figure">
+					<img src="Images/Figure_7.7_B16269.jpg" alt="Figure 7.7 – rsync from the remote server using SSH keys, &#13;&#10;and deleting source files after the download is done&#13;&#10;" width="1191" height="899"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.7 – rsync from the remote server using SSH keys, and deleting source files after the download is done</p>
+			<p>Now, if we wanted to run the same scenario<a id="_idIndexMarker577"/> but delete all of the files and folders from <strong class="source-inline">cli2</strong> after the transfer is done, we'd need to separate that into two commands. Here's how it works:</p>
+			<div>
+				<div id="_idContainer192" class="IMG---Figure">
+					<img src="Images/Figure_7.8_B16269.jpg" alt="Figure 7.8 – Removing source files from the remote source directory, &#13;&#10;and then all subdirectories in the source directory&#13;&#10;" width="1389" height="231"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.8 – Removing source files from the remote source directory, and then all subdirectories in the source directory</p>
+			<p>Now that we've shown this, we can also note a couple<a id="_idIndexMarker578"/> of other projects that will make it easier to do two-way sync. Projects such as Unison (<a href="https://www.cis.upenn.edu/~bcpierce/unison/">https://www.cis.upenn.edu/~bcpierce/unison/</a>) and <strong class="source-inline">bsync</strong> (<a href="https://github.com/dooblem/bsync">https://github.com/dooblem/bsync</a>) have implemented two-way sync methods that are very difficult to achieve by using <strong class="source-inline">rsync</strong>. Make sure that you check them out if you need two-way sync.</p>
+			<h2 id="_idParaDest-166"><a id="_idTextAnchor171"/>How it works…</h2>
+			<p><strong class="source-inline">rsync</strong> is a source-destination type of command, and that covers its syntax and mode of operation if we're using it interactively (no destination <strong class="source-inline">rsync</strong> service is involved). There can also be an <strong class="source-inline">rsync</strong> service involved, which usually changes the mode of operation significantly. It's important to point out that using <strong class="source-inline">rsync</strong> as a command (in combination with SSH) is most commonly done for backups. We've been using it in this fashion for 15 or more years in some of our environments, and it works perfectly.</p>
+			<p><strong class="source-inline">rsyncd</strong> (the <strong class="source-inline">rsync</strong> service) is usually aimed at a completely different usage model – most commonly, software mirrors. If we want to create a local CentOS or Ubuntu mirror, the rule of the thumb is that we'll use <strong class="source-inline">rsyncd</strong>, as it allows us to do much more finely grained configuration in terms of what needs to be done as part of the <strong class="source-inline">rsync</strong> process. There might be other reasons to do it – for example, we can configure <strong class="source-inline">rsyncd</strong> to not use <strong class="source-inline">SSH</strong> and gain a bit of speed in doing so.</p>
+			<p>Now that we have discussed some of the key concepts of SSH, SCP, and <strong class="source-inline">rsync</strong>, it's time to move on to their – at least by default – much more insecure cousin, called <strong class="source-inline">vsftpd</strong>. We are going to make sure that we make it more secure, though, as there's absolutely no reason not to. So, let's get ready to configure <strong class="source-inline">vsftpd</strong>.</p>
+			<h2 id="_idParaDest-167"><a id="_idTextAnchor172"/>There's more…</h2>
+			<p>If you need to learn more about <strong class="source-inline">rsync</strong>, we recommend the following links:</p>
+			<ul>
+				<li>How to set up an <strong class="source-inline">rsync</strong> daemon<a id="_idIndexMarker579"/> on your Linux server: <a href="https://www.atlantic.net/vps-hosting/how-to-setup-rsync-daemon-linux-server/">https://www.atlantic.net/vps-hosting/how-to-setup-rsync-daemon-linux-server/</a></li>
+				<li>10 practical examples<a id="_idIndexMarker580"/> of the <strong class="source-inline">rsync</strong> command in Linux: <a href="https://www.tecmint.com/rsync-local-remote-file-synchronization-commands/">https://www.tecmint.com/rsync-local-remote-file-synchronization-commands/</a></li>
+				<li>17 useful <strong class="source-inline">rsync</strong> (remote sync) command examples in Linux: <a href="https://www.linuxtechi.com/rsync-command-examples-linux/">https://www.linuxtechi.com/rsync-command-examples-linux/</a></li>
+			</ul>
+			<h1 id="_idParaDest-168"><a id="_idTextAnchor173"/>Using vsftpd</h1>
+			<p>The FTP service has been<a id="_idIndexMarker581"/> around for decades. Back in the mid-1990s, FTP was actually the vast majority of internet traffic. Yes, its importance in terms of traffic volume decreased over time, but it's not only that. FTP, all by itself, is a completely open, plain-text protocol. The latest revision that's been included in all major distributions is called <strong class="source-inline">vsftpd</strong>, and it's been there for more than a decade now. We are going to focus on three scenarios in this recipe: getting <strong class="source-inline">vsftpd</strong> to work, getting <strong class="source-inline">vsftpd</strong> to work with a user's home directories, and – last but not least – making <strong class="source-inline">vsftpd</strong> secure by implementing TLS and certificates. Let's start!</p>
+			<h2 id="_idParaDest-169"><a id="_idTextAnchor174"/>Getting ready</h2>
+			<p>Keep the <strong class="source-inline">cli1</strong> and <strong class="source-inline">cli2</strong> virtual machines powered on and let's continue using our shell. Let's make sure that the necessary packages are installed by using our standard commands. So, for Ubuntu, use this command:</p>
+			<p class="source-code">apt -y install vsftpd</p>
+			<p>For CentOS, let's use this command:</p>
+			<p class="source-code">dnf -y install vsftpd</p>
+			<p>Then, let's enable them and start it. We're going to use the Ubuntu machine to show how <strong class="source-inline">vsftpd</strong> configuration should be done, but it's almost 100% the same on CentOS. So <strong class="source-inline">cli1</strong> (Ubuntu) is going to act as a <strong class="source-inline">vsftpd</strong> server, and <strong class="source-inline">cli2</strong> (CentOS) is going to act as an <strong class="source-inline">FTP</strong> client. So, let's run these commands on <strong class="source-inline">cli1</strong>:</p>
+			<p class="source-code">systemctl start vsftpd</p>
+			<p class="source-code">systemctl enable vsftpd</p>
+			<p>It would be prudent to configure firewalls<a id="_idIndexMarker582"/> to allow connections to necessary FTP ports (20, 21). So, on <strong class="source-inline">cli1</strong>, we need to do this:</p>
+			<p class="source-code">ufw allow ftp</p>
+			<p class="source-code">ufw allow ftp-data</p>
+			<p>On the client side (<strong class="source-inline">cli2</strong>), let's install <strong class="source-inline">lftp</strong>, a nice and simple-to-use <strong class="source-inline">ftp</strong> client, by using the following command:</p>
+			<p class="source-code">dnf -y install lftp</p>
+			<p>Let's now configure <strong class="source-inline">vsftpd</strong> in accordance with the three scenarios that we mentioned. </p>
+			<h2 id="_idParaDest-170"><a id="_idTextAnchor175"/>How to do it…</h2>
+			<p>Now that we have installed our packages, it's time to start configuring <strong class="source-inline">vsftpd</strong> on <strong class="source-inline">cli1</strong>. That means we need to go through some of the options in <strong class="source-inline">/etc/vsftpd.conf</strong> (usually, it's <strong class="source-inline">/etc/vsftpd/vsftpd.conf</strong> on CentOS). </p>
+			<p>Generally speaking, this configuration file is very well documented all by itself, so we should have no trouble configuring it to suit our needs. By default, it should let us use the <strong class="source-inline">FTP</strong> client to connect to it, but let's make a couple of changes from the very start. Let's allow anonymous FTP and not allow local users to log in. If we check the configuration file, that means that we need to configure the <strong class="source-inline">anon_root</strong>, <strong class="source-inline">anonymous_enable</strong>, and <strong class="source-inline">local_enable</strong> configuration options, so let's do that. Let's make sure that those two configuration lines look like this:</p>
+			<p class="source-code">anonymous_enable=YES</p>
+			<p class="source-code">local_enable=NO</p>
+			<p class="source-code">anon_root=/var/ftp</p>
+			<p>We also need to create some directories for this configuration to work:</p>
+			<p class="source-code">mkdir -p /var/ftp/pub</p>
+			<p class="source-code">chown nobody:nogroup /var/ftp/pub</p>
+			<p>Restart the <strong class="source-inline">vsftpd</strong> service so that it works with the latest configuration:</p>
+			<p class="source-code">systemctl restart vsftpd</p>
+			<p>On <strong class="source-inline">cli2</strong>, we have already installed <strong class="source-inline">lftp</strong>, and it is going to try to log in to the remote FTP server (<strong class="source-inline">cli1</strong>) anonymously by default. Let's see how that works:</p>
+			<div>
+				<div id="_idContainer193" class="IMG---Figure">
+					<img src="Images/Figure_7.9_B16269.jpg" alt="Figure 7.9 – Testing the FTP connection by using lftp&#13;&#10;" width="958" height="77"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.9 – Testing the FTP connection by using lftp</p>
+			<p>We can see that we have<a id="_idIndexMarker583"/> no errors, but we also don't have any content in the directory that the anonymous FTP service uses. On Ubuntu, that directory is located at <strong class="source-inline">/srv/ftp</strong>, but we already changed the anonymous root directory to <strong class="source-inline">/var/ftp</strong>. Let's add a couple of files there and try to list the directory content in <strong class="source-inline">lftp</strong>:</p>
+			<div>
+				<div id="_idContainer194" class="IMG---Figure">
+					<img src="Images/Figure_7.10_B16269.jpg" alt="Figure 7.10 – Checking if we can see the files we created on cli1 by using the touch command&#13;&#10;" width="908" height="260"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.10 – Checking if we can see the files we created on cli1 by using the touch command</p>
+			<p>Let's now try to download these files. To do that, FTP has a command called <strong class="source-inline">get</strong> (similar to how HTTP has a <strong class="source-inline">get</strong> command). Let's now download these four files that we used the <strong class="source-inline">touch</strong> command on:</p>
+			<div>
+				<div id="_idContainer195" class="IMG---Figure">
+					<img src="Images/Figure_7.11_B16269.jpg" alt="Figure 7.11 – Using FTP's get command to retrieve multiple files from the FTP server&#13;&#10;" width="958" height="303"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.11 – Using FTP's get command to retrieve multiple files from the FTP server</p>
+			<p>If we wanted to upload<a id="_idIndexMarker584"/> files, we would need to use the <strong class="source-inline">put</strong> command but, of course, that wouldn't work as anonymous upload is forbidden by default (as it should be).</p>
+			<p>The next part of our scenario is to allow the user to log in to the user's home directory. That shouldn't be too hard, as we already mentioned the first option that we need to change, <strong class="source-inline">local_enable</strong>, and it needs to be set to <strong class="source-inline">YES</strong>. After that, we need to restart the <strong class="source-inline">vsftpd</strong> service. After we do that, we need to log in to the FTP server as a local user on the FTP server. Bearing in mind that we have a user called <strong class="source-inline">student</strong> there, let's log in to that one:</p>
+			<div>
+				<div id="_idContainer196" class="IMG---Figure">
+					<img src="Images/Figure_7.12_B16269.jpg" alt="Figure 7.12 – Logging in as the student user via lftp (by using the -u option)&#13;&#10;" width="1054" height="427"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.12 – Logging in as the student user via lftp (by using the -u option)</p>
+			<p>No problems so far. But all of these recipes were done on the premise that we're doing all this within the limits of our internal, secure<a id="_idIndexMarker585"/> network. What happens if our FTP server needs to be exposed to the internet? We don't want to use just regular, plain-text FTP as it would lead to disaster. So, the next step in our recipe is going to be to configure FTP with TLS.</p>
+			<p>We need to configure a couple of options in <strong class="source-inline">vsftpd.conf</strong>, and we can freely put these options at the end of that file:</p>
+			<p class="source-code">rsa_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem</p>
+			<p class="source-code">rsa_private_key_file=/etc/ssl/private/ssl-cert-snakeoil.key</p>
+			<p class="source-code">ssl_enable=Yes</p>
+			<p class="source-code">ssl_tlsv1=YES</p>
+			<p class="source-code">ssl_sslv2=NO</p>
+			<p class="source-code">ssl_sslv3=NO</p>
+			<p class="source-code">ssl_ciphers=HIGH</p>
+			<p class="source-code">force_local_data_ssl=YES</p>
+			<p class="source-code">force_local_logins_ssl=YES</p>
+			<p class="source-code">ssl_request_cert=NO</p>
+			<p class="source-code">allow_anon_ssl=YES</p>
+			<p>We need to configure these options in accordance with our security requirements. Most commonly, we want to enable TLS 1.2 or 1.3 (<strong class="source-inline">ssl_ciphers=HIGH</strong>, <strong class="source-inline">SSLv2</strong>, and <strong class="source-inline">v3=no</strong>). We can always not allow anonymous users to use <strong class="source-inline">SSL</strong>, and if we don't want to run client certificate-based authentication, we have to make sure to use the <strong class="source-inline">ssl_request_cert=NO</strong> option.</p>
+			<p>At the beginning of this configuration, we can see the <strong class="source-inline">cert</strong> file and the corresponding private key configuration options. We just used the built-in, self-signed certificates. Of course, we can create Let's Encrypt certificates or buy commercial ones instead and put them in the configuration here. It's all about the corporate security policy where we want to run this sort of configuration.</p>
+			<p>A quick note on FTP clients on Windows: a lot of people are using WinSCP to upload and download files and directories by using SCP, SFTP, FTP, WebDav, and Amazon S3 sources. If we use WinSCP, we have to use FTP configuration, TLS/SSL explicit encryption, and other relevant parameters accordingly. There are also other options available if we click on the <strong class="bold">Advanced</strong> button. For example, we can choose a minimum TLS level and similar options. As TLS v1.2 is the minimum that's recommended at this point in time, we could set those options to <strong class="source-inline">1.2</strong> for both the minimum and maximum versions. But if we've set up our <strong class="source-inline">vsftpd.conf</strong> as we recommended, there's no need to touch those options as <strong class="bold">TLS v1.2</strong> will be the only option available. We just wanted to mention these advanced options in case you need them.</p>
+			<p>That being said, here's a screenshot<a id="_idIndexMarker586"/> that will help in terms of basic options:</p>
+			<div>
+				<div id="_idContainer197" class="IMG---Figure">
+					<img src="Images/Figure_7.13_B16269.jpg" alt="Figure 7.13 – How to connect to vsftpd with TLS 1.2 enabled&#13;&#10;" width="954" height="645"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 7.13 – How to connect to vsftpd with TLS 1.2 enabled</p>
+			<p><strong class="source-inline">192.168.0.16</strong> is the IP address of the <strong class="source-inline">cli1</strong> machine. By using all of the options mentioned previously, we're able to log in anonymously to our <strong class="source-inline">vsftpd</strong> server and use it, just as we used it before we did the TLS configuration. But, bearing in mind that there were dozens and dozens of various types of attacks on the <strong class="source-inline">SSL</strong> protocol in the past couple of years (POODLE, BEAST, CRIME, BREACH, Heartbleed, SSL Stripping, using untrusted and fake certificate authorities, and so on), it's absolutely crucial that we pay close attention to every new attack and take all the necessary steps to mitigate those threats.</p>
+			<h2 id="_idParaDest-171"><a id="_idTextAnchor176"/>How it works…</h2>
+			<p><strong class="source-inline">vsftpd</strong> is an implementation of FTP, which means it's a TCP-based service that's used to upload and download <a id="_idIndexMarker587"/>files. Seeing as it's a TCP-based service, that means socket connections and reliable data transfer, which are essential to this service. Imagine if our file download or upload were to be unreliable; we definitely wouldn't like that. If we were to add an additional layer of security to it by using TLS, we'd still be using the same basic service, it's just that it'd be way more protected.</p>
+			<p>FTP uses ports <strong class="source-inline">20</strong> (<strong class="source-inline">ftp-data</strong>) and <strong class="source-inline">21</strong> (<strong class="source-inline">ftp</strong>). Both of these ports need to be allowed through the firewall for the FTP service to work. Port <strong class="source-inline">21</strong> is used as the <em class="italic">command</em> communication channel, while port <strong class="source-inline">20</strong> is used for data transfer, although there are implementations where port <strong class="source-inline">21</strong> can be used for both. There are some other options when using the FTP service (active FTP and passive FTP) but they are way beyond the scope of this book. Generally speaking, there's a reason why almost everybody uses SCP for file upload and download nowadays. Also, there's a reason why most of the distribution repositories and mirrors switched to using HTTPS-based delivery methods instead of FTP-based methods. There are exceptions, but they are more the <em class="italic">exception to the rule</em> types of situations, definitely not the standard.</p>
+			<p>FTP uses <strong class="source-inline">put</strong> and <strong class="source-inline">get</strong> commands to do two of its basic functions: upload (<strong class="source-inline">put</strong>) and download (<strong class="source-inline">get</strong>). These are two basic commands/methods that FTP uses, although we can create and delete content via FTP as well.</p>
+			<h2 id="_idParaDest-172"><a id="_idTextAnchor177"/>There's more</h2>
+			<p>If you want to learn<a id="_idIndexMarker588"/> more about <strong class="source-inline">vsftpd</strong>, make sure that you check the following links:</p>
+			<ul>
+				<li><strong class="source-inline">vsftpd</strong> home page: <a href="https://security.appspot.com/vsftpd.html">https://security.appspot.com/vsftpd.html</a></li>
+				<li><strong class="source-inline">vsftpd.conf</strong> man<a id="_idIndexMarker589"/> page: <a href="https://security.appspot.com/vsftpd/vsftpd_conf.html">https://security.appspot.com/vsftpd/vsftpd_conf.html</a></li>
+				<li>How does an FTP server<a id="_idIndexMarker590"/> work and what are its benefits: <a href="https://www.ftptoday.com/blog/how-does-an-ftp-server-work-the-benefits">https://www.ftptoday.com/blog/how-does-an-ftp-server-work-the-benefits</a></li>
+				<li>How to set up <strong class="source-inline">vsftpd</strong> for anonymous<a id="_idIndexMarker591"/> downloads on Ubuntu 16.04: https://www.digitalocean.com/community/tutorials/how-to-set-up-vsftpd-for-anonymous-downloads-on-ubuntu-16-04</li>
+			</ul>
+		</div>
+	</div></body></html>

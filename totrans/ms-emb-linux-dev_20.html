@@ -1,0 +1,818 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer148" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor498"/>16</h1>
+    <h1 id="_idParaDest-436" class="chapterTitle"><a id="_idTextAnchor499"/>Deploying Container Images</h1>
+    <p class="normal">In this chapter, I will introduce the principles of the DevOps movement and demonstrate how to apply them to embedded Linux. First, we will learn how to use Docker to bundle a Python application together with its user-space environment inside a container image. Next, we will set up a Docker-based <strong class="keyWord">continuous integration and continuous delivery</strong> (<strong class="keyWord">CI/CD</strong>) pipeline for a Python Bluetooth server application. Then I will demonstrate how to quickly add Docker to a Yocto image for the Raspberry Pi 4. Lastly, we will deploy a containerized software update to a Raspberry Pi 4 running Docker.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">What is DevOps?</li>
+      <li class="bulletList">DevOps and embedded Linux</li>
+      <li class="bulletList">Deploying Python applications with Docker</li>
+      <li class="bulletList">Setting up a CI/CD pipeline for a Python application</li>
+      <li class="bulletList">Adding Docker to a Yocto image</li>
+      <li class="bulletList">Updating software with Docker</li>
+    </ul>
+    <h1 id="_idParaDest-437" class="heading-1"><a id="_idTextAnchor500"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">An Ubuntu 24.04 or later LTS host system with at least 90 GB of free disk space</li>
+      <li class="bulletList">A user account with admin or sudo privileges on the host system</li>
+      <li class="bulletList">Yocto 5.0 (Scarthgap) LTS release</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList"><code class="inlineCode">balenaEtcher</code> for Linux</li>
+      <li class="bulletList">An Ethernet cable and router with an available port for network connectivity</li>
+      <li class="bulletList">A Raspberry Pi 4</li>
+      <li class="bulletList">A 5 V USB-C power supply capable of delivering 3 A</li>
+    </ul>
+    <p class="normal">You should have already built the 5.0 (Scarthgap) LTS release of Yocto in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>. If you have not, then please refer to the <em class="italic">Compatible Linux Distribution</em> and <em class="italic">Build Host Packages</em> sections of the <em class="italic">Yocto Project Quick Build</em> guide (<a id="_idTextAnchor501"/><a href="https://docs.yoctoproject.org/brief-yoctoprojectqs/"><span class="url">https://docs.yoctoproject.org/brief-yoctoprojectqs/</span></a>) before building Yocto on your Linux host according to the instructions in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>.</p>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter16"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter16</span></a>.</p>
+    <h2 id="_idParaDest-438" class="heading-2"><a id="_idTextAnchor502"/>Getting Docker</h2>
+    <p class="normal">To install Docker on Ubuntu 24.04 LTS:</p>
+    <ol>
+      <li class="numberedList" value="1">Update the package repositories:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo apt update
+</code></pre>
+      </li>
+      <li class="numberedList">Install Docker:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo apt install docker.io
+</code></pre>
+      </li>
+      <li class="numberedList">Start the Docker daemon and enable it to start at boot time:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo systemctl enable --now docker
+</code></pre>
+      </li>
+      <li class="numberedList">Add yourself to the <code class="inlineCode">docker</code> group:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo usermod -aG docker &lt;username&gt;
+</code></pre>
+      </li>
+      <li class="numberedList">Restart the Docker daemon:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo systemctl restart docker
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Replace <code class="inlineCode">&lt;username&gt;</code> in <em class="italic">step 4</em> with your username. I recommend creating your own Ubuntu user account rather than using the default <code class="inlineCode">ubuntu</code> user account, which is supposed to be reserved for administrative tasks.</p>
+    <h1 id="_idParaDest-439" class="heading-1"><a id="_idTextAnchor503"/>What is DevOps?</h1>
+    <p class="normal">Since its inception in 2009, the <strong class="keyWord">DevOps movement</strong> has taken<a id="_idIndexMarker1096"/> the software industry by storm. Patrick Debois coined the term <strong class="keyWord">DevOps</strong> after seeing the 2009 Velocity Conference presentation <em class="italic">10 Deploys per Day</em>. Patrick is one of the four co-authors of <em class="italic">The DevOps Handbook</em> along with Gene Kim, Jez Humble, and John Willis. The <em class="italic">DevOps Handbook</em> was first published in 2016 and codifies the principles of the movement. These ideas originate from the Lean manufacturing and Agile software development communities. DevOps practices are closely aligned with Agile methodologies like Scrum and Kanban. The goal of all these approaches is always to ship quality products to customers faster.</p>
+    <p class="normal">DevOps strives to integrate the development and operations teams within an organization. Historically, the people who operate software at a company are separate from the people who develop that same software. Sometimes there is a dedicated team of system administrators (IT) responsible for provisioning servers and deploying scheduled software releases. This separation of concerns combined with big bang deployments inevitably leads to lengthy delays and outages. The relationship<a id="_idIndexMarker1097"/> between development and operations becomes adversarial as finger-pointing ensues amid failures. By contrast, DevOps encourages close collaboration, rapid iteration, and experimentation. Mistakes are how we learn.</p>
+    <h2 id="_idParaDest-440" class="heading-2"><a id="_idTextAnchor504"/>Continuous integration and continuous deployment</h2>
+    <p class="normal">Two core concepts of Lean manufacturing are the notions of a <strong class="keyWord">value stream</strong> and the <strong class="keyWord">lead time</strong> associated with that. The Lean philosophy comes from the automotive industry, specifically the Toyota Production System. If a value stream is a factory assembly line, then the lead time is the time from when a customer<a id="_idIndexMarker1098"/> request is submitted to when it is fulfilled. Lead time is <a id="_idIndexMarker1099"/>one of the metrics by which the performance of a value stream is measured. Reducing lead time enables factories to build cars faster. The same idea applies to software.</p>
+    <p class="normal">In software, we can think of lead time as the time from when a feature request is submitted to when that finished feature is deployed to production. Every time a developer commits and pushes a change to the software an automated build is kicked off. A suite of unit tests is run against this newly changed code as part of the automated build. A code change can only be merged to the main branch if the build succeeds and the test suite passes. All these checks are scripted and performed automatically. The longer it takes to build the software and execute the tests, the longer the lead time is.</p>
+    <p class="normal">Integrating code is only part of the value stream. To deliver value to customers, software must be deployed to production. That typically means tagging a release, spinning up servers in the cloud, and installing the new release onto those servers. There are several techniques to ensure deployments go smoothly. Run integration tests first. Roll releases out incrementally across your fleet of servers. Roll back to a prior release in the event of a bad software update. Maximum developer productivity can only be achieved when software is deployed to production multiple times a day. The value stream is the <strong class="keyWord">CI/CD</strong> pipeline.</p>
+    <h2 id="_idParaDest-441" class="heading-2"><a id="_idTextAnchor505"/>Infrastructure as code</h2>
+    <p class="normal">We need more than source code to build and deploy most software. Today, most modern software development involves Docker. An <a id="_idIndexMarker1100"/>application typically requires a Dockerfile, makefile, and shell scripts to build and bundle the software for release. These items are invoked by a YAML file at different stages of the CI/CD pipeline. Since they aren’t part of the actual software, we may not think of these items <a id="_idIndexMarker1101"/>as code per se. Still, they reside inside version control along with the source code and likewise need to be reviewed and maintained. Because the building and bundling of the software is entirely scripted, the task is easily repeatable.</p>
+    <p class="normal">The amount of YAML involved increases during deployment. Cloud-native tools like Terraform and CloudFormation are YAML-based. We provision cloud infrastructure and deploy software release artifacts onto it with these tools by applying declarative YAML files. Deployment is driven by the same top-level YAML file used for building and bundling. That way, the whole process is automated from <a id="_idIndexMarker1102"/>end to end. While they may not look like it, YAML files<a id="_idIndexMarker1103"/> are indeed code and should adhere to the same standards of quality as code written in high-level programming languages like Python.</p>
+    <h2 id="_idParaDest-442" class="heading-2"><a id="_idTextAnchor506"/>Security is a shared responsibility</h2>
+    <p class="normal">When time to market is everything, security takes a back seat. Like deployments, security is often relegated to operations. High-profile incidents like the Log4j vulnerability of 2022 and the <code class="inlineCode">xz</code> backdoor of 2024 demonstrate how critical security is to day-to-day business. DevOps argues that security is a concern at <a id="_idIndexMarker1104"/>every stage of development, not an afterthought. Intellectual property and customer data are always encrypted. Secrets like keys and passphrases are stored safely outside of version control. Security best practices are everyone’s responsibility and need to be enforced from the outset.</p>
+    <h2 id="_idParaDest-443" class="heading-2"><a id="_idTextAnchor507"/>Monitoring and observability</h2>
+    <p class="normal">Gathering telemetry in the form of system stats, logs, and traces provides us with visibility into the health and performance of <a id="_idIndexMarker1105"/>our applications. Once we have telemetry, it can be displayed on a <a id="_idIndexMarker1106"/>Grafana dashboard for analysis. That way, we can detect performance regressions, resource leaks, and other systemic problems before they result in a costly service outage. Real-time insights trigger rapid incident responses and resolutions. More importantly, telemetry gives us quick unfiltered feedback on how we are doing as developers so that we can learn and improve.</p>
+    <h2 id="_idParaDest-444" class="heading-2"><a id="_idTextAnchor508"/>Continuous improvement</h2>
+    <p class="normal">Lean manufacturing espouses short lead times, small changes, and rapid iteration. <em class="italic">The Lean Startup</em> by Eric Ries popularized <a id="_idIndexMarker1107"/>the notion of a <strong class="keyWord">minimum viable product</strong> (<strong class="keyWord">MVP</strong>). An MVP is a <a id="_idIndexMarker1108"/>version of a product with just enough functionality that initial customers can offer feedback on said product. This feedback is reviewed, and improvements are made to the next version in rapid succession. A software CI/CD pipeline cranks out MVPs faster than a factory assembly line.</p>
+    <p class="normal">Continuous feedback incentivizes developers to ship small incremental improvements with greater frequency. An MVP approach enables teams to see what works and what doesn’t before committing more time and resources. This way, adjustments can be made so that more value is delivered to users. DevOps argues that integrating small changes sooner results in better outcomes. This is in stark contrast to having a lone developer toil away on a long-lived feature branch without any feedback from users.</p>
+    <h2 id="_idParaDest-445" class="heading-2"><a id="_idTextAnchor509"/>Transparency</h2>
+    <p class="normal">Collaboration is unlikely if <a id="_idIndexMarker1109"/>an organization’s culture discourages it. Fear pervades dysfunctional organizations. Individuals act strategically by hiding information away from others who could benefit from it. This behavior leads to silos where all communication happens in private meetings and chats on a need-to-know basis. Mistakes are hidden for fear of punishment (e.g., leadership “shoots the messenger”). The DevOps mindset is one of openness. Successes, failures, and<a id="_idIndexMarker1110"/> ideas are shared across the organization to promote best practices. If you are struggling with a task, then you ask your team for help.</p>
+    <h1 id="_idParaDest-446" class="heading-1"><a id="_idTextAnchor510"/>DevOps and Embedded Linux</h1>
+    <p class="normal">Hardware is hard. PCB layout, contract manufacturing, and board revisions cost time and money. The risks are bigger than with software. Lead times are longer, and mistakes can be catastrophic. Embedded Linux<a id="_idIndexMarker1111"/> forms the bridge between hardware and software. </p>
+    <p class="normal">Embedded Linux engineers work closely with electrical engineers during board bring-up, troubleshooting issues as they arise. It’s not uncommon to ask an electrical engineer to rewire a component or add a pull-up resistor. PCB layout is extremely complex. Nobody is perfect, so a new board rarely ever boots the first time around.</p>
+    <p class="normal">With such high stakes, it might seem like DevOps principles are a bad fit for hardware products. Industry trends like <strong class="keyWord">test-driven development</strong> (<strong class="keyWord">TDD</strong>) are often dismissed as impractical by experienced embedded developers. Automated <a id="_idIndexMarker1112"/>testing is harder when dealing with real hardware but not impossible. Investing time and energy in establishing a CI/CD pipeline pays dividends once features begin landing in rapid succession. Management may question why you are doing so much process work up front, but their tune will change when new products begin to be delivered ahead of schedule.</p>
+    <h2 id="_idParaDest-447" class="heading-2"><a id="_idTextAnchor511"/>Continuous integration and cross-compilation</h2>
+    <p class="normal">Linux and much of the middleware on top of it is written mostly in C. This means it must be compiled natively for the <a id="_idIndexMarker1113"/>target’s <strong class="keyWord">instruction set architecture</strong> (<strong class="keyWord">ISA</strong>). In the cloud, that ISA is usually x86-64 running on Intel or <a id="_idIndexMarker1114"/>AMD CPUs. On embedded devices capable of running Linux, it is increasingly 64-bit Arm. Since most cloud infrastructure runs on Intel and AMD CPUs, building <a id="_idIndexMarker1115"/>software for embedded Linux requires a cross-compiling toolchain. However, cross-compilation is not a common use case for cloud-based CI/CD services like GitHub Actions or GitLab CI.</p>
+    <p class="normal">Buildroot and Yocto are both designed to cross-compile embedded Linux images, but running these tools in the cloud can be challenging. They require lots of disk space and the extended build times are prohibitive. Build times can be improved by employing incremental builds and intelligent caching (e.g., Yocto’s shared <code class="inlineCode">sstate-cache</code>). Alternatively, you can use Docker in conjunction with QEMU to cross-compile container images for 64-bit Arm. This containerized approach works great for user space but emulating the target architecture slows down compilation.</p>
+    <h2 id="_idParaDest-448" class="heading-2"><a id="_idTextAnchor512"/>Automated testing on real hardware</h2>
+    <p class="normal">One of <a id="_idIndexMarker1116"/>the biggest challenges<a id="_idIndexMarker1117"/> involved in shipping hardware is implementing <strong class="keyWord">hardware-in-the-loop</strong> (<strong class="keyWord">HIL</strong>) testing. Like cross-compilation, automated testing can be done easily in the cloud with QEMU, but there is no substitute for testing software on its intended hardware. When safety is a concern, HIL testing is an obligation, not a cautionary measure. The challenge is in how to automate it. This is why HIL testing often requires as much effort as coding the software.</p>
+    <p class="normal">The most effective form of HIL testing is to simulate the real world. Hardware interacts with the real world through sensors and actuators. It receives input from sensors and sends output to actuators via communications interfaces like I2C, SPI, and CAN. We simulate the real world by modeling it with software. This software model runs on a separate Linux machine. It sends and receives messages over the<a id="_idIndexMarker1118"/> various comms interfaces just like the sensors and actuators in the actual system. For example, to test an EV charger we would connect a PCB on a test bench to a mock battery running our model.</p>
+    <h2 id="_idParaDest-449" class="heading-2"><a id="_idTextAnchor513"/>Continuous delivery and OTA updates</h2>
+    <p class="normal">When a deployment fails in the cloud, we simply delete the problem servers and spin up new instances. We don’t need to worry about bricking servers because we can always just start over from scratch. Reprovisioning servers is relatively quick and painless to do in the cloud. The same cannot be said for consumer devices <a id="_idIndexMarker1119"/>out in the field. If a device cannot boot, then it is useless. Similarly, if a connected device suddenly becomes disconnected from the internet, then it cannot receive critical OTA updates.</p>
+    <p class="normal">OTA updates are how the continuous delivery of software happens in embedded systems. OTA updates need to be fail-safe in the<a id="_idIndexMarker1120"/> face of accidental power loss. A failed OTA update cannot result in a partial or unknown flash image. Otherwise, the device may be rendered unbootable. Buildroot and Yocto support fail-safe OTA update solutions like Mender, RAUC, and SWUpdate. Even though these tools will save you from bricking your fleet, you should still test your software releases thoroughly before a full rollout. Nothing sinks a new product launch quicker than a bad user experience.</p>
+    <h2 id="_idParaDest-450" class="heading-2"><a id="_idTextAnchor514"/>Infrastructure as code and build systems</h2>
+    <p class="normal">Buildroot relies on makefiles. Yocto consists of BitBake recipes. Like the YAML files that define your cloud infrastructure, this build metadata also qualifies as code and should be kept in version control. That includes<a id="_idIndexMarker1121"/> board defconfigs and package definitions for Buildroot. For Yocto, the build metadata is comprised of BSP and distro layers. It also pays to containerize your embedded Linux build environment by defining a Dockerfile for it. This makes it easier to spin up a CI/CD pipeline to build images for your target device. It also makes it easier for others to reproduce your build environment so that they can develop locally on their machines.</p>
+    <h2 id="_idParaDest-451" class="heading-2"><a id="_idTextAnchor515"/>Securing edge devices</h2>
+    <p class="normal">The internet is full of danger. The infamous Mirai botnet was started by kids wanting to knock out rival Minecraft servers. The idea evolved<a id="_idIndexMarker1122"/> into large-scale <strong class="keyWord">distributed denial-of-service</strong> (<strong class="keyWord">DDoS</strong>) attacks. Mirai hijacks consumer IoT devices like webcams and<a id="_idIndexMarker1123"/> home routers and points them at selected websites. Securing the boot and OTA update processes prevents malware like Mirai from running on users’ devices. The mechanisms for securing the boot and OTA update processes are described in <a href="Chapter_10.xhtml#_idTextAnchor341"><em class="italic">Chapter 10</em></a>. Security is table stakes at the edge because once your fleet is hijacked, you can’t get it back.</p>
+    <p class="normal">Secure boot means that a device will only boot from an image that has been cryptographically signed by the device manufacturer. A signature verification step is inserted at boot time to ensure the authenticity of the latest image applied by an OTA update. Users also expect all data to be encrypted on their <a id="_idIndexMarker1124"/>devices for privacy. Auto-unlocking an encrypted volume requires a passphrase on startup. Any keys or passphrases needed by a device at runtime should be stored safely inside a TPM or secure element.</p>
+    <h2 id="_idParaDest-452" class="heading-2"><a id="_idTextAnchor516"/>Monitoring and observability of edge devices</h2>
+    <p class="normal">Gathering telemetry from consumer devices is difficult because they are deployed in people’s homes and offices. Like all other devices <a id="_idIndexMarker1125"/>connected to the internet, any new product that wants to stream telemetry up to the cloud will need to get past the firewall. This typically requires a user to open an outgoing port on<a id="_idIndexMarker1126"/> their Wi-Fi router. Users may not be network savvy enough or object to doing this for privacy. While standard IoT protocols for telemetry like MQTT exist, they are not always a good fit for every application. There is still much room for innovation in this space by startups like Golioth and Memfault.</p>
+    <p class="normal">Enough theory and rationale. Let’s put these principles into practice. We’ll start by performing a containerized software deployment. You should have already installed Docker on your Linux host according to the instructions in the <em class="italic">Getting Docker</em> section.</p>
+    <h1 id="_idParaDest-453" class="heading-1"><a id="_idTextAnchor517"/>Deploying Python applications with Docker</h1>
+    <p class="normal">Docker offers another way to bundle Python code with software written in other languages. The idea behind Docker is that instead of packaging and installing your application onto a preconfigured server <a id="_idIndexMarker1127"/>environment, you build and ship a container image with your application and all its runtime dependencies. A container image is more like a virtual environment than a virtual machine. A virtual machine is a complete system image including a <a id="_idIndexMarker1128"/>kernel and an operating system. A container image is a minimal user-space environment that only comes with the binaries needed to run your application.</p>
+    <p class="normal">Virtual machines run on top of a hypervisor that emulates hardware. Containers run directly on top of the host operating system. Unlike virtual machines, containers are able to share the same operating system and kernel without the use of hardware emulation. Instead, they rely on two special features of the Linux kernel for isolation: namespaces and cgroups. Docker did not invent container technology, but they were the first to build tooling that made them easy to use. The tired excuse of “works on my machine” no longer flies now that Docker makes it so simple to build and deploy container images.</p>
+    <h2 id="_idParaDest-454" class="heading-2"><a id="_idTextAnchor518"/>Anatomy of a Dockerfile</h2>
+    <p class="normal">A <strong class="keyWord">Dockerfile</strong> describes the contents of a Docker image. Every Dockerfile contains a set of instructions specifying what <a id="_idIndexMarker1129"/>environment to use and which commands to run. Instead of writing a Dockerfile from scratch, we will use an existing Dockerfile for a project template. This Dockerfile generates a Docker image for a very simple Flask web application that you can extend to fit your needs. The Docker image is built on top of Debian Bookworm. Besides Flask, the Docker image also includes uWSGI and Nginx for better performance.</p>
+    <p class="normal">Start by pointing your web browser at the <code class="inlineCode">uwsgi-nginx-flask-docker</code> project on GitHub (<a href="https://github.com/tiangolo/uwsgi-nginx-flask-docker"><span class="url">https://github.com/tiangolo/uwsgi-nginx-flask-docker</span></a>). Then, click on the link to the <code class="inlineCode">python-3.12</code> Dockerfile<a id="_idIndexMarker1130"/> from the <code class="inlineCode">README.md</code> file.</p>
+    <p class="normal">Now, look at the first line in that Dockerfile:</p>
+    <pre class="programlisting code"><code class="hljs-code">FROM tiangolo/uwsgi-nginx:python3.12
+</code></pre>
+    <p class="normal">This <code class="inlineCode">FROM</code> command tells Docker to pull an image named <code class="inlineCode">uwsgi-nginx</code> from the <code class="inlineCode">tiangolo</code> namespace with <code class="inlineCode">python3.12</code> from Docker Hub. Docker Hub is a public registry where people publish their Docker images for others to fetch and deploy. You can set up your own image registry using a service such as AWS ECR or Quay if you prefer. You will need to insert the name of your registry service in front of your namespace like this:</p>
+    <pre class="programlisting code"><code class="hljs-code">FROM quay.io/my-org/my-app:my-tag
+</code></pre>
+    <p class="normal">Otherwise, Docker defaults to fetching images from Docker Hub. <code class="inlineCode">FROM</code> is like an <code class="inlineCode">include</code> statement in a Dockerfile. It inserts the contents of another Dockerfile into yours so that you have something to build on top of. I like to think of this approach as layering images. Debian Bookworm is the base layer, followed by Python 3.12, then uWSGI plus Nginx, and finally your Flask application. You can learn more about how image layering works by digging into the <code class="inlineCode">python3.12</code> Dockerfile at <a href="https://hub.docker.com/r/tiangolo/uwsgi-nginx"><span class="url">https://hub.docker.com/r/tiangolo/uwsgi-nginx</span></a>.</p>
+    <p class="normal">Here is the next line of interest in the Dockerfile:</p>
+    <pre class="programlisting code"><code class="hljs-code">RUN pip install --no-cache-dir -r /tmp/requirements.txt
+</code></pre>
+    <p class="normal">A <code class="inlineCode">RUN</code> instruction runs a command. Docker executes the <code class="inlineCode">RUN</code> instructions contained in the Dockerfile sequentially in order to build the resulting Docker image. If you look at the <code class="inlineCode">requirements.txt</code> file in the Git repo, you will see that this <code class="inlineCode">RUN</code> instruction installs Flask in the system <code class="inlineCode">site-packages</code> directory. We know that <code class="inlineCode">pip</code> is available because the <code class="inlineCode">uwsgi-nginx</code> base image also includes Python 3.12.</p>
+    <p class="normal">Let’s skip over Nginx’s environment variables and go straight to copying:</p>
+    <pre class="programlisting code"><code class="hljs-code">COPY ./app /app
+</code></pre>
+    <p class="normal">This particular Dockerfile is located inside a Git repo along with several other files and subdirectories. The <code class="inlineCode">COPY</code> instruction copies a directory from the host Docker runtime environment (usually a Git clone of a repo) into the container being built.</p>
+    <p class="normal">The <code class="inlineCode">python3.12.dockerfile</code> file you are looking at resides in a <code class="inlineCode">docker-images</code> subdirectory of the <code class="inlineCode">tiangolo/uwsgi-nginx-flask-docker</code> repo. Inside that <code class="inlineCode">docker-images</code> directory is an <code class="inlineCode">app</code> subdirectory containing a Hello World Flask web application. This <code class="inlineCode">COPY</code> instruction copies the <code class="inlineCode">app</code> directory from the example repo into the root directory of the Docker image:</p>
+    <pre class="programlisting code"><code class="hljs-code">WORKDIR /app
+</code></pre>
+    <p class="normal">The <code class="inlineCode">WORKDIR</code> instruction tells Docker which directory to work from inside the container. In this example, the <code class="inlineCode">/app</code> directory that it just copied becomes the working directory. If the target working directory does not exist, then <code class="inlineCode">WORKDIR</code> creates it. Any subsequent non-absolute paths that appear in this Dockerfile are hence relative to the <code class="inlineCode">/app</code> directory.</p>
+    <p class="normal">Now let’s see how an environment variable gets set inside the container:</p>
+    <pre class="programlisting code"><code class="hljs-code">ENV PYTHONPATH=/app
+</code></pre>
+    <p class="normal"><code class="inlineCode">ENV</code> tells Docker that what follows is an environment variable definition. <code class="inlineCode">PYTHONPATH</code> is an environment variable that <a id="_idIndexMarker1131"/>expands into a list of colon-delimited paths where the Python interpreter looks for modules and packages.</p>
+    <p class="normal">Next, let’s jump a few lines down to the second <code class="inlineCode">RUN</code> instruction:</p>
+    <pre class="programlisting code"><code class="hljs-code">RUN chmod +x /entrypoint.sh
+</code></pre>
+    <p class="normal">The <code class="inlineCode">RUN</code> instruction tells Docker to run a command from the shell. In this case, the command being run is <code class="inlineCode">chmod</code>, which changes file permissions. Here, it renders the <code class="inlineCode">/entrypoint.sh</code> executable.</p>
+    <p class="normal">The next line in this Dockerfile is optional:</p>
+    <pre class="programlisting code"><code class="hljs-code">ENTRYPOINT ["/entrypoint.sh"]
+</code></pre>
+    <p class="normal"><code class="inlineCode">ENTRYPOINT</code> is the most interesting instruction in this Dockerfile. It exposes an executable to the Docker host command line when starting the container. This lets you pass arguments from the command line down to the executable inside the container. You can append these arguments after <code class="inlineCode">docker run</code> <code class="inlineCode">&lt;image&gt;</code> on the command line. If there is more than one <code class="inlineCode">ENTRYPOINT</code> instruction in a Dockerfile, then only the last <code class="inlineCode">ENTRYPOINT</code> is executed.</p>
+    <p class="normal">The last line in the Dockerfile is:</p>
+    <pre class="programlisting code"><code class="hljs-code">CMD ["/start.sh"]
+</code></pre>
+    <p class="normal">Like <code class="inlineCode">ENTRYPOINT</code> instructions, <code class="inlineCode">CMD</code> instructions execute at container start time rather than build time. When an <code class="inlineCode">ENTRYPOINT</code> instruction is defined in a Dockerfile, a <code class="inlineCode">CMD</code> instruction defines default arguments to be passed to that <code class="inlineCode">ENTRYPOINT</code>. In this instance, the <code class="inlineCode">/start.sh</code> path is the argument passed to <code class="inlineCode">/entrypoint.sh</code>. The last line in <code class="inlineCode">/entrypoint.sh</code> executes <code class="inlineCode">/start.sh</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">#! /usr/bin/env sh
+set -e
+# If there's a prestart.sh script in the /app directory, run it before 
+# starting
+PRE_START_PATH=/app/prestart.sh
+echo "Checking for script in $PRE_START_PATH"
+if [ -f $PRE_START_PATH ] ; then
+    echo "Running script $PRE_START_PATH"
+    . $PRE_START_PATH
+else
+    echo "There is no script $PRE_START_PATH"
+fi
+# Start Supervisor, with Nginx and uWSGI
+exec /usr/bin/supervisord
+</code></pre>
+    <p class="normal">The <code class="inlineCode">/start.sh</code> script comes from the <code class="inlineCode">uwsgi-nginx</code> base image. <code class="inlineCode">/start.sh</code> starts Nginx and uWSGI after <code class="inlineCode">/entrypoint.sh</code> has configured the container runtime environment for them. When <code class="inlineCode">CMD</code> is used in conjunction with <code class="inlineCode">ENTRYPOINT</code>, the default arguments set by <code class="inlineCode">CMD</code> can be overridden from the Docker host command line.</p>
+    <p class="normal">Most Dockerfiles do not have an <code class="inlineCode">ENTRYPOINT</code> instruction, so the last line of a Dockerfile is usually a <code class="inlineCode">CMD</code> instruction that runs in the foreground instead of default arguments. You can use this Dockerfile trick to keep a general-purpose Docker container running for development:</p>
+    <pre class="programlisting code"><code class="hljs-code">CMD tail -f /dev/null
+</code></pre>
+    <p class="normal">Except for <code class="inlineCode">ENTRYPOINT</code> and <code class="inlineCode">CMD</code>, all of the instructions in this example <code class="inlineCode">python-3.12</code> Dockerfile only execute when the <a id="_idIndexMarker1132"/>container is being built.</p>
+    <h2 id="_idParaDest-455" class="heading-2"><a id="_idTextAnchor519"/>Building a Docker image</h2>
+    <p class="normal">Before we can <a id="_idIndexMarker1133"/>build a Docker image, we need a Dockerfile. You may already have some Docker images on your system.</p>
+    <p class="normal">To see a list of Docker images:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker images
+</code></pre>
+    <p class="normal">Now, let’s fetch and build the Dockerfile we just dissected:</p>
+    <ol>
+      <li class="numberedList" value="1">Clone the repo containing the Dockerfile:
+        <pre class="programlisting con"><code class="hljs-con">$ git clone https://github.com/tiangolo/uwsgi-nginx-flask-docker.git
+</code></pre>
+      </li>
+      <li class="numberedList">Switch to the <code class="inlineCode">docker-images</code> subdirectory inside the repo:
+        <pre class="programlisting con"><code class="hljs-con">$ cd uwsgi-nginx-flask-docker/docker-images
+</code></pre>
+      </li>
+      <li class="numberedList">Copy <code class="inlineCode">python3.12.dockerfile</code> to a file named <code class="inlineCode">Dockerfile</code>:
+        <pre class="programlisting con"><code class="hljs-con">$ cp python3.12.dockerfile Dockerfile
+</code></pre>
+      </li>
+      <li class="numberedList">Build an image from the Dockerfile:
+        <pre class="programlisting con"><code class="hljs-con">$ docker build -t my-image .
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Once the image is done building, it will appear in your list of local Docker images:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker images
+</code></pre>
+    <p class="normal">The newly built my-image should appear in the list.</p>
+    <h2 id="_idParaDest-456" class="heading-2"><a id="_idTextAnchor520"/>Running a Docker image</h2>
+    <p class="normal">We now have a Docker image<a id="_idIndexMarker1134"/> built that we can run as a container.</p>
+    <p class="normal">To get a list of running containers on your system:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker ps
+</code></pre>
+    <p class="normal">To run a container based on <code class="inlineCode">my-image</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker run -d --name my-container -p 80:80 my-image
+</code></pre>
+    <p class="normal">If the preceding command fails because port <code class="inlineCode">80</code> is busy, then substitute port <code class="inlineCode">8080</code> for <code class="inlineCode">80</code>. Now observe the status of your running container:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker ps
+</code></pre>
+    <p class="normal">You should see a container named <code class="inlineCode">my-container</code> based on an image named <code class="inlineCode">my-image</code> in the list. The <code class="inlineCode">-p</code> option in the <code class="inlineCode">docker run</code> command maps a container port to a host port. So, container port <code class="inlineCode">80</code> maps to<a id="_idIndexMarker1135"/> host port <code class="inlineCode">80</code> in this example. This port mapping allows the Flask web server running inside the container to service HTTP requests.</p>
+    <p class="normal">To stop <code class="inlineCode">my-container</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker stop my-container
+</code></pre>
+    <p class="normal">Now check the status of your running container again:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker ps
+</code></pre>
+    <p class="normal"><code class="inlineCode">my-container</code> should no longer appear in the list of running containers. Is the container gone? No, it is only stopped. You can still see <code class="inlineCode">my-container</code> and its status by adding the <code class="inlineCode">-a</code> option to the <code class="inlineCode">docker</code> <code class="inlineCode">ps</code> command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker ps -a
+</code></pre>
+    <p class="normal">We’ll look at how to delete containers we no longer need a bit later.</p>
+    <h2 id="_idParaDest-457" class="heading-2"><a id="_idTextAnchor521"/>Fetching a Docker image</h2>
+    <p class="normal">Earlier in this section, I touched <a id="_idIndexMarker1136"/>on image registries such as Docker Hub, AWS ECR, and Quay. As it turns out, the Docker image that we built locally from a cloned Git repo is already published on Docker Hub. It is much quicker to fetch the prebuilt image from Docker Hub than to build it yourself on your system. The Docker images for the project can be found at <a href="https://hub.docker.com/r/tiangolo/uwsgi-nginx-flask"><span class="url">https://hub.docker.com/r/tiangolo/uwsgi-nginx-flask</span></a>.</p>
+    <p class="normal">To pull the same Docker image that we built as <code class="inlineCode">my-image</code> from Docker Hub:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker pull tiangolo/uwsgi-nginx-flask:python3.12
+</code></pre>
+    <p class="normal">Now look at your list of Docker images again:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker images
+</code></pre>
+    <p class="normal">You should see a new <code class="inlineCode">uwsgi-nginx-flask</code> image in the list.</p>
+    <p class="normal">To run this newly fetched image:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker run -d --name flask-container -p 80:80 tiangolo/uwsgi-nginx-flask:python3.12
+</code></pre>
+    <p class="normal">You can substitute the full image name (<code class="inlineCode">repo:tag</code>) in the preceding <code class="inlineCode">docker run</code> command with the corresponding<a id="_idIndexMarker1137"/> image ID (hash) from <code class="inlineCode">docker images</code> if you prefer not to type out the full image name.</p>
+    <h2 id="_idParaDest-458" class="heading-2"><a id="_idTextAnchor522"/>Publishing a Docker image</h2>
+    <p class="normal">To publish a Docker image to Docker Hub, you must first have an account and log in to it. You can create an account on Docker Hub by going to the <a href="https://hub.docker.com"><span class="url">https://hub.docker.com</span></a> website and signing up. Once you have <a id="_idIndexMarker1138"/>an account, then you can push an existing image to your Docker Hub repository:</p>
+    <ol>
+      <li class="numberedList" value="1">Log in to the Docker Hub image registry from the command line:
+        <pre class="programlisting con"><code class="hljs-con">$ docker login
+</code></pre>
+      </li>
+      <li class="numberedList">Enter your Docker Hub username and password when prompted.</li>
+      <li class="numberedList">Tag an existing image with a new name that starts with the name of your repository:
+        <pre class="programlisting con"><code class="hljs-con">$ docker tag my-image:latest &lt;repository&gt;/my-image:latest
+</code></pre>
+      </li>
+      <li class="numberedList">Replace <code class="inlineCode">&lt;repository&gt;</code> in the preceding command with the name of your repository (the same as your username) on Docker Hub. You can also substitute the name of another existing image you wish to push for <code class="inlineCode">my-image:latest</code>.</li>
+      <li class="numberedList">Push the image to the Docker Hub image registry:
+        <pre class="programlisting con"><code class="hljs-con">$ docker push &lt;repository&gt;/my-image:latest
+</code></pre>
+      </li>
+      <li class="numberedList">Again, make the same replacements as you did for <em class="italic">step 3</em>.</li>
+    </ol>
+    <p class="normal">Images pushed to Docker Hub are publicly available by default. To visit the web page for your newly published image, go to <a href="https://hub.docker.com/repository/docker/repository/my-image"><span class="url">https://hub.docker.com/repository/docker/&lt;repository&gt;/my-image</span></a>. Replace <code class="inlineCode">&lt;repository&gt;</code> in the preceding URL with the name of your repository (the same as your username) on Docker Hub. You can also substitute the name of the actual image you pushed for <code class="inlineCode">my-image:latest</code> if different. If you click on the <strong class="screenText">Tags</strong> tab on that web page, you should see the <code class="inlineCode">docker pull</code> command for fetching that image.</p>
+    <h2 id="_idParaDest-459" class="heading-2"><a id="_idTextAnchor523"/>Cleaning up</h2>
+    <p class="normal">We know that <code class="inlineCode">docker images</code> lists images and <code class="inlineCode">docker ps</code> lists containers. Before we can delete a Docker image, we must first <a id="_idIndexMarker1139"/>delete any containers that reference it. To delete a Docker container, you first need to know the container’s name or ID:</p>
+    <ol>
+      <li class="numberedList" value="1">Find the target Docker container’s name:
+        <pre class="programlisting con"><code class="hljs-con">$ docker ps -a
+</code></pre>
+      </li>
+      <li class="numberedList">Stop the container if it is running:
+        <pre class="programlisting con"><code class="hljs-con">$ docker stop flask-container
+</code></pre>
+      </li>
+      <li class="numberedList">Delete the Docker container:
+        <pre class="programlisting con"><code class="hljs-con">$ docker rm flask-container
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Replace <code class="inlineCode">flask-container</code> in the two preceding commands with the container name or ID from <em class="italic">step 1</em>. Every container that appears under <code class="inlineCode">docker ps</code> also has an image name or ID associated with it. Once you have deleted <a id="_idIndexMarker1140"/>all the containers that reference an image, you can then delete the image.</p>
+    <p class="normal">Docker image names (<code class="inlineCode">repo:tag</code>) can get quite long (for example, <code class="inlineCode">tiangolo/uwsgi-nginx-flask:python3.12</code>). For that reason, I find it easier to just copy and paste an image’s ID (hash) when deleting:</p>
+    <ol>
+      <li class="numberedList" value="1">Find the Docker image’s ID:
+        <pre class="programlisting con"><code class="hljs-con">$ docker images
+</code></pre>
+      </li>
+      <li class="numberedList">Delete the Docker image:
+        <pre class="programlisting con"><code class="hljs-con">$ docker rmi &lt;image-ID&gt;
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Replace <code class="inlineCode">&lt;image-ID&gt;</code> in the preceding command with the image ID from <em class="italic">step 1</em>.</p>
+    <p class="normal">If you simply want to blow away all the containers and images that you are no longer using on your system:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ docker system prune -a
+</code></pre>
+    <p class="normal"><code class="inlineCode">docker system prune</code> deletes all stopped containers and dangling images.</p>
+    <p class="normal">We’ve seen how <code class="inlineCode">pip</code> can be used to install a Python application’s dependencies. You simply add a <code class="inlineCode">RUN</code> instruction that calls <code class="inlineCode">pip install</code> to your Dockerfile. Because containers are sandboxed environments, they offer many of the same benefits that virtual environments do. But unlike <code class="inlineCode">conda</code> and <code class="inlineCode">venv</code> virtual environments, Buildroot and Yocto both have support for Docker containers. Buildroot has the <code class="inlineCode">docker-engine</code> and <code class="inlineCode">docker-cli</code> packages. Yocto has the <code class="inlineCode">meta-virtualization</code> layer. If your device needs isolation because of Python package conflicts, then you can achieve that with Docker.</p>
+    <p class="normal">The <code class="inlineCode">docker run</code> command provides options for exposing operating system resources to containers. Specifying a bind mount allows a file or directory on the host machine to be mounted inside a container for reading and writing. By default, containers publish no ports to the outside world. When you ran your <code class="inlineCode">my-container</code> image, you used the <code class="inlineCode">-p</code> option to publish port <code class="inlineCode">80</code> from the container to port <code class="inlineCode">80</code> on the host. The <code class="inlineCode">--device</code> option adds a host device file under <code class="inlineCode">/dev</code> to an unprivileged container. If you wish to grant access to all devices on the host, then use the <code class="inlineCode">--privileged</code> option.</p>
+    <p class="normal">What containers excel at is deployment. Being able to push a Docker image that can then be easily pulled and run on any of the major cloud platforms has revolutionized the DevOps movement. Docker is also making inroads in the embedded Linux space thanks to OTA update solutions such as balena. One of the downsides of Docker is the storage footprint and memory overhead of the runtime. The <a id="_idIndexMarker1141"/>Go binaries are a bit bloated, but Docker runs on quad-core 64-bit Arm SBCs like the Raspberry Pi 4 and BeaglePlay just fine. If your target device has enough power, then run Docker on it. Your software development team will thank you.</p>
+    <div class="note">
+      <p class="normal"> <strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">Podman is an alternative to Docker that offers a lighter, daemonless architecture. Unlike Docker, Podman does not require a service to be continuously running in the background, making it more resource-efficient. Its support for rootless containers enhances security and its compatibility with OCI standards ensures flexibility.</p>
+    </div>
+    <h1 id="_idParaDest-460" class="heading-1"><a id="_idTextAnchor524"/>Setting up a CI/CD pipeline for a Python application</h1>
+    <p class="normal">Docker is not just for deploying software to the cloud. Cloud-based CI/CD services can build and publish 64-bit Arm container images for deploying to edge devices. Containerized software updates are less disruptive than full A/B image updates because they don’t require a reboot. Users get nervous when they<a id="_idIndexMarker1142"/> see their devices fall offline even if just for a moment.</p>
+    <p class="normal">Containerized software updates are also <a id="_idIndexMarker1143"/>less risky than full A/B image updates because they don’t include a Linux kernel. An edge device may fail to boot because of a bad kernel update. Unless there is a fail-safe mechanism in place, the device is effectively bricked. Upstream kernel modules fall into disrepair as hardware ages out. Kernel upgrades are especially dangerous because they can introduce kernel panics.</p>
+    <p class="normal">Back in the <em class="italic">Building on top of an existing BSP</em> section of <a href="Chapter_05.xhtml#_idTextAnchor151"><em class="italic">Chapter 7</em></a>, we added a custom layer for a Python Bluetooth server application to a Yocto image for the Raspberry Pi 4. We can deploy the same application to a fleet of Raspberry Pi 4s using Docker.</p>
+    <p class="normal">The source code for the Python Bluetooth server resides in a public Git repo (<a href="https://github.com/fvasquez/gattd"><span class="url">https://github.com/fvasquez/gattd</span></a>). GitHub Actions can attempt to build and publish a container image every time a commit is pushed to the repo.</p>
+    <h2 id="_idParaDest-461" class="heading-2"><a id="_idTextAnchor525"/>Creating a Dockerfile</h2>
+    <p class="normal">To run <code class="inlineCode">gattd</code> inside a <a id="_idIndexMarker1144"/>container, we first need a Dockerfile. Since <code class="inlineCode">gattd</code> is a <strong class="keyWord">Bluetooth Low Energy</strong> (<strong class="keyWord">BLE</strong>) GATT server, it depends <a id="_idIndexMarker1145"/>on working Bluetooth hardware and software being available at runtime. Fortunately, the Raspberry Pi 4 comes with Bluetooth built in, so there is robust kernel support for BLE already in place. Our <code class="inlineCode">gattd</code> container image needs to include the BlueZ software stack to take advantage of all this Bluetooth support. BlueZ in turn requires D-Bus so that must be included in our image as well. <strong class="keyWord">D-Bus</strong> is message-based <a id="_idIndexMarker1146"/>middleware that enables communication between multiple processes running on the same computer. The <em class="italic">D</em> in D-Bus stands for <em class="italic">desktop</em> but servers also rely on it for inter-process communication. D-Bus supports both request-response and publish/subscribe messaging and is deeply integrated into <code class="inlineCode">systemd</code>.</p>
+    <p class="normal">Since <code class="inlineCode">gattd</code> is a Python application, the Dockerfile does not have a compilation step. The Python distribution is not compiled by Yocto. It is part of the underlying Linux distribution or base layer specified at the top of the Dockerfile. I chose Ubuntu as my base layer because Ubuntu LTS releases are tested thoroughly against real hardware like the Raspberry Pi 4.</p>
+    <p class="normal">Relying on Ubuntu for user space eliminates the need to build your own distro and perform all the testing that goes along <a id="_idIndexMarker1147"/>with that. Why go through all the trouble of maintaining a Linux distro layer when Canonical already does that for you? Choosing Ubuntu saves precious development time. The rest of your software team does not need to get up to speed on Yocto or install the eSDK. Ubuntu is a known entity.</p>
+    <p class="normal">Here is the Dockerfile I committed to the root level of the <code class="inlineCode">gattd</code> repo:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-comment"># Dockerfile</span>
+<span class="hljs-string">FROM</span> <span class="hljs-string">arm64v8/ubuntu:24.04</span>
+<span class="hljs-string">LABEL</span> <span class="hljs-string">maintainer="fvasquez@gmail.com"</span>
+<span class="hljs-string">RUN</span> <span class="hljs-string">apt</span> <span class="hljs-string">update</span> <span class="hljs-string">&amp;&amp;</span> <span class="hljs-string">apt-get</span> <span class="hljs-string">install</span> <span class="hljs-string">-y</span> <span class="hljs-string">\</span>
+    <span class="hljs-string">bluez</span> <span class="hljs-string">\</span>
+    <span class="hljs-string">dbus</span> <span class="hljs-string">\</span>
+    <span class="hljs-string">python3-dbus</span> <span class="hljs-string">\</span>
+    <span class="hljs-string">python3-gi</span>
+<span class="hljs-comment"># Your app code, binaries, or other instructions</span>
+<span class="hljs-string">COPY</span> <span class="hljs-string">.</span> <span class="hljs-string">/app</span>
+<span class="hljs-string">WORKDIR</span> <span class="hljs-string">/app</span>
+<span class="hljs-comment"># Example app run</span>
+<span class="hljs-string">CMD</span> <span class="hljs-string">./entrypoint.sh</span>
+</code></pre>
+    <p class="normal"><strong class="keyWord">Docker Official Images</strong> (<strong class="keyWord">DOI</strong>) are hosted on Docker Hub. One of the primary goals of the DOI program is to publish container<a id="_idIndexMarker1148"/> images for architectures other than amd64. One of the architectures DOI supports is arm64v8, which is the ISA for the Raspberry Pi 4. The Docker Hub <code class="inlineCode">arm64v8</code> organization publishes and maintains scores of container images on behalf of the DOI program. These include official arm64v8 container images for Debian, Ubuntu, and Python. 24.04 was the most recent LTS release of Ubuntu when I wrote this Dockerfile.</p>
+    <p class="normal">The <code class="inlineCode">gattd</code> application relies primarily on the Python standard library. The only other Python package dependencies are bindings for D-Bus and bindings for the GObject introspection libraries. These two packages do not justify an additional <code class="inlineCode">pip install</code> step since there are Ubuntu packages readily available for both. Unlike JavaScript, which has a very limited standard library, Python ships with “batteries included” so your application may not need another package manager besides <code class="inlineCode">apt</code>.</p>
+    <p class="normal">Remember that the <code class="inlineCode">COPY</code> instruction copies source files from the Git repo into the container being built. I will talk <a id="_idIndexMarker1149"/>about the <code class="inlineCode">entrypoint.sh</code> script after I explain how container images are published for <code class="inlineCode">gattd</code>.</p>
+    <h2 id="_idParaDest-462" class="heading-2"><a id="_idTextAnchor526"/>Creating a GitHub Actions workflow</h2>
+    <p class="normal">GitHub Actions is the free CI/CD service offered by GitHub. GitHub Actions can build a container image and publish it to <strong class="keyWord">GitHub Container Registry</strong> (<strong class="keyWord">GHCR</strong>) whenever a<a id="_idIndexMarker1150"/> change is pushed to the <code class="inlineCode">gattd</code> repo. <strong class="keyWord">GitHub Packages</strong> is GitHub’s software package hosting service for software releases. GHCR<a id="_idIndexMarker1151"/> is part of GitHub Packages so <a id="_idIndexMarker1152"/>no additional steps are needed to access GHCR other than using a repo owned by you or your organization. I own the <code class="inlineCode">gattd</code> repo, which I forked from <a href="https://github.com/Jumperr-labs/python-gatt-server"><span class="url">https://github.com/Jumperr-labs/python-gatt-server</span></a>. The Python code was written by Dan Shemesh and dates back to 2017.</p>
+    <p class="normal">Like most CI/CD services, GitHub Actions workflows are defined as YAML files. The default workflow file is named <code class="inlineCode">main.yml</code>. Changes to workflow files are committed to the <code class="inlineCode">.github/workflows</code> directory of the repo. Since these files reside in version control along with the source code they build and deploy, workflow files constitute infrastructure as code.</p>
+    <p class="normal">Here are the contents of the <code class="inlineCode">main.yml</code> workflow file I defined for the <code class="inlineCode">gattd</code> repo:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-attr">name:</span> <span class="hljs-string">Publish</span> <span class="hljs-string">Docker</span> <span class="hljs-string">Image</span> <span class="hljs-string">to</span> <span class="hljs-string">GHCR</span>
+<span class="hljs-attr">on:</span>
+  <span class="hljs-attr">push:</span>
+    <span class="hljs-attr">branches:</span> [ <span class="hljs-string">"master"</span> ]
+<span class="hljs-attr">permissions:</span>
+  <span class="hljs-attr">contents:</span> <span class="hljs-string">read</span>
+  <span class="hljs-attr">packages:</span> <span class="hljs-string">write</span>
+<span class="hljs-attr">jobs:</span>
+  <span class="hljs-attr">build-and-push:</span>
+    <span class="hljs-attr">runs-on:</span> <span class="hljs-string">ubuntu-24.04-arm</span>
+    <span class="hljs-attr">steps:</span>
+      <span class="hljs-comment"># 1) Check out the code</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">Check</span> <span class="hljs-string">out</span> <span class="hljs-string">code</span>
+        <span class="hljs-attr">uses:</span> <span class="hljs-string">actions/checkout@v4</span>
+      <span class="hljs-comment"># 2) Log in to GitHub Container Registry</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">Log</span> <span class="hljs-string">in</span> <span class="hljs-string">to</span> <span class="hljs-string">GHCR</span>
+        <span class="hljs-attr">uses:</span> <span class="hljs-string">docker/login-action@v2</span>
+        <span class="hljs-attr">with:</span>
+          <span class="hljs-attr">registry:</span> <span class="hljs-string">ghcr.io</span>
+          <span class="hljs-attr">username:</span> <span class="hljs-string">${{</span> <span class="hljs-string">github.repository_owner</span> <span class="hljs-string">}}</span>
+          <span class="hljs-attr">password:</span> <span class="hljs-string">${{</span> <span class="hljs-string">secrets.GITHUB_TOKEN</span> <span class="hljs-string">}}</span>
+      <span class="hljs-comment"># 3) Build and Push the Docker image</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">Build</span> <span class="hljs-string">and</span> <span class="hljs-string">push</span> <span class="hljs-string">Docker</span> <span class="hljs-string">image</span>
+        <span class="hljs-attr">uses:</span> <span class="hljs-string">docker/build-push-action@v4</span>
+        <span class="hljs-attr">with:</span>
+          <span class="hljs-attr">context:</span> <span class="hljs-string">.</span>
+          <span class="hljs-attr">file:</span> <span class="hljs-string">./Dockerfile</span>
+          <span class="hljs-attr">platforms:</span> <span class="hljs-string">linux/arm64</span>
+          <span class="hljs-attr">push:</span> <span class="hljs-literal">true</span>
+          <span class="hljs-attr">tags:</span> <span class="hljs-string">|</span>
+            <span class="hljs-string">ghcr.io/${{</span> <span class="hljs-string">github.repository_owner</span> <span class="hljs-string">}}/${{</span> <span class="hljs-string">github.event.repository.name</span> <span class="hljs-string">}}:latest</span>
+</code></pre>
+    <p class="normal">This <code class="inlineCode">main.yml</code> file is also included in the <code class="inlineCode">Chapter16</code> folder of the book’s Git repo.</p>
+    <p class="normal">A simple three-step workflow is <a id="_idIndexMarker1153"/>all that is needed to publish a container image to GHCR. The workflow is triggered every time a commit is pushed to the <code class="inlineCode">master</code> branch of the repo.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">Make sure to replace <code class="inlineCode">master</code> with <code class="inlineCode">main</code> in the <code class="inlineCode">branches</code> list of your <code class="inlineCode">main.yml</code> file when creating a GitHub Actions workflow for one of your own repos. Otherwise, the workflow will fail if no branch named <code class="inlineCode">master</code> exists. Even though <code class="inlineCode">main</code> is now the name of the default branch on GitHub, <code class="inlineCode">master</code> is still the name of the default branch in Git when you create a new repository. </p>
+    </div>
+    <p class="normal">Another point of interest is <code class="inlineCode">runs-on: ubuntu-24.04-arm</code>, which instructs GitHub Actions to leverage arm64-hosted runners for this workflow. This means that any hosted runners GitHub spins up for this workflow will run on real 64-bit Arm CPU cores, eliminating the need for cross-compilation or emulation.</p>
+    <p class="normal"><em class="italic">Step 3</em> of the workflow builds and pushes the container image defined by the repo’s Dockerfile. Notice that only <code class="inlineCode">linux/arm64</code> is specified for <code class="inlineCode">platforms</code>. The <code class="inlineCode">platforms</code> element is for building multi-platform container images using Docker <code class="inlineCode">buildx</code>. Docker <code class="inlineCode">buildx</code> leverages QEMU to compile container images for non-native architectures, aka “platforms.” Since <code class="inlineCode">gattd</code> is targeted at the Raspberry Pi 4, a container image only needs to be built for the native <code class="inlineCode">linux/arm64</code> platform. Docker <code class="inlineCode">buildx</code> is under active development. Learn more about the plugin and building multi-platform images at <a href="https://github.com/docker/buildx"><span class="url">https://github.com/docker/buildx</span></a>.</p>
+    <p class="normal">To create a GitHub Actions workflow:</p>
+    <ol>
+      <li class="numberedList" value="1">From your repo, click on the <strong class="screenText">Actions</strong> icon in the top bar.</li>
+      <li class="numberedList">Below <strong class="screenText">Get started with GitHub Actions</strong>, click <strong class="screenText">Skip this and set up a workflow yourself</strong>.</li>
+      <li class="numberedList">Paste the contents of <code class="inlineCode">main.yml</code> into the <strong class="screenText">Edit</strong> window.</li>
+      <li class="numberedList">Click the green <strong class="screenText">Commit changes...</strong> button.</li>
+      <li class="numberedList">From the <strong class="screenText">Commit changes</strong> dialog, click the green <strong class="screenText">Commit changes</strong> button.</li>
+    </ol>
+    <figure class="mediaobject"><img src="../Images/B18466_16_01.png" alt="Figure 16.1 – Commit changes" width="1215" height="1283"/></figure>
+    <p class="packt_figref">Figure 16.1 – Commit changes</p>
+    <p class="normal">Clicking the green <strong class="screenText">Commit changes</strong> button triggers the GitHub Actions workflow. GitHub then spins up a hosted runner to build the repo’s Dockerfile and push any resulting container image to GHCR. If everything goes <a id="_idIndexMarker1154"/>as planned, you will see a status of <strong class="screenText">Success</strong> for the commit and a white check mark inside of a green circle next to the <strong class="screenText">build-and-push</strong> job. This workflow took 58 seconds to complete the first time I ran it and now triggers every time a commit is pushed to the <code class="inlineCode">master</code> branch.</p>
+    <h2 id="_idParaDest-463" class="heading-2"><a id="_idTextAnchor527"/>Pulling and running the latest image</h2>
+    <p class="normal">Docker needs space to write the <a id="_idIndexMarker1155"/>container images that it pulls. Most<a id="_idIndexMarker1156"/> embedded Linux filesystems are either read-only or too small to store container images like <code class="inlineCode">gattd:latest</code>. That is why you want to install a general-purpose Linux distribution like Ubuntu Server on your Raspberry Pi 4 for this exercise. The easiest way to do that is with the official Raspberry Pi Imager available from raspberrypi.org.</p>
+    <p class="normal">First, download and install the Raspberry Pi Imager onto your Linux host. Directions on how to do that can be found online <a id="_idIndexMarker1157"/>at raspberrypi.com.</p>
+    <p class="normal">To download and install Ubuntu Server onto a microSD card:</p>
+    <ol>
+      <li class="numberedList" value="1">Insert a microSD card into <a id="_idIndexMarker1158"/>your Linux host machine.</li>
+      <li class="numberedList">Launch Raspberry Pi Imager.</li>
+      <li class="numberedList">Select <strong class="screenText">Raspberry Pi 4</strong> as your <strong class="screenText">Raspberry Pi Device</strong>.</li>
+      <li class="numberedList">Select <strong class="screenText">Other general-purpose OS</strong> as your operating system.</li>
+      <li class="numberedList">From the <strong class="screenText">Operating System</strong> menu, select <strong class="screenText">Ubuntu</strong>.</li>
+      <li class="numberedList">Then select <strong class="screenText">Ubuntu Server 24.04.1 LTS</strong> (64-bit) or the closest available equivalent.</li>
+      <li class="numberedList">Click the <strong class="screenText">Edit Settings</strong> button when asked <strong class="screenText">Would you like to apply OS customization settings?</strong></li>
+      <li class="numberedList">Enter a username and password on the <strong class="screenText">GENERAL</strong> page as shown:</li>
+    </ol>
+    <figure class="mediaobject"><img src="../Images/B18466_16_02.png" alt="Figure 16.2 – GENERAL" width="1519" height="1383"/></figure>
+    <p class="packt_figref">Figure 16.2 – GENERAL</p>
+    <ol>
+      <li class="numberedList" value="9">Replace <code class="inlineCode">frank</code> with <a id="_idIndexMarker1159"/>your desired<a id="_idIndexMarker1160"/> username.</li>
+      <li class="numberedList">Check <strong class="screenText">Enable SSH</strong> on the <strong class="screenText">SERVICES</strong> page as shown:</li>
+    </ol>
+    <figure class="mediaobject"><img src="../Images/B18466_16_03.png" alt="Figure 16.3 – SERVICES" width="1311" height="1299"/></figure>
+    <p class="packt_figref">Figure 16.3 – SERVICES</p>
+    <ol>
+      <li class="numberedList" value="11">Click the red <strong class="screenText">SAVE</strong> button.</li>
+      <li class="numberedList">Select the microSD<a id="_idIndexMarker1161"/> card as your storage.</li>
+      <li class="numberedList">Write the Ubuntu Server<a id="_idIndexMarker1162"/> image to the microSD card. This takes several minutes because Raspberry Pi Imager formats all the available space on the microSD card.</li>
+      <li class="numberedList">Eject the microSD card when Raspberry Pi Imager is done writing.</li>
+      <li class="numberedList">Insert the microSD card into your Raspberry Pi 4.</li>
+      <li class="numberedList">Apply power to the Raspberry Pi 4 by way of its USB-C port.</li>
+    </ol>
+    <p class="normal">To SSH into the Raspberry Pi 4:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ssh &lt;username&gt;@raspberrypi.local
+</code></pre>
+    <p class="normal">Replace <code class="inlineCode">&lt;username&gt;</code> with the username for the account you created when installing Ubuntu Server. Log in with the password <a id="_idIndexMarker1163"/>you created with that <a id="_idIndexMarker1164"/>account when prompted.</p>
+    <p class="normal">To install and configure Docker on the Raspberry Pi 4:</p>
+    <ol>
+      <li class="numberedList" value="1">Update the package metadata:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo apt update
+</code></pre>
+      </li>
+      <li class="numberedList">Install the Docker daemon:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo apt install docker.io
+</code></pre>
+      </li>
+      <li class="numberedList">Configure the system to start the Docker daemon on power up:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo systemctl enable --now docker
+</code></pre>
+      </li>
+      <li class="numberedList">Add the user to the <code class="inlineCode">Docker</code> group:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo usermod -aG docker &lt;frank&gt;
+</code></pre>
+      </li>
+      <li class="numberedList">Replace <code class="inlineCode">&lt;frank&gt;</code> with the username for the account you created when installing Ubuntu Server.</li>
+      <li class="numberedList">Restart the Docker daemon:
+        <pre class="programlisting con"><code class="hljs-con">$ sudo systemctl restart docker
+</code></pre>
+      </li>
+      <li class="numberedList">Close the session:
+        <pre class="programlisting con"><code class="hljs-con">$ exit
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">SSH into the Raspberry Pi 4 again.</p>
+    <p class="normal">To pull the latest <code class="inlineCode">gattd</code> container image from GHCR:</p>
+    <pre class="programlisting con"><code class="hljs-con">frank@raspberrypi:~$ docker pull ghcr.io/fvasquez/gattd:latest
+latest: Pulling from fvasquez/gattd
+820619057a1c: Pull complete
+84a50057c1f4: Pull complete
+b6caffbfe56a: Pull complete
+4f4fb700ef54: Pull complete
+Digest: sha256:85ad5878bda3a390fe33d7474d88c2e921f51a7df314351be9d2e00a4c3ba8f1
+Status: Downloaded newer image for ghcr.io/fvasquez/gattd:latest
+ghcr.io/fvasquez/gattd:latest
+</code></pre>
+    <p class="normal">To run the<a id="_idIndexMarker1165"/> latest <code class="inlineCode">gattd</code> container<a id="_idIndexMarker1166"/> image:</p>
+    <pre class="programlisting con"><code class="hljs-con">frank@raspberrypi:~$ docker run --net=host --privileged -t ghcr.io/fvasquez/gattd:latest
+ * Starting system message bus dbus                                        [ OK ]
+ * Starting bluetooth                                                      [ OK ]
+Waiting for services to start... done! (in 2 s)
+/app/gatt_server_example.py:25: PyGIDeprecationWarning: GObject.MainLoop is deprecated; use GLib.MainLoop instead
+  mainloop = GObject.MainLoop()
+checking adapter /org/bluez, keys: dict_keys([dbus.String('org.freedesktop.DBus.Introspectable'), dbus.String('org.bluez.AgentManager1'), dbus.String('org.bluez.ProfileManager1'), dbus.String('org.bluez.HealthManager1')])
+checking adapter /org/bluez/hci0, keys: dict_keys([dbus.String('org.freedesktop.DBus.Introspectable'), dbus.String('org.bluez.Adapter1'), dbus.String('org.freedesktop.DBus.Properties'), dbus.String('org.bluez.BatteryProviderManager1'), dbus.String('org.bluez.GattManager1'), dbus.String('org.bluez.Media1'), dbus.String('org.bluez.NetworkServer1'), dbus.String('org.bluez.LEAdvertisingManager1')])
+found adapter /org/bluez/hci0
+returning adapter /org/bluez/hci0
+adapter: /org/bluez/hci0
+checking adapter /org/bluez, keys: dict_keys([dbus.String('org.freedesktop.DBus.Introspectable'), dbus.String('org.bluez.AgentManager1'), dbus.String('org.bluez.ProfileManager1'), dbus.String('org.bluez.HealthManager1')])
+checking adapter /org/bluez/hci0, keys: dict_keys([dbus.String('org.freedesktop.DBus.Introspectable'), dbus.String('org.bluez.Adapter1'), dbus.String('org.freedesktop.DBus.Properties'), dbus.String('org.bluez.BatteryProviderManager1'), dbus.String('org.bluez.GattManager1'), dbus.String('org.bluez.Media1'), dbus.String('org.bluez.NetworkServer1'), dbus.String('org.bluez.LEAdvertisingManager1')])
+found adapter /org/bluez/hci0
+returning adapter /org/bluez/hci0
+Registering GATT application...
+GetManagedObjects
+GetAll
+returning props
+GATT application registered
+Advertisement registered
+Battery level: 98
+Battery level: 96
+Battery level: 94
+Battery level: 92
+Battery level: 90
+Battery level: 88
+</code></pre>
+    <p class="normal">Here is the <code class="inlineCode">entrypoint.sh</code> script that<a id="_idIndexMarker1167"/> executes when the <code class="inlineCode">gattd</code> container<a id="_idIndexMarker1168"/> image is run:</p>
+    <pre class="programlisting code"><code class="hljs-code">#!/bin/bash
+# Start services
+systemctl start dbus
+systemctl start bluetooth
+# Wait for services to start
+msg="Waiting for services to start..."
+time=0
+echo -n $msg
+while [[ "$(pidof start-stop-daemon)" != "" ]]; do
+    sleep 1
+    time=$((time + 1))
+    echo -en "\r$msg $time s"
+done
+echo -e "\r$msg done! (in $time s)"
+# Reset Bluetooth adapter by restarting it
+hciconfig hci0 down
+hciconfig hci0 up
+# Start application
+python3 /app/gatt_server_example.py
+</code></pre>
+    <p class="normal">This <code class="inlineCode">entrypoint.sh</code> file comes from a Medium blog post that Thomas Huffert wrote on how to run containerized Bluetooth <a id="_idIndexMarker1169"/>applications with BlueZ. A link to<a id="_idIndexMarker1170"/> his original post is included in the <em class="italic">Further study</em> section at the end of the chapter.</p>
+    <h1 id="_idParaDest-464" class="heading-1"><a id="_idTextAnchor528"/>Adding Docker to a Yocto image</h1>
+    <p class="normal">We don’t need to install Ubuntu on a Raspberry Pi 4 to take advantage of Docker. Buildroot and Yocto are both able to build Docker<a id="_idIndexMarker1171"/> for embedded targets. Adding Docker to a Yocto image<a id="_idIndexMarker1172"/> is straightforward. Simply append the package to an existing image. We will leverage the <code class="inlineCode">rpi-test-image</code> from the <em class="italic">Building on top of an existing BSP</em> section of <a href="Chapter_05.xhtml#_idTextAnchor151"><em class="italic">Chapter 7</em></a>.</p>
+    <h2 id="_idParaDest-465" class="heading-2"><a id="_idTextAnchor529"/>Adding the meta-virtualization layer</h2>
+    <p class="normal">Yocto’s <code class="inlineCode">meta-virtualization</code> layer contains recipes to enable support for cloud tooling. Over time, the project’s emphasis has moved <a id="_idIndexMarker1173"/>away from virtualization technologies like Xen, KVM, and libvirt to more popular containerization tools. Bruce Ashfield has led the maintenance of <code class="inlineCode">meta-virtualization</code> for more than a decade, working tirelessly to stay abreast of the latest innovations in cloud computing.</p>
+    <p class="normal">There are so many competing containerization tools to choose from, it’s hard to know where to start. The <code class="inlineCode">meta-virtualization</code> layer is agnostic with respect to the choice of container runtime in that Docker, Podman, containerd, and Kubernetes are all fully supported. I made the conscious decision to focus on Docker because it remains the most popular tool for deploying container images.</p>
+    <p class="normal">The following exercises assume you have already completed the <em class="italic">Building an existing BSP</em> exercise from <a href="Chapter_05.xhtml#_idTextAnchor151"><em class="italic">Chapter 7</em></a> and the directory where <code class="inlineCode">poky</code> was cloned is in your home directory.</p>
+    <p class="normal">To add the <code class="inlineCode">meta-virtualization</code> layer:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate one level above the directory where you cloned <code class="inlineCode">poky</code>:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+</code></pre>
+      </li>
+      <li class="numberedList">Next, set up your BitBake work environment:
+        <pre class="programlisting con"><code class="hljs-con">$ source poky/oe-init-build-env build-rpi
+</code></pre>
+      </li>
+      <li class="numberedList">This sets up a bunch of environment variables and puts you back in the <code class="inlineCode">build-rpi</code> directory where you previously built <code class="inlineCode">rpi-test-image</code>.</li>
+      <li class="numberedList">Then, add the <code class="inlineCode">meta-virtualization</code> layer to your image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers layerindex-fetch --branch scarthgap --fetchdir ~ meta-virtualization
+</code></pre>
+      </li>
+      <li class="numberedList">This command will clone the <code class="inlineCode">meta-virtualization</code> layer and all its dependency layers into your home directory.</li>
+      <li class="numberedList">Verify that all the necessary layers have been added to the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake-layers show-layers
+</code></pre>
+      </li>
+      <li class="numberedList">The output of the command should look like this:
+        <pre class="programlisting con"><code class="hljs-con">layer                 path                                         priority
+===========================================================================
+core                  /home/frank/poky/meta                               5
+yocto                 /home/frank/poky/meta-poky                          5
+yoctobsp              /home/frank/poky/meta-yocto-bsp                     5
+openembedded-layer    /home/frank/meta-openembedded/meta-oe               5
+meta-python           /home/frank/meta-openembedded/meta-python           5
+networking-layer      /home/frank/meta-openembedded/meta-networking       5
+multimedia-layer      /home/frank/meta-openembedded/meta-multimedia       5
+raspberrypi           /home/frank/meta-raspberrypi                        9
+filesystems-layer     /home/frank/meta-openembedded/meta-filesystems      5
+selinux               /home/frank/meta-selinux                            5
+webserver             /home/frank/meta-openembedded/meta-webserver        5
+virtualization-layer  /home/frank/meta-virtualization                     8
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">If your output is<a id="_idIndexMarker1174"/> missing layers from <code class="inlineCode">meta-raspberrypi</code> upwards, then return to <a href="Chapter_05.xhtml#_idTextAnchor151"><em class="italic">Chapter 7</em></a><em class="italic"> </em>and repeat the <em class="italic">Building an existing BSP</em> exercise before reattempting to add the <code class="inlineCode">meta-virtualization</code> layer.</p>
+    <h2 id="_idParaDest-466" class="heading-2"><a id="_idTextAnchor530"/>Installing Docker</h2>
+    <p class="normal">The <code class="inlineCode">meta-virtualization</code> layer <a id="_idIndexMarker1175"/>contains the recipes needed to build and install Docker. Once<a id="_idIndexMarker1176"/> the layer has been added, we can then append the <code class="inlineCode">docker</code> package to a Yocto image. There are several ways to achieve this goal, including creating a custom image recipe or distro layer. I chose to piggyback on top of <code class="inlineCode">rpi-test-image</code> and modify the <code class="inlineCode">conf/local.conf</code> file in the <code class="inlineCode">build-rpi</code> directory. I did this solely for expediency. Changing <code class="inlineCode">conf/local.conf</code> is not maintainable.</p>
+    <p class="normal">The Docker daemon relies on SSL certificates to verify the authenticity of image registries. SSL certificates have set lifespans, so some measure of accurate time is needed. Most computers update their system clocks on startup according to time<a id="_idIndexMarker1177"/> received from the internet via <strong class="keyWord">Network Time Protocol</strong> (<strong class="keyWord">NTP</strong>). So, not only do you need to install Docker on your target, but you also need some way to synchronize the<a id="_idIndexMarker1178"/> system clock before you can pull a container image.</p>
+    <p class="normal">To install Docker on <code class="inlineCode">rpi-test-image</code>:</p>
+    <ol>
+      <li class="numberedList" value="1">Add the following line to your <code class="inlineCode">conf/local.conf</code> file:
+        <pre class="programlisting con"><code class="hljs-con">IMAGE_INSTALL:append = " ntp-utils docker"
+</code></pre>
+      </li>
+      <li class="numberedList">Add the following lines to your <code class="inlineCode">conf/local.conf</code> file:
+        <pre class="programlisting con"><code class="hljs-con">EXTRA_USERS_PARAMS = "\
+    groupadd -r docker; \
+    usermod -a -G docker root; \
+"
+</code></pre>
+      </li>
+      <li class="numberedList">Build the image:
+        <pre class="programlisting con"><code class="hljs-con">$ bitbake rpi-test-image
+</code></pre>
+      </li>
+      <li class="numberedList"><em class="italic">Step 2</em> creates a group named <code class="inlineCode">docker</code> and adds the <code class="inlineCode">root</code> user to that group. This allows us to run Docker commands when we log in as <code class="inlineCode">root</code>. The <code class="inlineCode">rpi-test-image</code> permits <code class="inlineCode">root</code> logins via SSH. There is no password required. This image is for demonstration only.</li>
+    </ol>
+    <p class="normal">Once the image has finished building, there should be a file named <code class="inlineCode">rpi-test-image-raspberrypi4-64.rootfs.wic.bz2</code> in the <code class="inlineCode">tmp/deploy/images/raspberrypi4-64</code> directory. Write that image to a microSD card using Etcher and boot it on your Raspberry Pi 4:</p>
+    <ol>
+      <li class="numberedList" value="1">Insert a microSD card into your host machine.</li>
+      <li class="numberedList">Launch Etcher.</li>
+      <li class="numberedList">Click <strong class="screenText">Flash from file</strong> from Etcher.</li>
+      <li class="numberedList">Locate the <code class="inlineCode">wic.bz2</code> image that you built for the Raspberry Pi 4 and open it.</li>
+      <li class="numberedList">Click <strong class="screenText">Select target</strong> from Etcher.</li>
+      <li class="numberedList">Select the microSD card that you inserted in <em class="italic">step 1</em>.</li>
+      <li class="numberedList">Click <strong class="screenText">Flash</strong> from Etcher to write the image.</li>
+      <li class="numberedList">Eject the microSD card when Etcher is done flashing.</li>
+      <li class="numberedList">Insert the microSD card into your Raspberry Pi 4.</li>
+      <li class="numberedList">Apply power to the Raspberry Pi 4 by way of its USB-C port.</li>
+    </ol>
+    <p class="normal">Confirm that your Pi 4 booted successfully by plugging it into your Ethernet and observing that the network activity lights<a id="_idIndexMarker1179"/> blink.</p>
+    <h2 id="_idParaDest-467" class="heading-2"><a id="_idTextAnchor531"/>Verifying the Docker daemon is running</h2>
+    <p class="normal">In the previous exercise, we built a bootable image for the Raspberry Pi 4 that includes Docker. Now that the device has booted and connected to your local network via Ethernet, let’s verify the Docker daemon is running. Follow these steps:</p>
+    <ol>
+      <li class="numberedList" value="1">The image we built has a hostname of <code class="inlineCode">raspberrypi4-64</code>, so you should be able to SSH into the device as <code class="inlineCode">root</code>:
+        <pre class="programlisting con"><code class="hljs-con">$ ssh root@raspberrypi4-64.local
+</code></pre>
+      </li>
+      <li class="numberedList">Enter <code class="inlineCode">yes</code> when asked if you<a id="_idIndexMarker1180"/> want to continue connecting. You will not be prompted for a password. If no host is found at <code class="inlineCode">raspberrypi4-64.local</code>, use a tool such as <code class="inlineCode">arp-scan</code> to locate the IP address of your Raspberry Pi 4 and SSH into that instead of doing so by hostname.</li>
+      <li class="numberedList">To list information about the version of Docker that is running:
+        <pre class="programlisting con"><code class="hljs-con"># docker info
+Client:
+ Version:    25.0.3
+ Context:    default
+ Debug Mode: false
+&lt;…&gt;
+WARNING: No memory limit support
+WARNING: No swap limit support
+WARNING: No kernel memory TCP limit support
+WARNING: No oom kill disable support
+</code></pre>
+      </li>
+      <li class="numberedList">To update the system clock:
+        <pre class="programlisting con"><code class="hljs-con"># ntpdate pool.ntp.org
+<a id="_idTextAnchor532"/>14 Jan 04:22:49 ntpdate[783]: step time server 45.33.53.84 offset +216229384.417735 sec
+</code></pre>
+      </li>
+      <li class="numberedList">To pull and run a <code class="inlineCode">hello-world</code> container image:
+        <pre class="programlisting con"><code class="hljs-con"># docker run hello-world
+Unable to find image 'hello-world:latest' locally
+latest: Pulling from library/hello-world
+478afc919002: Pull complete
+Digest:
+sha256:5b3cc85e16e3058003c13b7821318369dad01dac3dbb877aac3c28182255c724
+Status: Downloaded newer image for hello-world:latest
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">Most modern Linux distributions rely on <code class="inlineCode">systemd-timesyncd</code> to update the system clock automatically. This eliminates the need to install and run <code class="inlineCode">ntp-utils</code>. Yocto’s Poky reference distro defaults to SysVinit as its init system. To take advantage of <code class="inlineCode">systemd-timesyncd</code>, we need to switch from SysVinit to <code class="inlineCode">systemd</code> for startup. If you want to use systemd with Poky, then select <code class="inlineCode">"poky-altcfg"</code> as your distro<a id="_idIndexMarker1181"/> in <code class="inlineCode">conf/local.conf</code>.</p>
+    <p class="normal">There are more reasons to switch from <code class="inlineCode">SysVinit</code> to <code class="inlineCode">systemd</code> than just time synchronization. Since it was designed for process supervision, <code class="inlineCode">systemd</code> is well-suited to monitoring microservices. A microservice is typically deployed as a container. It makes sense to use <code class="inlineCode">systemd</code> together with Docker to start, stop, and restart containers on a Linux system. Alternatively, you can also use Docker Compose to run multi-container applications, but that requires adding another tool to your Yocto image.</p>
+    <h1 id="_idParaDest-468" class="heading-1"><a id="_idTextAnchor533"/>Updating software with Docker</h1>
+    <p class="normal">Balena uses Docker containers to deploy software updates. Devices run balenaOS, a Yocto-based Linux distribution that comes with balenaEngine, balena’s Docker-compatible container engine. OTA updates occur <a id="_idIndexMarker1182"/>automatically by way of releases pushed from balenaCloud, a hosted service for managing fleets of devices. Balena can also operate in <strong class="keyWord">local mode</strong> so that updates originate from a server running on your local host machine rather than the cloud. We will stick to local mode for the following exercises.</p>
+    <p class="normal">Balena is written and supported by balena.io (<a href="https://balena.io"><span class="url">https://balena.io</span></a>). Like Mender, balenaCloud is a paid OTA update service. Your first ten devices are free, but you must adopt a monthly or yearly billing plan for anything beyond that. There is much more information about the software in the <strong class="screenText">Reference</strong> section of the online docs at balena.io. We won’t dig into how balena works since our goal is to deploy and automatically update software on a small fleet of devices for fast development.</p>
+    <p class="normal">Balena provides prebuilt balenaOS images for popular dev boards such as the Raspberry Pi 4 and BeaglePlay. Downloading these images requires a balenaCloud account.</p>
+    <h2 id="_idParaDest-469" class="heading-2"><a id="_idTextAnchor534"/>Creating an account</h2>
+    <p class="normal">The first thing you need to do<a id="_idIndexMarker1183"/> even if you only intend to operate in local mode is to sign up for a balenaCloud account. You do this by visiting <a href="https://dashboard.balenacloud.com/signup"><span class="url">https://dashboard.balenacloud.com/signup</span></a> and entering your email address and a password, as shown:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_16_04.png" alt="Figure 16.4 – balenaCloud signup" width="888" height="1359"/></figure>
+    <p class="packt_figref">Figure 16.4 – balenaCloud signup</p>
+    <p class="normal">Click the <strong class="screenText">Submit</strong> button to submit the form and once it is done processing, you will be prompted to enter your profile details. You <a id="_idIndexMarker1184"/>may choose to skip this form, at which point you will enter the <strong class="screenText">balenaCloud</strong> dashboard under your new account.</p>
+    <p class="normal">If you sign out or your session expires, you can log back in to the dashboard by navigating to <a href="https://dashboard.balena-cloud.com/login"><span class="url">https://dashboard.balena-cloud.com/login</span></a> and entering the email address and password you signed up with.</p>
+    <h2 id="_idParaDest-470" class="heading-2"><a id="_idTextAnchor535"/>Creating an application</h2>
+    <p class="normal">Before we <a id="_idIndexMarker1185"/>can add a Raspberry Pi 4 to a balenaCloud account, we first need to create a fleet.</p>
+    <figure class="mediaobject"><img src="../Images/B18466_16_05.png" alt="Figure 16.5 – Create fleet" width="1482" height="1027"/></figure>
+    <p class="packt_figref">Figure 16.5 – Create fleet</p>
+    <p class="normal">Here are the steps for creating a fleet for the Raspberry Pi 4 on balenaCloud:</p>
+    <ol>
+      <li class="numberedList" value="1">Log in to the <strong class="screenText">balenaCloud</strong> dashboard with your email address and password.</li>
+      <li class="numberedList">Click on the <strong class="screenText">Create fleet</strong> button in the upper-left corner, next to <strong class="screenText">Fleets</strong>, to open the <strong class="screenText">Create fleet</strong> dialog.</li>
+      <li class="numberedList">Enter a name for your new fleet and select <strong class="screenText">Raspberry Pi 4 (using 64bit OS)</strong> for <strong class="screenText">Default device type</strong>.</li>
+      <li class="numberedList">Click on the <strong class="screenText">Create new fleet</strong> button in the <strong class="screenText">Create fleet</strong> dialog to submit the form.</li>
+    </ol>
+    <p class="normal">Your new fleet should appear in the <strong class="screenText">balenaCloud</strong> dashboard on the <strong class="screenText">Fleets</strong> page.</p>
+    <h2 id="_idParaDest-471" class="heading-2"><a id="_idTextAnchor536"/>Adding a device</h2>
+    <p class="normal">Now that we have a fleet <a id="_idIndexMarker1186"/>on balenaCloud, let’s add a Raspberry Pi 4 to it:</p>
+    <ol>
+      <li class="numberedList" value="1">Log in to the <strong class="screenText">balenaCloud</strong> dashboard with your email address and password.</li>
+      <li class="numberedList">Click on the new fleet we created.</li>
+      <li class="numberedList">Click on the <strong class="screenText">Add device</strong> button from the fleet <strong class="screenText">Summary</strong> page.</li>
+      <li class="numberedList">Clicking on the button will bring up the <strong class="screenText">Add new device</strong> dialog.</li>
+      <li class="numberedList">Ensure that <strong class="screenText">Raspberry Pi 4 (using 64bit OS)</strong> is the selected device type. That option should already be selected since you created the application with <strong class="screenText">Raspberry Pi 4 (using 64bit OS)</strong> as the default device type.</li>
+      <li class="numberedList">Ensure that <strong class="screenText">balenaOS</strong> is the selected OS.</li>
+      <li class="numberedList">Ensure that the selected version of balenaOS is the latest. That option should already be selected since <strong class="screenText">Add new device</strong> defaults to the latest available version of balenaOS, which it designates as <strong class="screenText">RECOMMENDED</strong>.</li>
+      <li class="numberedList">Select <strong class="screenText">Development</strong> as the edition of balenaOS. A development image is required to enable local mode <a id="_idIndexMarker1187"/>for better testing and troubleshooting.</li>
+    </ol>
+    <figure class="mediaobject"><img src="../Images/B18466_16_06.png" alt="Figure 16.6 – Add new device" width="1522" height="971"/></figure>
+    <p class="packt_figref">Figure 16.6 – Add new device</p>
+    <ol>
+      <li class="numberedList" value="9">Select <strong class="screenText">Wifi + Ethernet</strong> for <strong class="screenText">Network</strong>. You could choose <strong class="screenText">Ethernet only</strong> but auto-connecting to Wi-Fi is a very convenient feature.</li>
+      <li class="numberedList">Enter your Wi-Fi router’s SSID and passphrase in their respective fields. Replace <strong class="screenText">ATTCXR2Xjn</strong> in the following screenshot with your Wi-Fi router’s SSID:</li>
+    </ol>
+    <figure class="mediaobject"><img src="../Images/B18466_16_07.png" alt="Figure 16.7 – Wifi + Ethernet" width="1248" height="509"/></figure>
+    <p class="packt_figref">Figure 16.7 – Wifi + Ethernet</p>
+    <ol>
+      <li class="numberedList" value="11">Click the down arrow on the <strong class="screenText">Flash</strong> button.</li>
+      <li class="numberedList">Save the zipped image file to your host machine.</li>
+    </ol>
+    <p class="normal">We now have a microSD card image <a id="_idIndexMarker1188"/>we can use to provision any number of Raspberry Pi 4s for your test fleet.</p>
+    <p class="normal">The steps for provisioning a Raspberry Pi 4 from your host machine should be familiar by now. Locate the balenaOS <code class="inlineCode">img.zip</code> file that you downloaded from balenaCloud and use Etcher to write it to a microSD card. Insert the microSD card into your Raspberry Pi 4 and power it up by way of the USB-C port.</p>
+    <p class="normal">It will take a minute or two for the Raspberry Pi 4 to appear on the <strong class="screenText">Devices</strong> page of your balenaCloud dashboard:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_16_08.png" alt="Figure 16.8 – Devices" width="1520" height="675"/></figure>
+    <p class="packt_figref">Figure 16.8 – Devices</p>
+    <p class="normal">Now that we have connected a Raspberry Pi 4 to a balena application, we need to enable local mode so that we can deploy OTA <a id="_idIndexMarker1189"/>updates to it from a nearby host machine rather than the cloud:</p>
+    <ol>
+      <li class="numberedList" value="1">Click on your target Raspberry Pi 4 from the <strong class="screenText">Devices</strong> page of your balenaCloud dashboard. My device is named <strong class="screenText">evil-tree</strong>. Yours will have a different name.</li>
+      <li class="numberedList">Click on <strong class="screenText">Settings</strong> for your Raspberry Pi 4.</li>
+      <li class="numberedList">Enable <strong class="screenText">Local mode</strong> from the <strong class="screenText">Settings</strong> page:</li>
+    </ol>
+    <figure class="mediaobject"><img src="../Images/B18466_16_09.png" alt="Figure 16.9 – Enable local mode" width="1435" height="898"/></figure>
+    <p class="packt_figref">Figure 16.9 – Enable local mode</p>
+    <p class="normal">Once local mode is enabled, the <strong class="screenText">Logs</strong> panel is no longer available on the device <strong class="screenText">Summary</strong> page.</p>
+    <p class="normal">With local mode now enabled on our target device, we are almost ready to deploy some code to it. Before we can do that, we need to install the balena CLI.</p>
+    <h2 id="_idParaDest-472" class="heading-2"><a id="_idTextAnchor537"/>Installing the CLI</h2>
+    <p class="normal">Here are the instructions for installing the <a id="_idIndexMarker1190"/>balena CLI on a Linux host machine:</p>
+    <ol>
+      <li class="numberedList" value="1">Open a web browser and navigate to the latest balena CLI release page at <a href="https://github.com/balena-io/balena-cli/releases/latest"><span class="url">https://github.com/balena-io/balena-cli/releases/latest</span></a>.</li>
+      <li class="numberedList">Click on the latest ZIP file for Linux to download it. Look for a filename of the form <code class="inlineCode">balena-cli-vX.Y.Z-linux-x64-standalone.zip</code>, substituting major, minor, and patch version numbers for X, Y, and Z.</li>
+      <li class="numberedList">Extract the ZIP file contents to your home directory:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ unzip Downloads/balena-cli-v20.2.9-linux-x64-standalone.zip
+</code></pre>
+      </li>
+      <li class="numberedList">The extracted contents are enclosed in a <code class="inlineCode">balena-cli</code> directory.</li>
+      <li class="numberedList">Add the <code class="inlineCode">balena-cli</code> directory to your <code class="inlineCode">PATH</code> environment variable:
+        <pre class="programlisting con"><code class="hljs-con">$ export PATH=$PATH:~/balena-cli
+</code></pre>
+      </li>
+      <li class="numberedList">Add a line like this to the <code class="inlineCode">.bashrc</code> file in your home directory if you want these changes to your <code class="inlineCode">PATH</code> variable to persist.</li>
+      <li class="numberedList">Verify that the installation was successful:
+        <pre class="programlisting con"><code class="hljs-con">$ balena version
+<a id="_idTextAnchor538"/>20.2.9
+</code></pre>
+      </li>
+      <li class="numberedList">The latest version of the balena CLI at the time of writing was 20.2.9.</li>
+    </ol>
+    <p class="normal">Now that we have a working balena CLI, let’s scan the local network for the Raspberry Pi 4 we provisioned:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo env "PATH=$PATH" balena device detect
+Scanning for local balenaOS devices... Reporting scan results
+-
+  host:          bf04eba.local
+  address:       192.168.1.183
+  osVariant:     development
+  dockerInfo:
+    Containers:        1
+    ContainersRunning: 1
+    ContainersPaused:  0
+    ContainersStopped: 0
+    Images:            1
+    Driver:            overlay2
+    SystemTime:        2025-03-06T05:10:40.708637573Z
+    KernelVersion:     6.1.77-v8
+    OperatingSystem:   balenaOS 6.4.1+rev1
+    Architecture:      aarch64
+  dockerVersion:
+    Version:    v20.10.43
+    ApiVersion: 1.41
+</code></pre>
+    <p class="normal">Notice the hostname of <code class="inlineCode">bf04eba.local</code> and the IP address of <code class="inlineCode">192.168.1.83</code> in the scan output. The hostname and IP address of your <a id="_idIndexMarker1191"/>Raspberry Pi 4 will vary. Record these two pieces of information because we will need them for the remaining exercises.</p>
+    <h2 id="_idParaDest-473" class="heading-2"><a id="_idTextAnchor539"/>Pushing a project</h2>
+    <p class="normal">Let’s push a Python project to <a id="_idIndexMarker1192"/>the Raspberry Pi over the local network:</p>
+    <ol>
+      <li class="numberedList" value="1">Clone a project for a simple “Hello World!” Python web server:
+        <pre class="programlisting con"><code class="hljs-con">$ git clone https://github.com/balena-io-examples/balena-python-hello-world.git
+</code></pre>
+      </li>
+      <li class="numberedList">Navigate into the project directory:
+        <pre class="programlisting con"><code class="hljs-con">$ cd balena-python-hello-world
+</code></pre>
+      </li>
+      <li class="numberedList">Push the code to your Raspberry Pi 4:
+        <pre class="programlisting con"><code class="hljs-con">$ balena push 192.168.1.183
+</code></pre>
+      </li>
+      <li class="numberedList">Substitute your device’s IP address for the <code class="inlineCode">192.168.1.183</code> argument.</li>
+      <li class="numberedList">Wait for the Docker image to finish building and starting and let the application run in the foreground so that it logs to <code class="inlineCode">stdout</code>.</li>
+      <li class="numberedList">Issue a request to the web server at <code class="inlineCode">http://192.168.1.183</code> from a web browser. Substitute your device’s IP address for <code class="inlineCode">192.168.1.183</code>.</li>
+    </ol>
+    <p class="normal">The web server running on the Raspberry Pi 4 should display a splash page with <strong class="screenText">Welcome to balena</strong> and a line like the following should appear in the live output from <code class="inlineCode">balena push</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">[Logs]    [2025-03-06T05:16:46.546Z] [balena-hello-world] 192.168.1.177 - - [06/Mar/2025 05:16:46] "GET / HTTP/1.1" 200 -
+</code></pre>
+    <p class="normal">The IP address in the log entry should be that of the machine from which you issued the web request. A new log entry should appear every time you refresh the web page. To stop tailing the logs and return to the shell, enter <em class="italic">Ctrl + C</em>. The container will continue running on the target device and the web server will continue to service requests.</p>
+    <p class="normal">We can restart tailing the logs at any time by issuing the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ balena device logs 192.168.1.183
+</code></pre>
+    <p class="normal">Substitute your device’s IP address for the <code class="inlineCode">192.168.1.183</code> argument.</p>
+    <p class="normal">The HTML for this simple web server can be found in a file named <code class="inlineCode">index.html</code> within the project directory:</p>
+    <pre class="programlisting con"><code class="hljs-con">tree
+.
+├── balena.yml
+├── CHANGELOG.md
+├── docker-compose.yml
+├── Dockerfile.template
+├── license.md
+├── logo.png
+├── README.md
+├── repo.yml
+├── requirements.txt
+├── src
+│   └── app.py
+├── VERSION
+└── views
+    ├── index.html
+    └── public
+        ├── bootstrap.min.css
+        ├── confetti.js
+        ├── favicon.ico
+        ├── logo.svg
+        └── main.css
+</code></pre>
+    <p class="normal">Now let’s make a slight <a id="_idIndexMarker1193"/>modification to the project source code and redeploy:</p>
+    <ol>
+      <li class="numberedList" value="1">Open <code class="inlineCode">views/index.html</code> in your favorite editor.</li>
+      <li class="numberedList">Replace <code class="inlineCode">Welcome to balena!</code> with <code class="inlineCode">Welcome to banana!</code> and save your changes.</li>
+      <li class="numberedList">The following <code class="inlineCode">git diff</code> output captures the changes:
+        <pre class="programlisting con"><code class="hljs-con">$ git diff
+diff --git a/views/index.html b/views/index.html
+index c5fcddd..7796f5a 100644
+--- a/views/index.html
++++ b/views/index.html
+@@ -26,7 +26,7 @@
+     &lt;div class="container mt-5 mb-5 p-0 pb-5"&gt;
+       &lt;div class="row d-flex flex-column align-items-center"&gt;
+-        &lt;h1&gt;Welcome to balena!&lt;/h1&gt;
++        &lt;h1&gt;Welcome to banana!&lt;/h1&gt;
+         &lt;p class="text-center pl-5 pr-5 pt-0 pb-0"&gt;Now that you've deployed code to your device,&lt;br /&gt; explore the resources below to continue on your journey!&lt;/p&gt;
+       &lt;/div&gt;
+</code></pre>
+      </li>
+      <li class="numberedList">Push the new code to your Raspberry Pi 4:
+        <pre class="programlisting con"><code class="hljs-con">$ balena push 192.168.1.183
+</code></pre>
+      </li>
+      <li class="numberedList">Substitute your device’s IP address for the <code class="inlineCode">192.168.1.183</code> argument.</li>
+      <li class="numberedList">Wait for the Docker image to update. The process should be much quicker this time around because of an intelligent <a id="_idIndexMarker1194"/>caching feature called <strong class="keyWord">Livepush</strong> that is unique to local mode.</li>
+      <li class="numberedList">Issue a request to the web server at <code class="inlineCode">http://192.168.1.183</code> from a web browser. Substitute your device’s IP address for <code class="inlineCode">192.168.1.183</code>.</li>
+    </ol>
+    <p class="normal">The web server running on the <a id="_idIndexMarker1195"/>Raspberry Pi 4 should display <strong class="screenText">Welcome to banana!</strong></p>
+    <p class="normal">We can SSH into a local target device by IP address:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ balena device ssh 192.168.1.183
+Last login: Thu Mar  6 05:59:21 2025 from 192.168.1.124
+root@bf04eba:~#
+</code></pre>
+    <p class="normal">Substitute your device’s IP address for <code class="inlineCode">192.168.1.183</code>. This is not especially useful because the application is running inside a Docker container.</p>
+    <p class="normal">To SSH into the container where the Python web server is running and observe what it’s doing, we need to include the service name in the <code class="inlineCode">balena</code> <code class="inlineCode">ssh</code> command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ balena device ssh 192.168.1.183 balena-hello-world
+root@6a4ef89e6f10:/usr/src/app# ls
+CHANGELOG.md         VERSION             logo.png          views
+Dockerfile           balena.yml          repo.yml
+Dockerfile.template  docker-compose.yml  requirements.txt
+README.md            license.md          src
+</code></pre>
+    <p class="normal">The service name for this starter application is <code class="inlineCode">balena-hello-world</code> as seen in the live logs output.</p>
+    <p class="normal">Congratulations! You have successfully created a balenaOS image and host development environment that you and your team can use to iterate on project code and quickly redeploy to a target device. This is no small feat. Pushing code changes in the form of a Docker container is a common development workflow that full-stack engineers are very accustomed to. With balena, they can now use the techniques they are familiar with to develop embedded Linux applications on actual hardware.</p>
+    <h1 id="_idParaDest-474" class="heading-1"><a id="_idTextAnchor540"/>Summary</h1>
+    <p class="normal">We accomplished a lot in this chapter. You now know how to create Dockerfiles and YAML workflows for your software projects. CI/CD pipelines use this infrastructure as code to automatically build and push containerized software updates out to edge devices. You also leveraged containers to develop locally on real hardware before pushing your changes out to the rest of the world. Modern DevOps practices like these enable software teams to move faster without breaking things.</p>
+    <p class="normal">In the next chapter, we will look in detail at the Linux process model and describe what a process really is, how it relates to threads, how they cooperate, and how they are scheduled. Understanding these things is important if you want to create a robust and maintainable embedded system.</p>
+    <h1 id="_idParaDest-475" class="heading-1"><a id="_idTextAnchor541"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">The DevOps Handbook, Second Edition</em>, by Gene Kim, Jez Humble, Patrick Debois, and John Willis</li>
+      <li class="bulletList"><em class="italic">Docker Docs</em>, Docker Inc. – <a href="https://docs.docker.com/reference/cli/docker/%0D%0A"><span class="url">https://docs.docker.com/reference/cli/docker/</span></a></li>
+      <li class="bulletList"><em class="italic">How to run containerized Bluetooth applications with BlueZ</em>, by Thomas Huffert – <a href="https://medium.com/omi-uulm/how-to-run-containerized-bluetooth-applications-with-bluez-dced9ab767f6"><span class="url">https://medium.com/omi-uulm/how-to-run-containerized-bluetooth-applications-with-bluez-dced9ab767f6</span></a></li>
+    </ul>
+  </div>
+</div></div></body></html>

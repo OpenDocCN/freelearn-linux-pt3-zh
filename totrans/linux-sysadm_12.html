@@ -1,0 +1,284 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer077">
+<h1 class="chapter-number" id="_idParaDest-171"><a id="_idTextAnchor201"/>12</h1>
+<h1 id="_idParaDest-172"><a id="_idTextAnchor202"/>Centralized Authentication</h1>
+<p>User access control is a critically important part of information security. On a single machine, keeping track of users and making sure only authorized people have access is simple, but as networks become larger, it becomes increasingly difficult to keep user accounts in sync on all machines, which is why large networks use centralized authentication mechanisms. Historically, UNIX-like systems <a id="_idIndexMarker583"/>usually used <strong class="bold">Network Information Service</strong> (<strong class="bold">NIS</strong>), developed by Sun Microsystems – a once widespread but now mostly unused protocol. These days, the choice is wider and includes standalone LDAP directories, Kerberos realms, or authentication solutions that provide a combination of a directory service for storing user information and single sign-on protocols, such as FreeIPA and Microsoft <span class="No-Break">Active Directory.</span></p>
+<p>In this chapter, we will learn about <span class="No-Break">the following:</span></p>
+<ul>
+<li>Authentication and user information lookup frameworks <span class="No-Break">in Linux</span></li>
+<li>The roles of the <strong class="bold">Name Service Switch</strong> (<strong class="bold">NSS</strong>) framework, <strong class="bold">Pluggable Authentication Modules </strong>(<strong class="bold">PAM</strong>), and the <strong class="bold">System Security Services </strong><span class="No-Break"><strong class="bold">Daemon</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">SSSD</strong></span><span class="No-Break">)</span></li>
+<li>How to set up a domain controller that’s compatible with Microsoft Active Directory and connect a client machine <span class="No-Break">to it</span></li>
+</ul>
+<h1 id="_idParaDest-173"><a id="_idTextAnchor203"/>The AAA framework</h1>
+<p>The access <a id="_idIndexMarker584"/>control framework is often referred to as <em class="italic">AAA</em> due to its three components: <em class="italic">authentication</em>, <em class="italic">authorization</em>, <span class="No-Break">and </span><span class="No-Break"><em class="italic">accounting</em></span><span class="No-Break">.</span></p>
+<p><strong class="bold">Authentication</strong> is responsible <a id="_idIndexMarker585"/>for verifying the user’s identity – usually by checking whether the user possesses certain knowledge (such as a password), data (such as a cryptographic key or the correct seed for a time-based authentication algorithm), a physical item (such as a hardware key storage), or an attribute (such as <span class="No-Break">a fingerprint).</span></p>
+<p><strong class="bold">Authorization</strong> is the process <a id="_idIndexMarker586"/>of checking whether the user that attempts to execute an action has permission to do so. Since in UNIX systems many entities, such as hardware devices and sockets, are represented as files, a lot of the time, file access permissions are used as an <span class="No-Break">authorization framework.</span></p>
+<p>Finally, the <strong class="bold">accounting</strong> process ensures that user actions are recorded so that it is possible to attribute actions to users, monitor user activity for anomalies, and investigate security incidents. Since, for a general-purpose OS, it is impossible to give an exhaustive list of user actions, there cannot be a general accounting framework. The syslog mechanism is a common way to record log messages, but the log message format is different for <span class="No-Break">each application.</span></p>
+<p>Among the user <a id="_idIndexMarker587"/>access control components, authentication in <a id="_idIndexMarker588"/>Linux is unique in that there is a widely used and general framework for it that consists of three parts: <strong class="bold">NSS</strong>, <strong class="bold">PAM</strong>, and, on newer Linux distributions, <strong class="bold">SSSD</strong>. The relationship <a id="_idIndexMarker589"/>between them is somewhat complicated because their functionality is broad and partially overlaps, and many tasks can be solved at <span class="No-Break">different levels.</span></p>
+<p>The two older <a id="_idIndexMarker590"/>parts of that framework, NSS and PAM, originated in the OS named Solaris, which was developed by Sun Microsystems (later acquired by Oracle), and were soon adopted by almost all UNIX-like systems. However, neither mechanism became a part of the POSIX standard and its implementations in different OSs are slightly different. SSSD was developed for Linux in the late 2000s and is now widely used by Linux distributions, but not by other <span class="No-Break">UNIX-like systems.</span></p>
+<p>Let’s examine the purpose and functionality of those subsystems <span class="No-Break">in detail.</span></p>
+<h1 id="_idParaDest-174"><a id="_idTextAnchor204"/>Authentication mechanisms in Linux</h1>
+<p>Before we <a id="_idIndexMarker591"/>learn about centralized authentication mechanisms, we need to learn how authentication works in Linux in general. Before a system can check user credentials, it needs to fetch user information first – let’s examine how information <span class="No-Break">lookup works.</span></p>
+<h2 id="_idParaDest-175"><a id="_idTextAnchor205"/>Information lookup</h2>
+<p>Information <a id="_idIndexMarker592"/>about users and groups is necessary for authentication, but it has many other uses. For example, file ownership information is usually displayed in a human-readable fashion, but internally, filesystems store numeric user and group identifiers, so even programs that have nothing to do with security, such as <strong class="source-inline">ls</strong>, may need to have a way to look up information about users and groups to map their identifiers <span class="No-Break">to names.</span></p>
+<p>The POSIX API standard includes multiple functions for querying information about various entities such as users, groups, and hosts. For example, <strong class="source-inline">gethostbyname(name)</strong> retrieves network addresses associated with a domain name, and <strong class="source-inline">getgrpnam(name)</strong> retrieves information about a user group. For applications, those functions are black boxes, and they have neither knowledge nor control of the process – where and how the underlying system gets that data is not <a id="_idIndexMarker593"/>an application developer’s concern. By keeping the process opaque to applications, OS developers can make sure that all applications get consistent data from <span class="No-Break">lookup calls.</span></p>
+<p>In GNU/Linux systems, those functions are implemented by the GNU C library (<strong class="source-inline">glibc</strong>). That library, however, does not have a fixed set of supported lookup mechanisms and data sources – instead, it uses the <strong class="bold">NSS</strong> mechanism as an <span class="No-Break">abstraction layer.</span></p>
+<h2 id="_idParaDest-176"><a id="_idTextAnchor206"/>Name Service Switch</h2>
+<p>The NSS <a id="_idIndexMarker594"/>subsystem allows an administrator to map <em class="italic">databases</em> with different <a id="_idIndexMarker595"/>types of information to <em class="italic">sources</em>. Let’s inspect its configuration file from a Fedora installation to get a sense of what it is <span class="No-Break">capable of:</span></p>
+<pre class="source-code">
+$ cat /etc/nsswitch.conf
+# Generated by authselect on Tue May 31 00:21:30 2022
+# Do not modify this file manually, use authselect instead. Any user changes will be overwritten.
+# You can stop authselect from managing your configuration by calling 'authselect opt-out'.
+# See authselect(8) for more details.
+# In order of likelihood of use to accelerate lookup.
+passwd:     files sss systemd
+shadow:     files
+group:      files sss systemd
+hosts:      files myhostname mdns4_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] dns
+services:   files sss
+netgroup:   files sss
+automount:  files sss
+aliases:    files
+ethers:     files
+gshadow:    files
+networks:   files dns
+protocols:  files
+publickey:  files
+rpc:        files</pre>
+<p>NSS is not limited to authentication data lookup and its functionality is much broader. The concept of NSS databases and sources is easier to demonstrate on a non-authentication example: hostname lookup. The <strong class="source-inline">hosts</strong> database, which is responsible for network hostname resolution, is set to use multiple sources, including <strong class="source-inline">files</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">dns</strong></span><span class="No-Break">.</span></p>
+<p>The order <a id="_idIndexMarker596"/>of sources determines <a id="_idIndexMarker597"/>the order of lookup. In this case, the entry for <strong class="source-inline">hosts</strong> tells the system to look up names in local files first, and then turn to network sources such as zero-configuration network discovery mechanisms (multicast DNS), and finally to the global DNS system. In this particular case, the <strong class="source-inline">files</strong> keyword refers to the <strong class="source-inline">/etc/hosts</strong> file, which was discussed in <a href="B18575_06.xhtml#_idTextAnchor109"><span class="No-Break"><em class="italic">Chapter 6</em></span></a>, <em class="italic">Basic </em><span class="No-Break"><em class="italic">System Settings</em></span><span class="No-Break">.</span></p>
+<p>Sources generally come in order from the fastest and most reliable. Local sources are placed first because they are always available even when the network is down and reading a local file is a very fast operation. Remote sources come later because accessing them always involves at least some latency and they may become inaccessible due to network or server faults. Sometimes, like in the case of hostname lookup, the order also has security implications: making the system look up names in <strong class="source-inline">/etc/hosts</strong> before making a request to a DNS server ensures that traditional names such as <strong class="source-inline">localhost</strong> will always point to the localhost (<strong class="source-inline">127.0.0.1</strong> for IPv4 or <strong class="source-inline">::1</strong> for IPv6). If DNS were consulted first, a malicious or misconfigured server could return a different address and redirect traffic from commands such as <strong class="source-inline">ping localhost</strong> to an <span class="No-Break">arbitrary address.</span></p>
+<p>The <strong class="source-inline">passwd</strong> database is used to look up user information. Its <strong class="source-inline">files</strong> source is the familiar <strong class="source-inline">/etc/passwd</strong> – that is where its name <span class="No-Break">comes from.</span></p>
+<p>Lookup in different sources is implemented in dynamically loaded libraries (shared objects) such as <strong class="source-inline">/usr/lib/libnss_files.so.2</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">/usr/lib/libnss_dns.so.2</strong></span><span class="No-Break">.</span></p>
+<p>It’s certainly possible to implement support for a different authentication information database using NSS alone and reuse the oldest login-handling code for it – the goal of NSS is to make such client code <a id="_idIndexMarker598"/>work with any source so that the code will not even know that <a id="_idIndexMarker599"/>it now gets user information and password hashes from a remote source such as a RADIUS or LDAP server rather than from <strong class="source-inline">/etc/passwd</strong> and <strong class="source-inline">/etc/shadow</strong>. That was done in the past and NSS modules for LDAP can still be found on <span class="No-Break">the internet.</span></p>
+<p>However, there are multiple reasons for a more flexible user identity-checking framework and an abstraction layer that provides authentication and <span class="No-Break">lookup functionality.</span></p>
+<h1 id="_idParaDest-177"><a id="_idTextAnchor207"/>Pluggable Authentication Modules</h1>
+<p>NSS helps programs retrieve various information, including usernames, group membership information, and password hashes. However, the logic for authentication still has to exist somewhere. For example, to conduct password-based authentication, there must be code that calculates a <a id="_idIndexMarker600"/>hash sum from a plain text password that the user enters and checks it against the hash stored in an <span class="No-Break">authentication database.</span></p>
+<p>However, there is more to authentication policies than just having passwords and checking that they are correct. Administrators may want to enforce password-strength rules or use multi-factor authentication to increase security, for example. Authentication using remote databases also presents challenges, such as credential caching to ensure that users are not locked out of their machines when the remote database becomes <span class="No-Break">temporarily unavailable.</span></p>
+<p>To allow developers and administrators to create and set up tools for flexible authentication policies and add new authentication algorithms, Linux distributions use a framework <span class="No-Break">named </span><span class="No-Break"><strong class="bold">PAM</strong></span><span class="No-Break">.</span></p>
+<p>PAM provides an API for applications to authenticate users and for security tool developers to implement authentication mechanisms. PAM modules can either rely on the NSS layer to look up the information they need to authenticate a user or provide their own lookup mechanisms and <span class="No-Break">configuration files.</span></p>
+<p>On Fedora and Red Hat systems, PAM modules can be found in <strong class="source-inline">/usr/lib64/security/</strong>, while on Debian (for x86 machines), they can be found in <strong class="source-inline">/usr/lib/x86_64-linux-gnu/security/</strong>. Modules typically come with their own manual pages, so it is possible to get a brief description by running <strong class="source-inline">man pam_unix</strong> or <span class="No-Break"><strong class="source-inline">man pam_empty</strong></span><span class="No-Break">.</span></p>
+<p>For example, <strong class="source-inline">pam_empty</strong> is the simplest possible module that always returns an authentication failure – it is only useful as a sentinel module to ensure that when none of the multiple fallback mechanisms succeed, the user is <span class="No-Break">denied access.</span></p>
+<p>The <strong class="source-inline">pam_unix</strong> module implements the usual password authentication that normally uses the <strong class="source-inline">/etc/passwd</strong> and <strong class="source-inline">/etc/shadow</strong> files unless NSS is configured to use <span class="No-Break">anything else.</span></p>
+<p>Some modules <a id="_idIndexMarker601"/>do not implement any authentication mechanisms but rather perform auxiliary actions. For example, <strong class="source-inline">pam_motd</strong> shows a message (commonly found in <strong class="source-inline">/etc/motd</strong>) after login; <strong class="source-inline">pam_mail</strong> is what’s responsible for checking for local email messages and displaying <strong class="bold">You have new mail</strong> if there are any, and modules such as <strong class="source-inline">pam_pwquality</strong> and <strong class="source-inline">pam_pwhistory</strong> help ensure that users do not use weak passwords and do not reuse their <span class="No-Break">old passwords.</span></p>
+<h2 id="_idParaDest-178"><a id="_idTextAnchor208"/>PAM configuration</h2>
+<p>While configuring PAM by hand is rarely a good idea and most Linux distributions discourage it and provide <a id="_idIndexMarker602"/>high-level configuration tools instead, it is still important to understand how its configuration <span class="No-Break">files work.</span></p>
+<p>First of all, PAM is not a program, but a framework and a set of APIs that are used by other programs. There is no single login program in Linux, so there is no one global authentication configuration file either. Instead, there are multiple programs with login capabilities that share most but not all of the configurations. These programs include the <strong class="source-inline">/bin/login</strong> executable, which handles local virtual console login attempts, but PAM is also independently used by graphical login managers (such as GDM or LightDM), screensavers, and network access services (such <span class="No-Break">as OpenSSH).</span></p>
+<p>Configuration files are stored in <strong class="source-inline">/etc/pam.d/</strong>, but none of them have any special meaning by themselves – they are all read and used by different programs. For example, the file named <strong class="source-inline">/etc/pam.d/login</strong> is used by <strong class="source-inline">/bin/login</strong> and thus applied only to local <span class="No-Break">virtual consoles.</span></p>
+<p>The names of those application-specific files are hardcoded in the programs that use them, but the shared configuration is stored in separate files whose names vary from one distribution <span class="No-Break">to another.</span></p>
+<p>Let’s compare default configuration files for the OpenSSH daemon’s use of PAM on Fedora and Debian. If you don’t have OpenSSH installed, you can check out a different file, such <span class="No-Break">as </span><span class="No-Break"><strong class="source-inline">/etc/pam.d/login</strong></span><span class="No-Break">.</span></p>
+<p>This file is <span class="No-Break">from Fedora:</span></p>
+<pre class="source-code">
+$ cat /etc/pam.d/sshd
+#%PAM-1.0
+auth       substack     password-auth
+auth       include      postlogin
+account    required     pam_sepermit.so
+account    required     pam_nologin.so
+account    include      password-auth
+password   include      password-auth
+# pam_selinux.so close should be the first session rule
+session    required     pam_selinux.so close
+session    required     pam_loginuid.so
+# pam_selinux.so open should only be followed by sessions to be executed in the user context
+session    required     pam_selinux.so open env_params
+session    required     pam_namespace.so
+session    optional     pam_keyinit.so force revoke
+session    optional     pam_motd.so
+session    include      password-auth
+session    include      postlogin</pre>
+<p>And this <a id="_idIndexMarker603"/>one is from a <span class="No-Break">Debian system:</span></p>
+<pre class="source-code">
+$ cat /etc/pam.d/sshd
+# PAM configuration for the Secure Shell service
+# Standard Un*x authentication.
+@include common-auth
+# Disallow non-root logins when /etc/nologin exists.
+account    required     pam_nologin.so
+# Uncomment and edit /etc/security/access.conf if you need to set complex
+# access limits that are hard to express in sshd_config.
+# account  required     pam_access.so
+# Standard Un*x authorization.
+@include common-account
+# SELinux needs to be the first session rule.  This ensures that any
+# lingering context has been cleared.  Without this it is possible
+# that a module could execute code in the wrong domain.
+session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so close
+# Set the loginuid process attribute.
+session    required     pam_loginuid.so
+# Create a new session keyring.
+session    optional     pam_keyinit.so force revoke
+# Standard Un*x session setup and teardown.
+@include common-session
+# Print the message of the day upon successful login.
+# This includes a dynamically generated part from /run/motd.dynamic
+# and a static (admin-editable) part from /etc/motd.
+session    optional     pam_motd.so  motd=/run/motd.dynamic
+session    optional     pam_motd.so noupdate
+# Print the status of the user's mailbox upon successful login.
+session    optional     pam_mail.so standard noenv # [1]
+# Set up user limits from /etc/security/limits.conf.
+session    required     pam_limits.so
+# Read environment variables from /etc/environment and
+# /etc/security/pam_env.conf.
+session    required     pam_env.so # [1]
+# In Debian 4.0 (etch), locale-related environment variables were 
+# moved to
+# /etc/default/locale, so read that as well.
+session    required     pam_env.so user_readenv=1 envfile=/etc/default/locale
+# SELinux needs to intervene at login time to ensure that the process # starts
+# in the proper default security context.  Only sessions which are 
+# intended
+# to run in the user's context should be run after this.
+session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so open
+# Standard Un*x password updating.
+@include common-password</pre>
+<p>As you can see, they are nearly identical in their functionality but organized differently. For example, Debian makes extensive use of the <strong class="source-inline">@include</strong> directive, which loads all lines from a different file. For example, <strong class="source-inline">@include common-auth</strong> instructs PAM to load <strong class="source-inline">/etc/pam.d/common-auth</strong> – all such file references are relative <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">/etc/pam.d</strong></span><span class="No-Break">.</span></p>
+<p>The authors <a id="_idIndexMarker604"/>of the Fedora file chose to use a module interface call instead: <strong class="source-inline">auth substack system-auth</strong>. In such lines, the last option is either a module name or a configuration file reference. If it ends with <strong class="source-inline">.so</strong> (the usual extension of shared objects – dynamically loadable library files), then it is a module; otherwise, it’s a configuration file in <strong class="source-inline">/etc/pam.d</strong>. So, when you see <strong class="source-inline">substack system-auth</strong>, it means loading lines from <strong class="source-inline">/etc/pam.d/system-auth</strong> (the <strong class="source-inline">include</strong> and <strong class="source-inline">substack</strong> options <span class="No-Break">work similarly).</span></p>
+<p>The first part of all such lines is a module interface name. Some modules provide only one interface type (for example, <strong class="source-inline">pam_unix</strong> only handles password authentication), while others may provide more than one type. The <strong class="source-inline">auth</strong> interface is for performing authentication. Other interface types show that <em class="italic">Pluggable Authentication Modules'</em> name is partially a misnomer. The <strong class="source-inline">account</strong> interface handles authorization and checks whether the user’s account is allowed to log in – for example, the <strong class="source-inline">pam_time</strong> module can allow specific users to access the system only at certain hours or on certain days. The <strong class="source-inline">password</strong> interface handles password changing. Finally, the <strong class="source-inline">session</strong> interface handles auxiliary tasks unrelated to authentication, such as creating home directories for users on their first login or mounting directories over <span class="No-Break">the network.</span></p>
+<h2 id="_idParaDest-179"><a id="_idTextAnchor209"/>Limitations of PAM</h2>
+<p>PAM is <a id="_idIndexMarker605"/>only concerned with authentication and related activities; so, for example, configuring a <strong class="source-inline">pam_ldap</strong> module with the correct LDAP server and options will not automatically make user and group information from LDAP available to all applications that need to map numeric identifiers to names. In that case, to provide a seamless experience to users, an administrator also needs an NSS module. Configuring two modules with the same information independently creates a significant maintenance burden, and feeding information from remote sources to a simple module such as <strong class="source-inline">pam_unix</strong> does not work for <a id="_idIndexMarker606"/>single sign-on protocols such as Kerberos that require issuance and verification of session tokens rather than simple password hash sum checking. Historically, that problem was solved with custom daemons such as <strong class="source-inline">winbind</strong> for interaction with Microsoft Active Directory or Samba domains. These days, most Linux distributions solve this with a general abstraction layer – <span class="No-Break">the </span><span class="No-Break"><strong class="bold">SSSD</strong></span><span class="No-Break">.</span></p>
+<h1 id="_idParaDest-180"><a id="_idTextAnchor210"/>System Security Services Daemon</h1>
+<p>The combination of NSS and PAM allows great flexibility but can also make common scenarios hard to <a id="_idIndexMarker607"/>configure and maintain. The SSSD project strives to simplify that process by coordinating the interaction of both PAM and NSS with <span class="No-Break">remote databases.</span></p>
+<p>One source of configuration complexity for single sign-on schemes is that they usually involve multiple components and protocols, such as LDAP for storing user information and Kerberos for issuing and checking cryptographic authentication tickets, plus a way to discover those services, typically via special DNS records. SSSD has built-in support for popular SSO schemes such as Microsoft Active Directory and FreeIPA, which greatly simplifies <span class="No-Break">the process.</span></p>
+<p>For this demonstration, we will set up a Microsoft Active Directory-compatible domain controller on Linux using the Samba project and then make a client machine join its domain. We will use Fedora Linux on both, but other distributions would mostly differ just in package <span class="No-Break">installation commands.</span></p>
+<h1 id="_idParaDest-181"><a id="_idTextAnchor211"/>Active Directory authentication with Samba 4</h1>
+<p>Samba is <a id="_idIndexMarker608"/>an open source implementation of multiple protocols that are required for interoperability <a id="_idIndexMarker609"/>with Microsoft Windows machines, including <a id="_idIndexMarker610"/>the SMB file-sharing protocol (which is where the Samba name came from). Apart from file sharing, it also implements authentication and user management – initially, it only supported Windows NT domains, but since 4.0.0, it has full support for Active Directory that’s compatible with Windows Server 2008 and also includes built-in LDAP and DNS backends, which makes small installations very simple <span class="No-Break">to deploy.</span></p>
+<h2 id="_idParaDest-182"><a id="_idTextAnchor212"/>Setting up the domain controller</h2>
+<p>First, you will <a id="_idIndexMarker611"/>need to install the Samba domain <span class="No-Break">controller package:</span></p>
+<pre class="source-code">
+$ sudo dnf install samba-dc</pre>
+<p>Then, you may want to remove all configuration files for Samba and the Kerberos daemon to ensure a <span class="No-Break">clean state:</span></p>
+<pre class="source-code">
+$ sudo rm -f /etc/samba/smb.conf
+$ sudo rm -f /etc/krb5.conf</pre>
+<p>Samba includes a command for automatically provisioning domain controllers, so there is no need to write configuration files by hand. This command supports both interactive and non-interactive modes, and it is also possible to specify some parameters through command-line options but enter the rest interactively. For example, if you plan to run the client system in a VirtualBox VM, you can set the controller to only listen on the VM network interface with <strong class="source-inline">--option="interfaces=vboxnet0" --option="bind interfaces only=yes"</strong>. You may also want to include fields for UNIX users in the LDAP schema that the controller will use – they are defined by RFC2307, so that option <span class="No-Break">is </span><span class="No-Break"><strong class="source-inline">--use-rfc2307</strong></span><span class="No-Break">.</span></p>
+<p>The most important required parameter is the realm name, which must be a domain name written in capital letters – this is a requirement of the Kerberos protocol, and lowercase realm names will be rejected. We will use <strong class="source-inline">AD.EXAMPLE.COM</strong>, where <strong class="source-inline">example.com</strong> is one of the domains reserved for examples and documentation that is guaranteed not to belong to any real person or organization. Most modern client software uses the realm name primarily or exclusively, but the provision utility will also ask for the domain name (in the NetBIOS rather than DNS sense) – a string up to 15 characters long. Since Active Directory and its compatible implementations rely on DNS SRV records to find controllers and communicate with them, the controller will also serve those DNS records, but we will limit it to listen on the VM network interface – in this case, <strong class="source-inline">192.168.56.1</strong> (the default address for host-only network adapters in VirtualBox). It will also require a domain administrator password – you need to remember it to join that domain from <span class="No-Break">client machines:</span></p>
+<pre class="source-code">
+$ sudo samba-tool domain provision --option="interfaces=vboxnet0" --option="bind interfaces only=yes" --use-rfc2307 --interactive
+Realm:  AD.EXAMPLE.COM
+Domain [AD]:  AD
+Server Role (dc, member, standalone) [dc]:
+DNS backend (SAMBA_INTERNAL, BIND9_FLATFILE, BIND9_DLZ, NONE) [SAMBA_INTERNAL]:
+DNS forwarder IP address (write 'none' to disable forwarding) [127.0.0.53]:  192.168.56.1
+Administrator password:
+Retype password:
+INFO 2022-12-07 16:25:13,958 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #2108: Looking up IPv4 addresses
+INFO 2022-12-07 16:25:17,450 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #2017: Fixing provision GUIDs
+...
+INFO 2022-12-07 16:25:17,784 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #2342: The Kerberos KDC configuration for Samba AD is located at /var/lib/samba/private/kdc.conf
+INFO 2022-12-07 16:25:17,785 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #2348: A Kerberos configuration suitable for Samba AD has been generated at /var/lib/samba/private/krb5.conf
+INFO 2022-12-07 16:25:17,785 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #2350: Merge the contents of this file with your system krb5.conf or replace it with this one. Do not create a symlink!
+INFO 2022-12-07 16:25:17,948 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #2082: Setting up fake yp server settings
+INFO 2022-12-07 16:25:18,002 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #487: Once the above files are installed, your Samba AD server will be ready to use
+INFO 2022-12-07 16:25:18,002 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #492: Server Role:           active directory domain controller
+INFO 2022-12-07 16:25:18,002 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #493: Hostname:              mizar
+INFO 2022-12-07 16:25:18,002 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #494: NetBIOS Domain:        AD
+INFO 2022-12-07 16:25:18,002 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #495: DNS Domain:            ad.example.com
+INFO 2022-12-07 16:25:18,002 pid:54185 /usr/lib64/python3.10/site-packages/samba/provision/__init__.py #496: DOMAIN SID:            S-1-5-21-2070738055-845390856-828010526</pre>
+<p>Note that the provisioning script generates a configuration file for Kerberos but does not deploy it – you need to copy it to its target <span class="No-Break">location yourself:</span></p>
+<pre class="source-code">
+$ sudo cp /var/lib/samba/private/krb5.conf /etc/krb5.conf</pre>
+<p>Now, all we need to do is start the <span class="No-Break">Samba service:</span></p>
+<pre class="source-code">
+$ sudo systemctl start samba</pre>
+<p>We will also <a id="_idIndexMarker612"/>create a user named <strong class="source-inline">testuser</strong> to verify that authentication is working as expected. The command to create a new user in our controller is <strong class="source-inline">sudo samba-tool user create test-user</strong> (it will ask you to enter <span class="No-Break">a password).</span></p>
+<p>With <strong class="source-inline">sudo samba-tool user show testuser</strong>, you can see the LDAP fields for that <span class="No-Break">user account:</span></p>
+<pre class="source-code">
+$ samba-tool user show testuser
+dn: CN=testuser,CN=Users,DC=ad,DC=example,DC=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: user
+cn: testuser
+instanceType: 4
+whenCreated: 20221207171435.0Z
+uSNCreated: 4103
+name: testuser
+objectGUID: 773d2799-e08c-41fb-9768-675dd59edbbb
+badPwdCount: 0
+codePage: 0
+countryCode: 0
+badPasswordTime: 0
+lastLogoff: 0
+primaryGroupID: 513
+objectSid: S-1-5-21-2070738055-845390856-828010526-1103
+accountExpires: 9223372036854775807
+sAMAccountName: testuser
+sAMAccountType: 805306368
+userPrincipalName: testuser@ad.example.com
+objectCategory: CN=Person,CN=Schema,CN=Configuration,DC=ad,DC=example,DC=com
+pwdLastSet: 133149068751598230
+userAccountControl: 512
+lastLogonTimestamp: 133149085286105320
+lockoutTime: 0
+whenChanged: 20221207180044.0Z
+uSNChanged: 4111
+logonCount: 0
+distinguishedName: CN=testuser,CN=Users,DC=ad,DC=example,DC=com</pre>
+<p>The server <a id="_idIndexMarker613"/>is now ready to receive <span class="No-Break">authentication requests.</span></p>
+<h2 id="_idParaDest-183"><a id="_idTextAnchor213"/>Setting up the client</h2>
+<p>Now that <a id="_idIndexMarker614"/>the domain controller is ready, we can set up a client machine to authenticate users against it. Since we are using Fedora for the client as well, it most likely has both SSSD and <strong class="source-inline">realmd</strong> – a tool for configuring authentication realms – installed <span class="No-Break">by default.</span></p>
+<p>We can verify that the controller is working using a <strong class="source-inline">realm discover</strong> command, <span class="No-Break">as follows:</span></p>
+<pre class="source-code">
+$ realm discover ad.example.com
+ad.example.com
+  type: kerberos
+  realm-name: AD.EXAMPLE.COM
+  domain-name: ad.example.com
+  configured: no
+  server-software: active-directory
+  client-software: sssd
+  required-package: oddjob
+  required-package: oddjob-mkhomedir
+  required-package: sssd
+  required-package: adcli
+  required-package: samba-common-tools</pre>
+<p>From this output, we can see that this machine has not joined that domain yet (<strong class="source-inline">configured: no</strong>). It also shows <a id="_idIndexMarker615"/>a list of packages that need to be installed to join it – if any are not installed yet, you can install them with a DNF command such as <strong class="source-inline">sudo dnf </strong><span class="No-Break"><strong class="source-inline">install samba-common-tools</strong></span><span class="No-Break">.</span></p>
+<p>Joining the domain is also very simple. Once you run <strong class="source-inline">sudo realm join ad.example.com</strong>, it will ask you for the domain administrator password (the one you entered on the controller during the provisioning process) and generate configuration files <span class="No-Break">for SSSD:</span></p>
+<pre class="source-code">
+$ sudo realm join ad.example.com
+Password for Administrator:</pre>
+<p>You will need to restart SSSD with <strong class="source-inline">sudo systemctl restart sssd</strong> to apply <span class="No-Break">the changes.</span></p>
+<p>The generated SSSD configuration will look <span class="No-Break">like this:</span></p>
+<pre class="source-code">
+$ sudo cat /etc/sssd/sssd.conf
+[sssd]
+domains = ad.example.com
+config_file_version = 2
+services = nss, pam
+[domain/ad.example.com]
+default_shell = /bin/bash
+krb5_store_password_if_offline = True
+cache_credentials = True
+krb5_realm = AD.EXAMPLE.COM
+realmd_tags = manages-system joined-with-adcli
+id_provider = ad
+fallback_homedir = /home/%u@%d
+ad_domain = ad.example.com
+use_fully_qualified_names = True
+ldap_id_mapping = True
+access_provider = ad</pre>
+<p>Since SSSD acts as <a id="_idIndexMarker616"/>an NSS provider and the default <strong class="source-inline">nssswitch.conf</strong> value for <strong class="source-inline">passwd</strong> is <strong class="source-inline">files sss</strong> in Fedora, we can query information about the <strong class="source-inline">testuser</strong> account using the usual <strong class="source-inline">id</strong> command, although in our configuration, we will need to specify its fully qualified name with <span class="No-Break">the domain:</span></p>
+<pre class="source-code">
+$ id testuser@ad.example.com
+uid=1505601103(testuser@ad.example.com) gid=1505600513(domain users@ad.example.com) groups=1505600513(domain users@ad.example.com)</pre>
+<p>It is also immediately possible to log in to the console by entering <strong class="source-inline">testuser@ad.example.com</strong> and the password we set on the <span class="No-Break">controller earlier.</span></p>
+<p>As you can see, setting up a domain controller that’s compatible with Microsoft Active Directory using Samba is a simple and mostly <span class="No-Break">automated procedure.</span></p>
+<h1 id="_idParaDest-184"><a id="_idTextAnchor214"/>Summary</h1>
+<p>In this chapter, we learned how Linux-based systems implement authentication processes and user information lookup using PAM, NSS, and SSSD. We also learned about solutions for centralized authentication and demonstrated how to set up a domain controller that’s compatible with Microsoft Active Directory using Samba software and join that domain from another <span class="No-Break">Linux machine.</span></p>
+<p>In the next chapter, we will learn about high-availability mechanisms <span class="No-Break">in Linux.</span></p>
+<h1 id="_idParaDest-185"><a id="_idTextAnchor215"/>Further reading</h1>
+<p>To learn more about the topics that were covered in this chapter, take a look at the <span class="No-Break">following resources:</span></p>
+<ul>
+<li>SSSD <span class="No-Break">documentation: </span><a href="https://sssd.io/docs/introduction.xhtml%0D"><span class="No-Break">https://sssd.io/docs/introduction.xhtml</span></a></li>
+<li>Samba <span class="No-Break">project: </span><a href="https://www.samba.org/%0D"><span class="No-Break">https://www.samba.org/</span></a></li>
+<li>FreeIPA <span class="No-Break">project: </span><a href="https://www.freeipa.org/%0D"><span class="No-Break">https://www.freeipa.org/</span></a></li>
+<li><span class="No-Break">Kerberos: </span><a href="https://en.wikipedia.org/wiki/Kerberos_(protocol)%0D"><span class="No-Break">https://en.wikipedia.org/wiki/Kerberos_(protocol)</span></a></li>
+<li><span class="No-Break">LDAP: </span><a href="https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol%0D"><span class="No-Break">https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol</span></a></li>
+<li>Microsoft Active <span class="No-Break">Directory: </span><a href="https://en.wikipedia.org/wiki/Active_Directory"><span class="No-Break">https://en.wikipedia.org/wiki/Active_Directory</span></a></li>
+</ul>
+</div>
+</div></body></html>

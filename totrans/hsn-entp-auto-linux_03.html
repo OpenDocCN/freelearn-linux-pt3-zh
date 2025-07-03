@@ -1,0 +1,420 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Automating Your IT Infrastructure with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">While there<span> </span>are numerous ways to automate tasks on Linux, there is one technology that stands out above the rest for automation at scale, and that is Ansible. Although it is entirely possible to automate a task (or tasks) easily with a shell script, there are a number of disadvantages to this, the most significant being that shell scripting does not scale up well in large environments. It should be said that there are other automation tools, but Ansible makes use of native communication protocols (for example, SSH on Linux, and WinRM on Windows) and hence is completely agentless! This makes deploying it into existing environments simple.<span> </span>While automation with Ansible is a huge, in-depth subject,<span> </span>this chapter is intended to cover the basics and get you up and running rapidly so that, even if you have no prior experience, you can follow the automation examples in this book. Indeed, this is one of the reasons for the rapid and widespread adoption of Ansible over the last few years—although it is incredibly powerful, getting started and automating your first tasks is extremely simple.</p>
+<p class="mce-root">In this chapter, we will cover the following Ansible topics:</p>
+<ul>
+<li>Exploring the Ansible playbook structure</li>
+<li>Exploring inventories in Ansible</li>
+<li>Understanding roles in Ansible</li>
+<li>Understanding Ansible variables</li>
+<li>Understanding Ansible templates</li>
+<li>Bringing Ansible and the SOE together</li>
+</ul>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p><span>This chapter includes examples based on the following technologies:</span></p>
+<ul>
+<li class="mce-root">Ubuntu Server 18.04 LTS</li>
+<li class="mce-root">CentOS 7.6</li>
+<li class="mce-root">Ansible 2.8</li>
+</ul>
+<p>To run through these examples, you will need access to a server or virtual machine running one of the operating systems listed here, and also access to Ansible. Note that the examples given in this chapter may be destructive in nature (for example, they involve installing files and packages) and, if run as is, are only intended to be run in an isolated test environment.</p>
+<p class="mce-root">Once you are satisfied that you have a safe environment in which to operate, let's get started on looking at the installation of new software packages with Ansible.</p>
+<p>All example code discussed in this chapter is available from GitHub at:<span> <a href="https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter02">https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter02</a>.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring the Ansible playbook structure</h1>
+                </header>
+            
+            <article>
+                
+<p>Getting up and running with Ansible is a straightforward endeavor, and packages are available for most major Linux distributions, FreeBSD, and just about any platform where Python runs. If you have a recent version of Microsoft Windows installed that supports the <strong>Windows Subsystem for Linux</strong> (<strong>WSL</strong>), Ansible even installs and runs under this.</p>
+<div class="packt_tip">Note, though, that there are no native Windows packages at the time of writing.</div>
+<p>The official Ansible documentation provides installation documentation for all major platforms. Please refer to <a href="https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html">https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html.</a></p>
+<p>In this chapter, our examples will be run on Ubuntu Server 18.04.2. However, as Ansible works across multiple different platforms, most examples should work on other operating systems too (or, at most, require minimal adaptation).</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Following the official installation documentation, the following commands are executed to install the latest version of Ansible on our demonstration system:</p>
+<pre><strong>$ sudo apt-get update
+$ sudo apt-get install software-properties-common
+$ sudo apt-add-repository --yes --update ppa:ansible/ansible
+$ sudo apt-get install ansible</strong></pre>
+<p>If all goes well, you should be able to query the<span> A</span>nsible<span> </span>binary for its version by running the following command:</p>
+<pre><strong>$ ansible --version</strong></pre>
+<p>The output should look something like this:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/a45761cb-9567-4592-9b5f-d48c94196b6f.png"/></p>
+<p>Congratulations! Now that Ansible is installed, let's take a look at the fundamentals of running your first set of Ansible tasks, called a <strong>playbook</strong>. To get one of these to run, you actually need to have the following three things in place:</p>
+<ol>
+<li>A configuration file</li>
+<li>An inventory</li>
+<li>The playbook itself</li>
+</ol>
+<p>When Ansible is installed, a default configuration file is normally installed in<span> </span><kbd>/etc/ansible/ansible.cfg</kbd>. There are many advanced features that can be changed through this file, and it can be overridden using a number of methods. For this book, we will work almost exclusively with the default settings, meaning that for now, it is sufficient to acknowledge the existence of this file.</p>
+<div class="packt_infobox">To find out more about the Ansible configuration file, this document is a good starting point, available at <a href="https://docs.ansible.com/ansible/latest/installation_guide/intro_configuration.html">https://docs.ansible.com/ansible/latest/installation_guide/intro_configuration.html</a></div>
+<p class="mce-root"/>
+<p>Nothing happens on Ansible without an inventory. The inventory is a text file (or script) that provides the Ansible binaries with a list of hostnames to operate against, even if it is just the localhost. We will look at inventories in more detail in the next part of the chapter, as they are going to be important in our automation journey. For now, you will find that on most Linux platforms, a sample inventory file is installed in<span> </span><kbd>/etc/ansible/hosts</kbd><span> </span>as part of the Ansible installation. When the inventory file is empty (or contains only comments, as in the case of the sample one), Ansible implicitly operates against the localhost only.</p>
+<p>Last, but by no means least, you must actually have a playbook to run against a server (or servers). Let's now work through an example to get a very simple playbook to run with Ansible. Ansible playbooks are written in YAML (a recursive acronym, meaning <strong>YAML Ain't Markup Language</strong>) and, as this is very easy to read—indeed, this is one of the core strengths of Ansible—playbooks can very easily be picked up by someone with minimal Ansible skills, and yet be easily understood, for either application or modification.</p>
+<p>If you are not used to writing code in Python or YAML, then the one thing you need to know about writing YAML for playbooks is this: indentation matters. Rather than using brackets or braces to define blocks of code, and semicolons to denote line ends (as is common in many high-level languages), YAML uses the indentation level itself to determine where in the code you are, and how it relates to the surrounding code. Indentation is always created using spaces—never use tabs. Even if the indentation looks the same to the naked eye, the YAML parser will not see it as the same.</p>
+<p>Consider the following block of code:</p>
+<pre>---<br/>- name: Simple playbook<br/>  hosts: localhost<br/>  become: false</pre>
+<p>This is the beginning of an Ansible playbook. Ansible YAML files always start with three dashes (<kbd>---</kbd>), with no indentation. Next, we have a single line that defines the start of the play, denoted by the single dash (<kbd>-</kbd>), with no indentation. Note that an Ansible playbook can consist of one or more plays, with each play being (at a basic level) a set of tasks to be performed on a given set of hosts. This particular line of the playbook specifies the<span> </span><kbd>name</kbd><span> </span>for the play. Although the<span> </span><kbd>name</kbd><span> </span>keyword is optional in most places and can be omitted, it is strongly recommended to include it for all play definitions (just as we have here), and also, for each and every task. This, quite simply, aids the readability of the playbook and the speed at which someone new can pick it up, thus promoting efficiency and a low barrier to entry for newcomers, as we discussed in the preceding chapter.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>The third line of this block tells Ansible which<span> </span><kbd>hosts</kbd><span> </span>the tasks included in the play should be run against. In this instance, we are only going to run against<span> </span><kbd>localhost</kbd>. The fourth line tells Ansible not to<span> </span><kbd>become</kbd><span> </span>the superuser (root), as it is not required for this task. Some tasks—for example, restarting a system service—must be performed as the superuser and, in this case, you would specify<span> </span><kbd>become: true</kbd>. Note the two-space indentation on both the third and fourth lines in the preceding code—this tells the YAML parser that the lines are part of the play, defined on the second line.</p>
+<p>Now, let's add two tasks to our playbook by appending the following block of code under the previous one:</p>
+<pre>  tasks:<br/>    - name: Show a message<br/>      debug:<br/>        msg: "Hello world!"<br/><br/>    - name: Touch a file<br/>      file:<br/>        path: /tmp/foo<br/>        state: touch</pre>
+<p>The<span> </span><kbd>tasks</kbd><span> </span>keyword defines the end of the play definition, and the start of the actual tasks we wish to execute. Note that it is still indented by two spaces, which tells the parser it is part of the play we defined previously. We then increase the indentation again for the next line, to denote that this is part of the<span> </span><kbd>tasks</kbd><span> </span>block.</p>
+<p>By now, you will see a familiar pattern building up. Every time a line of code forms part of a preceding statement, we increase the indentation by two spaces. Each new item starts with a single dash (<kbd>-</kbd>), thus our preceding block of code contains two tasks.</p>
+<p>The first one uses the<span> </span><kbd>name</kbd> keyword with the value <kbd>Show a message</kbd> by way of documentation (think of comments in other programming languages) and uses something called an <strong>Ansible</strong> <strong>module</strong>. Modules are predefined blocks of code that Ansible uses to perform given tasks. The<span> </span><kbd>debug</kbd><span> </span>module, included here, is used largely for displaying messages or variable contents and, hence, playbook debugging. We pass the<span> </span><kbd>msg</kbd><span> </span>parameter to the<span> </span><kbd>debug</kbd><span> </span>module by indenting<span> </span><kbd>msg</kbd><span> </span>by a further two spaces, telling the module which message we want to be printed when the playbook is run.</p>
+<p class="mce-root"/>
+<p>The second task has the<span> </span><kbd>name</kbd> and <kbd>Touch a file</kbd> keyword and uses the<span> </span><kbd>file</kbd><span> </span>module to touch a file located in<span> </span><kbd>/tmp/foo</kbd>. When we run this playbook, the output should look something like this:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/3dab3423-00d1-4ac8-8aa7-d697ae4b8df4.png" style="width:48.92em;height:32.67em;"/></p>
+<p>As a rule of thumb for most simple playbooks, tasks are run sequentially from top to bottom, making the order of execution predictable and easy to manage. That's it! You have written and executed your first Ansible playbook. You will note how easy that was, and how little work was involved in integrating it with a single test system. Now, for such a simple example, a valid question would be: <em>Why go to all that trouble with Ansible when two lines of shell scripting could achieve the same thing?</em> An example of shell scripting can be seen in the following code block:</p>
+<pre>echo "Hello World!"<br/>touch /tmp/foo</pre>
+<p class="mce-root"/>
+<p>The first reason to use Ansible is that, while this example is very simple and easy to understand, as the required tasks for a script become more complex, they become much harder to read and require someone who understands shell scripting to debug or modify them. With the Ansible playbook, you can see that the code is incredibly readable, and each part has an associated<span> </span><kbd>name</kbd>. The enforced indentation also serves to make the code more readable, and while both comments and indentation are supported in a shell script, neither is enforced, and they are commonly left out. On top of this, all modules must have documentation to be accepted into the core Ansible distribution—thus, you are guaranteed to have good-quality documentation on hand for your playbook. Module documentation can be found on the official Ansible website, or as part of the installed Ansible package. For example, if we wanted to learn how to use the<span> </span><kbd>file</kbd><span> </span>module we used earlier, we would simply enter the following<span> </span> command in the shell of our system:</p>
+<pre><strong>$ ansible-doc file</strong></pre>
+<p>When invoked, this command will give you the complete documentation for the file module, which incidentally is the same as the documentation on the official Ansible web site. Thus you always have the Ansible module documentation at your fingertips, even if the system you are working on is disconnected from the Internet. The following screenshot shows a page of the output from the command we just ran:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/39027b91-585e-4fce-b4bf-b1d345a81f2a.png" style="width:38.92em;height:29.08em;"/></p>
+<p class="mce-root"/>
+<p>The next reason is that the Ansible modules (mostly) offer support for idempotent changes. What this means is, if a change has already been made, we won't make it a second time. This is especially important for some changes that might be destructive in nature. It also saves time and compute resources, and even helps in auditing systems. On top of this, Ansible offers flow control and robust error handling and, where a shell script will continue even after an error, unless you integrate your own error-handling code <span>(possibly causing unpredictable or undesirable results),</span> Ansible will stop all further execution and require you to fix the problem before running the playbook again.</p>
+<p>It is worth mentioning that while modules form a core part of the strength of Ansible, there could be times when the functionality you need is not handled by any of the available modules. The beauty of Ansible being <strong>open source software</strong> (<strong>OSS</strong>) is that you can write and integrate your own modules. This is beyond the scope of this book but is well worth exploring as you develop your Ansible skills. In instances where existing modules just don't have the required functionality, and you don't have the time or resources to write your own module, Ansible can also send raw shell commands to the system being automated. In fact, there are two modules—<kbd>shell</kbd><span> </span>and<span> </span><kbd>command</kbd><span>—</span>that can send raw commands to remote systems. Thus, you can even mix shell scripting with Ansible if the need arises, although you should always use native Ansible modules before resorting to the use of<span> </span><kbd>shell</kbd><span> </span>or<span> </span><kbd>command</kbd>. Ansible is incredibly flexible in this way—the built-in functionality is extensive, but in the event that it ever falls short, it is incredibly easy to extend the functionality yourself.</p>
+<p>These benefits are just the tip of the iceberg, and we will explore some of the others as we proceed through this chapter. As stated earlier, this chapter is not intended to be exhaustive, but to serve as an introductory guide to Ansible, to get you started and help you understand the examples in this book.</p>
+<p>In the next section, we will explore probably one of the biggest reasons to use Ansible over a simple shell script.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring inventories in Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>As we have already touched upon, one of the key reasons for the rapid uptake of Ansible is the fact that it can integrate, without an agent, into most major operating systems. For example, a single Ansible host can automate commands on just about any other Linux (or BSD) host to which it can connect over SSH. It can even automate tasks on Windows hosts that have had remote WinRM enabled, and it is here that we start to uncover the real power of Ansible.</p>
+<p class="mce-root"/>
+<p>In the previous section of this chapter, we only looked at Ansible running against the implicit localhost, without using SSH. Ansible supports two different kinds of inventories: static and dynamic. Throughout this book, we will mostly work with static inventories, as they serve the examples we are working with. Indeed, static inventories are perfect for small environments, where the workload of keeping the list of servers to be automated (which, in essence, is what an Ansible inventory is) is small. However, as inventories grow in scale, or remain small but change rapidly (for example, cloud compute resources or Docker containers), the work required to keep an Ansible inventory file up to date becomes much larger and prone to error.</p>
+<p>Ansible offers a number of ready-made dynamic inventory solutions that integrate with popular public cloud platforms such as Microsoft Azure and Amazon Web Services, on-premise compute platforms such as OpenStack and VMware, and infrastructure management solutions such as Katello. It is even possible to write your own dynamic inventory scripts, and as your environment scales, you will most likely find yourself going down this path.</p>
+<p>For now, let's focus on static inventories. Suppose that we want to take our example playbook from earlier in the chapter, and run it against two remote hosts rather than the localhost. First of all, let's create an inventory file that contains the names/addresses of the two hosts. A static inventory is written in INI format (as opposed to the YAML used in the playbooks) and, at its simplest level, consists of one host per line. Note that hosts can be specified either by DNS entry or by IP address.</p>
+<p>Here is the inventory file for our demo environment:</p>
+<pre>[test]<br/>testhost1<br/>testhost2</pre>
+<p>As you can see, the file is very simple. The first line, with square brackets around it, is the name of a group in which the servers below it are placed. Servers can live in more than one group, and this aids greatly in the day-to-day management of servers. For example, if you have a playbook to apply security updates to all Linux servers, then you would probably want a group called something like<span> </span><kbd>[linux-servers]</kbd><span> </span>that contains the addresses of all such servers. If you then had a playbook to deploy a web application, you would probably want to put all the web servers in a group called<span> </span><kbd>[web-servers]</kbd>. This makes it easy to target the correct set of servers when running a given playbook—remember the<span> </span><kbd>hosts:</kbd><span> </span>line at the top of our playbook in the earlier example?</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Groups can even be children of other groups. Thus, if you know your web servers are all based on Linux, you could specify the<span> </span><kbd>web-servers</kbd><span> </span>group as a child of the<span> </span><kbd>linux-servers</kbd><span> </span>group, thus including all web servers for security patching, without the need for duplication in the inventory.</p>
+<p>We need to make a slight modification to our earlier playbook. The first four lines should now contain the following:</p>
+<pre>---<br/>- name: Simple playbook<br/>  hosts: all<br/>  become: false</pre>
+<p>As you can see, we have now changed the<span> </span><kbd>hosts</kbd><span> </span>parameter from<span> </span><kbd>localhost</kbd><span> </span>to<span> </span><kbd>all</kbd><span> </span>(<kbd>all</kbd><span> </span>is a special keyword, meaning all hosts in the inventory, regardless of group). If we had wanted to just specify the<span> </span><kbd>test</kbd><span> </span>group, we would have put in<span> </span><kbd>hosts: test</kbd>, or even<span> </span><kbd>hosts: testhost1</kbd><span>, </span>for the playbook to run only against a single host.</p>
+<p>Now, we know that Ansible uses SSH to connect to remote Linux hosts in the inventory and, at this stage, we have not set up key-based SSH authentication. Thus, we need to tell Ansible to prompt for the SSH password (by default, it does not, meaning it will fail if key-based authentication is not set up). Similar to the SSH<span> </span>command-line utility, unless you tell Ansible otherwise, it will initiate an SSH connection to the remote system, using the username of the current session user on the local machine. Thus, in my example, the user<span> </span><kbd>james</kbd><span> </span>exists on my Ansible server and my two test systems, and all tasks are performed as this user. I can run the following command to run my playbook against my two remote systems:</p>
+<pre><strong>$ ansible-playbook -i hosts --ask-pass simple.yml</strong></pre>
+<p>This looks a little different from the last time we ran it—note the following new parameters:</p>
+<ul>
+<li><kbd>-i hosts</kbd><span>:</span> Tells Ansible to use the file called <kbd>hosts</kbd> in the current working directory for the inventory</li>
+<li><kbd>--ask-pass</kbd><span>:</span> Tells Ansible to stop and prompt for the SSH password for access to the remote systems (it is assumed the password is the same on all systems)</li>
+<li><kbd>simple.yml</kbd><span>:</span> Tells Ansible the name of the playbook to run</li>
+</ul>
+<p class="mce-root"/>
+<p>Let's see this in action, as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/5e5755ef-d284-4c99-be50-5934aea13a32.png" style="width:43.00em;height:32.08em;"/></p>
+<p>Here, you can see that both the tasks we created earlier in the chapter have been run—only this time, they have been run on a pair of remote systems using the native SSH communication protocol. As SSH is normally enabled on most Linux servers, this immediately gives us massive scope for expanding our automation—this example has been performed on an inventory containing just two hosts, but it could just have easily contained 200 or more hosts.</p>
+<p>Note that the tasks are still run in sequential order as before—only this time, each task is now run to completion on all hosts in the inventory before the next task is attempted, again making our playbook flow very predictable and easy to manage.</p>
+<p class="mce-root"/>
+<p>If we set up SSH keys for the remote hosts, then the<span> </span><kbd>--ask-pass</kbd><span> </span>parameter is no longer necessary, and the playbook runs without any interaction from the user, which is most desirable for many automation scenarios:</p>
+<div class="packt_tip">SSH keys, while more secure than passwords, do bring their own risks, especially if the keys are not encrypted with a password. In this case, anyone who gets hold of an unencrypted private key will be able to gain remote access to any system with the matching public key, without any further prompt or challenge. If you do go down the route of setting up SSH keys, be sure you understand the security implications.</div>
+<p>Let's run through a simple process to generate an SSH key and configure it on our test systems for Ansible to authenticate against:</p>
+<ol>
+<li>To set up a very simple SSH key-based access on our test hosts, we could run the following command from the Ansible host to create the key pair (do not do this if you already have a key pair, as you could overwrite it!):</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$ ssh-keygen -b 2048 -t rsa -f ~/.ssh/id_rsa -q -N ''</strong></pre>
+<ol start="2">
+<li>This command silently creates a 2048-bit RSA key in the file at<span> </span><kbd>~/.ssh/id_rsa</kbd>, with no passphrase (hence unencrypted). The corresponding public key to be copied to remote systems will be created as<span> </span><kbd>~/.ssh/id_rsa.pub</kbd><span> </span>(that is, the same filename and path specified by<span> </span><kbd>-f</kbd><span>, </span>with<span> </span><kbd>.pub</kbd><span> </span>appended). Now, copy it to the two remote hosts, using the following commands (you will be prompted for your SSH password both times):</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$ ssh-copy-id testhost1</strong><br/><strong>$ ssh-copy-id testhost2</strong></pre>
+<ol start="3">
+<li>Finally, we can run our playbook just as we did before, but without the<span> </span><kbd>--ask-pass</kbd><span> </span>flag, as shown in the following screenshot:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/443dab47-cb9e-48b9-8d1a-5cea5507a408.png" style="width:46.25em;height:33.58em;"/></p>
+<p>The difference, as you can see, is subtle but hugely important—no user intervention was required, meaning our simple playbook suddenly has massive scale across an environment of virtually any size.</p>
+<p>Although here, we have taken advantage of the fact that Ansible will read (by default) the SSH private keys that are found in the <kbd>.ssh</kbd> directory for the user account in question, you are not limited to using these keys. You can specify a private key file manually by using the <kbd>ansible_ssh_private_key_file</kbd> host variable in the inventory, or you can use <kbd>ssh-agent</kbd> to make different private SSH keys available to Ansible in the current shell session.</p>
+<p>Doing this is left as an exercise for you to complete, and the following pages from the official Ansible documentation will assist you with this:</p>
+<ul>
+<li>For an introduction to using <kbd>ssh-agent</kbd> with Ansible, please refer to<a href="https://docs.ansible.com/ansible/latest/user_guide/connection_details.html"> https://docs.ansible.com/ansible/latest/user_guide/connection_details.html.</a><a href="https://docs.ansible.com/ansible/latest/user_guide/connection_details.html"/></li>
+<li>For an introduction to the inventory host variables available in Ansible, including <kbd>ansible_ssh_private_key_file</kbd>, please refer to <a href="https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html">https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html.</a></li>
+</ul>
+<p>Of course, you don't need to perform all tasks on remote systems as the current user—you can use the<span> </span><kbd>--user</kbd><span> </span>(or<span> </span><kbd>-u</kbd>) flag with<span> </span><kbd>ansible-playbook</kbd><span> </span>to specify a user to be used across all hosts in the inventory, or you can even use the<span> </span><kbd>ansible_user</kbd><span> </span>host variable within the inventory itself to specify user accounts on a per-host basis. Obviously, you should try to avoid a scenario such as this, as it goes against the principle of commonality that we discussed in <a href="c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml" target="_blank">Chapter 1</a>, <em>Building a Standard Operating Environment on Linux</em>, but the important thing to note is that Ansible offers huge flexibility and opportunity to customize. It scales incredibly well in SOEs, but where there are deviations, it is easy to get Ansible to adapt without difficulty.</p>
+<p>We will go into variables in greater detail later in this chapter, but it is worth mentioning at this stage that inventories can also contain variables. These can either be user-created variables or special variables, such as the aforementioned<span> </span><kbd>ansible_user</kbd>. Extending our simple inventory from this chapter, if we wanted to set the SSH user to<span> </span><kbd>bob</kbd><span> </span>and create a new user-defined variable called<span> </span><kbd>http_port</kbd><span> </span>for use later in a playbook, our inventory might look like this:</p>
+<pre>[test]<br/>testhost1<br/>testhost2<br/><br/>[test:vars]<br/>ansible_user=bob<br/>http_port=8080</pre>
+<p>That covers the basics of inventories that you will need to know to get started with Ansible and to proceed with this book. Hopefully, you are starting to get an idea of the low barrier to entry presented to new users by Ansible that has made it so popular. </p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Understanding roles in Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>As easy as Ansible is to get started with, and as readable as a playbook is when it is short, it does get more complex, as do the requirements. In addition, there are certain functions that may well be needed repeatedly in different scenarios. For example, you might need to deploy a MariaDB database server as a common task in your environment. A module called<span> </span><kbd>apt</kbd><span> </span>is used for managing packages on Ubuntu servers, and so, if we wanted to install the<span> </span><kbd>mariadb-server</kbd><span> </span>package on our test system, the playbook to perform this task could look like this:</p>
+<pre>---<br/>- name: Install MariaDB Server<br/>  hosts: localhost<br/>  become: true<br/><br/>  tasks:<br/>    - name: Install mariadb-server package<br/>      apt:<br/>        name: mariadb-server<br/>        update_cache: yes</pre>
+<p>Note that this time, we have set<span> </span><kbd>become</kbd><span> </span>to<span> </span><kbd>true</kbd>, as we need root privileges to install packages. This is, of course, a very simple example, as installing a database server normally requires a great deal more configuration work, but it serves as a starting point. We could run this on our test system, and yield the desired result, as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/5ea0cef2-b52a-40ac-b44e-066c91992fea.png" style="width:51.00em;height:24.83em;"/></p>
+<p>So far, so good. If you had to do this on a routine basis, though, in different playbooks for different hosts, would you really want to be writing (or, indeed, copying and pasting) that tasks block from this example over and over again? Also, this example is simplistic, and in reality, the database deployment code would be far more complex. If someone makes a fix or improvement in the code, how do you ensure that this new revision of code is propagated into all the right places?</p>
+<p>This is where roles come in, and an Ansible role, while in essence nothing more than a structured set of directories and YAML, enables efficient and effective reuse of code. It also makes the initial playbook easier to read, as we shall see shortly. Once roles are created, they can be stored in a central location, such as a version control repository (for example, GitHub), and then, the latest version can always be accessed whenever a playbook needs to install MariaDB.</p>
+<p>Roles are (by default) run from a subdirectory called<span> </span><kbd>roles/</kbd><span>, </span>in the same directory as your playbook. Throughout this book, we will use this convention, though it must be stated that Ansible will also search for roles in <kbd>/etc/ansible/roles</kbd> and the paths specified by the <kbd>roles_path</kbd> parameter in the Ansible configuration file (which, by default, can be found in <kbd>/etc/ansible/ansible.cfg</kbd>, though there are ways to override this). Each role then has its own subdirectory under this, and that directory name forms the name of the role. Let's explore this through a simple example, as follows:</p>
+<ol>
+<li>We will get started by creating a<span> </span><kbd>roles/</kbd><span> </span>directory, and an<span> </span><kbd>install-mariadb/</kbd><span> </span>directory under this, for our first role:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$ mkdir -p roles/install-mariadb</strong></pre>
+<ol start="2">
+<li>Each role has a fixed directory structure under it; however, for our simple example, we are only interested in one:<span> </span><kbd>tasks/</kbd>. The<span> </span><kbd>tasks/</kbd><span> </span>subdirectory of a role contains the main list of tasks that will be run when the role is called, in a file called<span> </span><kbd>main.yml</kbd>. Let's create that directory now, as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$ cd roles/install-mariadb</strong><br/><strong>$ mkdir tasks</strong><br/><strong>$ vi tasks/main.yml</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<ol start="3">
+<li>Naturally, you can use your preferred editor in place of<span> </span><kbd>vi</kbd>. In the<span> </span><kbd>main.yml</kbd><span> </span>file, enter the following code—note that it is essentially the tasks block from the original playbook, but the indentation level has now changed:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Install mariadb-server package<br/>  apt:<br/>    name: mariadb-server<br/>    update_cache: yes</pre>
+<ol start="4">
+<li>Once we have created this file, we then edit our original<span> </span><kbd>install-db.yml</kbd><span> p</span>laybook so that it looks like this:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Install MariaDB Server<br/>  hosts: localhost<br/>  become: true<br/><br/>  roles:<br/>    - install-mariadb</pre>
+<p>Notice how much more compact the playbook is now! It is also a great deal easier to read, and yet if we run it, we can see that it performs the same function. Note how the state of the MariaDB server installation task was<span> </span><kbd>changed</kbd><span> </span>last time we ran it but is now<span> </span><kbd>ok</kbd><span>. T</span>his means that Ansible detected that the<span> </span><kbd>mariadb-server</kbd><span> </span>package was already installed, and hence no further action was required. This is an example of the previously mentioned idempotent change in action, as can be seen in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/652109d8-f100-4d81-83a1-ab02d2eb5e9b.png" style="width:45.00em;height:22.00em;"/></p>
+<p>Well done! You have created and executed your first role. If you want to read more about roles and the required directory structure, please refer to <a href="https://docs.ansible.com/ansible/latest/user_guide/playbooks_reuse_roles.html">https://docs.ansible.com/ansible/latest/user_guide/playbooks_reuse_roles.html</a>.</p>
+<p>There's even more to roles than this—not only are they invaluable in structuring your playbooks and enabling reuse of code; there is also a central repository for community-contributed roles, called <strong>Ansible Galaxy</strong>. If you search Ansible Galaxy for MariaDB-related roles, you will find (at the time of writing) 277 different roles, all designed to perform various database installation tasks. This means that you don't even have to write your own roles for common tasks—you can either make use of community-contributed ones or fork them, and modify them to your own ends. Most common server automation tasks have already been solved somewhere along the way by the Ansible community, and so it is very likely you will find exactly what you are looking for.</p>
+<p>Let's test this now, as follows:</p>
+<ol>
+<li>First, install a role from Ansible Galaxy that installs MariaDB server on Ubuntu:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>$ ansible-galaxy install -p roles/ mrlesmithjr.mariadb-mysql</strong></pre>
+<ol start="2">
+<li>Now, we will modify our playbook to reference this role instead:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Install MariaDB Server<br/>  hosts: localhost<br/>  become: true<br/><br/>  roles:<br/>    - mrlesmithjr.mariadb-mysql</pre>
+<ol start="3">
+<li>That's all that is required—if we run it, we can see that this playbook performs many more tasks than our simple one, including a lot of the security setup that is good practice when installing a new database, as can be seen in the following screenshot:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/d56f1e5e-4018-4969-8d7d-908c5adc3b93.png" style="width:43.75em;height:32.67em;"/></p>
+<p>The end result, however, is that the<span> </span><kbd>mariadb-server</kbd><span> </span>package is installed on our test system—and this time, we barely even had to write any code! It is advisable, of course, to check what a role from Ansible Galaxy is going to do before blindly running it on your systems, in case it makes changes that you hadn't expected (or wanted!). Nonetheless, roles, in conjunction with Ansible Galaxy, form a powerful addition to the value that Ansible has to offer.</p>
+<p>With an understanding of roles under our belts, in the next section, we will look at an important concept to help you get the most out of your playbooks and roles by making their content dynamic: Ansible variables.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Understanding Ansible variables</h1>
+                </header>
+            
+            <article>
+                
+<p>Most of the examples we have looked at so far have been static in nature. This is fine for the simplest playbook examples, but in many cases, it is desirable to be able to either store values or define them easily in a central place, rather than having to go hunting through a playbook (and tree of roles) for a specific hardcoded value. As in other languages, it is also desirable to capture values somehow, for reuse later.</p>
+<p>There are many different types of variables in Ansible, and it is important to know that they have a strict order of precedence. Although we won't encounter this much in this book, it is important to be aware of this, as you might otherwise receive unexpected results from your variables.</p>
+<div class="packt_tip">More details on variable precedence can be found at <a href="https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#variable-precedence-where-should-i-put-a-variable">https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#variable-precedence-where-should-i-put-a-variable</a></div>
+<p>In short, variables can be defined in a number of locations, and the right location for a given scenario will be driven by the objective of the playbook. For example, if a variable is common to an entire group of servers, it would be logical to define it in the inventory as a group variable. If it applies to every host a specific playbook runs against regardless, then you would almost certainly define it in the playbook. Let's take a quick look at this by modifying our<span> </span><kbd>simple.yml</kbd><span> </span>playbook from earlier in this chapter, this time, defining a play variable called<span> </span><kbd>message</kbd><span> </span>for our<span> </span><kbd>debug</kbd><span> </span>statement to display when the playbook is run, as follows:</p>
+<pre>---<br/>- name: Simple playbook<br/>  hosts: localhost<br/>  become: false<br/><br/>  vars:<br/>    message: "Life is beautiful!"<br/><br/>  tasks:<br/>    - name: Show a message<br/>      debug:<br/>        msg: "{{ message }}"<br/>    - name: Touch a file<br/>      file:<br/>        path: /tmp/foo<br/>        state: touch</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Note that we have now defined a<span> </span><kbd>vars</kbd><span> </span>section before the<span> </span><kbd>tasks</kbd><span> </span>one and that the variable is accessed by placing it in pairs of curly braces. Running this playbook yields the following results:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b475ffe8-4370-4e46-9683-65f5a45ce834.png" style="width:44.17em;height:27.25em;"/></p>
+<p>If you refer to the variable precedence order list, you will note that variables passed to the<span> </span><kbd>ansible-playbook</kbd><span> </span>binary on the command line are top of the list, and override all other variables. Thus, if we want to override the contents of our message variable without editing the playbook, we can do so as follows:</p>
+<pre><strong>$ ansible-playbook simple.yml -e "message=\"Hello from the CLI\""</strong></pre>
+<p>Note the special quoting and escaping required to handle the spaces in the variable content, and the effects of this on the operation of the playbook:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/76a57220-c019-4fae-ab81-6a5875a29bde.png" style="width:43.83em;height:28.17em;"/></p>
+<p>Variables can also be passed to roles, and are a simple yet powerful way of creating generic roles that can be used in a multitude of scenarios, without using identical configuration data. For example, in the previous section, we explored installing a MariaDB server. While this is a good candidate for a role, you certainly don't want the same root database password to be configured on every server. It thus makes sense to define a variable for the password, and pass this to the role from the calling playbook (or another appropriate source, such as a host or group variable).</p>
+<p>As well as user-defined variables, Ansible also has a number of built-in variables, referred to as special variables. These can be accessed from anywhere in the playbook, and are useful for obtaining certain details pertaining to the state of the play.</p>
+<p>For example, if you needed to know the hostname currently being acted upon for a specific task, this is available through the<span> </span><kbd>inventory_hostname</kbd><span> </span>variable. A full list of these variables is available at <a href="https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html">https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html</a></p>
+<p>Many readers will, by now, have noticed that the output from all our example playbooks contains a line that says<span> </span><kbd>Gathering Facts</kbd>. Although this can be turned off, it is, in fact, incredibly useful, and populates a wide array of variables with useful key system data. To get an idea of the kind of data gathered during this phase, run the following code from the command line:</p>
+<pre><strong>$ ansible -m setup localhost</strong></pre>
+<p>This command, rather than running a playbook, instructs Ansible to run the<span> </span><kbd>setup</kbd><span> </span>module directly on the<span> </span><kbd>localhost</kbd><span>—</span>the<span> </span><kbd>setup</kbd><span> </span>module is the one that is run behind the scenes, during the<span> </span><kbd>Gathering Facts</kbd><span> </span>stage. The output will look something like this, and goes on for pages—this is just the first few lines:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/148ad045-9ef8-48c9-a7d0-c4aa2f6493d6.png" style="width:40.33em;height:31.75em;"/></p>
+<p class="mce-root"/>
+<p>We can immediately see there is some really useful information there, such as the IP addresses of the host, the root volume, and so on. Remember our discussion about commonality in <a href="c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml" target="_blank">Chapter 1</a>, <em>Building a Standard Operating Environment on Linux</em>, and the difficulty in detecting the operating system you are running against? Well, Ansible makes this easy, as that data is all readily available in the gathered facts. We can modify our <kbd>debug</kbd> statement to display the Linux distribution we are running against, simply by specifying the appropriate fact, accessible from the output from the last command, as follows:</p>
+<pre>    - name: Show a message<br/>      debug:<br/>        msg: "{{ ansible_distribution }}"</pre>
+<p>Now, when we run the playbook, we can easily tell we are running on Ubuntu, as can be seen in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/e9f0d30a-5437-4133-973a-76327a5d3c4a.png" style="width:63.92em;height:36.92em;"/></p>
+<p>Ansible enables you to conditionally run individual tasks, roles, or even entire blocks of tasks, and hence having access to facts makes it straightforward to write robust playbooks that can be run against multiple platforms and perform the correct actions on each platform. </p>
+<p>It is also worth noting that variables do not need to be stored in unencrypted text. Occasionally, it might be necessary to store a password in a variable (as discussed earlier—perhaps the root password for our MariaDB server install). Storing those details in plain text format presents a big security risk, but fortunately, Ansible includes a technology called <strong>Vault</strong>, which is capable of storing variable data encrypted using AES256. These encrypted vaults can be referenced by any playbook, provided the vault password is passed to the playbook when it is run. Vaults are beyond the scope of this chapter, but if you would like to read more about them, please see <a href="https://docs.ansible.com/ansible/latest/user_guide/playbooks_vault.html">https://docs.ansible.com/ansible/latest/user_guide/playbooks_vault.html</a>. In this book, we will not use them extensively, simply to keep the example code concise. However, it is strongly recommended that in a production environment, you use vaults wherever sensitive data for a playbook needs to be stored.</p>
+<p>Now that we have introduced the concept of variables in Ansible, and the various types available, let's take a look at an important means for managing configuration files in Ansible—the use of templates.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Understanding Ansible templates</h1>
+                </header>
+            
+            <article>
+                
+<p>A common automation requirement is to set a value in a configuration file, or even to deploy a new configuration file, based on some given parameters. Ansible provides modules that can perform similar functions to the venerable<span> </span><kbd>sed</kbd><span> </span>and<span> </span><kbd>awk</kbd><span> </span>utilities, and of course, these are valid ways to modify an existing configuration file. Let's suppose we have a small Apache virtual host configuration file, containing the following code:</p>
+<pre>&lt;VirtualHost *:80&gt;<br/>    DocumentRoot "/var/www/automation"<br/>    ServerName www.example.com<br/>&lt;/VirtualHost&gt;</pre>
+<p>We want to deploy this configuration, but customize the<span> </span><kbd>DocumentRoot</kbd><span> </span>parameter for each host. Naturally, we could just deploy the preceding file, exactly as it is, to every host, and then use a regular expression, in conjunction with the Ansible<span> </span><kbd>replace</kbd><span> </span>module, to find the<span> </span><kbd>DocumentRoot</kbd><span> </span>line and modify it (similar to using the<span> <kbd>sed</kbd></span><span> </span>command-line utility). The resulting playbook might look like this:</p>
+<pre>---<br/>- name: Deploy and customize an Apache configuration<br/>  hosts: localhost<br/>  become: true<br/><br/>  vars:<br/>    docroot: "/var/www/myexample"<br/><br/>  tasks:<br/>    - name: Copy static configuration file to remote host<br/>      copy:<br/>        src: files/vhost.conf<br/>        dest: /etc/apache2/sites-available/my-vhost.conf<br/><br/>    - name: Replace static DocumentRoot with variable contents<br/>      replace:<br/>        path: /etc/apache2/sites-available/my-vhost.conf<br/>        regexp: '^(\s+DocumentRoot)\s+.*$'<br/>        replace: '\1 {{ docroot }}'</pre>
+<p>If we create our sample static virtual host configuration file in<span> </span><kbd>files/vhost.conf</kbd><span> </span>with the preceding contents shown and run this playbook, we can see that it works, as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/7f58744d-cbb1-406f-b02d-e701a3f19ba6.png" style="width:55.67em;height:40.00em;"/></p>
+<p>However, this is an inelegant solution. First of all, we're using two tasks, and if we wanted to customize<span> </span><kbd>ServerName</kbd><span> </span>as well, we'd need even more. Secondly, those who are familiar with regular expressions will know it wouldn't take much to trip up the simple one used here. Writing good robust regular expressions for tasks such as this is an art in itself.</p>
+<p>Luckily, Ansible has inherited from the Python in which it is written a technology called <strong>Jinja2 templating</strong>. This is perfect for scenarios such as this (and many other deployment-related automation scenarios). Instead of a cumbersome multistep approach such as this, we now define our starting virtual host configuration file as a template in<span> </span><kbd>templates/vhost.conf.j2</kbd>, as follows:</p>
+<pre>&lt;VirtualHost *:80&gt;<br/>    DocumentRoot {{ docroot }}<br/>    ServerName www.example.com<br/>&lt;/VirtualHost&gt;</pre>
+<p>As you can see, this is almost identical to our original configuration file, except that we have now replaced one of the static values with one of our variables, surrounded by pairs of curly braces, just as we would do in the playbook itself. Before we proceed with this example, it is worth mentioning that Jinja2 is an incredibly powerful templating system that goes far beyond simple variable substitution into a flat file. It is capable of conditional statements, such as <kbd>if...else</kbd> and <kbd>for</kbd> loops, and includes a wide array of filters that can be used to manipulate content (for example, to convert a string to uppercase, or to join the members of a list together to form a string). </p>
+<p>With that said, this book is not intended as a complete language reference for either Ansible or Jinja2—rather, it is intended as a practical guide to show you how to build up your SOE using Ansible. Please refer to the <em>Further reading</em> section at the end of this chapter for some references, which will give you a more complete overview of both Ansible and Jinja2.</p>
+<p>Returning to our example, we will modify the playbook to deploy this example, as follows:</p>
+<pre>---<br/>- name: Deploy and customize an Apache configuration<br/>  hosts: localhost<br/>  become: true<br/><br/>  vars:<br/>    docroot: "/var/www/myexample"<br/><br/>  tasks:<br/>    - name: Copy across and populate the template configuration<br/>      template:<br/>        src: templates/vhost.conf.j2<br/>        dest: /etc/apache2/sites-available/my-vhost.conf</pre>
+<p>Notice how much more elegant this playbook is—the<span> </span><kbd>template</kbd><span> </span>module copies the configuration template to the remote host, just as the<span> </span><kbd>copy</kbd><span> </span>module did in the prior example, and also populates any variables we have specified. This is an incredibly powerful way to deploy configuration files in a repeatable, common manner, and it is highly recommended that you adopt this approach where possible. When human beings edit files, they often do so in an inconsistent manner, and that can be the enemy of automation, as you have to build a really robust regular expression to ensure you catch all possible edge cases. Deploying from templates with Ansible creates repeatable, reliable results that can easily be validated in a production environment. Running this playbook yields identical results to our previous, more complex example, as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/75d5c782-39cc-4458-bbb8-9622ea4e9cef.png"/></p>
+<p>That concludes our look at variables for now, and indeed, our crash course in Ansible. In the next section, we tie up everything we have learned, before drawing this chapter to a close. </p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Bringing Ansible and the SOE together</h1>
+                </header>
+            
+            <article>
+                
+<p>We have already worked through a number of end-to-end examples with Ansible. Although simple, they showcase the fundamental building blocks of automation with Ansible, on which this book is based. A big part of achieving automation in a Linux environment at scale is having both good standards and robust processes. Hence, not only should your operating environment be standardized; so should your deployment and configuration processes. </p>
+<p>As discussed in the previous chapter, although a well-defined SOE will be consistent at the point of deployment, this consistency can soon be lost if administrators are allowed to make changes at will, using whatever their preferred method is. Just as it is desirable to deploy an SOE to achieve success in automation, so it is also desirable to make automation your go-to for as many (ideally all) administrative tasks as possible. </p>
+<p>Ideally, there should be one single source of truth for playbooks (for example, a central Git repository) and a single source of truth for inventories (this might be in the form of a centrally stored static inventory, or the use of a dynamic inventory).</p>
+<p>The goal of any well-written Ansible playbook (or role) is that the results from running it are repeatable and predictable. Take, for example, the playbook we ran at the end of the previous section, where we were deploying a simple Apache <kbd>vhost.conf</kbd> file using a playbook that we wrote. Every time you run this playbook on any server, the contents of <kbd>/etc/apache2/sites-available/my-vhost.conf</kbd> will be the same, as the playbook deploys this file using a template, and overwrites the target file if it exists.</p>
+<p>This, of course, is but a microcosm of the standard operating environment, but such an environment will be built up of hundreds—if not thousands—of these tiny building blocks. After all, if you can't get your Apache configurations to be consistent across your infrastructure, how can you be confident that any other parts of it have been built in accordance with your standards?</p>
+<p>The repeatable nature of well-written playbooks is important to mention here too—just because you deployed a consistent Apache configuration doesn't mean it will remain consistent. Five minutes after you deploy the configuration, someone with the required privileges could log in to the server and change the configuration. Thus, your environment could deviate from your SOE definition almost immediately. Running your Ansible playbooks repeatedly across your infrastructure is actually an important part of your ongoing processes, as the nature of these playbooks will be to bring the configuration back into line with your original standards. Thus Ansible playbooks are a vital component of not only defining and deploying your SOE but also in the ongoing enforcement of the standards. </p>
+<p>No fixes should be manually deployed, if at all possible. Suppose someone manually tweaks the configuration in <kbd>/etc/apache2/sites-available/my-vhost.conf</kbd> to overcome an issue. This in itself is not a problem, but it is vital that these changes are placed back into the playbook, role, or template. If deploying or enforcing your SOE through Ansible somehow breaks it, then something is wrong with your processes.</p>
+<p>Indeed, by implementing processes such as we have discussed so far, and will continue to explore throughout this book, successful automation across an enterprise can be achieved. The introduction to Ansible automation given in this chapter, while brief, serves as one part of these suggested processes.</p>
+<p>There is much more to learn about Ansible and, in short, I would like to propose a bold statement: If you can conceive it as a server deployment or configuration task, Ansible can help. Thanks to its open source nature, Ansible is very extensible, and its wide adoption means that many of the common automation challenges have already been solved, and relevant features included. It is hoped that this chapter has given you a head start on your journey into Linux automation with Ansible.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Ansible is a robust, powerful, open source tool that, once you have mastered a few simple concepts, can help you to achieve automation on a very large scale in your Linux environment. Ansible is agentless, and so requires no configuration on Linux client machines for you to begin your automation journey, and a robust community behind the project means that easy answers are available to most of the challenges you may wish to solve with it. </p>
+<p>In this chapter, you learned the fundamentals of playbook structure and some of the key files required to run a simple playbook. You learned about the importance of inventories and how to use them, and how to efficiently reuse code with roles (and indeed, how to leverage code from the community to save you time and effort). You learned about variables and facts, and how to reference them in playbooks, and how to make use of Jinja2 templating to aid your automation journey. Throughout this journey, you built and ran a number of complete playbooks, demonstrating the use of<span> </span>Ansible.</p>
+<p>In the next chapter, you'll discover how to streamline infrastructure management, and further refine your automation processes with AWX.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>What is Ansible, and how is it different from running a simple shell script?</li>
+<li>What is an Ansible inventory?</li>
+<li>Why is it generally beneficial to code your tasks into roles rather than single large playbooks?</li>
+<li>Which templating language does Ansible make use of?</li>
+<li>Can you override variables in Ansible?</li>
+<li>Why would you use the Ansible template module in place of a simple search and replace operation?</li>
+<li>How might you make use of Ansible facts to improve the flow of your playbook?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li>For an in-depth understanding of Ansible and Jinja2 templating, please refer to <em>Mastering Ansible, Third Edition—</em><em>James Freeman</em> and <em>Jesse Keating</em> (<a href="https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition">https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition</a>).</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

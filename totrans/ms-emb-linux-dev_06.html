@@ -1,0 +1,783 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer066" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor138"/>5</h1>
+    <h1 id="_idParaDest-126" class="chapterTitle"><a id="_idTextAnchor139"/>Building a Root Filesystem</h1>
+    <p class="normal">The root filesystem is the fourth element of embedded Linux. Once you have read this chapter, you will be able to build, boot, and run a simple embedded Linux system.</p>
+    <p class="normal">The techniques <a id="_idIndexMarker265"/>described here are broadly known as <strong class="keyWord">roll your own</strong>, or <strong class="keyWord">RYO</strong>. Back in the early days of embedded Linux, this was the only way to create a root filesystem. There are still some use cases where an RYO root filesystem is applicable – for example, when the amount of RAM or storage is very limited, for quick demonstrations, or for any case in which your requirements are not easily covered by the standard build system tools. However, these cases are quite rare.</p>
+    <p class="normal">The purpose of this chapter is educational. It is not meant to be a recipe for building everyday embedded systems. Use the tools described in the next chapter for this.</p>
+    <p class="normal">Our first objective is to create a minimal root filesystem that will give us a shell prompt. Then, using this as a base, we will add scripts to start up other programs and configure a network interface and user permissions. There are examples for both the BeaglePlay and QEMU targets. Knowing how to build the root filesystem from scratch is a useful skill. It will help you to understand what is going on when we look at more complex examples in later chapters.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">What should be in the root filesystem?</li>
+      <li class="bulletList">Transferring the root filesystem to the target</li>
+      <li class="bulletList">Creating a boot <code class="inlineCode">initramfs</code></li>
+      <li class="bulletList"><code class="inlineCode">init</code> program</li>
+      <li class="bulletList">Configuring user accounts</li>
+      <li class="bulletList">A better way of managing device nodes</li>
+      <li class="bulletList">Configuring the network</li>
+      <li class="bulletList">Creating filesystem images with device tables</li>
+      <li class="bulletList">Mounting the root filesystem using NFS</li>
+      <li class="bulletList">Using TFTP to load the kernel</li>
+    </ul>
+    <h1 id="_idParaDest-127" class="heading-1"><a id="_idTextAnchor140"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">An Ubuntu 24.04 or later LTS host system</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">A microSD card prepared for the BeaglePlay from <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a></li>
+      <li class="bulletList">An <code class="inlineCode">Image</code> file for QEMU from <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a></li>
+      <li class="bulletList">A USB to TTL serial cable with a 3.3V logic level</li>
+      <li class="bulletList">A BeaglePlay</li>
+      <li class="bulletList">A 5V USB-C power supply capable of delivering 3A</li>
+    </ul>
+    <p class="normal">The code used in this chapter can be found in the <code class="inlineCode">Chapter05</code> folder in the book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter05"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter05</span></a>.</p>
+    <h1 id="_idParaDest-128" class="heading-1"><a id="_idTextAnchor141"/>What should be in the root filesystem?</h1>
+    <p class="normal">The kernel gets a root filesystem either as an <code class="inlineCode">initramfs</code> passed as a pointer from the bootloader, or by mounting <a id="_idIndexMarker266"/>the block device given on the kernel command line with the <code class="inlineCode">root=</code> parameter. Once it has a root filesystem, the kernel executes the first program – by default, named <code class="inlineCode">init</code>, as described in the <em class="italic">Early user space</em> section from <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a>. Then, as far as the kernel is concerned, its job is complete. It is up to the <code class="inlineCode">init</code> program to start other programs and bring the system to life.</p>
+    <p class="normal">To make a minimal root filesystem, you need these components:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">init</strong>: This is the <a id="_idIndexMarker267"/>program that starts everything off, usually by running a series of scripts. I will describe how <code class="inlineCode">init</code> works in much more detail in <a href="Chapter_13.xhtml#_idTextAnchor431"><em class="italic">Chapter 13</em></a>.</li>
+      <li class="bulletList"><strong class="keyWord">shell</strong>: Gives you <a id="_idIndexMarker268"/>a command prompt and (more importantly) runs the shell scripts called by <code class="inlineCode">init</code> and other programs.</li>
+      <li class="bulletList"><strong class="keyWord">daemons</strong>: These are background programs that provide services to others. Good examples <a id="_idIndexMarker269"/>are the system log daemon (<code class="inlineCode">syslogd</code>) and the secure shell daemon (<code class="inlineCode">sshd</code>). The <code class="inlineCode">init</code> program must start the initial population of daemons to support the main system applications. In fact, <code class="inlineCode">init</code> is itself a daemon. It is the daemon that provides the service of launching other daemons.</li>
+      <li class="bulletList"><strong class="keyWord">shared libraries</strong>: Most <a id="_idIndexMarker270"/>programs are linked with shared libraries, so they must be present in the root filesystem.</li>
+      <li class="bulletList"><strong class="keyWord">configuration files</strong>: These <a id="_idIndexMarker271"/>are a series of text files, usually stored in the <code class="inlineCode">/etc</code> directory, that configure <code class="inlineCode">init</code> and other daemons.</li>
+      <li class="bulletList"><strong class="keyWord">device nodes</strong>: These <a id="_idIndexMarker272"/>are the special files that give access to various device drivers.</li>
+      <li class="bulletList"><strong class="keyWord">proc and sys</strong>: These <a id="_idIndexMarker273"/>are two pseudo filesystems that represent kernel data structures as a hierarchy of directories and files. Many programs and library functions depend on <code class="inlineCode">/proc</code> and <code class="inlineCode">/sys</code>.</li>
+      <li class="bulletList"><strong class="keyWord">kernel modules</strong>: Need <a id="_idIndexMarker274"/>to be installed in the root filesystem, usually in <code class="inlineCode">/lib/modules/&lt;kernel version&gt;</code>.</li>
+    </ul>
+    <p class="normal">Additionally, there are the device-specific applications that make the device do the job it is intended for and the runtime data files that they generate.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">In some cases, you could condense most of the above programs into a single statically linked program and start that program instead of <code class="inlineCode">init</code>. For example, if your program was named <code class="inlineCode">/myprog</code>, you would add the following command to the kernel command line: <code class="inlineCode">init=/myprog</code>.</p>
+      <p class="normal">I have come across such a configuration only once in a secure system in which the fork system call had been disabled, thus making it impossible for any other program to be started. The downside of this approach is that you can’t make use of the many tools that normally go into an embedded system. You have to do everything yourself.</p>
+    </div>
+    <h2 id="_idParaDest-129" class="heading-2"><a id="_idTextAnchor142"/>Directory layout</h2>
+    <p class="normal">The Linux <a id="_idIndexMarker275"/>kernel does not care about the layout of files and <a id="_idIndexMarker276"/>directories beyond the existence of the program named by <code class="inlineCode">init=</code> or <code class="inlineCode">rdinit=</code>, so you are free to put things wherever you like. For example, compare the file layout of a device running Android to that of a desktop Linux distribution. They are almost completely different.</p>
+    <p class="normal">However, many programs expect certain files to be in certain places, and it helps us developers if <a id="_idIndexMarker277"/>devices use a similar layout. The basic layout of most Linux <a id="_idIndexMarker278"/>systems is defined in the <strong class="keyWord">Filesystem Hierarchy Standard</strong> (<strong class="keyWord">FHS</strong>), which is available at <a href="https://refspecs.linuxfoundation.org/fhs.shtml"><span class="url">https://refspecs.linuxfoundation.org/fhs.shtml</span></a>. The FHS covers all implementations <a id="_idIndexMarker279"/>of Linux operating systems, from the largest to the smallest. Embedded devices tend to use a subset based on their needs, but each usually includes the following:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">/bin</code>: Programs essential for all users</li>
+      <li class="bulletList"><code class="inlineCode">/dev</code>: Device nodes and other special files</li>
+      <li class="bulletList"><code class="inlineCode">/etc</code>: System configuration files</li>
+      <li class="bulletList"><code class="inlineCode">/lib</code>: Essential shared libraries, including those that make up the C library</li>
+      <li class="bulletList"><code class="inlineCode">/proc</code>: Information about processes represented as virtual files </li>
+      <li class="bulletList"><code class="inlineCode">/sbin</code>: Programs essential to the system administrator</li>
+      <li class="bulletList"><code class="inlineCode">/sys</code>: Information about devices and their drivers, represented as virtual files</li>
+      <li class="bulletList"><code class="inlineCode">/tmp</code>: A place to put temporary or volatile files</li>
+      <li class="bulletList"><code class="inlineCode">/usr</code>: Additional programs, libraries, and system administrator utilities stored in the directories <code class="inlineCode">/usr/bin</code>, <code class="inlineCode">/usr/lib</code>, and <code class="inlineCode">/usr/sbin</code>, respectively<div class="note">
+          <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+          <p class="normal">The <code class="inlineCode">/usr</code> directory contains <a id="_idIndexMarker280"/>all system-wide, read-only files that are installed or provided by the operating system. In the distant past, <code class="inlineCode">/bin</code> , <code class="inlineCode">/sbin</code>, and <code class="inlineCode">/lib</code> only contained executables and libraries required for booting, while <code class="inlineCode">/usr/bin</code>, <code class="inlineCode">/usr/sbin</code>, and <code class="inlineCode">/usr/lib</code> contained all the other executables and binaries. That distinction has since blurred, culminating in a modern movement that merges <code class="inlineCode">/bin</code>, <code class="inlineCode">/sbin</code>, and <code class="inlineCode">/lib</code> into <code class="inlineCode">/usr/bin</code>, <code class="inlineCode">/usr/sbin</code>, and <code class="inlineCode">/usr/lib</code>. Nowadays, the files in <code class="inlineCode">/bin</code>, <code class="inlineCode">/sbin</code>, and <code class="inlineCode">/lib</code> are just symbolic links to their <code class="inlineCode">/usr</code> counterparts. The <code class="inlineCode">/usr/sbin</code> directory, like the <code class="inlineCode">/sbin</code> directory, is for commands that can only be executed by the <code class="inlineCode">root</code> user. </p>
+        </div>
+      </li>
+    </ul>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">/var</code>: a hierarchy of files and directories that can be modified at runtime, like log messages, some of which must be retained after boot</li>
+    </ul>
+    <p class="normal">There are some subtle distinctions here. The difference between <code class="inlineCode">/bin</code> and <code class="inlineCode">/sbin</code> is simply that the latter need not be included in the search path for non-root users. Users of Red Hat-derived distributions will be familiar with this.</p>
+    <h2 id="_idParaDest-130" class="heading-2"><a id="_idTextAnchor143"/>Staging directory</h2>
+    <p class="normal">You should begin by creating a <strong class="keyWord">staging</strong> directory on your host computer where you can assemble <a id="_idIndexMarker281"/>the files that will eventually be transferred to the target. In the <a id="_idIndexMarker282"/>following examples, I have used <code class="inlineCode">~/rootfs</code>. You need to create a skeleton directory structure in it. Look at the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ mkdir ~/rootfs
+$ cd ~/rootfs
+$ mkdir bin dev etc home lib proc sbin sys tmp usr var
+$ mkdir usr/bin usr/lib usr/sbin
+$ mkdir var/log
+$ ln -s lib lib64
+</code></pre>
+    <p class="normal">To see the directory hierarchy more clearly, you can use the handy <code class="inlineCode">tree</code> command with the <code class="inlineCode">-d</code> option to show only the directories:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ tree -d
+.
+├── bin
+├── dev
+├── etc
+├── home
+├── lib
+├── lib64 -&gt; lib
+├── proc
+├── sbin
+├── sys
+├── tmp
+├── usr
+│   ├── bin
+│   ├── lib
+│   └── sbin
+└── var
+    └── log
+</code></pre>
+    <p class="normal">Not all directories have the same file permissions, and the individual files inside a directory can have stricter permissions than the directory itself.</p>
+    <h2 id="_idParaDest-131" class="heading-2"><a id="_idTextAnchor144"/>POSIX file access permissions</h2>
+    <p class="normal">Every process or running program belongs to a user and one or more groups. The user is represented <a id="_idIndexMarker283"/>by a 32-bit number called the <strong class="keyWord">user ID</strong> or <strong class="keyWord">UID</strong>. Information <a id="_idIndexMarker284"/>about users, including the mapping from a UID <a id="_idIndexMarker285"/>to a name, is kept in <code class="inlineCode">/etc/passwd</code>. Likewise, groups are represented by a <strong class="keyWord">group ID</strong> or <strong class="keyWord">GID</strong>, with information kept in <code class="inlineCode">/etc/group</code>. There is always a <code class="inlineCode">root</code> user with a UID of 0 and a <code class="inlineCode">root</code> group with a GID of 0. The <code class="inlineCode">root</code> user is also called the <strong class="keyWord">superuser</strong> because, in a <a id="_idIndexMarker286"/>default configuration, it bypasses most permission checks and can access all the resources in the system. Security in Linux-based systems is mainly about restricting access to the root account.</p>
+    <p class="normal">Each file and directory also has an owner and belongs to exactly one group. The level of access a process has to a file or directory is controlled by a set of access permission flags called the <strong class="keyWord">mode</strong> of the file. There <a id="_idIndexMarker287"/>are three collections of three bits: the first collection applies to the <em class="italic">owner</em> of the file, the second to the <em class="italic">members</em> of the same group as the file, and <a id="_idIndexMarker288"/>the last to <em class="italic">everyone else</em> – the rest <a id="_idIndexMarker289"/>of the world. The <a id="_idIndexMarker290"/>bits are for <strong class="keyWord">read</strong> (<code class="inlineCode">r</code>), <strong class="keyWord">write</strong> (<code class="inlineCode">w</code>), and <strong class="keyWord">execute</strong> (<code class="inlineCode">x</code>) permissions on the file. Three bits result in 2<sup class="superscript">3</sup> = 8 possible values, represented as octal digits from 0 to 7:</p>
+    <ul>
+      <li class="bulletList"><a id="_idTextAnchor145"/>0: No permissions</li>
+      <li class="bulletList"><a id="_idTextAnchor146"/>1: Execute only (--x)</li>
+      <li class="bulletList"><a id="_idTextAnchor147"/>2: Write only (-w-)</li>
+      <li class="bulletList"><a id="_idTextAnchor148"/>3: Write and execute (-wx)</li>
+      <li class="bulletList"><a id="_idTextAnchor149"/>4: Read only (r--)</li>
+      <li class="bulletList">5: Read and execute (r-x)</li>
+      <li class="bulletList"><a id="_idTextAnchor150"/>6: Read and write (rw-)</li>
+      <li class="bulletList"><a id="_idTextAnchor151"/>7: Read, write, and execute (rwx)</li>
+    </ul>
+    <p class="normal">Since three bits fit neatly into an octal digit, file access permissions are usually represented in octal.</p>
+    <p class="normal">Here are some common file modes:</p>
+    <ul>
+      <li class="bulletList">600: Owner - rw-, Group - ---, and Others - ---</li>
+      <li class="bulletList">644: Owner - rw-, Group - r--, and Others - r--</li>
+      <li class="bulletList">666: Owner - rw-, Group - rw-, and Others - rw-</li>
+      <li class="bulletList">700: Owner - rwx, Group - ---, and Others - ---</li>
+      <li class="bulletList">755: Owner - rwx, Group - r-x, and Others - r-x</li>
+      <li class="bulletList">775: Owner - rwx, Group - rwx, and Others - r-x</li>
+      <li class="bulletList">777: Owner - rwx, Group - rwx, and Others - rwx</li>
+    </ul>
+    <p class="normal">The first (leftmost) bit of an octal digit is a value of 4, the second (center) bit is a value of 2, and the third (rightmost) bit is a value of 1, as shown below:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_05_01.png" alt="Figure 5.1 – File access permissions" width="860" height="415"/></figure>
+    <p class="packt_figref">Figure 5.1 – File access permissions</p>
+    <p class="normal">If all three <a id="_idIndexMarker291"/>bits in a collection are set, then the <a id="_idIndexMarker292"/>octal value of that collection is 4 + 2 + 1 = 7. Each row in the above diagram comprises 3 collections for a total of 9 bits.</p>
+    <p class="normal">There is a fourth preceding octal digit whose value has special significance:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">SUID (4)</strong>: If the file is executable, it changes the effective UID of the process to that of the file owner when the program is run.</li>
+      <li class="bulletList"><strong class="keyWord">SGID (2)</strong>: Like SUID, this changes the effective GID of the process to that of the group of the file.</li>
+      <li class="bulletList"><strong class="keyWord">Sticky (1)</strong>: In a directory, this restricts deletion so that one user cannot delete files that are owned by another user. This is usually set on <code class="inlineCode">/tmp</code> and <code class="inlineCode">/var/tmp</code>.</li>
+    </ul>
+    <p class="normal">The SUID bit is probably used most often. It gives non-root users a temporary privilege escalation to superuser to perform a task. The <code class="inlineCode">ping</code> program is a good example: <code class="inlineCode">ping</code> opens a raw socket, which is a privileged operation. The <code class="inlineCode">ping</code> executable is owned by user <code class="inlineCode">root</code> and has the SUID bit set so that when you run <code class="inlineCode">ping</code>, it executes with UID 0 regardless of your UID.</p>
+    <p class="normal">To set this leading octal digit, use values of either <code class="inlineCode">4</code>, <code class="inlineCode">2</code>, and <code class="inlineCode">1</code> with the <code class="inlineCode">chmod</code> command. For example, to set SUID on <code class="inlineCode">/bin/ping</code> in your staging root directory, you would prepend <code class="inlineCode">4</code> to a mode of <code class="inlineCode">755</code> like so:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/rootfs
+$ ls -l bin/ping
+-rwxr-xr-x 1 root root 35712 Feb 6 09:15 bin/ping
+$ sudo chmod 4755 bin/ping
+$ ls -l bin/ping
+-rwsr-xr-x 1 root root 35712 Feb 6 09:15 bin/ping
+</code></pre>
+    <p class="normal">Note that the second <code class="inlineCode">ls</code> command shows the first three bits of the mode to be <code class="inlineCode">rws</code>, whereas previously, they had been <code class="inlineCode">rwx</code>. That <code class="inlineCode">s</code> indicates that the SUID bit is set.</p>
+    <h2 id="_idParaDest-132" class="heading-2"><a id="_idTextAnchor152"/>File ownership permissions in the staging directory</h2>
+    <p class="normal">For security and stability reasons, it is important to pay attention to the ownership and permissions <a id="_idIndexMarker293"/>of the files that will be placed on the target device. In general, you want to restrict sensitive resources to be accessible only by the <code class="inlineCode">root</code> user and run as few programs using non-root users as possible. It is best to run programs <a id="_idIndexMarker294"/>using non-root users so that if they are compromised by an outside attack, they offer as few system resources to the attacker as possible.</p>
+    <p class="normal">For example, the device node called <code class="inlineCode">/dev/mem</code> gives access to system memory, which is necessary in some programs. But if it is readable and writeable by everyone, then there is no security because everyone can access everything in memory. So <code class="inlineCode">/dev/mem</code> should be owned by <code class="inlineCode">root</code>, belong to the <code class="inlineCode">root</code> group, and have a mode of <code class="inlineCode">600</code> that denies read and write access to all but the owner.</p>
+    <p class="normal">However, there is a problem with the staging directory. The files you create there will be owned by you. But when they are installed on the device, they should belong to specific owners and groups, mostly the <code class="inlineCode">root</code> user. An obvious fix is to change the ownership to <code class="inlineCode">root</code> at this stage, with the commands shown here:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/rootfs
+$ sudo chown -R root:root *
+</code></pre>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">Do not run the preceding <code class="inlineCode">sudo chown -R root:root *</code> command. You could damage your filesystem irreparably.</p>
+    </div>
+    <p class="normal">The problem is that you need <code class="inlineCode">root</code> privileges to run the <code class="inlineCode">chown</code> command. And from that point onward, you will need to be <code class="inlineCode">root</code> to modify any files in the staging directory. Before you know it, you are doing all your development logged in as <code class="inlineCode">root</code>, which is not a good idea. This is a problem that we will revisit when creating a standalone <code class="inlineCode">initramfs</code>.</p>
+    <h2 id="_idParaDest-133" class="heading-2"><a id="_idTextAnchor153"/>Programs for the root filesystem</h2>
+    <p class="normal">Now, it is time <a id="_idIndexMarker295"/>to start populating the root filesystem with the essential programs and the supporting libraries, configuration, and data files they need to operate. I will begin with an overview of the types of programs you will need.</p>
+    <h3 id="_idParaDest-134" class="heading-3"><a id="_idTextAnchor154"/>init program</h3>
+    <p class="normal"><code class="inlineCode">init</code> is the <a id="_idIndexMarker296"/>first program to be run, so it is an essential part of <a id="_idIndexMarker297"/>the root filesystem. In this chapter, we will use the simple <code class="inlineCode">init</code> program provided by BusyBox.</p>
+    <h3 id="_idParaDest-135" class="heading-3"><a id="_idTextAnchor155"/>Shell</h3>
+    <p class="normal">We need a <a id="_idIndexMarker298"/>shell to run scripts and to give us a command <a id="_idIndexMarker299"/>prompt so that we can interact with the system. An interactive shell is probably not necessary in a production device, but it is useful for development, debugging, and maintenance. There are various shells in common use on embedded systems:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">bash</code>: This is <a id="_idIndexMarker300"/>the big beast that we all know and love from desktop Linux. It is a superset of the Unix Bourne shell with many extensions or bashisms.</li>
+      <li class="bulletList"><code class="inlineCode">ash</code>: This is also <a id="_idIndexMarker301"/>based on the Bourne shell and has a long history with the BSD variants of Unix. BusyBox has a version of <code class="inlineCode">ash</code> that has been extended to make it more compatible with <code class="inlineCode">bash</code>. It is much smaller than <code class="inlineCode">bash</code>, and hence, it is a very popular choice for embedded systems.</li>
+      <li class="bulletList"><code class="inlineCode">hush</code>: This is a very <a id="_idIndexMarker302"/>small shell that we briefly looked at in <a href="Chapter_03.xhtml#_idTextAnchor061"><em class="italic">Chapter 3</em></a>. It is useful on devices with very little memory. There is a version of <code class="inlineCode">hush</code> in BusyBox.<div class="packt_tip">
+          <p class="normal"><strong class="keyWord">TIP</strong></p>
+          <p class="normal">If you are using <code class="inlineCode">ash</code> or <code class="inlineCode">hush</code> as the shell on the target, make sure that you test your shell scripts on the target. It is very tempting to test them only on the host using <code class="inlineCode">bash</code> and then be surprised that they don’t work when you copy them to the target.</p>
+        </div>
+      </li>
+    </ul>
+    <h3 id="_idParaDest-136" class="heading-3"><a id="_idTextAnchor156"/>Utilities</h3>
+    <p class="normal">The shell is <a id="_idIndexMarker303"/>just a way of launching other programs. A shell script is <a id="_idIndexMarker304"/>little more than a list of programs to run with some flow control and a means of passing information between them. To make a shell useful, you need the utility programs that the Unix command line is based on. Even a basic root filesystem needs approximately 50 utilities. This presents two problems. Firstly, tracking down the source code for each one and cross-compiling all of it is a big job. Secondly, the resulting collection of programs <a id="_idIndexMarker305"/>takes up several tens of megabytes. This was a real problem in the early <a id="_idIndexMarker306"/>days of embedded Linux when a few megabytes were all you had. BusyBox was created expressly to solve this problem.</p>
+    <h3 id="_idParaDest-137" class="heading-3"><a id="_idTextAnchor157"/>BusyBox to the rescue!</h3>
+    <p class="normal">The genesis of BusyBox had nothing to do with embedded Linux. Bruce Perens started the project in 1996 for the <a id="_idIndexMarker307"/>Debian installer so that he could boot Linux <a id="_idIndexMarker308"/>from a 1.44 MB floppy disk. Coincidentally, this was about the size of the storage on contemporary devices so the embedded Linux community quickly took it up. BusyBox has been at the heart of embedded Linux ever since.</p>
+    <p class="normal">BusyBox was written from scratch to perform the essential functions of those essential Linux utilities. The developers took advantage of the 80/20 rule: the most useful 80% of a program is implemented in 20% of the code. Hence, BusyBox tools implement a subset of the functionality of their desktop equivalents, but they do enough to be useful in most cases.</p>
+    <p class="normal">Another trick BusyBox employs is to combine all the tools together into a single binary, making it easy to share code between them. It works like this: BusyBox is a collection of applets, each of which exports its <code class="inlineCode">main</code> function in the form <code class="inlineCode">&lt;applet&gt;_main</code>. For example, the <code class="inlineCode">cat</code> command is implemented in <code class="inlineCode">coreutils/cat.c</code> and exports <code class="inlineCode">cat_main</code>. The <code class="inlineCode">main</code> function of BusyBox dispatches the call to the correct applet, based on the command-line arguments.</p>
+    <p class="normal">To read a file, you can launch BusyBox with the name of the applet you want to run, followed by any arguments that the applet expects:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ busybox cat my_file.txt
+</code></pre>
+    <p class="normal">You can also run BusyBox with no arguments to get a list of all the applets that have been compiled.</p>
+    <p class="normal">Using BusyBox in this way is rather clumsy. A better way to get BusyBox to run the <code class="inlineCode">cat</code> applet is to create a symbolic link from <code class="inlineCode">/bin/cat</code> to <code class="inlineCode">/bin/busybox</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ls -l bin/cat bin/busybox
+-rwxr-xr-x 1 root root 1137096 Aug 20 10:31 bin/busybox
+lrwxrwxrwx 1 root root       7 Aug 20 10:31 bin/cat -&gt; busybox
+</code></pre>
+    <p class="normal">When you type <code class="inlineCode">cat</code> at the command line, BusyBox is the program that actually runs. BusyBox only has to check the path to the executable (<code class="inlineCode">/bin/cat</code>) passed in via <code class="inlineCode">argv[0]</code>, extract the application name (<code class="inlineCode">cat</code>), and do a table lookup to match <code class="inlineCode">cat</code> with <code class="inlineCode">cat_main</code>. All this is expressed in this slightly simplified section of code from <code class="inlineCode">libbb/appletlib.c</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">applet_name = argv[<span class="hljs-number">0</span>];
+applet_name = bb_basename(applet_name);
+run_applet_and_exit(applet_name, argv);
+</code></pre>
+    <p class="normal">BusyBox has over 300 applets, including an <code class="inlineCode">init</code> program, several shells with varying levels of complexity, and utilities for most admin tasks. There is even a simple version of the <code class="inlineCode">vi</code> editor so that <a id="_idIndexMarker309"/>you can change text files on your device. A typical BusyBox binary will <a id="_idIndexMarker310"/>only enable several dozen applets.</p>
+    <p class="normal">In summary, a typical installation of BusyBox consists of a single program, with a symbolic link for each applet but which behaves exactly as if it were a collection of individual applications.</p>
+    <h3 id="_idParaDest-138" class="heading-3"><a id="_idTextAnchor158"/>Building BusyBox</h3>
+    <p class="normal">BusyBox uses <a id="_idIndexMarker311"/>the same <code class="inlineCode">Kconfig</code> and <code class="inlineCode">Kbuild</code> system <a id="_idIndexMarker312"/>as the kernel, so cross-compiling is straightforward. Get the source by cloning the BusyBox Git repo and checking out the version you want (<code class="inlineCode">1_36_1</code> was the latest in August 2024):</p>
+    <pre class="programlisting con"><code class="hljs-con">$ git clone git://busybox.net/busybox.git
+$ cd busybox
+$ git checkout 1_36_1
+</code></pre>
+    <p class="normal">You can also download the corresponding TAR file from <a href="https://busybox.net/downloads/"><span class="url">https://busybox.net/downloads/</span></a>.</p>
+    <p class="normal">Configure BusyBox with the default configuration, which enables pretty much all of the features:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make distclean
+$ make defconfig
+</code></pre>
+    <p class="normal">At this point, you probably want to run <code class="inlineCode">make menuconfig</code> to fine-tune the configuration. For example, you almost certainly want to set the install path in<strong class="screenText"> Settings | Installation Options (“make install” behavior) | Destination path for ‘make install’</strong> to point to the staging directory. Then, you can cross-compile in the usual way. If your intended target is the BeaglePlay, use these commands:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ PATH=~/aarch64--glibc--stable-2024.02-1/bin/:$PATH
+$ make ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu-
+</code></pre>
+    <p class="normal">You can cross-compile BusyBox for the 64-bit Arm generic virtual platform emulated by QEMU in the same way.</p>
+    <p class="normal">In either case, the result is the <code class="inlineCode">busybox</code> executable. For a default configuration build like this, the size is about 1,100 KB. If this is too big for you, then you can slim it down by changing the <a id="_idIndexMarker313"/>configuration to leave out the utilities you don’t need.</p>
+    <p class="normal">To install BusyBox in the <a id="_idIndexMarker314"/>staging area, use the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ make ARCH=arm64 CROSS_COMPILE=aarch64-buildroot-linux-gnu- install
+</code></pre>
+    <p class="normal">This will copy the binary to the directory configured in <strong class="screenText">Destination path for ‘make install’</strong> and create all the symbolic links to it.</p>
+    <p class="normal">Now, let’s look at an alternative to Busybox, known as ToyBox.</p>
+    <h3 id="_idParaDest-139" class="heading-3"><a id="_idTextAnchor159"/>ToyBox – an alternative to BusyBox</h3>
+    <p class="normal">BusyBox is not <a id="_idIndexMarker315"/>the only game in town. There is also ToyBox, which you can find at <a href="https://landley.net/toybox/"><span class="url">https://landley.net/toybox/</span></a>. The project was started by Rob Landley, who was previously <a id="_idIndexMarker316"/>a maintainer of BusyBox. ToyBox has the same aim as BusyBox but with more emphasis on complying with standards (especially POSIX-2008 and LSB 4.1) and less on compatibility with GNU extensions to those standards. ToyBox is smaller <a id="_idIndexMarker317"/>than BusyBox, partly because it implements fewer applets.</p>
+    <p class="normal">The license for ToyBox is BSD rather than GPL v2, making it compatible with operating systems that have a BSD-licensed user space such as Android. Hence, ToyBox ships with all new Android devices. As of the 0.8.3 release, Toybox’s <code class="inlineCode">Makefile</code> can build a full Linux system that boots to a shell prompt when given just the Linux and ToyBox sources.</p>
+    <h2 id="_idParaDest-140" class="heading-2"><a id="_idTextAnchor160"/>Libraries for the root filesystem</h2>
+    <p class="normal">Programs are linked with libraries. You can link them all statically so that no libraries reside on the <a id="_idIndexMarker318"/>target device. This takes up an unnecessarily large amount of <a id="_idIndexMarker319"/>storage if you have more than two or three programs. To reduce the size of your programs, you need to copy shared libraries from the toolchain to the staging directory. But how do you know which libraries to copy?</p>
+    <p class="normal">One option is to copy all the <code class="inlineCode">.so</code> files from the <code class="inlineCode">sysroot</code> directory of your toolchain. Instead of trying to predict which libraries to include, just assume that your image will eventually need them all. This is certainly logical, and if you are creating a platform to be used by others for a range of applications, it would be the correct approach. However, be aware that a full glibc is quite large. In the case of Buildroot’s build of glibc, the libraries, locales, and other supporting files come to 22 MB. You can cut that down considerably by using musl or uClibc-ng.</p>
+    <p class="normal">Another option <a id="_idIndexMarker320"/>is to cherry-pick only those libraries that you require. To do <a id="_idIndexMarker321"/>that, you need a means of discovering library dependencies. Let’s use the <code class="inlineCode">readelf</code> command from <a href="Chapter_01.xhtml#_idTextAnchor028"><em class="italic">Chapter 2</em></a> for this task:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ PATH=~/aarch64--glibc--stable-2024.02-1/bin/:$PATH
+$ cd ~/rootfs
+$ aarch64-buildroot-linux-gnu-readelf -a bin/busybox | grep "program interpreter"
+      [Requesting program interpreter: /lib/ld-linux-aarch64.so.1]
+$ aarch64-buildroot-linux-gnu-readelf -a bin/busybox | grep "Shared library"
+ 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libresolv.so.2]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [ld-linux-aarch64.so.1]
+</code></pre>
+    <p class="normal">The first <code class="inlineCode">readelf</code> command searches the <code class="inlineCode">busybox</code> binary for lines containing <code class="inlineCode">program interpreter</code>. The second <code class="inlineCode">readelf</code> command searches the <code class="inlineCode">busybox</code> binary for lines containing <code class="inlineCode">Shared library</code>. Now, you need to find these files in the toolchain <code class="inlineCode">sysroot</code> directory and copy them to the staging directory. Remember that you can find <code class="inlineCode">sysroot</code> like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ aarch64-buildroot-linux-gnu-gcc -print-sysroot
+/home/frank/aarch64--glibc--stable-2024.02-1/aarch64-buildroot-linux-gnu/sysroot
+</code></pre>
+    <p class="normal">To reduce typing, keep a copy of the <code class="inlineCode">sysroot</code> path in a shell variable:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ export SYSROOT=$(aarch64-buildroot-linux-gnu-gcc -print-sysroot)
+</code></pre>
+    <p class="normal">Let’s look at <code class="inlineCode">/lib/ld-linux-aarch64.so.1</code> in <code class="inlineCode">sysroot</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd $SYSROOT
+$ ls -l lib/ld-linux-aarch64.so.1
+-rwxr-xr-x 1 frank frank 202248 Mar  3 00:48 lib/ld-linux-aarch64.so.1
+</code></pre>
+    <p class="normal">Repeat the exercise for <code class="inlineCode">libc.so.6</code>, <code class="inlineCode">libm.so.6</code> and <code class="inlineCode">libresolv.so.2</code> so that you end up with a list of four files. Now, copy each one to your <code class="inlineCode">rootfs</code> directory:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/rootfs
+$ cp $SYSROOT/lib/ld-linux-aarch64.so.1 lib
+$ cp $SYSROOT/lib/libc.so.6 lib
+$ cp $SYSROOT/lib/libm.so.6 lib
+$ cp $SYSROOT/lib/libresolv.so.2 lib
+</code></pre>
+    <p class="normal">These are just <a id="_idIndexMarker322"/>the shared libraries needed by <code class="inlineCode">busybox</code>. Repeat this <a id="_idIndexMarker323"/>procedure for each program you wish to add to your <code class="inlineCode">rootfs</code> directory.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">It is only worth doing this to get the very smallest embedded footprint possible. There is a danger that you will miss libraries that are loaded through <code class="inlineCode">dlopen(3)</code> calls–plugins mostly. We will look at an <a id="_idIndexMarker324"/>example with the <strong class="keyWord">name service switch</strong> (<strong class="keyWord">NSS</strong>) libraries when we come to configure network interfaces later on in this chapter.</p>
+    </div>
+    <h3 id="_idParaDest-141" class="heading-3"><a id="_idTextAnchor161"/>Reducing size by stripping</h3>
+    <p class="normal">Libraries and programs are often compiled with some information stored in symbol tables to aid with <a id="_idIndexMarker325"/>debugging and tracing. You seldom need these in a production system. A quick and easy way to save space is to strip the binaries of symbol tables. This example shows <code class="inlineCode">libc</code> before stripping:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ file rootfs/lib/libc.so.6
+rootfs/lib/libc.so.6: ELF 64-bit LSB shared object, ARM aarch64, version 1 (GNU/Linux), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, with debug_info, not stripped
+$ ls -og rootfs/lib/libc.so.6
+-rwxr-xr-x 1 1925456 Dec 12 05:43 rootfs/lib/libc.so.6
+</code></pre>
+    <p class="normal">Now, let’s see the result of stripping debug information:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ aarch64-buildroot-linux-gnu-strip rootfs/lib/libc.so.6
+$ file rootfs/lib/libc.so.6
+rootfs/lib/libc.so.6: ELF 64-bit LSB shared object, ARM aarch64, version 1 (GNU/Linux), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, stripped
+$ ls -og rootfs/lib/libc.so.6
+-rwxr-xr-x 1 1392840 Dec 12 05:53 rootfs/lib/libc.so.6
+</code></pre>
+    <p class="normal">In this case, we <a id="_idIndexMarker326"/>saved 532,616 bytes, or about 28% of the size of the file, before stripping.</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">Be careful about stripping kernel modules. Some symbols are required by the module loader to relocate the module code, so the module will fail to load if they are stripped out. Use this command to remove debug symbols while keeping those used for relocation: <code class="inlineCode">strip --strip-unneeded &lt;module name&gt;</code>.</p>
+    </div>
+    <h2 id="_idParaDest-142" class="heading-2"><a id="_idTextAnchor162"/>Device nodes</h2>
+    <p class="normal">Most devices in Linux are represented by device nodes in accordance with the Unix philosophy that <em class="italic">everything is a file</em> (except network interfaces, which are sockets). A device node may <a id="_idIndexMarker327"/>refer to a block device or a character device. Block devices <a id="_idIndexMarker328"/>are mass storage devices such as SD cards or hard drives. A character device is pretty much anything else (again, except for network interfaces).</p>
+    <p class="normal">The conventional place for device nodes is the <code class="inlineCode">/dev</code> directory. For example, a serial port can be represented by a device node called <code class="inlineCode">/dev/ttyS0</code>.</p>
+    <p class="normal">Device nodes are created using the program named <code class="inlineCode">mknod</code> (short for make node):</p>
+    <pre class="programlisting con"><code class="hljs-con">mknod &lt;name&gt; &lt;type&gt; &lt;major&gt; &lt;minor&gt;
+</code></pre>
+    <p class="normal">The <a id="_idIndexMarker329"/>parameters for <code class="inlineCode">mknod</code> are as follows:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">name</strong> is the name of the device node that you want to create.</li>
+      <li class="bulletList"><strong class="keyWord">type</strong> is either c for character devices or b for a block device.</li>
+      <li class="bulletList"><strong class="keyWord">major</strong> and <strong class="keyWord">minor</strong> are a pair of numbers that are used by the kernel to route file requests to the appropriate device driver code. There is a list of standard major and minor numbers in the kernel source file: <code class="inlineCode">Documentation/admin-guide/devices.txt</code>.</li>
+    </ul>
+    <p class="normal">You will need to create device nodes for all the devices that you want to access on your system. You can do so manually using the <code class="inlineCode">mknod</code> command illustrated here, or you can create them automatically at runtime using one of the device managers mentioned later.</p>
+    <p class="normal">In a minimal root filesystem, you need just two nodes to boot with BusyBox: <code class="inlineCode">console</code> and <code class="inlineCode">null</code>. The <code class="inlineCode">console</code> only needs to be accessible to <code class="inlineCode">root</code>, the owner of the device node, so the access permissions are <code class="inlineCode">600</code> (<code class="inlineCode">rw-------</code>). The <code class="inlineCode">null</code> device should be readable and writable by everyone, so the mode is <code class="inlineCode">666</code> (<code class="inlineCode">rw-rw-rw-</code>). Use the <code class="inlineCode">-m</code> option for <code class="inlineCode">mknod</code> to set the <code class="inlineCode">mode</code> when creating the node. You need to be <code class="inlineCode">root</code> to create device nodes:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/rootfs
+$ sudo mknod -m 666 dev/null c 1 3
+$ sudo mknod -m 600 dev/console c 5 1
+$ ls -l dev
+total 0
+crw------- 1 root root 5, 1 Aug 20 11:06 console
+crw-rw-rw- 1 root root 1, 3 Aug 20 11:06 null
+</code></pre>
+    <p class="normal">You can <a id="_idIndexMarker330"/>delete device nodes using the standard <code class="inlineCode">rm</code> command. There <a id="_idIndexMarker331"/>is no <code class="inlineCode">rmnod</code> command because, once created, they are just files.</p>
+    <h2 id="_idParaDest-143" class="heading-2"><a id="_idTextAnchor163"/>Proc and sysfs filesystems</h2>
+    <p class="normal"><code class="inlineCode">proc</code> and <code class="inlineCode">sysfs</code> are two pseudo filesystems that offer a window into the inner workings of the kernel. They both <a id="_idIndexMarker332"/>represent kernel data as files in a hierarchy of directories. When <a id="_idIndexMarker333"/>you read one of these files, the contents you see do not come from disk storage. Instead, it is formatted on the fly by a function in the kernel. Some files <a id="_idIndexMarker334"/>are also writable, meaning that a kernel function is <a id="_idIndexMarker335"/>called with the new data you have written. If the data is formatted correctly and you have sufficient permissions, then the function modifies the value stored in the kernel’s memory. In other words, <code class="inlineCode">proc</code> and <code class="inlineCode">sysfs</code> provide another way to interact with device drivers and other kernel code.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">The following <code class="inlineCode">mount</code> commands are meant to be run on an embedded target device, like the BeaglePlay or Versatile Express (QEMU). Do not run them on your host machine.</p>
+    </div>
+    <p class="normal">The <code class="inlineCode">proc</code> and <code class="inlineCode">sysfs</code> filesystems should be mounted on the <code class="inlineCode">/proc</code> and <code class="inlineCode">/sys</code> directories:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t proc proc /proc
+# mount -t sysfs sysfs /sys
+</code></pre>
+    <p class="normal">Although very similar in concept, the two perform different functions. <code class="inlineCode">proc</code> has been part of Linux since the early days. Its original purpose was to expose information about processes to user space, hence the name. To this end, there is a directory for each process named <code class="inlineCode">/proc/&lt;PID&gt;</code>, which contains information about its state. The process list command (<code class="inlineCode">ps</code>) reads these files to generate its output.</p>
+    <p class="normal">There are also files that give information about other parts of the kernel. For example, <code class="inlineCode">/proc/cpuinfo</code> tells you <a id="_idIndexMarker336"/>about the CPU, <code class="inlineCode">/proc/interrupts</code> has information <a id="_idIndexMarker337"/>about interrupts, and so on. Lastly, <code class="inlineCode">/proc/sys</code> contains files that display and control the state and behavior of kernel subsystems, especially scheduling, memory <a id="_idIndexMarker338"/>management, and networking. The manual <a id="_idIndexMarker339"/>page is the best reference for the files found in the <code class="inlineCode">proc</code> directory. You can see this information by typing <code class="inlineCode">man 5 proc</code>.</p>
+    <p class="normal">The role of <code class="inlineCode">sysfs</code> is to present <a id="_idIndexMarker340"/>the kernel <strong class="keyWord">driver model</strong> to user space. It exports a hierarchy of files relating to devices and how they are connected to each other. I will go into more detail on the Linux driver model when I describe the interaction with device drivers in <a href="Chapter_11.xhtml#_idTextAnchor373"><em class="italic">Chapter 11</em></a>.</p>
+    <h3 id="_idParaDest-144" class="heading-3"><a id="_idTextAnchor164"/>Mounting filesystems</h3>
+    <p class="normal">The <code class="inlineCode">mount</code> command allows <a id="_idIndexMarker341"/>us to attach one filesystem to a directory within another, forming a hierarchy of filesystems. The one at the top, which was mounted by the kernel when it booted, is called <a id="_idIndexMarker342"/>the <strong class="keyWord">root filesystem</strong>. The format of the <code class="inlineCode">mount</code> command is as follows:</p>
+    <pre class="programlisting con"><code class="hljs-con">mount [-t vfstype] [-o options] device directory
+</code></pre>
+    <p class="normal">The <a id="_idIndexMarker343"/>parameters to <code class="inlineCode">mount</code> are as follows:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">vfstype</strong> is the type of filesystem.</li>
+      <li class="bulletList"><strong class="keyWord">options</strong> is a comma-separated list of mount options.</li>
+      <li class="bulletList"><strong class="keyWord">device</strong> is the block device node that the filesystem resides on.</li>
+      <li class="bulletList"><strong class="keyWord">directory</strong> is the directory that you want to mount the filesystem to.</li>
+    </ul>
+    <p class="normal">There are various options you can give after <code class="inlineCode">-o</code>. Have a look at the manual page <code class="inlineCode">mount(8)</code> for more information. Type the following if you want to mount an SD card containing an ext4 filesystem in the first partition onto the directory named <code class="inlineCode">/mnt:</code></p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t ext4 /dev/mmcblk0p1 /mnt
+</code></pre>
+    <p class="normal">Assuming that the mount succeeds, you will see the files stored on the SD card in the <code class="inlineCode">/mnt</code> directory. In some cases, you can leave out the filesystem type and let the kernel probe the device to find out what is stored there. If mounting fails, you may first need to unmount the partition if your Linux distro is configured to automount all the partitions on an SD card when it is inserted.</p>
+    <p class="normal">Notice something odd in the following examples of mounting the <code class="inlineCode">proc</code> filesystem? There is no device node such as <code class="inlineCode">/dev/proc</code>, since it is a pseudo filesystem and not a real one. But the <code class="inlineCode">mount</code> command <a id="_idIndexMarker344"/>requires a device parameter. Consequently, we have to provide a string where a device would go, but it does not matter much what that string is. These two commands achieve exactly the same result:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t proc procfs /proc
+# mount -t proc nodevice /proc
+</code></pre>
+    <p class="normal">The <code class="inlineCode">procfs</code> and <code class="inlineCode">nodevice</code> strings are ignored by the <code class="inlineCode">mount</code> command. It is common to use the filesystem type in the place of the device when mounting pseudo filesystems.</p>
+    <h2 id="_idParaDest-145" class="heading-2"><a id="_idTextAnchor165"/>Kernel modules</h2>
+    <p class="normal">If you have kernel modules, they need <a id="_idIndexMarker345"/>to be installed into the root filesystem <a id="_idIndexMarker346"/>using the <code class="inlineCode">modules_install</code> kernel make target, as we saw in <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a>. This will copy them into the <code class="inlineCode">/lib/modules/&lt;kernel version&gt;</code> directory, together with the configuration files needed by the <code class="inlineCode">modprobe</code> command.</p>
+    <p class="normal">Be aware that you have just created a dependency between the kernel and the root filesystem. If you update one, then you will have to update the other.</p>
+    <p class="normal">Now that we know how to mount a filesystem from an SD card, let’s look at the different options for mounting a root filesystem. The alternatives (a ramdisk and NFS) may surprise you, especially if you are new to embedded Linux. A ramdisk protects the original source image from corruption and wear. We’ll learn more about flash wear in <a href="Chapter_09.xhtml#_idTextAnchor293"><em class="italic">Chapter 9</em></a>. A network filesystem allows for more rapid development because file changes propagate instantly to the target(s).</p>
+    <h1 id="_idParaDest-146" class="heading-1"><a id="_idTextAnchor166"/>Transferring the root filesystem to the target</h1>
+    <p class="normal">After <a id="_idIndexMarker347"/>creating a skeleton root filesystem in your staging directory, the next step is to transfer it to the target. There are three possibilities:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">initramfs</strong>: This is <a id="_idIndexMarker348"/>a filesystem image that is loaded into RAM by the bootloader. Ramdisks are easy to create and have no dependencies on mass storage drivers. They can be used in fallback maintenance mode when the main root filesystem needs updating. They can even be used as the main root filesystem in smaller embedded devices. Ramdisks are also commonly used as the early user space in mainstream Linux distributions. Remember that the contents of a root filesystem on ramdisk are volatile, so any changes made to the root <a id="_idIndexMarker349"/>filesystem at runtime are lost when the system reboots. You need another storage type to store permanent data such as configuration parameters.</li>
+      <li class="bulletList"><strong class="keyWord">disk image</strong>: A copy of the root filesystem that is formatted and ready to be loaded onto <a id="_idIndexMarker350"/>a mass storage device on the target. It can be an image in the ext4 format, ready to be copied onto an SD card, or it can be in jffs2 format, ready to be loaded into flash memory via the bootloader. Creating a disk image is probably the most common option. There is more information about the different types of mass storage in <a href="Chapter_09.xhtml#_idTextAnchor293"><em class="italic">Chapter 9</em></a>.</li>
+      <li class="bulletList"><strong class="keyWord">network filesystem</strong>: This is when the staging directory is exported to the network via <a id="_idIndexMarker351"/>an NFS server and mounted by the target at boot time. This is often done during development as opposed to repeated cycles of creating a disk image and reloading it onto the mass storage device, which gets tedious quickly.</li>
+    </ul>
+    <p class="normal">I will start with <code class="inlineCode">intiramfs</code> and use it to illustrate a few refinements to the root filesystem, like adding <a id="_idIndexMarker352"/>usernames and a device manager to create device nodes automatically. Then, I will show you how to create a disk image and how to use NFS to mount the root filesystem over a network.</p>
+    <h1 id="_idParaDest-147" class="heading-1"><a id="_idTextAnchor167"/>Creating a boot initramfs</h1>
+    <p class="normal">An initial RAM filesystem or <code class="inlineCode">initramfs</code> is a compressed cpio archive. cpio is an old Unix archive <a id="_idIndexMarker353"/>format like TAR and ZIP, but it is easier to decode and so requires less code in the kernel. You need to configure your kernel with <code class="inlineCode">CONFIG_BLK_DEV_INITRD</code> to support <code class="inlineCode">initramfs</code>.</p>
+    <p class="normal">There are three different ways to create a boot ramdisk: as a standalone cpio archive, as a cpio archive embedded in the kernel image, and as a device table that the kernel build system processes as part of the build. The first option gives the most flexibility because we can mix and match kernels and ramdisks to our heart’s content. However, it means having to deal with two files instead of one, and not all bootloaders have the facility to load a separate ramdisk.</p>
+    <h2 id="_idParaDest-148" class="heading-2"><a id="_idTextAnchor168"/>Standalone initramfs</h2>
+    <p class="normal">The following <a id="_idIndexMarker354"/>sequence of instructions creates the archive, compresses it, and adds a U-Boot header to load onto the target:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/rootfs
+$ find . | cpio -H newc -ov --owner root:root &gt; ../initramfs.cpio
+$ cd ..
+$ gzip initramfs.cpio
+$ mkimage -A arm64 -O linux -T ramdisk -d initramfs.cpio.gz uRamdisk
+</code></pre>
+    <p class="normal">Notice that we run <code class="inlineCode">cpio</code> with the option <code class="inlineCode">--owner root:root</code>. This is a quick fix for the file ownership <a id="_idIndexMarker355"/>problem mentioned earlier in the <em class="italic">File ownership permissions in the staging directory</em> section. It makes everything in the cpio archive have a UID and GID of 0.</p>
+    <p class="normal">The final size of the uRamdisk file is about 1.9 MB, with no kernel modules. Add to that 9.8 MB for the kernel Image.gz file and 1,061 KB for U-Boot. This gives us a total of 13 MB of storage needed to boot this board. We are way off from the 1.44 MB floppy that started it all. If size is a real problem, then you can use one of these options:</p>
+    <ul>
+      <li class="bulletList">Make the kernel smaller by leaving out drivers and functions you don’t need.</li>
+      <li class="bulletList">Make BusyBox smaller by leaving out utilities you don’t need.</li>
+      <li class="bulletList">Use musl libc or uClibc-ng in place of glibc.</li>
+      <li class="bulletList">Compile BusyBox statically.</li>
+    </ul>
+    <h2 id="_idParaDest-149" class="heading-2"><a id="_idTextAnchor169"/>Booting an initramfs</h2>
+    <p class="normal">The simplest <a id="_idIndexMarker356"/>thing we can do is to run a shell on the console so that we can interact with the target. We can do that by adding <code class="inlineCode">rdinit=/bin/sh</code> to the kernel command line. The next two sections demonstrate how to do that for both QEMU and the BeaglePlay.</p>
+    <h3 id="_idParaDest-150" class="heading-3"><a id="_idTextAnchor170"/>Booting with QEMU</h3>
+    <p class="normal">QEMU has a <code class="inlineCode">-initrd</code> option to load an <code class="inlineCode">initramfs</code> into memory. You should already have an <code class="inlineCode">Image</code> file compiled <a id="_idIndexMarker357"/>with the <code class="inlineCode">aarch64-buildroot-linux-gnu</code> toolchain <a id="_idIndexMarker358"/>from <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a>. From this chapter, you should have created an <code class="inlineCode">initramfs</code>, which includes BusyBox compiled with the same toolchain. Now, you can launch QEMU using the script in <code class="inlineCode">MELD/Chapter05/run-qemu-initramfs.sh</code> or this command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cd build_qemu
+$ qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -smp 1 -kernel arch/arm64/boot/Image -append "console=ttyAMA0 rdinit=/bin/sh" -initrd ~/initramfs.cpio.gz
+</code></pre>
+    <p class="normal">You should get a <code class="inlineCode">root</code> shell with a <code class="inlineCode">#</code> prompt.</p>
+    <h3 id="_idParaDest-151" class="heading-3"><a id="_idTextAnchor171"/>Booting the BeaglePlay</h3>
+    <p class="normal">For the BeaglePlay, we need the microSD card prepared in <a href="Chapter_04.xhtml#_idTextAnchor096"><em class="italic">Chapter 4</em></a>, plus a <a id="_idIndexMarker359"/>root filesystem built using <a id="_idIndexMarker360"/>the <code class="inlineCode">aarch64-buildroot-linux-gnu</code> toolchain. Copy the <code class="inlineCode">uRamdisk</code> you created earlier in this section to the boot partition on the microSD card. Boot the BeaglePlay to the point where you get a U-Boot prompt. Then, enter these commands:</p>
+    <pre class="programlisting con"><code class="hljs-con">nova!&gt; fatload mmc 1 0x80000000 Image.gz
+nova!&gt; fatload mmc 1 0x82000000 k3-am625-beagleplay.dtb
+nova!&gt; setenv kernel_comp_addr_r 0x85000000
+nova!&gt; setenv kernel_comp_size 0x20000000
+nova!&gt; fatload mmc 1 0x83000000 uRamdisk
+nova!&gt; setenv bootargs console=ttyS2,115200n8 rdinit=/bin/sh
+nova!&gt; booti 0x80000000 0x83000000 0x82000000
+</code></pre>
+    <p class="normal">If all goes well, you will get a <code class="inlineCode">root</code> shell with a <code class="inlineCode">#</code> prompt on the serial console. After this is done, we will need to mount <code class="inlineCode">proc</code> on both platforms.</p>
+    <h3 id="_idParaDest-152" class="heading-3"><a id="_idTextAnchor172"/>Mounting proc</h3>
+    <p class="normal">You will find that the <code class="inlineCode">ps</code> command does not work on either platform. This is because the <code class="inlineCode">proc</code> filesystem <a id="_idIndexMarker361"/>has not been mounted yet. Try mounting it:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t proc proc /proc
+</code></pre>
+    <p class="normal">Run <code class="inlineCode">ps</code> again, and you <a id="_idIndexMarker362"/>will see the process listing.</p>
+    <p class="normal">As an improvement, let’s write a shell script that mounts <code class="inlineCode">proc</code> and anything else that needs to be done at bootup. Then, you can run this script instead of <code class="inlineCode">/bin/sh</code> at boot. The following snippet illustrates how this works:</p>
+    <pre class="programlisting con"><code class="hljs-con">#!/bin/sh
+/bin/mount -t proc proc /proc
+# Other boot-time commands go here
+/bin/sh
+</code></pre>
+    <p class="normal">The <code class="inlineCode">/bin/sh</code> on the last line launches a new shell that gives you an interactive <code class="inlineCode">root</code> shell prompt. Using a shell as <code class="inlineCode">init</code> in this way is very handy for quick hacks – for example, when you want <a id="_idIndexMarker363"/>to rescue a system with a broken <code class="inlineCode">init</code> program. However, in most <a id="_idIndexMarker364"/>cases, you would use an <code class="inlineCode">init</code> program, which we will cover in the next section of this chapter. Before that, I want to look at two other ways to load <code class="inlineCode">initramfs</code>.</p>
+    <h2 id="_idParaDest-153" class="heading-2"><a id="_idTextAnchor173"/>Building an initramfs into the kernel image</h2>
+    <p class="normal">So far, we have created a compressed <code class="inlineCode">initramfs</code> as a separate file and used the bootloader to load <a id="_idIndexMarker365"/>it into memory. Some bootloaders do not have the ability to load an <code class="inlineCode">initramfs</code> file in this way. To cope with these situations, Linux can <a id="_idIndexMarker366"/>be configured to incorporate <code class="inlineCode">initramfs</code> into the kernel image. To do this, change the kernel configuration and set <code class="inlineCode">CONFIG_INITRAMFS_SOURCE</code> to the full path of the compressed <code class="inlineCode">initramfs.cpio.gz</code> archive file you created earlier for your standalone <code class="inlineCode">initramfs</code>. If you are using <code class="inlineCode">menuconfig</code>, that field can be found in <strong class="screenText">General setup | Initramfs source file(s)</strong>.</p>
+    <p class="normal">Once these changes have been made, build the kernel. Booting is the same as before, except there is no <code class="inlineCode">-initrd</code> option and ramdisk file to pass in.</p>
+    <p class="normal">Enter this command for QEMU:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ qemu-system-aarch64 -M virt -cpu cortex-a53 -nographic -smp 1 -kernel arch/arm64/boot/Image -append "console=ttyAMA0 rdinit=/bin/sh"
+</code></pre>
+    <p class="normal">For the BeaglePlay, enter these commands at the U-Boot prompt:</p>
+    <pre class="programlisting con"><code class="hljs-con">nova!&gt; fatload mmc 1 0x80000000 Image.gz
+nova!&gt; fatload mmc 1 0x82000000 k3-am625-beagleplay.dtb
+nova!&gt; setenv kernel_comp_addr_r 0x85000000
+nova!&gt; setenv kernel_comp_size 0x20000000
+nova!&gt; setenv bootargs console=ttyS2,115200n8 rdinit=/bin/sh
+nova!&gt; booti 0x80000000 - 0x82000000
+</code></pre>
+    <p class="normal">Remember to regenerate the <code class="inlineCode">initramfs.cpio</code> archive, and recompress the <code class="inlineCode">initramfs.cpio.gz</code> file each time you change the contents of your staging directory and then rebuild the kernel:</p>
+    <div class="packt_tip">
+      <p class="normal"><strong class="keyWord">TIP</strong></p>
+      <p class="normal">If you experience the following kernel panic on boot:</p>
+      <pre class="programlisting con"><code class="hljs-con">[    0.549725] Run /bin/sh as init process
+[    0.573389] Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000
+[    0.573688] CPU: 0 PID: 1 Comm: sh Not tainted 6.6.46 #13
+…
+[    0.576075] ---[ end Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000 ]---
+</code></pre>
+      <p class="normal">Make sure that the <code class="inlineCode">dev/null</code> and <code class="inlineCode">dev/console</code> device nodes exist in your staging directory.</p>
+    </div>
+    <h2 id="_idParaDest-154" class="heading-2"><a id="_idTextAnchor174"/>Building an initramfs using a device table</h2>
+    <p class="normal">A <strong class="keyWord">device table</strong> is a text <a id="_idIndexMarker367"/>file that lists the files, directories, device nodes, and links that go into an archive or filesystem image. The overwhelming advantage is that it allows you <a id="_idIndexMarker368"/>to create entries in the archive file that are owned by the <code class="inlineCode">root</code> user, or any other UID, without having <code class="inlineCode">root</code> privileges yourself. You can <a id="_idIndexMarker369"/>even create device nodes without needing to have <code class="inlineCode">root</code> privileges. All this is possible because the archive is just a data file. It is only when it is expanded by Linux at boot time that real files and directories get created using the attributes you specified.</p>
+    <p class="normal">The kernel has a feature that allows us to use a device table when creating an <code class="inlineCode">initramfs</code>. You write the device table file and then point <code class="inlineCode">CONFIG_INITRAMFS_SOURCE</code> at it. Then, when you build the kernel, it creates the cpio archive from the instructions in the device table. At no point do you need <code class="inlineCode">root</code> access.</p>
+    <p class="normal">Here is a device table for our simple root filesystem. To make it manageable, it is missing most of the symbolic links to BusyBox:</p>
+    <pre class="programlisting code"><code class="hljs-code">dir /bin 775 0 0
+dir /sys 775 0 0
+dir /tmp 775 0 0
+dir /dev 775 0 0
+nod /dev/null 666 0 0 c 1 3
+nod /dev/console 600 0 0 c 5 1
+dir /home 775 0 0
+dir /proc 775 0 0
+dir /lib 775 0 0
+file /lib/libm.so.6 /home/frank/rootfs/lib/libm.so.6 755 0 0
+file /lib/libresolv.so.2 /home/frank/rootfs/lib/libresolv.so.2 755 0 0
+file /lib/libc.so.6 /home/frank/rootfs/lib/libc.so.6 755 0 0
+file /lib/ld-linux-aarch64.so.1 /home/frank/rootfs/lib/ld-linux-aarch64.so.1 755 0 0
+</code></pre>
+    <p class="normal">The syntax is fairly obvious:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">dir &lt;name&gt; &lt;mode&gt; &lt;uid&gt; &lt;gid&gt;</code></li>
+      <li class="bulletList"><code class="inlineCode">file &lt;name&gt; &lt;location&gt; &lt;mode&gt; &lt;uid&gt; &lt;gid&gt;</code></li>
+      <li class="bulletList"><code class="inlineCode">nod &lt;name&gt; &lt;mode&gt; &lt;uid&gt; &lt;gid&gt; &lt;dev_type&gt; &lt;maj&gt; &lt;min&gt;</code></li>
+      <li class="bulletList"><code class="inlineCode">slink &lt;name&gt; &lt;target&gt; &lt;mode&gt; &lt;uid&gt; &lt;gid&gt;</code></li>
+    </ul>
+    <p class="normal">The commands <code class="inlineCode">dir</code>, <code class="inlineCode">nod</code>, and <code class="inlineCode">slink</code> create a filesystem object in the cpio archive with the name, mode, user ID, and group ID given. The <code class="inlineCode">file</code> command copies the file from the source location into the archive and sets the mode, user ID, and group ID.</p>
+    <p class="normal">The task <a id="_idIndexMarker370"/>of creating an <code class="inlineCode">initramfs</code>.<code class="inlineCode">cpio</code> archive from scratch <a id="_idIndexMarker371"/>is made easier by a script found in the kernel source code, named <code class="inlineCode">gen_initramfs.sh</code>. First, this script generates a device table from the contents of the input directory. Then, it translates this device table into the finished cpio archive.</p>
+    <p class="normal">To generate an <code class="inlineCode">initramfs.cpio</code> archive from your <code class="inlineCode">rootfs</code> directory and change the ownership of all files owned by user ID <code class="inlineCode">1000</code> and group ID <code class="inlineCode">1000</code> to user ID <code class="inlineCode">0</code> and group ID <code class="inlineCode">0</code>, enter these commands:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cp build_qemu/usr/gen_init_cpio linux-stable/usr/.
+$ cd linux-stable
+$ usr/gen_initramfs.sh -o ~/initramfs.cpio -u 1000 -g 1000 ~/rootfs
+</code></pre>
+    <h2 id="_idParaDest-155" class="heading-2"><a id="_idTextAnchor175"/>Old initrd format</h2>
+    <p class="normal">There is an older format for a Linux ramdisk known as <code class="inlineCode">initrd</code>. It was the only format available <a id="_idIndexMarker372"/>before Linux 2.6 and is still needed if you are using uClinux, the MMU-less <a id="_idIndexMarker373"/>variant of Linux. It is pretty obscure, so I will not cover it here.</p>
+    <p class="normal">Once our <code class="inlineCode">initramfs</code> boots, the system then needs to start running programs. The first program that runs is the <code class="inlineCode">init</code> program.</p>
+    <h1 id="_idParaDest-156" class="heading-1"><a id="_idTextAnchor176"/>init program</h1>
+    <p class="normal">Running a shell or even a shell script at boot time is fine for simple cases, but really, you need something <a id="_idIndexMarker374"/>more flexible. Normally, Unix systems run a program called <code class="inlineCode">init</code> that starts up and monitors other programs. Over the years, there have been many <code class="inlineCode">init</code> programs, some of which I will describe in <a href="Chapter_13.xhtml#_idTextAnchor431"><em class="italic">Chapter 13</em></a>. For now, I will briefly introduce BusyBox <code class="inlineCode">init</code>.</p>
+    <p class="normal">The <code class="inlineCode">init</code> program begins by reading the <code class="inlineCode">/etc/inittab</code> configuration file. Here is a simple example, which is adequate for our needs:</p>
+    <pre class="programlisting code"><code class="hljs-code">::sysinit:/etc/init.d/rcS
+::askfirst:-/bin/ash
+</code></pre>
+    <p class="normal">The first line runs a shell script named <code class="inlineCode">rcS</code> when <code class="inlineCode">init</code> is started. The second line prints the message <strong class="screenText">Please press Enter to activate this console</strong> to the console and starts a shell when you press <em class="italic">Enter</em>. The leading <code class="inlineCode">-</code> before <code class="inlineCode">/bin/ash</code> means that it will become a login shell, which sources <code class="inlineCode">/etc/profile</code> and <code class="inlineCode">$HOME/.profile</code> before displaying the shell prompt.</p>
+    <p class="normal">One of the advantages of launching the shell like this is that job control is enabled. The most immediate effect <a id="_idIndexMarker375"/>is that you can use <em class="italic">Ctrl + C</em> to terminate the current program. Maybe you didn’t notice it before, but wait until you run the <code class="inlineCode">ping</code> program and find you can’t stop it!</p>
+    <p class="normal">BusyBox <code class="inlineCode">init</code> provides a default <code class="inlineCode">inittab</code> if none is present in the root filesystem. It is a little more extensive than the preceding one.</p>
+    <p class="normal">The script called <code class="inlineCode">/etc/init.d/rcS</code> is the place to put initialization commands that need to be performed at boot, like mounting the <code class="inlineCode">proc</code> and <code class="inlineCode">sysfs</code> filesystems:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#!/bin/sh</span>
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+</code></pre>
+    <p class="normal">Make sure that you make the preceding <code class="inlineCode">rcS</code> script executable like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/rootfs
+$ chmod +x etc/init.d/rcS
+</code></pre>
+    <p class="normal">You can try <code class="inlineCode">init</code> out on QEMU by changing the <code class="inlineCode">-append</code> parameter like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">-append "console=ttyAMA0 rdinit=/sbin/init"
+</code></pre>
+    <p class="normal">For the BeaglePlay, you need to set the <code class="inlineCode">bootargs</code> variable in U-Boot as shown here:</p>
+    <pre class="programlisting con"><code class="hljs-con">nova!&gt; setenv bootargs console=ttyS2,115200n8 rdinit=/sbin/init
+</code></pre>
+    <p class="normal">Now, let’s take a closer look at the <code class="inlineCode">inittab</code> read by <code class="inlineCode">init</code> during startup.</p>
+    <h2 id="_idParaDest-157" class="heading-2"><a id="_idTextAnchor177"/>Starting a daemon process</h2>
+    <p class="normal">Typically, you want <a id="_idIndexMarker376"/>to run certain background processes <a id="_idIndexMarker377"/>at startup. Take <code class="inlineCode">syslogd</code> (the log daemon), for example. The purpose of <code class="inlineCode">syslogd</code> is to accumulate log messages from other programs, mostly other daemons. Naturally, BusyBox has an applet for that!</p>
+    <p class="normal">Starting the daemon is as simple as adding a line like this to <code class="inlineCode">etc/inittab</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">::respawn:/sbin/syslogd -n
+</code></pre>
+    <p class="normal"><code class="inlineCode">respawn</code> means that <a id="_idIndexMarker378"/>if the program terminates, it will <a id="_idIndexMarker379"/>be automatically restarted. <code class="inlineCode">-n</code> means that it should run as a foreground process. The log is written to <code class="inlineCode">/var/log/messages</code>.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">You may also want to start <code class="inlineCode">klogd</code> in the same way. <code class="inlineCode">klogd</code> sends kernel log messages to <code class="inlineCode">syslogd</code> so that they can be logged to permanent storage. </p>
+    </div>
+    <p class="normal">So far, all the processes I have mentioned run as <code class="inlineCode">root</code>, but that is less than ideal.</p>
+    <h1 id="_idParaDest-158" class="heading-1"><a id="_idTextAnchor178"/>Configuring user accounts</h1>
+    <p class="normal">As I already said, it is bad practice to run all programs as <code class="inlineCode">root</code> because if one program is compromised <a id="_idIndexMarker380"/>by an outside attack then the whole system is at risk. It is better to create unprivileged user accounts and use them where full <code class="inlineCode">root</code> is not necessary.</p>
+    <p class="normal">Usernames are configured in <code class="inlineCode">/etc/passwd</code>. There is one line per user with seven fields of information separated by colons. These are, in order:</p>
+    <ul>
+      <li class="bulletList">The login name</li>
+      <li class="bulletList">The hash code used to verify the password or, more usually, an <code class="inlineCode">x</code> to indicate that the password is stored in <code class="inlineCode">/etc/shadow</code></li>
+      <li class="bulletList">The UID or user ID</li>
+      <li class="bulletList">The GID or group ID</li>
+      <li class="bulletList">The comment field (often left blank)</li>
+      <li class="bulletList">The user’s home directory</li>
+      <li class="bulletList">The shell this user will use (optional)</li>
+    </ul>
+    <p class="normal">Here is a simple example in which we have the user <code class="inlineCode">root</code> with UID 0 and the user <code class="inlineCode">daemon</code> with UID 1:</p>
+    <pre class="programlisting code"><code class="hljs-code">root:x:0:0:root:/root:/bin/sh
+daemon:x:1:1:daemon:/usr/sbin:/bin/false
+</code></pre>
+    <p class="normal">Setting the shell for the user <code class="inlineCode">daemon</code> as <code class="inlineCode">/bin/false</code> ensures that any attempt to log on with that name will fail.</p>
+    <p class="normal">Various programs have to read <code class="inlineCode">/etc/passwd</code> to look up usernames and UIDs, so the file has to be world-readable. This is a problem if the password hashes are stored in there as well because a malicious program can take a copy and discover the actual passwords, using a variety of cracker programs. To reduce the exposure of this sensitive information, the passwords are stored in <code class="inlineCode">/etc/shadow</code>, and <code class="inlineCode">x</code> is placed in the password field to indicate that this is the case. The <code class="inlineCode">/etc/shadow</code> file only needs to be accessed by <code class="inlineCode">root</code>, so as long as the <code class="inlineCode">root</code> user is not compromised, the passwords are safe.</p>
+    <p class="normal">The shadow <a id="_idIndexMarker381"/>password file consists of one entry per user, made up of nine fields. Here is an example that mirrors the password file shown in the preceding paragraph:</p>
+    <pre class="programlisting code"><code class="hljs-code">root::10933:0:99999:7:::
+daemon:*:10933:0:99999:7:::
+</code></pre>
+    <p class="normal">The first two fields are the username and the password hash. The remaining seven fields are related to password aging, which is usually not a concern on embedded devices. If you are curious about the full details, refer to the manual page for <code class="inlineCode">shadow(5)</code>.</p>
+    <p class="normal">In the example, the password for <code class="inlineCode">root</code> is empty meaning that <code class="inlineCode">root</code> can log on without providing a password. Having an empty password for <code class="inlineCode">root</code> is useful during development but not for production. You can generate or change a password hash by running the <code class="inlineCode">passwd</code> command on the target, which will write a new hash to <code class="inlineCode">/etc/shadow</code>. If you want all subsequent root filesystems to have this same password, you could copy this file back to the staging directory.</p>
+    <p class="normal">Group names are stored similarly in <code class="inlineCode">/etc/group</code>. There is one line per group, consisting of four fields separated by colons. The fields are:</p>
+    <ul>
+      <li class="bulletList">The name of the group</li>
+      <li class="bulletList">The group password or, more usually, an <code class="inlineCode">x</code> to indicate that there is no group password</li>
+      <li class="bulletList">The GID or group ID</li>
+      <li class="bulletList">A comma-separated list of users who belong to this group (optional)</li>
+    </ul>
+    <p class="normal">Here is an example:</p>
+    <pre class="programlisting code"><code class="hljs-code">root:x:0:
+daemon:x:1:
+</code></pre>
+    <h2 id="_idParaDest-159" class="heading-2"><a id="_idTextAnchor179"/>Adding user accounts to the root filesystem</h2>
+    <p class="normal">First, add the files <code class="inlineCode">etc/passwd</code>, <code class="inlineCode">etc/shadow</code>, and <code class="inlineCode">etc/group</code> to your staging directory, as shown in <a id="_idIndexMarker382"/>the preceding section. Make sure that the <a id="_idIndexMarker383"/>permissions of <code class="inlineCode">etc/shadow</code> are <code class="inlineCode">0600</code>. Next, initiate the login procedure by starting a program called <code class="inlineCode">getty</code>. There is a version of <code class="inlineCode">getty</code> in BusyBox. You launch it from your <code class="inlineCode">inittab</code> using the keyword <code class="inlineCode">respawn</code>, which restarts <code class="inlineCode">getty</code> when a login shell is terminated. Your <code class="inlineCode">inittab</code> should read like this:</p>
+    <pre class="programlisting code"><code class="hljs-code">::sysinit:/etc/init.d/rcS
+::respawn:/sbin/getty 115200 console
+</code></pre>
+    <p class="normal">Then, rebuild the ramdisk, and try it out using QEMU or the BeaglePlay, as before.</p>
+    <p class="normal">Earlier in this chapter, we learned how to create device nodes using the <code class="inlineCode">mknod</code> command. Now, let’s look at some easier ways to create device nodes.</p>
+    <h1 id="_idParaDest-160" class="heading-1"><a id="_idTextAnchor180"/>A better way of managing device nodes</h1>
+    <p class="normal">Creating device nodes statically with <code class="inlineCode">mknod</code> is hard work and inflexible. However, there are other ways <a id="_idIndexMarker384"/>to create device nodes automatically on demand:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">devtmpfs</code>: This is a pseudo filesystem that you mount over <code class="inlineCode">/dev</code> at boot time. The kernel populates it with device nodes for all the devices that the kernel currently knows about. The kernel also creates nodes for new devices as they are detected at runtime. The nodes are owned by <code class="inlineCode">root</code> and have default permissions of <code class="inlineCode">0600</code>. Some well-known device nodes, such as <code class="inlineCode">/dev/null</code> and <code class="inlineCode">/dev/random</code>, override the default to <code class="inlineCode">0666</code>. To see exactly how this is done, look at the <code class="inlineCode">drivers/char/mem.c</code> file in the Linux source tree and observe how <code class="inlineCode">struct memdev</code> is initialized.</li>
+      <li class="bulletList"><code class="inlineCode">mdev</code>: This is a BusyBox applet that is used to populate a directory with device nodes and create new nodes as needed. There is an <code class="inlineCode">/etc/mdev.conf</code> configuration file that contains rules for the ownership and mode of the nodes.</li>
+      <li class="bulletList"><code class="inlineCode">udev</code>: This is the mainstream equivalent of <code class="inlineCode">mdev</code>. You will find it on desktop Linux and in some embedded devices. It is very flexible and a good choice for higher-end embedded devices. It is now part of <code class="inlineCode">systemd</code>.<div class="note">
+          <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+          <p class="normal">Although both <code class="inlineCode">mdev</code> and <code class="inlineCode">udev</code> create the device nodes themselves, it is easier to just let <code class="inlineCode">devtmpfs</code> do the job and use <code class="inlineCode">mdev/udev</code> as a layer on top to implement the policy for setting ownership and permissions. The <code class="inlineCode">devtmpfs</code> approach is the only maintainable way to generate device nodes prior to user space startup.</p>
+        </div>
+      </li>
+    </ul>
+    <p class="normal">After introducing <code class="inlineCode">devtmpfs</code>, I will describe how <code class="inlineCode">mdev</code> is used to assign ownership and permissions to device nodes on startup.</p>
+    <h2 id="_idParaDest-161" class="heading-2"><a id="_idTextAnchor181"/>Using devtmpfs</h2>
+    <p class="normal">Support for the <code class="inlineCode">devtmpfs</code> filesystem is controlled by the <code class="inlineCode">CONFIG_DEVTMPFS</code> kernel configuration variable. It is not enabled in the default configuration of the 64-bit Arm generic <a id="_idIndexMarker385"/>virtual platform, so if you want to try <code class="inlineCode">devtmpfs</code> out on QEMU, you will <a id="_idIndexMarker386"/>have to go back to your kernel configuration and enable this option.</p>
+    <p class="normal">Enter this command to mount <code class="inlineCode">devtmpfs</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># mount -t devtmpfs devtmpfs /dev
+</code></pre>
+    <p class="normal">You will notice that there are many more device nodes in <code class="inlineCode">/dev</code> afterward. To mount <code class="inlineCode">devtmpfs</code> on startup, add the preceding command to <code class="inlineCode">/etc/init.d/rcS</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#!/bin/sh</span>
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+</code></pre>
+    <p class="normal">If you enable <code class="inlineCode">CONFIG_DEVTMPFS_MOUNT</code> in your kernel configuration, the kernel will automatically mount <code class="inlineCode">devtmpfs</code> just after mounting the root filesystem. However, this option has no effect when booting <code class="inlineCode">initramfs</code>, as we are doing here.</p>
+    <h2 id="_idParaDest-162" class="heading-2"><a id="_idTextAnchor182"/>Using mdev</h2>
+    <p class="normal">While <code class="inlineCode">mdev</code> is a bit more complex to set up, it does allow you to modify the permissions of device nodes <a id="_idIndexMarker387"/>as they are created. You begin by running <code class="inlineCode">mdev</code> with the <code class="inlineCode">-s</code> option, which causes it to scan the <code class="inlineCode">/sys</code> directory looking for information about current <a id="_idIndexMarker388"/>devices. From this information, it populates the <code class="inlineCode">/dev</code> directory with the corresponding nodes.</p>
+    <p class="normal">If you want to keep track of new devices coming online and create nodes for them as well, you need to make <code class="inlineCode">mdev</code> a hot plug client by writing to <code class="inlineCode">/proc/sys/kernel/hotplug</code>. Add two more lines to <code class="inlineCode">/etc/init.d/rcS</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code"><span class="hljs-meta">#!/bin/sh</span>
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+<span class="hljs-built_in">echo</span> /sbin/mdev &gt; /proc/sys/kernel/hotplug
+mdev -s
+</code></pre>
+    <p class="normal">The default <a id="_idIndexMarker389"/>mode is <code class="inlineCode">660</code> and the ownership is <code class="inlineCode">root:root</code>. You can <a id="_idIndexMarker390"/>change this by adding rules in <code class="inlineCode">/etc/mdev.conf</code>. For example, to give the <code class="inlineCode">null</code>, <code class="inlineCode">random</code>, and <code class="inlineCode">urandom</code> devices their correct modes, you would add this to <code class="inlineCode">/etc/mdev.conf</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">null root:root 666
+random root:root 444
+urandom root:root 444
+</code></pre>
+    <p class="normal">The format is documented in the BusyBox source code in <code class="inlineCode">docs/mdev.txt</code>, and there are more examples in the directory named <code class="inlineCode">examples</code>.</p>
+    <h2 id="_idParaDest-163" class="heading-2"><a id="_idTextAnchor183"/>Are static device nodes so bad after all?</h2>
+    <p class="normal">Statically created <a id="_idIndexMarker391"/>device nodes have one advantage over running a device manager: they don’t take any time to create during boot. If minimizing boot time is a priority, then using statically created device nodes will save a measurable amount of time.</p>
+    <h1 id="_idParaDest-164" class="heading-1"><a id="_idTextAnchor184"/>Configuring the network</h1>
+    <p class="normal">Next, let’s look at some basic network configurations so that we can communicate with the outside world. I assume <a id="_idIndexMarker392"/>that there is an Ethernet interface (<code class="inlineCode">eth0</code>) and that we only need a simple IPv4 configuration.</p>
+    <p class="normal">These examples use the network utilities that are part of BusyBox, which are sufficient for our simple use case. All we need are the old-but-reliable <code class="inlineCode">ifup</code> and <code class="inlineCode">ifdown</code> programs. You can read the manual pages for both to get the details. The main network configuration is stored in <code class="inlineCode">/etc/network/interfaces</code>. You will need to create these directories in the staging directory:</p>
+    <pre class="programlisting con"><code class="hljs-con">etc/network
+etc/network/if-pre-up.d
+etc/network/if-up.d
+var/run
+</code></pre>
+    <p class="normal">Here is <code class="inlineCode">/etc/network/interfaces</code> for a static IP address:</p>
+    <pre class="programlisting code"><code class="hljs-code">auto lo
+iface lo inet loopback
+auto eth0
+iface eth0 inet static
+    address 192.168.1.101
+    netmask 255.255.255.0
+    network 192.168.1.0
+</code></pre>
+    <p class="normal">Here is <code class="inlineCode">/etc/network/interfaces</code> for a dynamic IP address, allocated using DHCP:</p>
+    <pre class="programlisting code"><code class="hljs-code">auto lo
+iface lo inet loopback
+auto eth0
+iface eth0 inet dhcp
+</code></pre>
+    <p class="normal">You also need <a id="_idIndexMarker393"/>to configure a DHCP client program. BusyBox has one named <code class="inlineCode">udchpcd</code>. It requires a shell script that goes in <code class="inlineCode">/usr/share/udhcpc/default.script</code>. There is a suitable default at <code class="inlineCode">examples/udhcp/simple.script</code> within the BusyBox source code.</p>
+    <h2 id="_idParaDest-165" class="heading-2"><a id="_idTextAnchor185"/>Network components for glibc</h2>
+    <p class="normal">glibc uses a <a id="_idIndexMarker394"/>mechanism <a id="_idIndexMarker395"/>known as the <strong class="keyWord">name service switch</strong> (<strong class="keyWord">NSS</strong>) to control <a id="_idIndexMarker396"/>the way that names are resolved <a id="_idIndexMarker397"/>to numbers for networking and users. Usernames can be resolved to UIDs via the <code class="inlineCode">/etc/passwd</code> file, and network services such as HTTP can be resolved to service port numbers via <code class="inlineCode">/etc/services</code>. All this is configured by <code class="inlineCode">/etc/nsswitch.conf</code>; see the <code class="inlineCode">nss(5)</code> manual page for full details. Here is a simple example that will suffice for most embedded Linux implementations:</p>
+    <pre class="programlisting code"><code class="hljs-code">passwd:    files
+group:     files
+shadow:    files
+hosts:     files dns
+networks:  files
+protocols: files
+services:  files
+</code></pre>
+    <p class="normal">Everything is resolved by the correspondingly named file in <code class="inlineCode">/etc</code>, except for host names, which can be resolved by a DNS lookup if they are not in <code class="inlineCode">/etc/hosts</code>.</p>
+    <p class="normal">To make this work, you need to populate <code class="inlineCode">/etc</code> with those files. Networks, protocols, and services are the same across all Linux systems, so they can be copied from <code class="inlineCode">/etc</code> on your development machine. At the very least, <code class="inlineCode">/etc/hosts</code> should contain the loopback address:</p>
+    <pre class="programlisting code"><code class="hljs-code">127.0.0.1 localhost
+</code></pre>
+    <p class="normal">The other files (<code class="inlineCode">passwd</code>, <code class="inlineCode">group</code>, and <code class="inlineCode">shadow</code>) were described in the <em class="italic">Configuring user accounts</em> section earlier.</p>
+    <p class="normal">The last <a id="_idIndexMarker398"/>piece of the puzzle is the libraries that perform the <a id="_idIndexMarker399"/>name resolution. They are plugins that are loaded as needed, based on the contents of <code class="inlineCode">nsswitch.conf</code>. That means they do not show up as dependencies when you use <code class="inlineCode">readelf</code> or <code class="inlineCode">ldd</code>. You will simply have to copy them from the toolchain’s <code class="inlineCode">sysroot</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~/rootfs
+$ cp -a $SYSROOT/lib/libnss* lib
+$ cp -a $SYSROOT/lib/libresolv* lib
+</code></pre>
+    <p class="normal">At last, our staging directory is complete. Let’s generate a filesystem from it.</p>
+    <h1 id="_idParaDest-166" class="heading-1"><a id="_idTextAnchor186"/>Creating filesystem images with device tables</h1>
+    <p class="normal">We saw in the earlier <em class="italic">Creating a boot initramfs</em> section that the kernel has the option to create <code class="inlineCode">initramfs</code>, using a device table. Device tables are really useful because they allow a non-root <a id="_idIndexMarker400"/>user to create device nodes and allocate <a id="_idIndexMarker401"/>arbitrary UID and GID values to any file or directory. The same concept has been applied to tools that create other filesystem image formats, as shown in this mapping from the filesystem format to tool:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">jffs2</strong>: <code class="inlineCode">mkfs.jffs2</code></li>
+      <li class="bulletList"><strong class="keyWord">ubifs</strong>: <code class="inlineCode">mkfs:ubifs</code></li>
+      <li class="bulletList"><strong class="keyWord">ext2</strong>: <code class="inlineCode">genext2fs</code></li>
+    </ul>
+    <p class="normal">We will cover jffs2 and ubifs in <a href="Chapter_09.xhtml#_idTextAnchor293"><em class="italic">Chapter 9</em></a>, when we look at filesystems for flash memory. ext2 is a format commonly used fo<a id="_idTextAnchor187"/>r managed flash memory, including SD cards. The example that follows uses ext2 to create a disk image that can be copied to an SD card.</p>
+    <p class="normal">To begin with, you need to install the <code class="inlineCode">genext2fs</code> tool on your host. On Ubuntu, the package to install is named <code class="inlineCode">genext2fs</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo apt install genext2fs
+</code></pre>
+    <p class="normal"><code class="inlineCode">genext2fs</code> takes a device table file with the format <code class="inlineCode">&lt;name&gt; &lt;type&gt; &lt;mode&gt; &lt;uid&gt; &lt;gid&gt; &lt;major&gt; &lt;minor&gt; &lt;start&gt; &lt;inc&gt; &lt;count&gt;</code>. The meanings of the fields are as follows:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">name</strong></li>
+      <li class="bulletList"><strong class="keyWord">type</strong>: one of the following:</li>
+      <li class="bulletList"><code class="inlineCode">f</code>: regular file</li>
+      <li class="bulletList"><code class="inlineCode">d</code>: directory</li>
+      <li class="bulletList"><code class="inlineCode">c</code>: character device file</li>
+      <li class="bulletList"><code class="inlineCode">b</code>: block device file</li>
+      <li class="bulletList"><code class="inlineCode">p</code>: FIFO (named pipe)</li>
+      <li class="bulletList"><strong class="keyWord">uid</strong>: UID of the file</li>
+      <li class="bulletList"><strong class="keyWord">gid</strong>: GID of the file</li>
+      <li class="bulletList"><strong class="keyWord">major</strong> and <strong class="keyWord">minor</strong>: device numbers (device nodes only)</li>
+      <li class="bulletList"><strong class="keyWord">start</strong>, <strong class="keyWord">inc</strong>, and <strong class="keyWord">count</strong>: allows you to create a group of device nodes starting from the minor number in start (device nodes only)</li>
+    </ul>
+    <p class="normal">You do not <a id="_idIndexMarker402"/>have to specify these for every file <a id="_idIndexMarker403"/>as you do with the kernel <code class="inlineCode">initramfs</code> table. You just need to point at a directory—the staging directory—and list the changes and exceptions you need to make in the final filesystem image.</p>
+    <p class="normal">Here is a simple example that populates static device nodes for us:</p>
+    <pre class="programlisting code"><code class="hljs-code">/dev d 755 0 0 - - - - -
+/dev/null c 666 0 0 1 3 0 0 -
+/dev/console c 600 0 0 5 1 0 0 -
+/dev/ttyO0 c 600 0 0 252 0 0 0 -
+</code></pre>
+    <p class="normal">Then, you can use <code class="inlineCode">genext2fs</code> to generate a filesystem image of 8 MB (8,192 blocks of the default size, 1,024 bytes):</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ genext2fs -b 8192 -d ~/rootfs -D ~/MELD/Chapter05/device-tables.txt -U rootfs.ext2
+</code></pre>
+    <p class="normal">Now, you can copy the resulting <code class="inlineCode">rootfs.ext2</code> image to an SD card or similar, as we will do next.</p>
+    <h2 id="_idParaDest-167" class="heading-2"><a id="_idTextAnchor188"/>Booting the BeaglePlay</h2>
+    <p class="normal">The script <a id="_idIndexMarker404"/>named <code class="inlineCode">MELD/format-sdcard.sh</code> creates two partitions on the microSD card: one for the boot files and one for the root filesystem. Assuming you have created the root filesystem image, as shown in the previous section, you can use the <code class="inlineCode">dd</code> command to write it to the second partition.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">As always, when copying files directly to storage devices like this, make absolutely sure that you know which device is the microSD card.</p>
+    </div>
+    <p class="normal">In this case, I am using <a id="_idIndexMarker405"/>a built-in card reader, which is the device called <code class="inlineCode">/dev/mmcblk0</code>, so the command is:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo dd if=rootfs.ext2 of=/dev/mmcblk0p2
+</code></pre>
+    <p class="normal">Note that the card reader on your host system may have a different name.</p>
+    <p class="normal">Insert the microSD card into the BeaglePlay and set the kernel command line to <code class="inlineCode">root=/dev/mmcblk1p2</code>. Unlike previous Beagles, the eMMC is the <code class="inlineCode">mmcblk0</code> device and the microSD is the <code class="inlineCode">mmcblk1</code> device on the BeaglePlay. Here is the complete sequence of U-Boot commands:</p>
+    <pre class="programlisting con"><code class="hljs-con">nova!&gt; fatload mmc 1 0x80000000 Image.gz
+nova!&gt; fatload mmc 1 0x82000000 k3-am625-beagleplay.dtb
+nova!&gt; setenv kernel_comp_addr_r 0x85000000
+nova!&gt; setenv kernel_comp_size 0x20000000
+nova!&gt; setenv bootargs console=ttyS2,115200n8 root=/dev/mmcblk1p2 rootdelay=5 rootwait
+nova!&gt; booti 0x80000000 - 0x82000000
+</code></pre>
+    <p class="normal">This is an example of mounting an ext2 filesystem from a normal block device, such as an SD card. The same principles apply to other filesystem types. We will look at these in more detail when we get to <a href="Chapter_09.xhtml#_idTextAnchor293"><em class="italic">Chapter 9</em></a>. Now, let’s switch gears and look at how to mount a filesystem over a network.</p>
+    <h1 id="_idParaDest-168" class="heading-1"><a id="_idTextAnchor189"/>Mounting the root filesystem using NFS</h1>
+    <p class="normal">If your device has a network interface, you can mount the root filesystem over the network for rapid <a id="_idIndexMarker406"/>development using <strong class="keyWord">Network File System </strong>(<strong class="keyWord">NFS</strong>). This <a id="_idIndexMarker407"/>gives you access to almost unlimited storage <a id="_idIndexMarker408"/>on your host machine, so you can add debug tools and executables with large symbol tables. As a bonus, updates made to the ro<a id="_idTextAnchor190"/>ot filesystem on your development machine are available on the target instantly. You can also access all the target’s log files from the host.</p>
+    <p class="normal">To start, you need to install and configure an NFS server on your host machine. The package to install on Ubuntu is named <code class="inlineCode">nfs-kernel-server</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo apt install nfs-kernel-server
+</code></pre>
+    <p class="normal">The NFS server needs to be told which directories are being exported to the network. This is controlled by <code class="inlineCode">/etc/exports</code>. There is one line for each export. The format is described in the <code class="inlineCode">exports(5)</code> manual page. To export the root filesystem, the <code class="inlineCode">exports</code> file on my host contains this:</p>
+    <pre class="programlisting code"><code class="hljs-code">/home/frank/rootfs *(rw,sync,no_subtree_check,no_root_squash)
+</code></pre>
+    <p class="normal"><code class="inlineCode">*</code> exports the directory to any address on my local network. If you wish, you can specify a single IP <a id="_idIndexMarker409"/>address or a range at this point. A list of options <a id="_idIndexMarker410"/>enclosed in parentheses follows. There must not be any spaces between <code class="inlineCode">*</code> and the opening parenthesis. The options are:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">rw</code>: Exports the directory as read-write.</li>
+      <li class="bulletList"><code class="inlineCode">sync</code>: Selects the synchronous version of the NFS protocol, which is more robust but a little slower than the async option.</li>
+      <li class="bulletList"><code class="inlineCode">no_subtree_check</code>: Disables subtree checking, which has mild security implications but can improve reliability in some circumstances.</li>
+      <li class="bulletList"><code class="inlineCode">no_root_squash</code>: Allows requests from user ID 0 to be processed without squashing to a different user ID. It is necessary for the target to correctly access the files owned by <code class="inlineCode">root</code>.</li>
+    </ul>
+    <p class="normal">Having made changes to <code class="inlineCode">/etc/exports</code>, restart the NFS server to pick them up:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo systemctl restart nfs-kernel-server
+</code></pre>
+    <p class="normal">Now, set up the target to mount the root filesystem over NFS. For this to work, configure your kernel with <code class="inlineCode">CONFIG_ROOT_NFS</code>. Then, configure Linux to do the mount at boot time by adding the following to the kernel command line:</p>
+    <pre class="programlisting con"><code class="hljs-con">root=/dev/nfs rw nfsroot=&lt;host-ip&gt;:&lt;root-dir&gt; ip=&lt;target-ip&gt;
+</code></pre>
+    <p class="normal">The options are:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">rw</code>: Mounts the root filesystem read-write.</li>
+      <li class="bulletList"><code class="inlineCode">nfsroot</code>: Specifies the IP address of the host, followed by the path to the exported root filesystem.</li>
+      <li class="bulletList"><code class="inlineCode">ip</code>: This is the IP address to be assigned to the target. Usually, network addresses are assigned at runtime, as we saw in the <em class="italic">Configuring the network</em> section. However, in this case, the interface has to be configured before the root filesystem is mounted and <code class="inlineCode">init</code> has started. Hence, it is configured on the kernel command line.<div class="note">
+          <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+          <p class="normal">There is <a id="_idIndexMarker411"/>more information about NFS root mounts in the kernel source in <code class="inlineCode">Documentation/admin-guide/nfs/nfsroot.rst</code>.</p>
+        </div>
+      </li>
+    </ul>
+    <h2 id="_idParaDest-169" class="heading-2"><a id="_idTextAnchor191"/>Testing with the BeaglePlay</h2>
+    <p class="normal">Boot your BeaglePlay from the microSD card and enter <a id="_idIndexMarker412"/>these commands at the U-Boot prompt:</p>
+    <pre class="programlisting con"><code class="hljs-con">nova!&gt; setenv serverip 192.168.1.119
+nova!&gt; setenv ipaddr 192.168.1.176
+nova!&gt; setenv npath &lt;path to staging directory&gt;
+nova!&gt; setenv bootargs console=ttyS2,115200n8 root=/dev/nfs ip=${ipaddr}:::::eth0 nfsroot=${serverip}:${npath},nfsvers=3,tcp rw
+nova!&gt; fatload mmc 1 0x80000000 Image.gz
+nova!&gt; fatload mmc 1 0x82000000 k3-am625-beagleplay.dtb
+nova!&gt; setenv kernel_comp_addr_r 0x85000000
+nova!&gt; setenv kernel_comp_size 0x20000000
+nova!&gt; booti 0x80000000 - 0x82000000
+</code></pre>
+    <p class="normal">Replace <code class="inlineCode">&lt;path to staging directory&gt;</code> with the full path to your staging directory, and change the <code class="inlineCode">serverip</code> and <code class="inlineCode">ipaddr</code> values to match the IP addresses of your Linux host and BeaglePlay. Make sure that the BeaglePlay can ping the <code class="inlineCode">serverip</code> before attempting this exercise.</p>
+    <h2 id="_idParaDest-170" class="heading-2"><a id="_idTextAnchor192"/>Problems with file permissions</h2>
+    <p class="normal">The files <a id="_idIndexMarker413"/>that you copied into the staging directory will be owned by the UID of the user you are logged on as (typically <code class="inlineCode">1000</code>). However, the target has no knowledge of this user. What’s more, any files created by the target will be owned by users configured by the target (often the root user). The whole thing is a mess. Unfortunately, there is no simple way out.</p>
+    <p class="normal">The best solution is to make a copy of the staging directory and change ownership to UID and GID to <code class="inlineCode">0</code>, using the command <code class="inlineCode">sudo chown -R 0:0 *</code>. Then, export this directory as the NFS mount. This removes the convenience of having just one copy of the root filesystem shared between development and target systems, but at least the file ownership will be correct. </p>
+    <p class="normal">It’s not <a id="_idIndexMarker414"/>uncommon in embedded Linux to link device drivers statically to the kernel, rather than load them dynamically from the root filesystem as modules at runtime. So how do we reap the same benefits of rapid iteration provided by NFS when modifying kernel source code or DTBs? The answer is TFTP.</p>
+    <h1 id="_idParaDest-171" class="heading-1"><a id="_idTextAnchor193"/>Using TFTP to load the kernel</h1>
+    <p class="normal">Now that we know how to mount the root filesystem over a network using NFS, you may be wondering <a id="_idIndexMarker415"/>if there is a way to load <a id="_idIndexMarker416"/>the kernel, device tree, and <code class="inlineCode">initramfs</code> over the network as well. If we can do this, then the only component that needs to be written to storage on the target is the bootloader. Everything else could be loaded from the host machine. This would save time, since you would not need to keep reflashing the target. You could even get work done while the flash storage drivers are still being developed (it happens).</p>
+    <p class="normal">The <strong class="keyWord">Trivial File Transfer Protocol</strong> (<strong class="keyWord">TFTP</strong>) is the answer. TFTP is a very simple file transfer protocol <a id="_idIndexMarker417"/>that is designed for easy implementation with bootloaders such as U-Boot.</p>
+    <p class="normal">To start, you need to install a TFTP daemon on your host machine. The package to install on Ubuntu is named <code class="inlineCode">tftpd-hpa</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo apt install tftpd-hpa
+</code></pre>
+    <p class="normal">Modify the contents of <code class="inlineCode">/etc/default/tftpd-hpa</code> as shown:</p>
+    <pre class="programlisting code"><code class="hljs-code">TFTP_USERNAME="tftp"
+TFTP_DIRECTORY="/var/lib/tftpboot"
+TFTP_ADDRESS="0.0.0.0:69"
+TFTP_OPTIONS="--secure"
+</code></pre>
+    <p class="normal">Create the <code class="inlineCode">/var/lib/tftpboot</code> directory with the necessary ownership and permissions:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo mkdir -p /var/lib/tftpboot
+$ sudo chown -R nobody:nogroup /var/lib/tftpboot
+$ sudo chmod -R 777 /var/lib/tftpboot
+</code></pre>
+    <p class="normal">Having made changes to <code class="inlineCode">/etc/default/tftpd-hpa</code>, restart the TFTP server to pick them up:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ sudo systemctl restart tftpd-hpa
+</code></pre>
+    <p class="normal">With <code class="inlineCode">tftpd-hpa</code> installed and running, copy the files you want loaded on the target to <code class="inlineCode">/var/lib/tftpboot</code>. For the BeaglePlay, these would be <code class="inlineCode">Image</code> and <code class="inlineCode">k3-am625-beagleplay.dtb</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cp build_beagleplay/arch/arm64/boot/Image /var/lib/tftpboot/.
+$ cp build_beagleplay/arch/arm64/boot/dts/ti/k3-am625-beagleplay.dtb /var/lib/tftpboot/.
+</code></pre>
+    <p class="normal">Then, enter these commands at the U-Boot prompt:</p>
+    <pre class="programlisting con"><code class="hljs-con">nova!&gt; setenv serverip 192.168.1.119
+nova!&gt; setenv ipaddr 192.168.1.176
+nova!&gt; setenv npath &lt;path to staging directory&gt;
+nova!&gt; tftp 0x80000000 Image
+nova!&gt; tftp 0x82000000 k3-am625-beagleplay.dtb
+nova!&gt; setenv bootargs console=ttyS2,115200n8 root=/dev/nfs ip=${ipaddr}:::::eth0 nfsroot=${serverip}:${npath},nfsvers=3,tcp rw
+nova!&gt; booti 0x80000000 - 0x82000000
+</code></pre>
+    <p class="normal">Replace <code class="inlineCode">&lt;path to staging directory&gt;</code> with the full path to your staging directory, and change the <code class="inlineCode">serverip</code> and <code class="inlineCode">ipaddr</code> values to match the IP addresses of your Linux host and BeaglePlay. You may <a id="_idIndexMarker418"/>find that the <code class="inlineCode">tftp</code> command hangs endlessly, printing out the letter <code class="inlineCode">T</code>, which means that the TFTP requests <a id="_idIndexMarker419"/>time out. There are a number of reasons why this happens. The most common ones are:</p>
+    <ul>
+      <li class="bulletList">An incorrect IP address for <code class="inlineCode">serverip</code></li>
+      <li class="bulletList">The TFTP daemon is not running on the server.</li>
+      <li class="bulletList">The firewall on the server is blocking the TFTP protocol. Most firewalls block TFTP port 69 by default.</li>
+    </ul>
+    <p class="normal">Once you have resolved the connectivity problem, U-Boot loads the files from the host machine and boots in the usual way.</p>
+    <h1 id="_idParaDest-172" class="heading-1"><a id="_idTextAnchor194"/>Summary</h1>
+    <p class="normal">One of the strengths of Linux is that it supports a variety of root filesystems, so it can be tailored for a wide range of needs. We have seen how it is possible to construct a simple root filesystem manually with just a small number of components. BusyBox is especially useful in this regard.</p>
+    <p class="normal">By going through the process one step at a time, we gained insight into some of the basic workings of Linux systems, including network configuration and user accounts. However, the task rapidly becomes unmanageable as devices get more complex. Plus, there is the ever-present worry that there may be a security hole in the implementation that we did not notice.</p>
+    <p class="normal">In the next chapter, I will show you how using an embedded build system can make the process of creating an embedded Linux system much easier and more reliable. I will start by looking at Buildroot and then go on to look at the more complex, yet powerful, Yocto Project.</p>
+    <h1 id="_idParaDest-173" class="heading-1"><a id="_idTextAnchor195"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">Filesystem Hierarchy Standard, Version 3.0</em>: <a href="https://refspecs.linuxfoundation.org/fhs.shtml"><span class="url">https://refspecs.linuxfoundation.org/fhs.shtml</span></a></li>
+      <li class="bulletList"><em class="italic">Ramfs, rootfs and initramfs</em>, by Rob Landley, part of the Linux source at <a href="https://Documentation/filesystems/ramfs-rootfs-initramfs.rst"><span class="url">Documentation/filesystems/ramfs-rootfs-initramfs.rst</span></a></li>
+    </ul>
+    <h1 id="_idParaDest-174" class="heading-1"><a id="_idTextAnchor196"/>Join our community on Discord</h1>
+    <p class="normal">Join our community’s Discord space for discussions with the authors and other readers: <span class="url">https://packt.link/embeddedsystems</span></p>
+    <p class="normal"><img src="../Images/QR_Code12308107448340296.png" alt="" role="presentation" width="354" height="354"/></p>
+  </div>
+</div></div></body></html>

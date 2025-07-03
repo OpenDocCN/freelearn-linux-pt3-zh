@@ -1,0 +1,1008 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer166" class="Basic-Text-Frame">
+    <h1 class="chapterNumber"><a id="_idTextAnchor611"/>19</h1>
+    <h1 id="_idParaDest-539" class="chapterTitle"><a id="_idTextAnchor612"/>Debugging with GDB</h1>
+    <p class="normal">Bugs happen. Identifying and fixing them is part of the development process. There are many different techniques for finding and characterizing program defects, including static and dynamic analysis, code review, tracing, profiling, and interactive debugging. We will look at tracers and profilers in the next chapter, but here I want to concentrate on the traditional approach of <a id="_idIndexMarker1375"/>watching code execution through a debugger, which in our case is the <strong class="keyWord">GNU Debugger</strong> (<strong class="keyWord">GDB</strong>). GDB is a powerful and flexible tool. You can use it to debug applications, examine the postmortem files (core files) that are created after a program crash, and even step through kernel code.</p>
+    <p class="normal">In this chapter, we will cover the following topics:</p>
+    <ul>
+      <li class="bulletList">GNU debugger</li>
+      <li class="bulletList">Preparing to debug</li>
+      <li class="bulletList">Debugging applications</li>
+      <li class="bulletList">Just-in-time debugging</li>
+      <li class="bulletList">Debugging forks and threads</li>
+      <li class="bulletList">Core files</li>
+      <li class="bulletList">GDB user interfaces</li>
+      <li class="bulletList">Debugging kernel code</li>
+    </ul>
+    <h1 id="_idParaDest-540" class="heading-1"><a id="_idTextAnchor613"/>Technical requirements</h1>
+    <p class="normal">To follow along with the examples, make sure you have the following:</p>
+    <ul>
+      <li class="bulletList">An Ubuntu 24.04 or later LTS host system with at least 90 GB of free disk space</li>
+      <li class="bulletList">Buildroot 2024.02.6 LTS release</li>
+      <li class="bulletList">Yocto 5.0 (Scarthgap) LTS release</li>
+      <li class="bulletList">A microSD card reader and card</li>
+      <li class="bulletList">balenaEtcher for Linux</li>
+      <li class="bulletList">An Ethernet cable and router with an available port for network connectivity</li>
+      <li class="bulletList">A USB to TTL serial cable with a 3.3 V level</li>
+      <li class="bulletList">A Raspberry Pi 4</li>
+      <li class="bulletList">A 5 V USB-C power supply capable of delivering 3 A</li>
+    </ul>
+    <p class="normal">You should have already installed the 2024.02.6 LTS release of Buildroot for <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>. If you have not, then refer to the <em class="italic">System requirements section</em> of <em class="italic">The Buildroot user manual</em> (<a href="https://buildroot.org/downloads/manual/manual.html"><span class="url">https://buildroot.org/downloads/manual/manual.html</span></a>) before installing Buildroot on your Linux host according to the instructions from <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>.</p>
+    <p class="normal">You should have already built the 5.0 (Scarthgap) LTS release of Yocto in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>. If you have not, then please refer to the <em class="italic">Compatible Linux Distribution</em> and <em class="italic">Build Host Packages</em> sections of the <em class="italic">Yocto Project Quick Build</em> guide (<a href="https://docs.yoctoproject.org/brief-yoctoprojectqs/"><span class="url">https://docs.yoctoproject.org/brief-yoctoprojectqs/</span></a>) before building Yocto on your Linux host according to the instructions in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>.</p>
+    <p class="normal">The code used in this chapter can be found in the chapter folder in this book’s GitHub repository: <a href="https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter19"><span class="url">https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter19</span></a>.</p>
+    <h1 id="_idParaDest-541" class="heading-1"><a id="_idTextAnchor614"/>GNU debugger</h1>
+    <p class="normal">GDB is a source-level debugger for compiled languages, primarily C and C++, although there is also support <a id="_idIndexMarker1376"/>for a variety of other languages, such as Go and Objective-C. You should read the notes for the version of GDB you are using to find out the status of support for the various languages.</p>
+    <p class="normal">The project <a id="_idIndexMarker1377"/>website is <a href="https://www.gnu.org/software/gdb/"><span class="url">https://www.gnu.org/software/gdb/</span></a> and it contains a lot of useful information, including the GDB user manual, <em class="italic">Debugging with GDB</em>.</p>
+    <p class="normal">Out of the box, GDB has a command-line user interface that some people find off-putting, although, in reality, it is easy to use with a little practice. If command-line interfaces are not to your liking, there are plenty of frontend user interfaces to GDB, and I will describe three of them later in this chapter.</p>
+    <h1 id="_idParaDest-542" class="heading-1"><a id="_idTextAnchor615"/>Preparing to debug</h1>
+    <p class="normal">You need to <a id="_idIndexMarker1378"/>compile the code you want to debug with debug symbols. GCC offers two options for this: <code class="inlineCode">-g</code> and <code class="inlineCode">-ggdb</code>. The latter adds debug information that is specific to GDB, whereas the former generates information in an appropriate format for whichever target operating system you are using, making it the more portable option. Since GDB is the default debugger on Linux, it is best to use <code class="inlineCode">-ggdb</code>. Both options allow you to specify the level of debug information, from <code class="inlineCode">0</code> to <code class="inlineCode">3</code>:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode"><a id="_idTextAnchor616"/>0</code>: This produces no debug information at all and is equivalent to omitting the <code class="inlineCode">-g</code> or <code class="inlineCode">-ggdb</code> switch.</li>
+      <li class="bulletList"><code class="inlineCode"><a id="_idTextAnchor617"/>1</code>: This produces minimal information but includes function names and external variables, which is enough to generate a backtrace.</li>
+      <li class="bulletList"><code class="inlineCode"><a id="_idTextAnchor618"/>2</code>: This is the default and includes information about local variables and line numbers so that you can perform source-level debugging and single-step through the code.</li>
+      <li class="bulletList"><code class="inlineCode"><a id="_idTextAnchor619"/>3</code>: This includes extra information which, among other things, means that GDB can handle macro expansions correctly.</li>
+    </ul>
+    <p class="normal">In most cases, <code class="inlineCode">-g</code> suffices: reserve <code class="inlineCode">-g3</code> or <code class="inlineCode">-ggdb3</code> for if you are having problems stepping through code, especially if it contains macros.</p>
+    <p class="normal">The next issue to <a id="_idIndexMarker1379"/>consider is the level of code optimization. Compiler optimization tends to destroy the relationship between lines of source code and machine code, which makes stepping through the source unpredictable. If you experience problems such as this, you will most likely need to compile without optimization, leaving out the <code class="inlineCode">-O</code> compile switch, or using <code class="inlineCode">-Og</code>, which enables optimizations that do not interfere with debugging.</p>
+    <p class="normal">A related issue is that of stack-frame pointers, which are required by GDB to generate a backtrace of function calls up to the current one. On some architectures, GCC will not generate stack-frame pointers with higher levels of optimization (<code class="inlineCode">-O2</code> and above). If you find yourself in a situation where you really have to compile with <code class="inlineCode">-O2</code> but still want backtraces, you can override the default behavior with <code class="inlineCode">-fno-omit-frame-pointer</code>. Also, look out for code that has been hand-optimized to leave out frame pointers through the addition of <code class="inlineCode">-fomit-frame-pointer</code>: you may want to temporarily remove those bits.</p>
+    <h1 id="_idParaDest-543" class="heading-1"><a id="_idTextAnchor620"/>Debugging applications</h1>
+    <p class="normal">You can use GDB to debug applications in one of two ways: if you are developing code to run on desktops <a id="_idIndexMarker1380"/>and servers, or indeed any environment where you compile and run the code on the same machine, it is natural to run GDB natively. However, most embedded development is done using a cross toolchain, and hence you want to debug code running on the device but control it from the cross-development environment, where you have the source code and the tools. I will focus on the latter case, since it is the most likely scenario for embedded developers, but I will also show you how to set up a system for native debugging. I am not going to describe the basics of using GDB here since there are many good references on that topic already, including the GDB user manual and the suggested <em class="italic">Further study</em> section at the end of the chapter.</p>
+    <h2 id="_idParaDest-544" class="heading-2"><a id="_idTextAnchor621"/>Remote debugging using gdbserver</h2>
+    <p class="normal">The key component for remote <a id="_idIndexMarker1381"/>debugging is the debug agent, <strong class="keyWord">gdbserver</strong>, which <a id="_idIndexMarker1382"/>runs on the target and controls the execution of the program being debugged. <code class="inlineCode">gdbserver</code> connects to a copy of GDB running on the host <a id="_idIndexMarker1383"/>machine via a network connection or a serial interface.</p>
+    <p class="normal">Debugging <a id="_idIndexMarker1384"/>through <code class="inlineCode">gdbserver</code> is almost, but not quite, the same as debugging natively. The differences are mostly centered around the fact that there are two computers involved, and they have to be in the right state for debugging to take place. Here are some things to look out for:</p>
+    <ul>
+      <li class="bulletList">At the start of a debug session, you need to load the program you want to debug on the target using <code class="inlineCode">gdbserver</code> and then separately load GDB from your cross toolchain on the host.</li>
+      <li class="bulletList">GDB and <code class="inlineCode">gdbserver</code> need to connect to each other before a debug session can begin.</li>
+      <li class="bulletList">GDB needs to be told where on the host to look for debug symbols and source code, especially for shared libraries.</li>
+      <li class="bulletList">The GDB <code class="inlineCode">run</code> command is not supported.</li>
+      <li class="bulletList"><code class="inlineCode">gdbserver</code> will terminate when the debug session ends, and you will need to restart it if you want another debug session.</li>
+      <li class="bulletList">You need debug symbols and source code for the binaries you want to debug on the host, but not on the target. Often, there is not enough storage space for them on the target, and they will need to be stripped before deploying to the target.</li>
+      <li class="bulletList">The GDB/<code class="inlineCode">gdbserver</code> combination does not support all the features of natively running GDB: for example, <code class="inlineCode">gdbserver</code> cannot follow the child process after a fork, whereas native GDB can.</li>
+      <li class="bulletList">Odd things can happen if GDB and <code class="inlineCode">gdbserver</code> are from different versions of GDB or are the same version but configured differently. Ideally, they should be built from the same source using your favorite build tool.</li>
+    </ul>
+    <p class="normal">Debug symbols increase the size of executables dramatically, sometimes by a factor of 10. As mentioned in <a href="Chapter_05.xhtml#_idTextAnchor138"><em class="italic">Chapter 5</em></a>, it can be useful to remove debug symbols without recompiling everything. The tool for the job is <code class="inlineCode">strip</code> from the <code class="inlineCode">binutils</code> package in your cross toolchain. You can control the strip level with these switches:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">--strip-all</code>: This removes all symbols (default).</li>
+      <li class="bulletList"><code class="inlineCode">--strip-unneeded</code>: This removes symbols not required for relocation processing.</li>
+      <li class="bulletList"><code class="inlineCode">--strip-debug</code>: This removes only debug symbols.<div class="note">
+          <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+          <p class="normal">For applications and shared libraries, <code class="inlineCode">--strip-all</code> (the default) is fine, but when it comes to kernel modules, you will find that it will stop the module from loading. Use <code class="inlineCode">--strip-unneeded</code> instead. I am still working on a use case for <code class="inlineCode">–-strip-debug</code>.</p>
+        </div>
+      </li>
+    </ul>
+    <p class="normal">With that <a id="_idIndexMarker1385"/>in mind, let’s look at the specifics involved <a id="_idIndexMarker1386"/>in debugging with The Yocto Project and Buildroot.</p>
+    <h2 id="_idParaDest-545" class="heading-2"><a id="_idTextAnchor622"/>Setting up The Yocto Project for remote debugging</h2>
+    <p class="normal">There are two things to be done to debug applications remotely when using The Yocto Project: you need <a id="_idIndexMarker1387"/>to add <code class="inlineCode">gdbserver</code> to the target image, and you need to create an SDK that includes GDB and has debug <a id="_idIndexMarker1388"/>symbols for the executables that you plan <a id="_idIndexMarker1389"/>to debug. There is detailed documentation on setting up Yocto for remote debugging at <a href="https://docs.yoctoproject.org/dev-manual/debugging.html#using-the-gdbserver-method"><span class="url">https://docs.yoctoproject.org/dev-manual/debugging.html#using-the-gdbserver-method</span></a>.</p>
+    <p class="normal">First, to include <code class="inlineCode">gdbserver</code> in the target image, you can add the package explicitly by adding this to <code class="inlineCode">conf/local.conf</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">IMAGE_INSTALL:append = " gdbserver"
+</code></pre>
+    <p class="normal">In the absence of a serial console, an SSH daemon also needs to be added so that you have some way to start <code class="inlineCode">gdbserver</code> on the target:</p>
+    <pre class="programlisting code"><code class="hljs-code">EXTRA_IMAGE_FEATURES:append = " ssh-server-openssh"
+</code></pre>
+    <p class="normal">Alternatively, you can add <code class="inlineCode">tools-debug</code> to <code class="inlineCode">EXTRA_IMAGE_FEATURES</code>, which will add <code class="inlineCode">gdbserver</code>, native <code class="inlineCode">gdb</code>, and <code class="inlineCode">strace</code> to the target image (I will talk about <code class="inlineCode">strace</code> in the next chapter):</p>
+    <pre class="programlisting code"><code class="hljs-code">EXTRA_IMAGE_FEATURES:append = " tools-debug ssh-server-openssh"
+</code></pre>
+    <p class="normal">Then rebuild the target image:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ bitbake core-image-minimal-dev
+</code></pre>
+    <p class="normal">For the second part, you just need to build an SDK as I described in <a href="Chapter_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 6</em></a>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ bitbake -c populate_sdk core-image-minimal-dev
+</code></pre>
+    <p class="normal">The SDK <a id="_idIndexMarker1390"/>contains a copy of GDB. It <a id="_idIndexMarker1391"/>also contains a <code class="inlineCode">sysroot</code> for the<a id="_idIndexMarker1392"/>target with debug symbols for all the programs and libraries that are part of the target image. Lastly, the SDK contains the source code for the executables. Instead of the SDK, you can use the sysroots inside of the Yocto build directly (<a href="https://docs.yoctoproject.org/sdk-manual/extensible.html#when-using-the-extensible-sdk-directly-in-a-yocto-build"><span class="url">https://docs.yoctoproject.org/sdk-manual/extensible.html#when-using-the-extensible-sdk-directly-in-a-yocto-build</span></a>).</p>
+    <p class="normal">The SDK built for the Raspberry Pi 4 for version 5.0.&lt;n&gt; of The Yocto Project is installed by default in <code class="inlineCode">/opt/poky/5.0.&lt;n&gt;/</code>. The <code class="inlineCode">sysroot</code> for the target is <code class="inlineCode">/opt/poky/5.0.&lt;n&gt;/sysroots/cortexa72-poky-linux/</code>. The programs are in <code class="inlineCode">/bin/</code>, <code class="inlineCode">/sbin/</code>, <code class="inlineCode">/usr/bin/</code>, and <code class="inlineCode">/usr/sbin/</code>, relative to the <code class="inlineCode">sysroot</code>, and the libraries are in <code class="inlineCode">/lib/</code> and <code class="inlineCode">/usr/lib/</code>. In each of these directories, you will find a subdirectory named <code class="inlineCode">.debug/</code> that contains the symbols for each program and library. GDB knows to look in .<code class="inlineCode">debug</code>/ when searching for symbol information. The source code for the executables is stored in <code class="inlineCode">/usr/src/debug/</code> relative to the <code class="inlineCode">sysroot</code>.</p>
+    <h2 id="_idParaDest-546" class="heading-2"><a id="_idTextAnchor623"/>Setting up Buildroot for remote debugging</h2>
+    <p class="normal">Buildroot does <a id="_idIndexMarker1393"/>not make a distinction between <a id="_idIndexMarker1394"/>the environment used to build and the <a id="_idIndexMarker1395"/>environment used for application development: there is no SDK. Assuming that you are using the Buildroot internal toolchain, you need to enable these options to copy GDB to the host and copy <code class="inlineCode">gdbserver</code> to the target:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">BR2_TOOLCHAIN_EXTERNAL</code>, in <strong class="screenText">Toolchain</strong> | <strong class="screenText">Toolchain type</strong> | <strong class="screenText">External toolchain</strong></li>
+      <li class="bulletList"><code class="inlineCode">BR2_TOOLCHAIN_EXTERNAL_GDB_SERVER_COPY</code>, in <strong class="screenText">Toolchain</strong> | <strong class="screenText">Copy gdb server to the Target</strong></li>
+      <li class="bulletList"><code class="inlineCode">BR2_PACKAGE_GDB</code>, in <strong class="screenText">Target packages</strong> | <strong class="screenText">Debugging, profiling and benchmark</strong> | <strong class="screenText">gdb</strong></li>
+    </ul>
+    <p class="normal">An external toolchain is needed because the toolchain that Buildroot 2024.02.6 builds cannot compile <code class="inlineCode">gdbserver</code>.</p>
+    <p class="normal">You also need to build executables with debug symbols, for which you need to enable <code class="inlineCode">BR2_ENABLE_DEBUG</code>, in <strong class="screenText">Build options</strong> | <strong class="screenText">build packages with debugging symbols</strong>.</p>
+    <p class="normal">This will create libraries with debug symbols in <code class="inlineCode">output/host/&lt;arch&gt;/sysroot</code>.</p>
+    <h2 id="_idParaDest-547" class="heading-2"><a id="_idTextAnchor624"/>Starting to debug</h2>
+    <p class="normal">Now that <a id="_idIndexMarker1396"/>you have <code class="inlineCode">gdbserver</code> installed on the target and a cross GDB on the host, you can start a debug session.</p>
+    <h3 id="_idParaDest-548" class="heading-3"><a id="_idTextAnchor625"/>Connecting GDB and gdbserver</h3>
+    <p class="normal">The connection between GDB and <code class="inlineCode">gdbserver</code> can be through a network or serial interface. In the case of <a id="_idIndexMarker1397"/>a network connection, you launch <code class="inlineCode">gdbserver</code> with the <a id="_idIndexMarker1398"/>TCP port number to listen on and, optionally, an IP address to accept connections from. In most cases, you don’t care which IP address is <a id="_idIndexMarker1399"/>going to connect, so you can just provide the port number. In this example, <code class="inlineCode">gdbserver</code> waits for a connection on port <code class="inlineCode">10000</code> from any host:</p>
+    <pre class="programlisting con"><code class="hljs-con"># gdbserver :10000 /usr/bin/helloworld
+Process /usr/bin/helloworld created; pid = 581
+Listening on port 10000
+</code></pre>
+    <p class="normal">Next, start the <a id="_idIndexMarker1400"/>copy of GDB from your toolchain, pointing it at an unstripped copy of the program so that GDB can load the symbol table:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ aarch64-poky-linux-gdb helloworld
+</code></pre>
+    <p class="normal">In GDB, use the target remote command to make the connection to <code class="inlineCode">gdbserver</code>, giving it the IP address or hostname of the target and the port it is waiting on:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) target remote raspberrypi4-64:10000
+</code></pre>
+    <p class="normal">When <code class="inlineCode">gdbserver</code> sees the connection from the host, it prints the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">Remote debugging from host 192.168.1.123, port 50696
+</code></pre>
+    <p class="normal">The procedure is similar for a serial connection. On the target, you tell <code class="inlineCode">gdbserver</code> which serial port to use:</p>
+    <pre class="programlisting con"><code class="hljs-con"># gdbserver /dev/ttyAMA0 /usr/bin/helloworld
+</code></pre>
+    <p class="normal">You may need to configure the port baud rate beforehand using <code class="inlineCode">stty(1)</code> or a similar program. A simple example would be as follows:</p>
+    <pre class="programlisting con"><code class="hljs-con"># stty -F /dev/ttyAMA0 115200
+</code></pre>
+    <p class="normal">There are many other options to <code class="inlineCode">stty</code>, so read the manual page for more details. It is worthwhile noting that the port must not be used for anything else. For example, you can’t use a port that is being used as the system console.</p>
+    <p class="normal">On the host, you make <a id="_idIndexMarker1401"/>the connection to <code class="inlineCode">gdbserver</code> using <code class="inlineCode">target remote</code> plus <a id="_idIndexMarker1402"/>the serial device at the host end of the cable. In most <a id="_idIndexMarker1403"/>cases, you will want to set the baud rate of the host serial <a id="_idIndexMarker1404"/>port first, using the GDB command <code class="inlineCode">set serial baud</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) set serial baud 115200
+(gdb) target remote /dev/ttyUSB0
+</code></pre>
+    <p class="normal">Even though GDB and <code class="inlineCode">gdbserver</code> are now connected, we are not ready to set breakpoints and start stepping through the source code yet.</p>
+    <h3 id="_idParaDest-549" class="heading-3"><a id="_idTextAnchor626"/>Setting the sysroot</h3>
+    <p class="normal">GDB needs to know where to find debug information and source code for the program and shared libraries <a id="_idIndexMarker1405"/>you are debugging. When debugging natively, the paths are well known and built into GDB. But when using a cross toolchain, GDB has no way to guess where the root of the target filesystem is. You have to provide this information.</p>
+    <p class="normal">If you built your application using The Yocto Project SDK, the <code class="inlineCode">sysroot</code> is within the SDK, and so you can set it in GDB like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) set sysroot /opt/poky/5.0.&lt;n&gt;/sysroots/cortexa72-poky-linux
+</code></pre>
+    <p class="normal">If you are using Buildroot, you will find that the <code class="inlineCode">sysroot</code> is in <code class="inlineCode">output/host/&lt;toolchain&gt;/sysroot</code>, and that <code class="inlineCode">output/staging</code> is a symbolic link to it. So, for Buildroot, you would set the <code class="inlineCode">sysroot</code> like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) set sysroot /home/frank/buildroot/output/staging
+</code></pre>
+    <p class="normal">GDB also needs to find the source code for the files you are debugging. GDB has a search path for source files, which you can see using the <code class="inlineCode">show directories</code> command:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) show directories
+Source directories searched: $cdir:$cwd
+</code></pre>
+    <p class="normal">These are the defaults: <code class="inlineCode">$cwd</code> is the current working directory of the GDB instance running on the host; <code class="inlineCode">$cdir</code> is the directory where the source was compiled. The latter is encoded into the object files with the tag <code class="inlineCode">DW_AT_comp_dir</code>. You can see these tags using <code class="inlineCode">objdump --dwarf</code> like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ aarch64-poky-linux-objdump --dwarf helloworld | grep DW_AT_comp_dir
+&lt;…&gt;
+&lt;23a&gt; DW_AT_comp_dir : (indirect line string, offset: 0xfc): /home/frank/helloworld
+&lt;…&gt;
+</code></pre>
+    <p class="normal">In most cases, the defaults, <code class="inlineCode">$cdir</code> and <code class="inlineCode">$cwd</code>, are sufficient, but problems arise if the directories have <a id="_idIndexMarker1406"/>been moved between compilation and debugging. One such case occurs with The Yocto Project. Taking a deeper look at the <code class="inlineCode">DW_AT_comp_dir</code> tags for a program compiled using The Yocto Project SDK, you may notice this:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ aarch64-poky-linux-objdump --dwarf helloworld | grep DW_AT_comp_dir
+&lt;1e&gt; DW_AT_comp_dir : (indirect string, offset: 0x1b): /usr/src/debug/glibc/2.39+git/csu
+&lt;4f&gt; DW_AT_comp_dir : (indirect line string, offset: 0): /usr/src/debug/glibc/2.39+git/csu
+&lt;1c5&gt; DW_AT_comp_dir : (indirect line string, offset: 0): /usr/src/debug/glibc/2.39+git/csu
+&lt;209&gt; DW_AT_comp_dir : (indirect string, offset: 0x1b): /usr/src/debug/glibc/2.39+git/csu
+&lt;23a&gt; DW_AT_comp_dir : (indirect line string, offset: 0xfc): /usr/src/debug/helloworld/1.0
+&lt;3e0&gt; DW_AT_comp_dir : (indirect string, offset: 0x1b): /usr/src/debug/glibc/2.39+git/csu
+&lt;…&gt;
+</code></pre>
+    <p class="normal">Here, you can see multiple references to the directory <code class="inlineCode">/usr/src/debug/glibc/2.39+git</code>, but where is it? The answer is that it is in the <code class="inlineCode">sysroot</code> for the SDK, so the full path is <code class="inlineCode">/opt/poky/5.0.6/sysroots/cortexa72-poky-linux/usr/src/debug/glibc/2.39+git</code>. The SDK contains source code for all of the programs and libraries in the target image. GDB has a simple way to cope with an entire directory tree being moved like this: <code class="inlineCode">substitute-path</code>. So, when debugging with The Yocto Project SDK, you need to use these commands:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) set sysroot /opt/poky/5.0.&lt;n&gt;/sysroots/cortexa72-poky-linux
+(gdb) set substitute-path /usr/src/debug /opt/poky/5.0.&lt;n&gt;/sysroots/cortexa72-poky-linux/usr/src/debug
+</code></pre>
+    <p class="normal">You may have additional shared libraries that are stored outside the <code class="inlineCode">sysroot</code>. In that case, you can use <code class="inlineCode">set solib-search-path</code>, which can contain a colon-separated list of directories to search for shared libraries. GDB searches <code class="inlineCode">solib-search-path</code> only if it cannot find the binary in the <code class="inlineCode">sysroot</code>.</p>
+    <p class="normal">A third way <a id="_idIndexMarker1407"/>of telling GDB where to look for source code, for both libraries and programs, is to use the <code class="inlineCode">directory</code> command:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) directory /home/frank//lib_mylib
+Source directories searched: /home/frank//lib_mylib:$cdir:$cwd
+</code></pre>
+    <p class="normal">Paths added in this way take precedence because they are searched <em class="italic">before</em> those from <code class="inlineCode">sysroot</code> or <code class="inlineCode">solib-search-path</code>.</p>
+    <h3 id="_idParaDest-550" class="heading-3"><a id="_idTextAnchor627"/>GDB command files</h3>
+    <p class="normal">There are some things that you need to do each time you run GDB, like setting the <code class="inlineCode">sysroot</code>. It is convenient <a id="_idIndexMarker1408"/>to put such commands into a command file and run them each time GDB is started. GDB reads commands from <code class="inlineCode">$HOME/.gdbinit</code>, then from <code class="inlineCode">.gdbinit</code> in the current directory, and then from files specified on the command line with the <code class="inlineCode">-x</code> parameter. However, recent versions of GDB will refuse to load <code class="inlineCode">.gdbinit</code> from the current directory for security reasons. You can override that behavior by adding a line such as this to <code class="inlineCode">$HOME/.gdbinit</code>:</p>
+    <pre class="programlisting code"><code class="hljs-code">set auto-load safe-path /
+</code></pre>
+    <p class="normal">Alternatively, if you don’t want to enable auto-loading globally, you can specify a particular directory like this:</p>
+    <pre class="programlisting code"><code class="hljs-code">add-auto-load-safe-path /home/frank/myprog
+</code></pre>
+    <p class="normal">My personal preference is to use the <code class="inlineCode">-x</code> parameter to point to the command file, which exposes the location of the file so that I don’t forget about it.</p>
+    <p class="normal">To help you set up GDB, Buildroot creates a GDB command file containing the correct <code class="inlineCode">sysroot</code> command in <code class="inlineCode">output/staging/usr/share/buildroot/gdbinit</code>. It will contain a line like this one:</p>
+    <pre class="programlisting con"><code class="hljs-con">set sysroot /home/frank/buildroot/output/host/aarch64-buildroot-linux-gnu/sysroot
+</code></pre>
+    <p class="normal">Now that GDB is running and can find the information it needs, let’s look at some of the commands we can perform with it.</p>
+    <h3 id="_idParaDest-551" class="heading-3"><a id="_idTextAnchor628"/>Overview of GDB commands</h3>
+    <p class="normal">GDB has many more commands, which are described in the online manual and in the resources <a id="_idIndexMarker1409"/>mentioned in the <em class="italic">Further study</em> section. To help you <a id="_idIndexMarker1410"/>get going as quickly as possible, here is a list of the most commonly used commands. In most cases, there is a short form for commands, which are listed in the following tables.</p>
+    <h4 class="heading-4">Breakpoints</h4>
+    <p class="normal">These are <a id="_idIndexMarker1411"/>the commands for managing breakpoints:</p>
+    <table id="table001-5" class="table-container">
+      <tbody>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Command</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Short-form command</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Use</strong></p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">break &lt;location&gt;
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">b &lt;location&gt;
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Set a breakpoint on a function name, line number, or line. Examples of locations are <code class="inlineCode">main</code>, <code class="inlineCode">5</code>, and <code class="inlineCode">sortbug.c:42</code>.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">info breakpoints
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">i b
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">List breakpoints.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">delete breakpoint &lt;N&gt;
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">d b &lt;N&gt;
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Delete the breakpoint <code class="inlineCode">&lt;N&gt;</code>.</p>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <h4 class="heading-4">Running and stepping</h4>
+    <p class="normal">These are <a id="_idIndexMarker1412"/>commands for controlling the execution of a program:</p>
+    <table id="table002" class="table-container">
+      <tbody>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Command</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Short-form command</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Use</strong></p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">run
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">r
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Load a fresh copy of the program into memory and start running it. <em class="italic">This does not work for remote debugging using gdbserver</em>.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">continue
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">c
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Continue execution from a breakpoint.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><em class="italic">Ctrl + C</em></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">-</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Stop the program from being debugged.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">step
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">s
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Step one line of code, stepping <em class="italic">into</em> any function that is called.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">next
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">n
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Step one line of code, stepping <em class="italic">over</em> a function call.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">finish
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">-</p>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Run until the current function returns.</p>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <h4 class="heading-4">Getting information</h4>
+    <p class="normal">These are <a id="_idIndexMarker1413"/>commands for getting information regarding the debugger:</p>
+    <table id="table003" class="table-container">
+      <tbody>
+        <tr>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Command</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Short-form command</strong></p>
+          </td>
+          <td class="table-cell">
+            <p class="normal"><strong class="keyWord">Use</strong></p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">backtrace
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">bt
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">List the call stack.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">info threads
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">i th
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Display information about the threads executing in the program.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">info sharedlibrary
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">i share
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Display information about shared libraries currently loaded by the program.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">print &lt;variable&gt;
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">p &lt;variable&gt;
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">Print the value of the variable. For example, <code class="inlineCode">print foo</code>.</p>
+          </td>
+        </tr>
+        <tr>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">list
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <pre class="programlisting con"><code class="hljs-con">l
+</code></pre>
+          </td>
+          <td class="table-cell">
+            <p class="normal">List lines of code around the current program counter.</p>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="normal">Before we can begin stepping through a program inside a debug session, we first need to set an initial breakpoint.</p>
+    <h3 id="_idParaDest-552" class="heading-3"><a id="_idTextAnchor629"/>Running to a breakpoint</h3>
+    <p class="normal"><code class="inlineCode">gdbserver</code> loads the program into memory and sets a breakpoint at the first instruction. Then it waits for <a id="_idIndexMarker1414"/>a connection from GDB. When the connection is made, you enter into a debug session. However, you will find that if you try to single-step immediately, you will get this message:</p>
+    <pre class="programlisting con"><code class="hljs-con">Cannot find bounds of current function
+</code></pre>
+    <p class="normal">This is because the program has halted at code written in assembly, which creates the runtime environment for C/C++ programs. The first line of C/C++ code is the <code class="inlineCode">main()</code> function. To stop at <code class="inlineCode">main()</code>, you would set a breakpoint there and then use the <code class="inlineCode">continue</code> command (abbreviation <code class="inlineCode">c</code>) to tell <code class="inlineCode">gdbserver</code> to continue from the start of the program and stop at <code class="inlineCode">main()</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) break main
+Breakpoint 1, main (argc=1, argv=0xbefffe24) at helloworld.c:8 printf("Hello, world!\n");
+(gdb) c
+</code></pre>
+    <p class="normal">At this point, you may see the following:</p>
+    <pre class="programlisting con"><code class="hljs-con">Reading /lib/ld-linux.so.3 from remote target...
+warning: File transfers from remote targets can be slow. Use "set sysroot" to access files locally instead.
+</code></pre>
+    <p class="normal">With older <a id="_idIndexMarker1415"/>versions of GDB, you may instead see this:</p>
+    <pre class="programlisting con"><code class="hljs-con">warning: Could not load shared library symbols for 2 libraries, e.g. /lib/libc.so.6.
+</code></pre>
+    <p class="normal">In both cases, the problem is that you have forgotten to set the <code class="inlineCode">sysroot</code>! Take another look at the earlier section on <code class="inlineCode">sysroot</code>.</p>
+    <p class="normal">This is all very different from starting a program natively, where you just type <code class="inlineCode">run</code>. In fact, if you try typing <code class="inlineCode">run</code> in a remote debug session, you will either see a message saying that the remote target does not support the <code class="inlineCode">run</code> command, or, in older versions of GDB, it will just hang without any explanation.</p>
+    <h3 id="_idParaDest-553" class="heading-3"><a id="_idTextAnchor630"/>Extending GDB with Python</h3>
+    <p class="normal">We can embed a full Python interpreter into GDB to extend its functionality. This is done by configuring <a id="_idIndexMarker1416"/>GDB using the <code class="inlineCode">--with-python</code> option prior to building. GDB has <a id="_idIndexMarker1417"/>an API that exposes much of its internal state as Python objects. This API allows us to define our own custom GDB commands as scripts written in Python. These extra commands may include useful debugging aids such as tracepoints and pretty printers that are not built into GDB.</p>
+    <h4 class="heading-4">Building GDB with Python support</h4>
+    <p class="normal">We have <a id="_idIndexMarker1418"/>already covered <em class="italic">Setting up Buildroot for remote debugging</em>. There are some additional steps needed to enable Python support inside GDB. We cannot use a toolchain generated by Buildroot to build GDB with Python support because it is missing some necessary thread support.</p>
+    <p class="normal">To build cross GDB for the host with Python support, perform the following steps:</p>
+    <ol>
+      <li class="numberedList" value="1">Navigate to the directory where you installed Buildroot:
+        <pre class="programlisting con"><code class="hljs-con">$ cd buildroot
+</code></pre>
+      </li>
+      <li class="numberedList">Copy the configuration file for the board you wish to build an image for:
+        <pre class="programlisting con"><code class="hljs-con">$ cd configs
+$ cp raspberrypi4_64_defconfig rpi4_64_gdb_defconfig
+$ cd ..
+</code></pre>
+      </li>
+      <li class="numberedList">Clean <a id="_idIndexMarker1419"/>previous build artifacts from the <code class="inlineCode">output</code> directory:
+        <pre class="programlisting con"><code class="hljs-con">$ make clean
+</code></pre>
+      </li>
+      <li class="numberedList">Activate your configuration file:
+        <pre class="programlisting con"><code class="hljs-con">$ make rpi4_64_gdb_defconfig
+</code></pre>
+      </li>
+      <li class="numberedList">Begin customizing your image:
+        <pre class="programlisting con"><code class="hljs-con">$ make menuconfig
+</code></pre>
+      </li>
+      <li class="numberedList">Enable the use of an external toolchain by navigating to <strong class="screenText">Toolchain</strong> | <strong class="screenText">Toolchain type</strong> | <strong class="screenText">External toolchain</strong> and selecting that option.</li>
+      <li class="numberedList">Back out of <strong class="screenText">External toolchain</strong> and open the <strong class="screenText">Toolchain</strong> submenu. Select a known working toolchain, such as <strong class="screenText">Linaro AArch64 2018.05</strong>, as your external toolchain.</li>
+      <li class="numberedList">Select <strong class="screenText">Build cross gdb for the host</strong> from the Toolchain page and enable both <strong class="screenText">TUI support</strong> and <strong class="screenText">Python support</strong>.</li>
+      <li class="numberedList">Drill down into the <strong class="screenText">GDB debugger Version</strong> submenu from the <strong class="screenText">Toolchain</strong> page and select the newest version of GDB available in Buildroot.</li>
+      <li class="numberedList">Back out of the <strong class="screenText">Toolchain</strong> page and drill down into <strong class="screenText">Build options</strong>. Select <strong class="screenText">Build packages with debugging symbols</strong>.</li>
+      <li class="numberedList">Back out of the <strong class="screenText">Build options</strong> page, drill down into <strong class="screenText">System Configuration</strong>, and select <strong class="screenText">Enable root login with password</strong>. Open <strong class="screenText">Root password</strong> and enter a non-empty password in the text field.</li>
+      <li class="numberedList">Back out of the <strong class="screenText">System Configuration</strong> page and drill down into <strong class="screenText">Target packages</strong> | <strong class="screenText">Debugging, profiling and benchmark</strong>. Select the <strong class="screenText">gdb</strong> package to add <code class="inlineCode">gdbserver</code> to the target image.</li>
+      <li class="numberedList">Back out of <strong class="screenText">Debugging, profiling and benchmark</strong> and drill down into <strong class="screenText">Target packages</strong> | <strong class="screenText">Networking applications</strong>. Select the <strong class="screenText">dropbear</strong> package to enable <code class="inlineCode">scp</code> and <code class="inlineCode">ssh</code> access to the target. Note that <code class="inlineCode">dropbear</code> does not allow <code class="inlineCode">root</code> <code class="inlineCode">scp</code> and <code class="inlineCode">ssh</code> access without a password.</li>
+      <li class="numberedList">Add the <strong class="screenText">haveged</strong> entropy daemon, which can be found under <strong class="screenText">Target packages</strong> | <strong class="screenText">Miscellaneous</strong> so that SSH is available quicker upon booting.</li>
+      <li class="numberedList">Add another <a id="_idIndexMarker1420"/>package to your image so you have something to debug. I chose the <code class="inlineCode">bsdiff</code> binary patch/diff tool, which is written in C and can be found under <strong class="screenText">Target packages</strong> | <strong class="screenText">Development tools</strong>.</li>
+      <li class="numberedList">Save your changes and exit Buildroot’s <code class="inlineCode">menuconfig</code>.</li>
+      <li class="numberedList">Save your changes to your configuration file:
+        <pre class="programlisting con"><code class="hljs-con">$ make savedefconfig
+</code></pre>
+      </li>
+      <li class="numberedList">Build the image for the target:
+        <pre class="programlisting con"><code class="hljs-con">$ make
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">A readymade <code class="inlineCode">rpi4_64_gdb_defconfig</code> file for the Raspberry Pi 4 can be found in the code archive for this chapter if you wish to skip the previous <code class="inlineCode">menuconfig</code> steps. Copy that file from <code class="inlineCode">MELD/Chapter19/buildroot/configs/</code> to your <code class="inlineCode">buildroot/configs</code> directory and run <code class="inlineCode">make</code> on that if you prefer.</p>
+    <p class="normal">When the build is done, there should be a bootable <code class="inlineCode">sdcard.img</code> file in <code class="inlineCode">output/images/</code> that you can write to a microSD card using Etcher. Insert that microSD into your target device and boot it. Connect the target device to your local network with an Ethernet cable and locate its IP address using <code class="inlineCode">arp-scan --localnet</code>. SSH into the device as <code class="inlineCode">root</code> and enter the password that you set when configuring your image. I specified <code class="inlineCode">temppwd</code> as the <code class="inlineCode">root</code> password for my <code class="inlineCode">rpi4_64_gdb_defconfig</code> image.</p>
+    <p class="normal">Now, let’s debug <code class="inlineCode">bsdiff</code> remotely using GDB:</p>
+    <ol>
+      <li class="numberedList" value="1">First, navigate to the <code class="inlineCode">/usr/bin</code> directory on the target:
+        <pre class="programlisting con"><code class="hljs-con"># cd /usr/bin
+</code></pre>
+      </li>
+      <li class="numberedList">Then, start <code class="inlineCode">bdiff</code> with <code class="inlineCode">gdbserver</code>, as we did with <code class="inlineCode">helloworld</code> earlier:
+        <pre class="programlisting con"><code class="hljs-con"># gdbserver :10000 ./bsdiff /usr/bin/bzless /usr/bin/bzmore ~/patchfile
+Process ./bsdiff created; pid = 197
+Listening on port 10000
+</code></pre>
+      </li>
+      <li class="numberedList">On your Linux host, copy <code class="inlineCode">tp.py</code> to your home directory:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~
+$ cp MELD/Chapter19/tp.py .
+</code></pre>
+      </li>
+      <li class="numberedList">Next, start the copy of GDB from your toolchain, pointing it at an unstripped copy of the program so that GDB can load the symbol table:
+        <pre class="programlisting con"><code class="hljs-con">$ cd ~/buildroot/output/build/bsdiff-4.3
+$ ~/buildroot/output/host/bin/aarch64-linux-gdb bsdiff
+</code></pre>
+      </li>
+      <li class="numberedList">In GDB, set the <code class="inlineCode">sysroot</code> like this:
+        <pre class="programlisting con"><code class="hljs-con">(gdb) set sysroot ~/buildroot/output/staging
+</code></pre>
+      </li>
+      <li class="numberedList">Then, use the <a id="_idIndexMarker1421"/>command target remote to make the connection to <code class="inlineCode">gdbserver</code>, giving it the IP address or hostname of the target and the port it is waiting on:
+        <pre class="programlisting con"><code class="hljs-con">(gdb) target remote 192.168.1.127:10000
+</code></pre>
+      </li>
+      <li class="numberedList">When <code class="inlineCode">gdbserver</code> sees the connection from the host, it prints the following:
+        <pre class="programlisting con"><code class="hljs-con">Remote debugging from host 192.168.1.123, port 36980
+</code></pre>
+      </li>
+      <li class="numberedList">We can now load Python command scripts such as <code class="inlineCode">tp.py</code> into GDB and invoke these commands like so:
+        <pre class="programlisting con"><code class="hljs-con">(gdb) source ~/tp.py
+(gdb) tp search
+Breakpoint 1 at 0x555b7b9154: file /home/frank/buildroot/output/build/bsdiff-4.3/bsdiff.c, line 170.
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">In this case, <code class="inlineCode">tp</code> is the name of the <em class="italic">tracepoint</em> command and <code class="inlineCode">search</code> is the name of a recursive function in <code class="inlineCode">bsdiff</code>.</p>
+    <ol>
+      <li class="numberedList" value="9">Set a breakpoint at <code class="inlineCode">main()</code>:
+        <pre class="programlisting con"><code class="hljs-con">(gdb) break main
+Breakpoint 2 at 0x555b7b8e50: file /home/frank/buildroot/output/build/bsdiff-4.3/bsdiff.c, line 216.
+</code></pre>
+      </li>
+      <li class="numberedList">Continue:
+        <pre class="programlisting con"><code class="hljs-con">(gdb) c
+Continuing.
+Breakpoint 2, main (argc=4, argv=0x7ff2c99ec8) at /home/frank/buildroot/output/build/bsdiff-4.3/bsdiff.c:216
+216             if(argc!=4) errx(1,"usage: %s oldfile newfile patchfile\n",argv[0]);
+</code></pre>
+      </li>
+      <li class="numberedList">Continue again:
+        <pre class="programlisting con"><code class="hljs-con">(gdb) c
+Continuing.
+search @ /home/frank/buildroot/output/build/bsdiff-4.3/bsdiff.c:170
+        x(off_t: &lt;optimized out&gt;) [8]
+        y(off_t: &lt;optimized out&gt;) [8]
+&lt;…&gt;
+search @ /home/frank/buildroot/output/build/bsdiff-4.3/bsdiff.c:170
+        x(off_t: &lt;optimized out&gt;) [8]
+        y(off_t: &lt;optimized out&gt;) [8]
+[Inferior 1 (process 251) exited normally]
+Tracepoint 'search' Count: 10
+(gdb)
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">The <code class="inlineCode">bsdiff</code> program performs binary diffs and takes three arguments: <code class="inlineCode">oldfile</code>, <code class="inlineCode">newfile</code>, and <code class="inlineCode">patchfile</code>. The <code class="inlineCode">patchfile</code> that <code class="inlineCode">bsdiff</code> generates serves as input to the <code class="inlineCode">bspatch</code> program <a id="_idIndexMarker1422"/>for patching binaries. We start the <code class="inlineCode">bsdiff</code> program on the target with <code class="inlineCode">/usr/bin/bzless</code>, <code class="inlineCode">/usr/bin/bzmore</code>, and <code class="inlineCode">~/patchfile</code> as arguments. The output from the GDB <em class="italic">tracepoint</em> command indicates that the <code class="inlineCode">search</code> function at <em class="italic">line 170</em> of <code class="inlineCode">bsdiff.c</code> was called 10 times over the course of the process.</p>
+    <p class="normal">The Python support in GDB can also be used to debug Python programs. GDB has visibility into CPython’s internals that the standard <code class="inlineCode">pdb</code> debugger for Python does not. It can even inject Python code into a running Python process. This enables the creation of powerful Python debugging tools like memory analyzers that would otherwise be impossible.</p>
+    <h2 id="_idParaDest-554" class="heading-2"><a id="_idTextAnchor631"/>Native debugging</h2>
+    <p class="normal">Running a native copy of GDB on the target is not as common as doing it remotely, but it is possible. In addition <a id="_idIndexMarker1423"/>to installing GDB onto the target image, you will also need <a id="_idIndexMarker1424"/>to install unstripped copies of the executables you wish to debug and their corresponding source code. Both The Yocto Project and Buildroot allow you to do this.</p>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">While native debugging is not a common activity for embedded developers, running profile and trace tools on the target is very common. These tools usually work best if you have unstripped binaries and source code on the target, which is half of the story I am telling here. I will return to this topic in the next chapter.</p>
+    </div>
+    <h3 id="_idParaDest-555" class="heading-3"><a id="_idTextAnchor632"/>The Yocto Project</h3>
+    <p class="normal">To begin with, add <code class="inlineCode">gdb</code> to the target image by adding this to <code class="inlineCode">conf/local.conf</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">EXTRA_IMAGE_FEATURES:append = "tools-debug dbg-pkgs src-pkgs"
+</code></pre>
+    <p class="normal">You need <a id="_idIndexMarker1425"/>the debug information for the packages you want to debug. The Yocto Project builds debug variants of packages, which contain the debug info and symbols stripped from the binaries. You can add these debug packages selectively to your target <a id="_idIndexMarker1426"/>image by adding <code class="inlineCode">&lt;package name&gt;-dbg</code> to your <code class="inlineCode">conf/local.conf</code>. Or, you can simply install all debug packages by adding <code class="inlineCode">dbg-pkgs</code> to <code class="inlineCode">EXTRA_IMAGE_FEATURES</code> as just shown. Be warned that this will increase the size of the target image dramatically, perhaps by several hundreds of megabytes.</p>
+    <p class="normal">Similarly, you can add source packages to your target image by adding <code class="inlineCode">&lt;package name&gt;-src</code> to your <code class="inlineCode">conf/local.conf</code>. Or, you can simply install all source packages by adding <code class="inlineCode">src-pkgs</code> to <code class="inlineCode">EXTRA_IMAGE_FEATURES</code>. Again, this will dramatically increase the size of the target image. The source code is installed in <code class="inlineCode">/usr/src/debug/&lt;package name&gt;</code> in the target image. This means that GDB will pick it up without needing to run <code class="inlineCode">set substitute-path</code>.</p>
+    <h3 id="_idParaDest-556" class="heading-3"><a id="_idTextAnchor633"/>Buildroot</h3>
+    <p class="normal">With Buildroot, you can <a id="_idIndexMarker1427"/>tell it to install a native copy of GDB in <a id="_idIndexMarker1428"/>the target image by enabling this option:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">BR2_PACKAGE_GDB_DEBUGGER</code> in <strong class="screenText">Target packages</strong> | <strong class="screenText">Debugging, profiling and benchmark</strong> | <strong class="screenText">Full debugger</strong></li>
+    </ul>
+    <p class="normal">Then, to build binaries with debug information and install them in the target image without stripping, enable the first and disable the second of these two options:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">BR2_ENABLE_DEBUG</code> in <strong class="screenText">Build options</strong> | <strong class="screenText">Build packages with debugging symbols</strong></li>
+      <li class="bulletList"><code class="inlineCode">BR2_STRIP_strip</code> in <strong class="screenText">Build options</strong> | <strong class="screenText">Strip target binaries</strong></li>
+    </ul>
+    <p class="normal">That’s all I have <a id="_idIndexMarker1429"/>to say about native debugging. Again, the practice is uncommon <a id="_idIndexMarker1430"/>on embedded devices because the extra source code and debug symbols add bloat to the target image. Next, let’s look at another form of remote debugging.</p>
+    <h1 id="_idParaDest-557" class="heading-1"><a id="_idTextAnchor634"/>Just-in-time debugging</h1>
+    <p class="normal">Sometimes, a program will start to misbehave after it has been running for a while, and you would like <a id="_idIndexMarker1431"/>to know what it is doing. The GDB <code class="inlineCode">attach</code> feature does exactly this. I call it just-in-time debugging. It is available with both native and remote debug sessions.</p>
+    <p class="normal">In the case of remote debugging, you need to find the PID of the process to be debugged and pass it to <code class="inlineCode">gdbserver</code> with the <code class="inlineCode">--attach</code> option. For example, if the PID is 109, you would type this:</p>
+    <pre class="programlisting con"><code class="hljs-con"># gdbserver --attach :10000 109
+Attached; pid = 109
+Listening on port 10000
+</code></pre>
+    <p class="normal">This forces the process to stop as if it were at a breakpoint, allowing you to start your cross GDB in the normal way and connect to <code class="inlineCode">gdbserver</code>. When you are done, you can detach, allowing the program to continue running without the debugger:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) detach
+Detaching from program: /home/frank/helloworld, process 109
+Ending remote debugging.
+</code></pre>
+    <p class="normal">Attaching to a running process by PID is certainly handy, but what about multi-process or multithreaded programs? There are techniques for debugging those types of programs with GDB as well.</p>
+    <h1 id="_idParaDest-558" class="heading-1"><a id="_idTextAnchor635"/>Debugging forks and threads</h1>
+    <p class="normal">What happens <a id="_idIndexMarker1432"/>when the program you are debugging forks? Does the debug session follow the parent process or the child? This behavior is controlled by <code class="inlineCode">follow-fork-mode</code>, which may be <code class="inlineCode">parent</code> or <code class="inlineCode">child</code>, with <code class="inlineCode">parent</code> being the default. Unfortunately, current versions of <code class="inlineCode">gdbserver</code> do not support this option, so it only works for native debugging. If you really need to debug the child process while using <code class="inlineCode">gdbserver</code>, a workaround is to modify the code so that the child loops on a variable immediately after the fork, giving you the opportunity to attach a new <code class="inlineCode">gdbserver</code> session to it and then to set the variable so that it drops out of the loop.</p>
+    <p class="normal">When a thread in a multithreaded process hits a breakpoint, the default behavior is for all threads to halt. In most cases, this is the best thing to do as it allows you to look at static variables without them being changed by the other threads. When you resume execution of the thread, all the stopped threads start up, even if you are single-stepping, and it is especially this last case that <a id="_idIndexMarker1433"/>can cause problems. There is a way to modify the way in which GDB handles stopped threads, through a parameter called <code class="inlineCode">scheduler-locking</code>. Normally it is <code class="inlineCode">off</code>, but if you set it to <code class="inlineCode">on</code>, only the thread that was stopped at the breakpoint is resumed and the others remain stopped, giving you a chance to see what the thread alone does without interference. This continues to be the case until you turn <code class="inlineCode">scheduler-locking</code> off. <code class="inlineCode">gdbserver</code> supports this feature.</p>
+    <h1 id="_idParaDest-559" class="heading-1"><a id="_idTextAnchor636"/>Core files</h1>
+    <p class="normal">Core files capture the state of a failing program at the point that it terminates. You don’t even have to be <a id="_idIndexMarker1434"/>in the room with a debugger when the bug manifests itself. So, when you see <code class="inlineCode">Segmentation fault (core dumped)</code>, don’t shrug; investigate the <strong class="keyWord">core file</strong> and extract the goldmine of information in there.</p>
+    <p class="normal">The first observation is that core files are not created by default, but only when the core file resource limit for the process is non-zero. You can change it for the current shell using <code class="inlineCode">ulimit -c</code>. To remove all limits on the size of core files, type the following command:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ulimit -c unlimited
+</code></pre>
+    <p class="normal">By default, the core file is named <code class="inlineCode">core</code> and is placed in the current working directory of the process, which is the one pointed to by <code class="inlineCode">/proc/&lt;PID&gt;/cwd</code>. There are a number of problems with this scheme. Firstly, when looking at a device with several files named <code class="inlineCode">core</code>, it is not obvious which program generated each one. Secondly, the current working directory of the process may well be in a read-only filesystem, there may not be enough space to store the core file, or the process may not have permissions to write to the current working directory.</p>
+    <p class="normal">There are two files that control the naming and placement of core files. The first is <code class="inlineCode">/proc/sys/kernel/core_uses_pid</code>. Writing a <code class="inlineCode">1</code> to it causes the PID number of the dying process to be appended to the filename, which is somewhat useful as long as you can associate the PID number with a program name from log files.</p>
+    <p class="normal">Much more useful is <code class="inlineCode">/proc/sys/kernel/core_pattern</code>, which gives you a lot more control over core files. The default pattern is core, but you can change it to a pattern composed of these meta characters:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">%p</code>: PID</li>
+      <li class="bulletList"><code class="inlineCode">%u</code>: Real UID of the dumped process</li>
+      <li class="bulletList"><code class="inlineCode">%g</code>: Real GID of the dumped process</li>
+      <li class="bulletList"><code class="inlineCode">%s</code>: Number of the signal causing the dump</li>
+      <li class="bulletList"><code class="inlineCode">%t</code>: Time of dump expressed as seconds since the Epoch, 1970-01-01 00:00:00 +0000 (UTC)</li>
+      <li class="bulletList"><code class="inlineCode">%h</code>: Hostname</li>
+      <li class="bulletList"><code class="inlineCode">%e</code>: Executable filename</li>
+      <li class="bulletList"><code class="inlineCode">%E</code>: Path name of executable with slashes (/) replaced by exclamation marks (!)</li>
+      <li class="bulletList"><code class="inlineCode">%c</code>: Core file size soft resource limit of the dumped process</li>
+    </ul>
+    <p class="normal">You can also <a id="_idIndexMarker1435"/>use a pattern that begins with an absolute directory name so that all core files are gathered together in one place. As an example, the following pattern puts all core files into the <code class="inlineCode">/corefiles</code> directory and names them with the program name and the time of the crash:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo /corefiles/core.%e.%t &gt; /proc/sys/kernel/core_pattern
+</code></pre>
+    <p class="normal">Following a core dump, you would find something like this:</p>
+    <pre class="programlisting con"><code class="hljs-con"># ls /corefiles
+core.sort-debug.1431425613
+</code></pre>
+    <p class="normal">For more information, refer to the <code class="inlineCode">core(5)</code> manual page.</p>
+    <h2 id="_idParaDest-560" class="heading-2"><a id="_idTextAnchor637"/>Using GDB to look at core files</h2>
+    <p class="normal">Here is a <a id="_idIndexMarker1436"/>sample GDB session looking at <a id="_idIndexMarker1437"/>a core file:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ arm-poky-linux-gnueabi-gdb sort-debug /home/chris/rootfs/corefiles/core.sort-debug.1431425613
+&lt;…&gt;
+Core was generated by './sort-debug'.
+Program terminated with signal SIGSEGV, Segmentation fault.
+#0 0x000085c8 in addtree (p=0x0, w=0xbeac4c60 "the") at sort-debug.c:41
+<a id="_idTextAnchor638"/>41 p-&gt;word = strdup (w);
+</code></pre>
+    <p class="normal">This shows that the program stopped at <em class="italic">line 41</em>. The list command shows the code in the vicinity:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) list
+<a id="_idTextAnchor639"/>37 static struct tnode *addtree (struct tnode *p, char *w)
+<a id="_idTextAnchor640"/>38 {
+<a id="_idTextAnchor641"/>39     int cond;
+<a id="_idTextAnchor642"/>40
+41     p-&gt;word = strdup (w);
+<a id="_idTextAnchor643"/>42     p-&gt;count = 1;
+<a id="_idTextAnchor644"/>43     p-&gt;left = NULL;
+<a id="_idTextAnchor645"/>44     p-&gt;right = NULL;
+<a id="_idTextAnchor646"/>45
+</code></pre>
+    <p class="normal">The <code class="inlineCode">backtrace</code> command (shortened to <code class="inlineCode">bt</code>) shows how we got to this point:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) bt
+#0 0x000085c8 in addtree (p=0x0, w=0xbeac4c60 "the") at sort-debug.c:41
+#1 0x00008798 in main (argc=1, argv=0xbeac4e24) at sort-debug.c:89
+</code></pre>
+    <p class="normal">This is an <a id="_idIndexMarker1438"/>obvious mistake: <code class="inlineCode">addtree()</code> was called with a null pointer.</p>
+    <p class="normal">GDB began <a id="_idIndexMarker1439"/>as a command-line debugger and many people still use it this way. Even though the LLVM Project’s LLDB debugger is gaining in popularity, GCC and GDB remain the prominent compiler and debugger for Linux. So far, we have focused exclusively on GDB’s command-line interface. Now we will look at some frontends to GDB with progressively more modern user interfaces.</p>
+    <h1 id="_idParaDest-561" class="heading-1"><a id="_idTextAnchor647"/>GDB user interfaces</h1>
+    <p class="normal">GDB is controlled at a low level through the GDB machine interface, GDB/MI, which can be used to <a id="_idIndexMarker1440"/>wrap GDB in a user interface or as part of a larger program, and it considerably extends the range of options available to you.</p>
+    <p class="normal">In this section, I will describe three that are well suited to debugging embedded targets: the <strong class="keyWord">Terminal User Interface</strong> (<strong class="keyWord">TUI</strong>), <strong class="keyWord">Data Display Debugger</strong> (<strong class="keyWord">DDD</strong>), and <strong class="keyWord">Visual Studio Code</strong>.</p>
+    <h2 id="_idParaDest-562" class="heading-2"><a id="_idTextAnchor648"/>Terminal User Interface</h2>
+    <p class="normal">The <strong class="keyWord">Terminal User Interface</strong> (<strong class="keyWord">TUI</strong>) is an <a id="_idIndexMarker1441"/>optional part <a id="_idIndexMarker1442"/>of the standard GDB package. The main feature is a code window that shows the line of code about to be executed, together with any breakpoints. It is a definite improvement on the <code class="inlineCode">list</code> command in command-line mode GDB.</p>
+    <p class="normal">The attraction of the TUI is that it just works without any extra setup, and since it is in text mode, it is possible <a id="_idIndexMarker1443"/>to use over an SSH terminal session, for example, when running <code class="inlineCode">gdb</code> natively on a target. Most cross toolchains <a id="_idIndexMarker1444"/>configure GDB with the TUI. Simply add <code class="inlineCode">-tui</code> to the command line and you will see the following:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_19_01.png" alt="Figure 19.1 – TUI" width="1652" height="1083"/></figure>
+    <p class="packt_figref">Figure 19.1 – TUI</p>
+    <p class="normal">If you still find the TUI lacking and prefer a truly graphical frontend to GDB, the GNU project also offers one of those (<a href="https://www.gnu.org/software/ddd"><span class="url">https://www.gnu.org/software/ddd</span></a>).</p>
+    <h2 id="_idParaDest-563" class="heading-2"><a id="_idTextAnchor649"/>Data Display Debugger</h2>
+    <p class="normal"><strong class="keyWord">Data Display Debugger</strong> (<strong class="keyWord">DDD</strong>) is a <a id="_idIndexMarker1445"/>simple standalone program <a id="_idIndexMarker1446"/>that gives you a graphical user interface to GDB with minimal fuss and bother, and although the UI controls look dated, it does everything that is necessary.</p>
+    <p class="normal">The <code class="inlineCode">--debugger</code> option tells DDD to use GDB from your toolchain, and you can use the <code class="inlineCode">-x</code> argument to give the path to a GDB command file:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ ddd --debugger aarch64-poky-linux-gdb -x gdbinit sort-debug
+</code></pre>
+    <p class="normal">The following <a id="_idIndexMarker1447"/>screenshot shows off one of the nicest features: the data window, which contains items in a grid that you can rearrange as you wish. If you double-click <a id="_idIndexMarker1448"/>on a pointer, it is expanded into a new data item and the link is shown with an arrow:</p>
+    <figure class="mediaobject"><img src="../Images/B18466_19_02.png" alt="Figure 19.2 – DDD" width="1652" height="1167"/></figure>
+    <p class="packt_figref">Figure 19.2 – DDD</p>
+    <p class="normal">If neither of these two GDB frontends is acceptable because you are a full stack web developer accustomed to working with the latest tools in your industry, then we still have you covered.</p>
+    <h2 id="_idParaDest-564" class="heading-2"><a id="_idTextAnchor650"/>Visual Studio Code</h2>
+    <p class="normal"><strong class="keyWord">Visual Studio Code</strong> is a very <a id="_idIndexMarker1449"/>popular open-source code <a id="_idIndexMarker1450"/>editor from Microsoft. Because it is an Electron application written in TypeScript, Visual Studio Code feels more lightweight and responsive than full-blown IDEs such as Eclipse. There is rich language support (code completion, go to definition, etc.) for many languages by way of extensions contributed by its large community of users. Remote cross GDB debugging can be integrated into Visual Studio Code using extensions for C/C++.</p>
+    <figure class="mediaobject"><img src="../Images/B18466_19_03.png" alt="Figure 19.3 – Visual Studio Code" width="1652" height="999"/></figure>
+    <p class="packt_figref">Figure 19.3 – Visual Studio Code</p>
+    <p class="normal">There are no prescribed workflows for integrating Visual Studio Code with Buildroot or Yocto. To enable remote GDB debugging, you need to edit project files like <code class="inlineCode">settings.json</code> and <code class="inlineCode">launch.json</code>. These project files point at the toolchain and <code class="inlineCode">sysroot</code>. They also contain the target IP and SSH login credentials.</p>
+    <h1 id="_idParaDest-565" class="heading-1"><a id="_idTextAnchor651"/>Debugging kernel code</h1>
+    <p class="normal">You can use <code class="inlineCode">kgdb</code> for source-level debugging, in a manner similar to remote debugging with <code class="inlineCode">gdbserver</code>. There is <a id="_idIndexMarker1451"/>also a self-hosted kernel debugger, <code class="inlineCode">kdb</code>, that is handy for lighter-weight tasks such as seeing whether an instruction is executed and getting the backtrace to find out how it got there. Finally, there are kernel <em class="italic">Oops</em> messages and panics, which tell you a lot about the cause of a kernel exception.</p>
+    <h2 id="_idParaDest-566" class="heading-2"><a id="_idTextAnchor652"/>Debugging kernel code with kgdb</h2>
+    <p class="normal">When looking at kernel code using a source debugger, you must remember that the kernel is a complex system, with real-time behaviors. Don’t expect debugging to be as easy as it is for applications. Stepping <a id="_idIndexMarker1452"/>through code that changes the memory <a id="_idIndexMarker1453"/>mapping or switches context is likely to produce odd results.</p>
+    <p class="normal"><strong class="keyWord">kgdb</strong> is the name <a id="_idIndexMarker1454"/>given to the kernel GDB stubs that have been part of mainline Linux for many years now. There is a user manual in the kernel DocBook, and you can find an online <a id="_idIndexMarker1455"/>version at <a href="https://kernel.org/doc/html/v6.6/dev-tools/kgdb.html"><span class="url">https://kernel.org/doc/html/v6.6/dev-tools/kgdb.html</span></a>.</p>
+    <p class="normal">In most cases, you will connect to <code class="inlineCode">kgdb</code> over the serial interface, which is usually shared with the serial console. Hence, this <a id="_idIndexMarker1456"/>implementation is called <strong class="keyWord">kgdboc</strong>, which is short for <strong class="keyWord">kgdb over console</strong>. To work, it requires a platform <code class="inlineCode">tty</code> driver that supports I/O polling instead of interrupts, since <code class="inlineCode">kgdb</code> has to disable interrupts when communicating with GDB. A few platforms support <code class="inlineCode">kgdb</code> over USB, and there have been versions that work over Ethernet but, unfortunately, none of them have found their way into mainline Linux.</p>
+    <p class="normal">The same caveats regarding optimization and stack frames apply to the kernel, with the limitation that the kernel is written to assume an optimization level of at least <code class="inlineCode">-O1</code>. You can override the kernel compile flags by setting <code class="inlineCode">KCFLAGS</code> before running <code class="inlineCode">make</code>.</p>
+    <p class="normal">These, then, are <a id="_idIndexMarker1457"/>the kernel configuration options you will need for kernel debugging:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">CONFIG_DEBUG_INFO</code> is in the <strong class="screenText">Kernel hacking</strong> | <strong class="screenText">Compile-time checks and compiler options</strong> | <strong class="screenText">Debug information</strong> | <strong class="screenText">Rely on the toolchain’s implicit default DWARF version</strong> menu.</li>
+      <li class="bulletList"><code class="inlineCode">CONFIG_FRAME_POINTER</code> may be an option for your architecture and is in the <strong class="screenText">Kernel hacking</strong> | <strong class="screenText">Compile-time checks and compiler options</strong> | <strong class="screenText">Compile the kernel with frame pointers</strong> menu.</li>
+      <li class="bulletList"><code class="inlineCode">CONFIG_KGDB</code> is in the <strong class="screenText">Kernel hacking | Generic Kernel Debugging Instruments | KGDB: kernel debugger</strong> menu.</li>
+      <li class="bulletList"><code class="inlineCode">CONFIG_KGDB_SERIAL_CONSOLE</code> is in the <strong class="screenText">Kernel hacking</strong> | <strong class="screenText">Generic Kernel Debugging Instruments</strong> | <strong class="screenText">KGDB: kernel debugger</strong> | <strong class="screenText">KGDB: use kgdb over the serial console</strong> menu.</li>
+    </ul>
+    <p class="normal">The kernel <a id="_idIndexMarker1458"/>image must be in ELF object format so that GDB can load the symbols into memory. This is the file called <code class="inlineCode">vmlinux</code> that is generated in <a id="_idIndexMarker1459"/>the directory where Linux is built. In Yocto, you can <a id="_idIndexMarker1460"/>request that a copy be included in the target image and SDK. It is built as a package named <code class="inlineCode">kernel-vmlinux</code>, which you can install like any other, for example, by adding it to the <code class="inlineCode">IMAGE_INSTALL</code> list.</p>
+    <p class="normal">The file is put into the <code class="inlineCode">sysroot</code> boot directory, with a name like this:</p>
+    <pre class="programlisting con"><code class="hljs-con">/opt/poky/5.0.&lt;n&gt;/sysroots/cortexa72-poky-linux/boot/vmlinux-&lt;version string&gt;-v8
+</code></pre>
+    <p class="normal">In Buildroot, you will find <code class="inlineCode">vmlinux</code> in the directory where the kernel was built, which is in <code class="inlineCode">output/build/linux-&lt;version string&gt;/vmlinux</code>.</p>
+    <p class="normal">You need to tell <code class="inlineCode">kgdb</code> which serial port to use, either through the kernel command line or at runtime via <code class="inlineCode">sysfs</code>. For the first option, add <code class="inlineCode">kgdboc=&lt;tty&gt;,&lt;baud rate&gt;</code> to the kernel command line:</p>
+    <pre class="programlisting code"><code class="hljs-code">kgdboc=ttyS0,115200
+</code></pre>
+    <h2 id="_idParaDest-567" class="heading-2"><a id="_idTextAnchor653"/>A sample debug session</h2>
+    <p class="normal">The best way to show you how <code class="inlineCode">kgdb</code> works is with a simple example. But before you can use <code class="inlineCode">kgdb</code>, you first <a id="_idIndexMarker1461"/>need to build it. To build <code class="inlineCode">kgdb</code> and <code class="inlineCode">kdb</code>, complete <em class="italic">Building GDB with Python support</em>, then perform these steps:</p>
+    <ol>
+      <li class="numberedList" value="1">Navigate to the directory where you installed Buildroot:
+        <pre class="programlisting con"><code class="hljs-con">$ cd buildroot
+</code></pre>
+      </li>
+      <li class="numberedList">Clean previous build artifacts from the output directory:
+        <pre class="programlisting con"><code class="hljs-con">$ make clean
+</code></pre>
+      </li>
+      <li class="numberedList">Comment out the <code class="inlineCode">miniuart-bt</code> <code class="inlineCode">dtoverlay</code> from <code class="inlineCode">board/raspberrypi4-64/config_4_64bit.txt</code>:
+        <pre class="programlisting code"><code class="hljs-code">#dtoverlay=miniuart-bt
+</code></pre>
+      </li>
+      <li class="numberedList">Append the following lines to <code class="inlineCode">board/raspberrypi4-64/config_4_64bit.txt</code>:
+        <pre class="programlisting code"><code class="hljs-code">enable_uart=1
+dtoverlay=uart
+</code></pre>
+      </li>
+      <li class="numberedList">Activate your saved configuration file:
+        <pre class="programlisting con"><code class="hljs-con">$ make rpi4_64_gdb_defconfig
+</code></pre>
+      </li>
+      <li class="numberedList">Build your <a id="_idIndexMarker1462"/>saved configuration:
+        <pre class="programlisting con"><code class="hljs-con">$ make
+</code></pre>
+      </li>
+      <li class="numberedList">Begin customizing your kernel:
+        <pre class="programlisting con"><code class="hljs-con">$ make linux-menuconfig
+</code></pre>
+      </li>
+      <li class="numberedList">Enable kernel debugging by navigating to <strong class="screenText">Kernel hacking</strong> | <strong class="screenText">Compile-time checks and compiler options</strong> | <strong class="screenText">Debug information</strong> and selecting <strong class="screenText">Rely on the toolchain’s implicit default DWARF version</strong>.</li>
+      <li class="numberedList">Deselect <strong class="screenText">Reduce debugging information</strong>.</li>
+      <li class="numberedList">Back out of <strong class="screenText">Debug information</strong> and select the <strong class="screenText">Compile the kernel with frame pointers </strong>menu.</li>
+      <li class="numberedList">Back out of <strong class="screenText">Compile-time checks and compiler options</strong> and drill down into <strong class="screenText">Generic Kernel Debugging Instruments</strong> | <strong class="screenText">KGDB: kernel debugger</strong>.</li>
+      <li class="numberedList">Select both <strong class="screenText">KGDB: use kgdb over the serial console</strong> and <strong class="screenText">KGDB_KDB: include kdb frontend for kgdb</strong>.</li>
+      <li class="numberedList">Back out of <strong class="screenText">Kernel hacking</strong> and drill down into <strong class="screenText">Kernel Features</strong>.</li>
+      <li class="numberedList">Deselect <strong class="screenText">Randomize the address of the kernel image</strong>.</li>
+      <li class="numberedList">Save your changes and exit <code class="inlineCode">linux-menuconfig</code>.</li>
+      <li class="numberedList">Rebuild the kernel:
+        <pre class="programlisting con"><code class="hljs-con">$ make linux-rebuild
+</code></pre>
+      </li>
+      <li class="numberedList">Delete the microSD card image:
+        <pre class="programlisting con"><code class="hljs-con">$ rm output/images/sdcard.img
+</code></pre>
+      </li>
+      <li class="numberedList">Regenerate the microSD card image:
+        <pre class="programlisting con"><code class="hljs-con">$ make
+</code></pre>
+      </li>
+    </ol>
+    <p class="normal">When the build is done, there should be a bootable <code class="inlineCode">sdcard.img</code> file in <code class="inlineCode">output/images/</code> that you can write <a id="_idIndexMarker1463"/>to a microSD card using Etcher. Insert that microSD into your target device. Connect a USB-to-TTL serial cable to the Raspberry Pi 4 (<a href="https://learn.adafruit.com/adafruits-raspberry-pi-lesson-5-using-a-console-cable/connect-the-lead"><span class="url">https://learn.adafruit.com/adafruits-raspberry-pi-lesson-5-using-a-console-cable/connect-the-lead</span></a>). Boot the device.</p>
+    <p class="normal">Connect the target device to your local network with an Ethernet cable and locate its IP address using <code class="inlineCode">arp-scan --localnet</code>. SSH into the device as <code class="inlineCode">root</code> and enter the password that you set when configuring your image. I specified <code class="inlineCode">temppwd</code> as the <code class="inlineCode">root</code> password for my <code class="inlineCode">rpi4_64_gdb_defconfig</code> image. Write the terminal name to the <code class="inlineCode">/sys/module/kgdboc/parameters/kgdboc</code> file:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo ttyS0 &gt; /sys/module/kgdboc/parameters/kgdboc
+</code></pre>
+    <p class="normal">Note that you cannot set the baud rate in this way. If it is the same <code class="inlineCode">tty</code> as the console, then it is set already. If not, use <code class="inlineCode">stty</code> or a similar program.</p>
+    <p class="normal">Now you can start GDB on the host, selecting the <code class="inlineCode">vmlinux</code> file that matches the running kernel:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ cd buildroot
+$ output/host/bin/aarch64-buildroot-linux-gnu-gdb output/build/linux-custom/vmlinux
+</code></pre>
+    <p class="normal">GDB loads the symbol table from <code class="inlineCode">vmlinux</code> and waits for further input.</p>
+    <p class="normal">Next, close any terminal emulator that is attached to the console: you are about to use it for GDB, and if both are active at the same time, some of the debug strings might get corrupted.</p>
+    <p class="normal">Now, you can return to GDB and attempt to connect to <code class="inlineCode">kgdb</code>. However, you will find that the response you get from the target remote at this time is unhelpful:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) set serial baud 115200
+(gdb) target remote /dev/ttyUSB0
+Remote debugging using /dev/ttyUSB0
+Ignoring packet error, continuing...
+warning: unrecognized item "timeout" in "qSupported" response
+</code></pre>
+    <p class="normal">The problem is that <code class="inlineCode">kgdb</code> is not listening for a connection at this point. You need to interrupt the kernel before you can enter into an interactive GDB session with it. Unfortunately, just typing <em class="italic">Ctrl + C</em> in GDB, as you would with an application, does not work. You have to force a trap into the kernel by launching another shell on the target, via SSH, for example, and writing <code class="inlineCode">g</code> to <code class="inlineCode">/proc/sysrq-trigger</code> on the target board:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo g &gt; /proc/sysrq-trigger
+</code></pre>
+    <p class="normal">The target stops <a id="_idIndexMarker1464"/>dead at this point. Now you can connect to <code class="inlineCode">kgdb</code> via the serial device at the host end of the cable:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) target remote /dev/ttyUSB0
+Remote debugging using /dev/ttyUSB0
+warning: multi-threaded target stopped without sending a thread-id, using first non-exited thread
+[Switching to Thread 4294967294]
+arch_kgdb_breakpoint () at ./arch/arm64/include/asm/kgdb.h:21
+<a id="_idTextAnchor654"/>21              asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));
+(gdb)
+</code></pre>
+    <p class="normal">At last, GDB is in charge. You can set breakpoints, examine variables, look at backtraces, and so on. As an example, set a break on <code class="inlineCode">__sys_accept4</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) break __sys_accept4
+Breakpoint 1 at 0xffffffc0089ffe40: file net/socket.c, line 1938.
+(gdb) c
+Continuing.
+</code></pre>
+    <p class="normal">Now the target comes back to life. Exit out of your SSH session and attempt to reconnect to the target device. Reconnecting calls <code class="inlineCode">__sys_accept4</code> and hits the breakpoint:</p>
+    <pre class="programlisting con"><code class="hljs-con">[New Thread 523]
+[Switching to Thread 171]
+Thread 79 hit Breakpoint 1, __sys_accept4 (fd=3, upeer_sockaddr=0x7ffa494848, upeer_addrlen=0x7ffa4946bc, flags=flags@entry=0)
+    at net/socket.c:1938
+1938    {
+(gdb)
+</code></pre>
+    <p class="normal">If you have finished the debug session and want to disable <code class="inlineCode">kgdboc</code>, just set the <code class="inlineCode">kgdboc</code> terminal to null:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo "" &gt; /sys/module/kgdboc/parameters/kgdboc
+</code></pre>
+    <p class="normal">Like attaching <a id="_idIndexMarker1465"/>to a running process with GDB, this technique of trapping the kernel and connecting to <code class="inlineCode">kgdb</code> over a serial console works once the kernel is done booting. But what if the kernel never finishes booting because of a bug?</p>
+    <h2 id="_idParaDest-568" class="heading-2"><a id="_idTextAnchor655"/>Debugging early code</h2>
+    <p class="normal">The preceding example works in cases where the code you are interested in is executed when the system <a id="_idIndexMarker1466"/>is fully booted. If you need to get in early, you can tell the kernel to wait during boot by adding <code class="inlineCode">kgdbwait</code> to the command line, after the <code class="inlineCode">kgdboc</code> option:</p>
+    <pre class="programlisting con"><code class="hljs-con">kgdboc=ttyS0,115200 kgdbwait
+</code></pre>
+    <p class="normal">Now, when you boot, you will see this on the console:</p>
+    <pre class="programlisting con"><code class="hljs-con">[ 1.103415] console [ttyS0] enabled
+[ 1.108216] kgdb: Registered I/O driver kgdboc.
+[ 1.113071] kgdb: Waiting for connection from remote gdb...
+</code></pre>
+    <p class="normal">At this point, you can close the console and connect from GDB in the usual way.</p>
+    <h2 id="_idParaDest-569" class="heading-2"><a id="_idTextAnchor656"/>Debugging modules</h2>
+    <p class="normal">Debugging kernel modules presents an additional challenge because the code is relocated at runtime, and so you <a id="_idIndexMarker1467"/>need to find out at what address it resides. The information is presented through <code class="inlineCode">sysfs</code>. The relocation addresses for each section of the module are stored in <code class="inlineCode">/sys/module/&lt;module name&gt;/sections</code>. Note that since ELF sections begin with a dot (<code class="inlineCode">.</code>), they appear as hidden files, and you will have to use <code class="inlineCode">ls -a</code> if you want to list them. The important ones are <code class="inlineCode">.text</code>, <code class="inlineCode">.data</code>, and <code class="inlineCode">.bss</code>.</p>
+    <p class="normal">Take as an example a module named <code class="inlineCode">mbx</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con"># cat /sys/module/mbx/sections/.text
+0xffffffc000cd9000
+# cat /sys/module/mbx/sections/.bss
+0xffffffc000cdb380
+</code></pre>
+    <p class="normal">Now you can use these numbers in <code class="inlineCode">kgdb</code> to load the symbol table for the module at those addresses:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) add-symbol-file /home/frank/buildroot/output/build/mbx-driver-1.0.0/mbx.ko 0xffffffc000cd9000 -s .bss 0xffffffc000cdb380
+add symbol table from file "/home/frank/buildroot/output/build/mbx-driver-1.0.0/mbx.ko" at
+        .text_addr = 0xffffffc000cd9000
+        .bss_addr = 0xffffffc000cdb380
+(y or n) y
+Reading symbols from /home/frank/buildroot/output/build/mbx-driver-1.0.0/mbx.ko...
+</code></pre>
+    <p class="normal">Everything should now work as normal: you can set breakpoints and inspect global and local variables in the <a id="_idIndexMarker1468"/>module just as you can in <code class="inlineCode">vmlinux</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">(gdb) break mbx_write
+Breakpoint 1 at 0xffffffc000cd9280: file /home/frank/buildroot/output/build/mbx-driver-1.0.0/./mbx.c, line 91.
+(gdb) c
+Continuing.
+</code></pre>
+    <p class="normal">Then, force the device driver to call <code class="inlineCode">mbx_write</code>, and it will hit the breakpoint:</p>
+    <pre class="programlisting con"><code class="hljs-con">[New Thread 231]
+[Switching to Thread 227]
+ Thread 97 hit Breakpoint 1, mbx_write (file=0xffffff8041e83300, buffer=0x559dae9790 "hello\n", length=6, offset=0xffffffc00a083dc0)
+    at /home/frank/buildroot/output/build/mbx-driver-1.0.0/./mbx.c:91
+<a id="_idTextAnchor657"/>91      {
+(gdb)
+</code></pre>
+    <p class="normal">If you already use GDB to debug code in user space, then you should feel right at home debugging kernel code and modules with <code class="inlineCode">kgdb</code>. Let’s look at <code class="inlineCode">kdb</code> next.</p>
+    <h2 id="_idParaDest-570" class="heading-2"><a id="_idTextAnchor658"/>Debugging kernel code with kdb</h2>
+    <p class="normal">Although <code class="inlineCode">kdb</code> does not have the features of <code class="inlineCode">kgdb</code> and GDB, it does have its uses, and, being selfhosted, there are <a id="_idIndexMarker1469"/>no external dependencies to worry about. <code class="inlineCode">kdb</code> has a simple command-line interface that you can use on a serial console. You can use it to inspect memory, registers, process lists, and <code class="inlineCode">dmesg</code> and even set breakpoints to stop at a certain location.</p>
+    <p class="normal">To configure your kernel so that you can call <code class="inlineCode">kdb</code> via a serial console, enable <code class="inlineCode">kgdb</code> as shown previously, and then enable this additional option:</p>
+    <ul>
+      <li class="bulletList"><code class="inlineCode">CONFIG_KGDB_KDB</code> in <strong class="screenText">Kernel hacking</strong> | <strong class="screenText">Generic Kernel Debugging Instruments</strong> | <strong class="screenText">KGDB: kernel debugger</strong> | <strong class="screenText">KGDB_KDB: include kdb frontend for kgdb</strong></li>
+    </ul>
+    <p class="normal">Now, when you force the kernel into a trap, instead of entering into a GDB session, you will see the <code class="inlineCode">kdb</code> shell on the console:</p>
+    <pre class="programlisting con"><code class="hljs-con"># echo g &gt; /proc/sysrq-trigger
+Entering kdb (current=0xffffff8041b0be00, pid 176) on processor 2 due to Keyboard Entry
+[2]kdb&gt;
+</code></pre>
+    <p class="normal">There are <a id="_idIndexMarker1470"/>quite a few things you can do in the <code class="inlineCode">kdb</code> shell. The <code class="inlineCode">help</code> command will print all of the options. Here is an overview:</p>
+    <ul>
+      <li class="bulletList"><strong class="keyWord">Getting information</strong>:<ul>
+          <li class="bulletList"><code class="inlineCode">ps</code>: Displays active processes.</li>
+          <li class="bulletList"><code class="inlineCode">ps A</code>: Displays all processes.</li>
+          <li class="bulletList"><code class="inlineCode">lsmod</code>: Lists modules.</li>
+          <li class="bulletList"><code class="inlineCode">dmesg</code>: Displays the kernel log buffer.</li>
+        </ul>
+      </li>
+      <li class="bulletList"><strong class="keyWord">Breakpoints</strong>:<ul>
+          <li class="bulletList"><code class="inlineCode">bp</code>: Sets a breakpoint.</li>
+          <li class="bulletList"><code class="inlineCode">bl</code>: Lists breakpoints.</li>
+          <li class="bulletList"><code class="inlineCode">bc</code>: Clears a breakpoint.</li>
+          <li class="bulletList"><code class="inlineCode">bt</code>: Prints a backtrace.</li>
+          <li class="bulletList"><code class="inlineCode">go</code>: Continues execution.</li>
+        </ul>
+      </li>
+      <li class="bulletList"><strong class="keyWord">Inspect memory and registers</strong>:<ul>
+          <li class="bulletList"><code class="inlineCode">md</code>: Displays memory.</li>
+          <li class="bulletList"><code class="inlineCode">rd</code>: Displays registers.</li>
+        </ul>
+      </li>
+    </ul>
+    <p class="normal">Here is a quick example of setting a breakpoint:</p>
+    <pre class="programlisting con"><code class="hljs-con">[2]kdb&gt; bp __sys_accept4
+Instruction(i) BP #0 at 0xffffffc0089ffe40 (__sys_accept4)
+    is enabled   addr at ffffffc0089ffe40, hardtype=0 installed=0
+[2]kdb&gt; go
+</code></pre>
+    <p class="normal">The kernel returns to life and the console shows the normal shell prompt. If you attempt to reconnect to the target, it hits the breakpoint and enters <code class="inlineCode">kdb</code> again:</p>
+    <pre class="programlisting con"><code class="hljs-con">Entering kdb (current=0xffffff8041b05d00, pid 175) on processor 2 due to Breakpoint @ 0xffffffc0089ffe40
+[2]kdb&gt;
+</code></pre>
+    <p class="normal"><code class="inlineCode">kdb</code> is not a source-level debugger, so you can’t see the source code or single-step. However, you can display <a id="_idIndexMarker1471"/>a backtrace using the <code class="inlineCode">bt</code> command, which is useful for getting an idea of program flow and call hierarchy.</p>
+    <h2 id="_idParaDest-571" class="heading-2"><a id="_idTextAnchor659"/>Looking at an Oops</h2>
+    <p class="normal">When the kernel performs an invalid memory access or executes an illegal instruction, a kernel <strong class="keyWord">Oops</strong> message is <a id="_idIndexMarker1472"/>written to the kernel log. The most useful part of this is the backtrace, and I want to show you how to use the information there to locate the line of code that caused the fault. I will also address the problem of preserving Oops messages if they cause the system to crash.</p>
+    <p class="normal">This Oops message was generated by writing to the mailbox driver in <code class="inlineCode">MELD/Chapter19/mbx-driver-oops</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000
+Mem abort info:
+  ESR = 0x0000000096000005
+  EC = 0x25: DABT (current EL), IL = 32 bits
+  SET = 0, FnV = 0
+  EA = 0, S1PTW = 0
+  FSC = 0x05: level 1 translation fault
+Data abort info:
+  ISV = 0, ISS = 0x00000005
+  CM = 0, WnR = 0
+user pgtable: 4k pages, 39-bit VAs, pgdp=0000000041fd3000
+[0000000000000000] pgd=0000000000000000, p4d=0000000000000000, pud=0000000000000000
+Internal error: Oops: 0000000096000005 [#1] PREEMPT SMP
+Modules linked in: mbx(O) ipv6
+CPU: 1 PID: 191 Comm: sh Tainted: G           O       6.1.61-v8 #1
+Hardware name: Raspberry Pi 4 Model B Rev 1.1 (DT)
+pstate: 80000005 (Nzcv daif -PAN -UAO -TCO -DIT -SSBS BTYPE=--)
+pc : mbx_write+0x2c/0xf8 [mbx]
+lr : vfs_write+0xd8/0x420
+sp : ffffffc00a23bcb0
+x29: ffffffc00a23bcb0 x28: ffffff8041f89f00 x27: 0000000000000000
+x26: 0000000000000000 x25: 0000000000000000 x24: ffffffc00a23bdc0
+x23: 000000558cfee770 x22: 0000000000000000 x21: 0000000000000000
+x20: 000000558cfee770 x19: 0000000000000006 x18: 0000000000000000
+x17: 0000000000000000 x16: 0000000000000000 x15: 0000000000000000
+x14: 0000000000000000 x13: 0000000000000000 x12: 0000000000000000
+x11: 0000000000000000 x10: 0000000000000000 x9 : 0000000000000000
+x8 : 0000000000000000 x7 : ffffffc00a23c000 x6 : ffffffc00a238000
+x5 : ffffffc00a23bda0 x4 : ffffffc000cd9270 x3 : ffffffc00a23bdc0
+x2 : 0000000000000006 x1 : 000000558cfee770 x0 : ffffffc008322638
+</code></pre>
+    <p class="normal">The line of the Oops that reads <code class="inlineCode">pc</code> is at <code class="inlineCode">mbx_write+0x2c/0xf8 [mbx]</code> and tells you most of what you want <a id="_idIndexMarker1473"/>to know: the last instruction was in the <code class="inlineCode">mbx_write</code> function of a kernel module named <code class="inlineCode">mbx</code>. Furthermore, it was at offset <code class="inlineCode">0x2c</code> bytes from the start of the function, which is <code class="inlineCode">0xf8</code> bytes long.</p>
+    <p class="normal">Next, take a look at the backtrace:</p>
+    <pre class="programlisting con"><code class="hljs-con">Call trace:
+ mbx_write+0x2c/0xf8 [mbx]
+ vfs_write+0xd8/0x420
+ ksys_write+0x74/0x100
+ __arm64_sys_write+0x24/0x30
+ invoke_syscall+0x54/0x120
+ el0_svc_common.constprop.3+0x90/0x120
+ do_el0_svc+0x3c/0xe0
+ el0_svc+0x20/0x60
+ el0t_64_sync_handler+0x90/0xc0
+ el0t_64_sync+0x15c/0x160
+Code: aa0103f4 d503201f f94066b5 f110027f (f94002b6)
+---[ end trace 0000000000000000 ]---
+</code></pre>
+    <p class="normal">In this case, we don’t learn much more, merely that <code class="inlineCode">mbx_write</code> was called from the virtual filesystem function, <code class="inlineCode">_vfs_write</code>.</p>
+    <p class="normal">It would be very nice to find the line of code that relates to <code class="inlineCode">mbx_write+0x2c</code>, for which we can use the GDB command <code class="inlineCode">disassemble</code> with the <code class="inlineCode">/s</code> modifier so that it shows source and assembler code together. In this example, the code is in the <code class="inlineCode">mbx.ko</code> module, so we load that into <code class="inlineCode">gdb</code>:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ output/host/bin/aarch64-buildroot-linux-gnu-gdb output/build/mbx-driver-oops-1.0.0/mbx.ko
+&lt;…&gt;
+(gdb) disassemble /s mbx_write
+Dump of assembler code for function mbx_write:
+/home/frank/buildroot/output/build/mbx-driver-oops-1.0.0/./mbx.c:
+<a id="_idTextAnchor660"/>96      {
+   0x00000000000002a0 &lt;+0&gt;:     stp     x29, x30, [sp, #-48]!
+   0x00000000000002a4 &lt;+4&gt;:     mov     x29, sp
+   0x00000000000002a8 &lt;+8&gt;:     stp     x19, x20, [sp, #16]
+   0x00000000000002ac &lt;+12&gt;:    stp     x21, x22, [sp, #32]
+   0x00000000000002b0 &lt;+16&gt;:    mov     x21, x0
+   0x00000000000002b4 &lt;+20&gt;:    mov     x0, x30
+   0x00000000000002b8 &lt;+24&gt;:    mov     x19, x2
+   0x00000000000002bc &lt;+28&gt;:    mov     x20, x1
+   0x00000000000002c0 &lt;+32&gt;:    bl      0x2c0 &lt;mbx_write+32&gt;
+<a id="_idTextAnchor661"/>97              struct mbx_data *m = (struct mbx_data *)file-&gt;private_data;
+   0x00000000000002c4 &lt;+36&gt;:    ldr     x21, [x21, #200]
+<a id="_idTextAnchor662"/>98
+<a id="_idTextAnchor663"/>99              if (length &gt; MBX_LEN)
+   0x00000000000002c8 &lt;+40&gt;:    cmp     x19, #0x400
+   0x00000000000002cc &lt;+44&gt;:    ldr     x22, [x21]
+   0x00000000000002d0 &lt;+48&gt;:    b.ls    0x344 &lt;mbx_write+164&gt;  // b.plast
+101             m-&gt;mbx_len = length;
+   0x00000000000002d4 &lt;+52&gt;:    mov     w0, #0x400                      // #1024
+   0x00000000000002d8 &lt;+56&gt;:    mov     x1, #0x7ffffffc00               // #549755812864
+100                     length = MBX_LEN;
+   0x00000000000002dc &lt;+60&gt;:    mov     x19, #0x400                     // #1024
+101             m-&gt;mbx_len = length;
+   0x00000000000002e0 &lt;+64&gt;:    str     w0, [x21, #8]
+&lt;…&gt;
+</code></pre>
+    <p class="normal">You can <a id="_idIndexMarker1474"/>see from <em class="italic">line 97</em> that <code class="inlineCode">m</code> has the type struct <code class="inlineCode">mbx_data *</code>. Here is the place where that structure is defined:</p>
+    <pre class="programlisting code"><code class="hljs-code">#define MBX_LEN 1024
+struct mbx_data {
+    char mbx[MBX_LEN];
+    int mbx_len;
+};
+</code></pre>
+    <p class="normal">So, it looks like the <code class="inlineCode">m</code> variable is a null pointer, and that is what is causing the Oops. Looking at the code where <code class="inlineCode">m</code> is initialized, we can see that there is a line missing. By initializing the pointer, as shown in the following code block, the Oops is eliminated:</p>
+    <pre class="programlisting code"><code class="hljs-code">static int mbx_open(struct inode *inode, struct file *file)
+{
+    if (MINOR(inode-&gt;i_rdev) &gt;= NUM_MAILBOXES) {
+        printk("Invalid mbx minor number\n");
+        return -ENODEV;
+    }
+    file-&gt;private_data = &amp;mailboxes[MINOR(inode-&gt;i_rdev)];  // HERE
+    return 0;
+}
+</code></pre>
+    <p class="normal">Not every <a id="_idIndexMarker1475"/>Oops is this easy to pinpoint, especially if it occurs before the contents of the kernel log buffer can be displayed.</p>
+    <h2 id="_idParaDest-572" class="heading-2"><a id="_idTextAnchor664"/>Preserving the Oops</h2>
+    <p class="normal">Decoding an Oops is only possible if you can capture it in the first place. If the system crashes during boot before the console is enabled, or after a suspend, you won’t see it. There are mechanisms <a id="_idIndexMarker1476"/>to log kernel Oops and messages to an MTD partition or to persistent memory, but here is a simple technique that works in many cases and needs little prior thought.</p>
+    <p class="normal">So long as the contents of memory are not corrupted during a reset (and usually they are not), you can reboot into the bootloader and use it to display memory. You need to know the location of the kernel log buffer, remembering that it is a simple ring buffer of text messages. The symbol is <code class="inlineCode">__log_buf</code>. Look this up in <code class="inlineCode">System.map</code> for the kernel:</p>
+    <pre class="programlisting con"><code class="hljs-con">$ grep __log_buf output/build/linux-custom/System.map
+ffffffc0096ce718 b __log_buf
+</code></pre>
+    <div class="note">
+      <p class="normal"><strong class="keyWord">IMPORTANT NOTE</strong></p>
+      <p class="normal">From Linux 3.5 onward, there is a 16-byte binary header for each line in the kernel log buffer that encodes a timestamp, a log level, and other things. There is a discussion about it in the Linux weekly news entitled <em class="italic">Toward more reliable logging</em>, at <a href="https://lwn.net/Articles/492125/"><span class="url">https://lwn.net/Articles/492125/</span></a>.</p>
+    </div>
+    <p class="normal">In this section, we examined how kernel code can be debugged at the source level using <code class="inlineCode">kgdb</code>. Then we looked at setting breakpoints and printing backtraces inside the <code class="inlineCode">kdb</code> shell. Lastly, we learned how to read kernel Oops messages either from a console using <code class="inlineCode">dmesg</code> or the U-Boot command line.</p>
+    <h1 id="_idParaDest-573" class="heading-1"><a id="_idTextAnchor665"/>Summary</h1>
+    <p class="normal">Knowing how to use GDB for interactive debugging is a useful tool in the embedded system developer’s tool chest. It is a stable, well-documented, and well-known entity. It has the ability to debug remotely by placing an agent on the target, be it <code class="inlineCode">gdbserver</code> for applications or <code class="inlineCode">kgdb</code> for kernel code, and although the default command-line user interface takes a while to get used to, there are many alternative frontends. The three I mentioned were TUI, DDD, and Visual Studio Code. Eclipse is another popular frontend that supports debugging with GDB by way of the CDT plugin. I will refer you to the references in the <em class="italic">Further study</em> section for information on how to configure CDT to work with a cross toolchain and connect to a remote device.</p>
+    <p class="normal">A second and equally important way to approach debugging is to collect crash reports and analyze them offline. In this category, we looked at application core dumps and kernel Oops messages.</p>
+    <p class="normal">However, this is only one way of identifying flaws in programs. In the next chapter, I will talk about profiling and tracing as ways of analyzing and optimizing programs.</p>
+    <h1 id="_idParaDest-574" class="heading-1"><a id="_idTextAnchor666"/>Further study</h1>
+    <ul>
+      <li class="bulletList"><em class="italic">The Art of Debugging with GDB, DDD, and Eclipse</em>, by Norman Matloff and Peter Jay Salzman</li>
+      <li class="bulletList"><em class="italic">GDB Pocket Reference</em>, by Arnold Robbins</li>
+      <li class="bulletList"><em class="italic">Python Interpreter in GNU Debugger</em>, by crazyguitar – <a href="https://www.pythonsheets.com/appendix/python-gdb.html%0D%0A"><span class="url">https://www.pythonsheets.com/appendix/python-gdb.html</span></a></li>
+      <li class="bulletList"><em class="italic">Extending GDB with Python</em>, by Lisa Roach – <a href="https://www.youtube.com/watch?v=xt9v5t4_zvE%0D%0A"><span class="url">https://www.youtube.com/watch?v=xt9v5t4_zvE</span></a></li>
+      <li class="bulletList"><em class="italic">Getting to grips with Eclipse: cross compiling</em> – <a href="https://2net.co.uk/tutorial/eclipse-cross-compile%0D%0A"><span class="url">https://2net.co.uk/tutorial/eclipse-cross-compile</span></a></li>
+      <li class="bulletList"><em class="italic">Getting to grips with Eclipse: remote access and debugging</em> – <a href="https://2net.co.uk/tutorial/eclipse-rse"><span class="url">https://2net.co.uk/tutorial/eclipse-rse</span></a></li>
+    </ul>
+  </div>
+</div></div></body></html>

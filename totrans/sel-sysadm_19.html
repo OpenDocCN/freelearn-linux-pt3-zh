@@ -1,0 +1,281 @@
+<html><head></head><body><div id="sbo-rt-content" class="calibre1"><div id="_idContainer046" class="calibre2">
+			<h1 id="_idParaDest-386" class="calibre5"><em class="italic"><a id="_idTextAnchor391" class="pcalibre calibre6 pcalibre1"/>Chapter 16</em>: Developing Policies with SELinux CIL</h1>
+			<p class="calibre3">While the reference policy is the most frequently used language and development style for SELinux policies, the <strong class="bold">Common Intermediate Language</strong> (<strong class="bold">CIL</strong>) is a powerful, but more low-level language construct to use to develop SELinux policies. Low-level as it might be though, it is still very much readable and well supported, as SELinux tools will use CIL under the hood when using other languages.</p>
+			<p class="calibre3">Since CIL is the main language used, we know it can be used to build entire policies. Sadly, there are no supporting constructs available for developers to use, unlike the reference policy. However, we can still learn how to customize the current policy, creating specific definitions that are not possible with the more common reference policy, and even build a complete application policy if we choose.</p>
+			<p class="calibre3">In this chapter, we're going to cover the following main topics:</p>
+			<ul class="calibre8">
+				<li class="calibre9">Introducing CIL</li>
+				<li class="calibre9">Creating fine-grained definitions</li>
+				<li class="calibre9">Building complete application policies</li>
+			</ul>
+			<h1 id="_idParaDest-387" class="calibre5"><a id="_idTextAnchor392" class="pcalibre calibre6 pcalibre1"/>Technical requirements</h1>
+			<p class="calibre3">Check out the following video to see the Code in Action: <a href="https://bit.ly/3dLYP2Q" class="pcalibre calibre6 pcalibre1">https://bit.ly/3dLYP2Q</a></p>
+			<h1 id="_idParaDest-388" class="calibre5"><a id="_idTextAnchor393" class="pcalibre calibre6 pcalibre1"/>Introducing CIL</h1>
+			<p class="calibre3">CIL has <a id="_idIndexMarker1015" class="pcalibre calibre6 pcalibre1"/>been designed to be the main language to have policies built in, and is the lowest readable format. After CIL, the SELinux code is transformed in binary to send off to the Linux kernel (and SELinux subsystem) for loading in memory.</p>
+			<p class="calibre3">Administrators might be inclined to think that the binary files, generated when building a SELinux policy module using the reference policy method, are the final binaries. However, as we've seen in <a href="B16276_01_Final_VK.xhtml#_idTextAnchor018" class="pcalibre calibre6 pcalibre1"><em class="italic">Chapter 1</em></a>, <em class="italic">Fundamental SELinux Concepts</em>, the <strong class="source-inline">semodule</strong> command converts and translates this into CIL before building the final format.</p>
+			<p class="calibre3">Let's see <a id="_idIndexMarker1016" class="pcalibre calibre6 pcalibre1"/>how these translations work and what we can learn from them.</p>
+			<h2 id="_idParaDest-389" class="calibre10"><a id="_idTextAnchor394" class="pcalibre calibre6 pcalibre1"/>Translating .pp files to CIL</h2>
+			<p class="calibre3">When a non-CIL SELinux policy module is loaded, the <strong class="source-inline">semodule</strong> command is designed to first consider <a id="_idIndexMarker1017" class="pcalibre calibre6 pcalibre1"/>the module as an <a id="_idIndexMarker1018" class="pcalibre calibre6 pcalibre1"/>unknown format, and extract the <strong class="bold">High Level Language</strong> (<strong class="bold">HLL</strong>) information from it. HLL is an abstract term that the SELinux utilities use to define any SELinux source format that it knows how to convert to CIL later on. Currently, only <strong class="source-inline">.pp</strong> files are supported as an HLL.</p>
+			<p class="calibre3">As the <a id="_idIndexMarker1019" class="pcalibre calibre6 pcalibre1"/>HLL format of the SELinux policy modules built by reference policy (or the other classic SELinux development) is the same as the module generated, this phase often just involves creating a copy. We can see this when we compare an HLL file with the original:</p>
+			<p class="source-code">$ cp /var/lib/selinux/targeted/active/modules/400/pgpool/hll pgpool.hll.bz2</p>
+			<p class="source-code">$ bunzip2 pgpool.hll.bz2</p>
+			<p class="source-code">$ sha512sum pgpool.pp pgpool.hll</p>
+			<p class="source-code">b81ba4ac...c0db pgpool.pp</p>
+			<p class="source-code">b81ba4ac...c0db pgpool.hll</p>
+			<p class="calibre3">Once it has converted or extracted the data, <strong class="source-inline">semodule</strong> will convert it to CIL code. For each supported HLL, a convertor is available in <strong class="source-inline">/usr/libexec/selinux/hll</strong>. Currently, only the <strong class="source-inline">pp</strong> command is available, which is used to convert this older style into CIL.</p>
+			<p class="calibre3">Let's see this in action:</p>
+			<p class="source-code">$ /usr/libexec/selinux/hll/pp pgpool.pp</p>
+			<p class="source-code">(type pgpool_t)</p>
+			<p class="source-code">(roletype object_r pgpool_t)</p>
+			<p class="source-code">(type pgpool_exec_t)</p>
+			<p class="source-code">...</p>
+			<p class="source-code">(filecon "/var/run/pgpool(/.*)?" any (system_u object_r pgpool_var_run_t ((s0) (s0))))</p>
+			<p class="calibre3">So, in essence, when we are developing reference policy style modules, they will be converted into CIL anyway. The resulting CIL code, however, does not have any facilitating constructions inside. For instance, all permissions are expanded, and all interactions <a id="_idIndexMarker1020" class="pcalibre calibre6 pcalibre1"/>with other <a id="_idIndexMarker1021" class="pcalibre calibre6 pcalibre1"/>resources or types outside of the SELinux policy module are listed as well. There are no longer any supporting macros or interfaces. In the <em class="italic">Building complete application policies</em> section, we'll see that CIL does support abstractions, so the current observation is only due to the translation that the <strong class="source-inline">pp</strong> command performs.</p>
+			<h2 id="_idParaDest-390" class="calibre10"><a id="_idTextAnchor395" class="pcalibre calibre6 pcalibre1"/>Understanding CIL syntax</h2>
+			<p class="calibre3">When we <a id="_idIndexMarker1022" class="pcalibre calibre6 pcalibre1"/>develop CIL, the most obvious observation is that it likes brackets. CIL uses S-expression syntax, popularized by Lisp, which results in tree-structured data. The first identifier in an expression that tells CIL what the construction is about.</p>
+			<p class="calibre3">Let's take a look at the last statement we received when converting the <strong class="source-inline">pgpool.pp</strong> binary into CIL, now formatted for convenience:</p>
+			<p class="source-code">(filecon</p>
+			<p class="source-code">  "/var/run/pgpool(/.*)?"</p>
+			<p class="source-code">  any</p>
+			<p class="source-code">  (</p>
+			<p class="source-code">    system_u</p>
+			<p class="source-code">    object_r</p>
+			<p class="source-code">    pgpool_var_run_t</p>
+			<p class="source-code">    (</p>
+			<p class="source-code">      (s0)</p>
+			<p class="source-code">      (s0)</p>
+			<p class="source-code">    )</p>
+			<p class="source-code">  )</p>
+			<p class="source-code">)</p>
+			<p class="calibre3">If we look at this statement in detail, we can deduce the following:</p>
+			<ul class="calibre8">
+				<li class="calibre9">We have a <strong class="source-inline">filecon</strong> statement, which takes three arguments: the path expression, the type of resources to which it applies, and the SELinux context to associate with it.</li>
+				<li class="calibre9">The SELinux context has four fields associated with it: the SELinux user, the SELinux role, the SELinux type, and the SELinux sensitivity range.</li>
+				<li class="calibre9">The SELinux sensitivity range has two values, a low-end and a high-end value.</li>
+			</ul>
+			<p class="calibre3">This statement is equivalent to what the reference policy would define in the file context part of the policy module (the file with the <strong class="source-inline">.fc</strong> suffix) like so:</p>
+			<p class="source-code">/var/run/pgpool(/.*)?  gen_context(system_u:object_r:pgpool_var_run_t,s0)</p>
+			<p class="calibre3">Luckily, we do not need to seek and interpret the code just to understand and see what is going on. The SELinux project has extensive CIL documentation available, explaining how the language works and what it all supports. The information is available at <a href="https://github.com/SELinuxProject/selinux/tree/master/secilc/docs" class="pcalibre calibre6 pcalibre1">https://github.com/SELinuxProject/selinux/tree/master/secilc/docs</a>. Keep in mind though that CIL policy development is still in its infancy, so coverage of the CIL constructs that are <a id="_idIndexMarker1023" class="pcalibre calibre6 pcalibre1"/>not used by the HLL conversion mechanics is very low.</p>
+			<p class="calibre3">Let's now see what we can do with CIL.</p>
+			<h1 id="_idParaDest-391" class="calibre5"><a id="_idTextAnchor396" class="pcalibre calibre6 pcalibre1"/>Creating fine-grained definitions</h1>
+			<p class="calibre3">Throughout <a id="_idIndexMarker1024" class="pcalibre calibre6 pcalibre1"/>this book, most small SELinux policy adjustments have been made using CIL. These are small, fine-grained definitions that require little development effort, and have the benefit of being directly loadable.</p>
+			<h2 id="_idParaDest-392" class="calibre10"><a id="_idTextAnchor397" class="pcalibre calibre6 pcalibre1"/>Depending on roles or types</h2>
+			<p class="calibre3">The CIL language requires some order in how types or roles are linked in the policy. Sometimes, when <a id="_idIndexMarker1025" class="pcalibre calibre6 pcalibre1"/>we develop CIL policies, the order of the types might not be addressed properly.</p>
+			<p class="calibre3">To work around this issue, a default attribute called <strong class="source-inline">cil_gen_require</strong> is used. When types or roles are assigned to the <strong class="source-inline">cil_gen_require</strong> attribute, they are automatically linked correctly in the policy. This is not a CIL requirement though, but a convention that the SELinux utilities use.</p>
+			<p class="calibre3">The attribute actually exists twice, once as a type attribute and once as a role attribute. They might have the same name, but are two different attributes:</p>
+			<p class="source-code">(roleattributeset cil_gen_require system_r)</p>
+			<p class="source-code">(typeattributeset cil_gen_require direct_run_init)</p>
+			<p class="calibre3">The functions used, <strong class="source-inline">roleattributeset</strong> and <strong class="source-inline">typeattributeset</strong>, assign the second argument (which is the attribute name) to the third argument (which is the role or type). Roles or types can be attributes themselves, as shown for the <strong class="source-inline">direct_run_init</strong> attribute.</p>
+			<p class="calibre3">For developers, it is recommended to always have the types or roles that you are going to use made part of the <strong class="source-inline">cil_gen_require</strong> attribute, and to use attributes as much as possible to simplify development activities. Rather than granting all possible <strong class="source-inline">allow</strong> rules to each <a id="_idIndexMarker1026" class="pcalibre calibre6 pcalibre1"/>and every domain that can interact with your policy resources, grant them to an attribute, and then assign this attribute to the domains. This creates a much smaller policy and is easier to maintain.</p>
+			<h2 id="_idParaDest-393" class="calibre10"><a id="_idTextAnchor398" class="pcalibre calibre6 pcalibre1"/>Defining a new port type</h2>
+			<p class="calibre3">When more <a id="_idIndexMarker1027" class="pcalibre calibre6 pcalibre1"/>intricate SELinux policies are developed, there are a few settings that we cannot add in a SELinux module—at least not when using the traditional or reference policy style coding. When we want to use these, we need to rebuild the entire policy and make the adjustments in the so-called base policy; the main and first policy loaded before the modules are added. This, however, requires access to the full SELinux policy sources and a process to use them (as you will overwrite the Linux distribution's SELinux policy and should make sure that any system update does not overwrite your policy again).</p>
+			<p class="calibre3">One way to establish whether a statement is supported in a SELinux module, besides just testing it out, is to look at the online documentation. As an example, let's take the port declaration statement <strong class="source-inline">portcon</strong>, which is part of the network-oriented statements. This statement is documented on <a href="https://selinuxproject.org/page/NetworkStatements" class="pcalibre calibre6 pcalibre1">https://selinuxproject.org/page/NetworkStatements</a>, where we can see that <strong class="source-inline">portcon</strong> is not valid in a module policy, nor can it be toggled through a SELinux Boolean.</p>
+			<p class="calibre3">Luckily, this is not the case when using CIL. Let's create a custom port type, for example, <strong class="source-inline">pgpool_port_t</strong>, and map it to a free port, say, TCP port <strong class="source-inline">50123</strong>:</p>
+			<p class="source-code">; Port type</p>
+			<p class="source-code">(type pgpool_port_t)</p>
+			<p class="source-code">; Some attributes to match the current SELinux policy requirements</p>
+			<p class="source-code">(typeattributeset defined_port_type pgpool_port_t)</p>
+			<p class="source-code">(typeattributeset reserved_port_type pgpool_port_t)</p>
+			<p class="source-code">(typeattributeset port_type pgpool_port_t)</p>
+			<p class="source-code">; Our dependency mappings</p>
+			<p class="source-code">(roleattributeset cil_gen_require object_r)</p>
+			<p class="source-code">(typeattributeset cil_gen_require pgpool_port_t)</p>
+			<p class="source-code">; Make sure object_r is allowed for pgpool_port_t</p>
+			<p class="source-code">(roletype object_r pgpool_port_t)</p>
+			<p class="source-code">; The port mapping itself</p>
+			<p class="source-code">(portcon tcp 50123 (system_u object_r pgpool_port_t ((s0) (s0))))</p>
+			<p class="calibre3">Before we load the policy, we can clearly see that this port is not an assigned one:</p>
+			<p class="source-code"># seinfo --port 50123 | grep tcp</p>
+			<p class="source-code"> portcon tcp 32768-60999 system_u:object_r:ephemeral_port_t:s0</p>
+			<p class="calibre3">As we've seen throughout this book, we can load this policy file immediately, without having to build or compile it:</p>
+			<p class="source-code"># semodule -i pgpool_port.cil</p>
+			<p class="calibre3">After loading, the type is assigned to the port, and we can use it to fine-tune our SELinux policies:</p>
+			<p class="source-code"># seinfo --port 50123 | grep tcp</p>
+			<p class="source-code"> portcon tcp 50123 system_u:object_r:pgpool_port_t:s0</p>
+			<p class="source-code"> portcon tcp 32768-60999 system_u:object_r:ephemeral_port_t:s0</p>
+			<p class="source-code"># semanage port -l | grep 50123</p>
+			<p class="source-code">pgpool_port_t     tcp    50123</p>
+			<p class="calibre3">Many of the constraints that policy developers had when using the traditional SELinux style development <a id="_idIndexMarker1028" class="pcalibre calibre6 pcalibre1"/>no longer apply to CIL. As the SELinux utilities convert all high-level constructs to CIL, it is possible that SELinux developers might remove these constraints altogether, although this has to be carefully assessed to make sure no unwanted side effects arise.</p>
+			<h2 id="_idParaDest-394" class="calibre10"><a id="_idTextAnchor399" class="pcalibre calibre6 pcalibre1"/>Adding constraints to the policy</h2>
+			<p class="calibre3">Another area <a id="_idIndexMarker1029" class="pcalibre calibre6 pcalibre1"/>that was not accessible for regular policy developers was to add constraints to the policy. Constraints limit actions based on the entire SELinux context (and not just types), and they are the closest thing we can find to negating existing rules.</p>
+			<p class="callout-heading">Important note</p>
+			<p class="callout">We do not recommend adding constraints to an existing policy just to work around rules that we don't like. Constraints are not visible in regular policy queries, as with <strong class="source-inline">sesearch</strong>. Administrators might be very confused when <strong class="source-inline">sesearch</strong> indicates that an action is allowed while the system is refusing to allow it.</p>
+			<p class="calibre3">With CIL, we can add constraints to a live policy to do exactly that. Keep in mind though that constraints don't actually allow anything – they merely put limits on what the SELinux subsystem will see as a valid action. A constraint statement that supports reading any possible type does not actually allow this, as there still need to be type enforcement rules in place to actually allow these actions.</p>
+			<p class="calibre3">For instance, if we want to remove the <strong class="source-inline">staff_t</strong> domain's ability to read the <strong class="source-inline">/etc/passwd</strong> file (which has the SELinux type, <strong class="source-inline">passwd_file_t</strong>), then we can add in a constraint that supports the reading of all possible types, unless the source domain is <strong class="source-inline">staff_t</strong>, in which case we support the reading of all possible types except <strong class="source-inline">passwd_file_t</strong>:</p>
+			<p class="source-code">(constrain (file (read))</p>
+			<p class="source-code">  (or</p>
+			<p class="source-code">    (and</p>
+			<p class="source-code">      (eq t1 staff_t)</p>
+			<p class="source-code">      (not (eq t2 passwd_file_t))</p>
+			<p class="source-code">    )</p>
+			<p class="source-code">    (not (eq t1 staff_t))</p>
+			<p class="source-code">  )</p>
+			<p class="source-code">)</p>
+			<p class="calibre3">Once <a id="_idIndexMarker1030" class="pcalibre calibre6 pcalibre1"/>loaded, we can confirm that the constraint is active:</p>
+			<p class="source-code"># seinfo --constrain | grep passwd_file_t</p>
+			<p class="source-code">constrain file read (t1 == staff_t and not ( ( t2 == passwd_file_t ) ) or not ( t1 == staff_t ) ));</p>
+			<p class="calibre3">And indeed, trying to read the <strong class="source-inline">passwd</strong> file is prohibited:</p>
+			<p class="source-code">$ cat /etc/passwd</p>
+			<p class="source-code">cat: /etc/passwd: Permission denied</p>
+			<p class="calibre3">To show how the use of constraints is confusing for administrators, let's see what <strong class="source-inline">sesearch</strong> has to say on this:</p>
+			<p class="source-code"># sesearch -A -s staff_t -t passwd_file_t -c file -p read;</p>
+			<p class="source-code">allow nsswitch_domain passwd_file_t:file { ... read };</p>
+			<p class="source-code">allow staff_t passwd_file_t:file { ... read };</p>
+			<p class="calibre3">So, while the policy has two rules that would allow it (one for the <strong class="source-inline">nsswitch_domain</strong> attribute, and one explicitly for the <strong class="source-inline">staff_t</strong> domain), the constraint has limited this action, but this is not obvious from the <strong class="source-inline">sesearch</strong> output.</p>
+			<h1 id="_idParaDest-395" class="calibre5"><a id="_idTextAnchor400" class="pcalibre calibre6 pcalibre1"/>Building complete application policies</h1>
+			<p class="calibre3">We can <a id="_idIndexMarker1031" class="pcalibre calibre6 pcalibre1"/>build complete application policies with CIL as well. However, keep in mind that there are no interfaces or support macros out there that we can use to rapidly develop policies. Furthermore, there are no templates or suchlike available to jumpstart such initiatives.</p>
+			<p class="calibre3">But that shouldn't stop us, and it will allow us to show a few more details of the CIL language. We will also see that the CIL language does support interface constructs (they are even recommended), but the community has not yet fully embraced it through a reference policy-like project.</p>
+			<h2 id="_idParaDest-396" class="calibre10"><a id="_idTextAnchor401" class="pcalibre calibre6 pcalibre1"/>Using namespaces</h2>
+			<p class="calibre3">The CIL <a id="_idIndexMarker1032" class="pcalibre calibre6 pcalibre1"/>language supports namespaces, which allows for a higher flexibility in developing policies. The generated CIL policies always use the main, global namespace, so we will not find examples of namespaces in the generated policies.</p>
+			<p class="calibre3">We can, however, show how this works easily. Let's create a skeleton file that will contain our CIL-developed <strong class="source-inline">pgpool</strong> policy:</p>
+			<p class="source-code">; Dependencies</p>
+			<p class="source-code">; Pgpool support</p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  ; Declarations</p>
+			<p class="source-code">  (type domain)</p>
+			<p class="source-code">  ; Local policy</p>
+			<p class="source-code">  ; Behavior</p>
+			<p class="source-code">  ; File contexts</p>
+			<p class="source-code">)</p>
+			<p class="calibre3">The namespace created in the preceding code is the <strong class="source-inline">pgpool</strong> namespace, identified through the <strong class="source-inline">block</strong> statement. Namespaces in CIL are hierarchical. If we want, we could create a namespace within <strong class="source-inline">pgpool</strong> by nesting another <strong class="source-inline">block</strong> statement within.</p>
+			<p class="calibre3">When we <a id="_idIndexMarker1033" class="pcalibre calibre6 pcalibre1"/>encounter namespaces in general constructions, we need to use the dot separator. In the example, we have defined a type called domain inside the <strong class="source-inline">pgpool</strong> namespace. If we would want to query it later through <strong class="source-inline">sesearch</strong>, the full name would be <strong class="source-inline">pgpool.domain</strong> (which would have the same purpose as the <strong class="source-inline">pgpool_t</strong> name in a more classically developed policy).</p>
+			<p class="callout-heading">Informational note</p>
+			<p class="callout">In subsequent code listings of the policy, we will only show the added and most relevant statements rather than including all previously added statements. Without supporting interfaces (which CIL calls macros), the policy file will quickly become quite large, which does not aid readability. By focusing on the relevant and added statements, the development pattern for CIL policies is easier to explain.</p>
+			<p class="calibre3">As the main policy has all objects within the global namespace, we will need to refer explicitly to this global namespace. This is done by prefixing the name with a dot. For instance, if we want to assign the <strong class="source-inline">pgpool.domain</strong> type to the <strong class="source-inline">system_r</strong> role, our policy needs to be adjusted with the following:</p>
+			<p class="source-code"><strong class="bold">(roleattributeset cil_gen_require system_r)</strong></p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  (type domain)</p>
+			<p class="source-code">  <strong class="bold">(roletype .system_r domain)</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">Here, the <strong class="source-inline">roletype</strong> statement <a id="_idIndexMarker1034" class="pcalibre calibre6 pcalibre1"/>is used to assign the <strong class="source-inline">domain</strong> type (defined in the <strong class="source-inline">pgpool</strong> namespace) to the <strong class="source-inline">system_r</strong> role (defined in the <strong class="source-inline">global</strong> namespace).</p>
+			<h2 id="_idParaDest-397" class="calibre10"><a id="_idTextAnchor402" class="pcalibre calibre6 pcalibre1"/>Extending the policy with attribute assignments</h2>
+			<p class="calibre3">When we <a id="_idIndexMarker1035" class="pcalibre calibre6 pcalibre1"/>develop a policy, it is recommended to use attributes as much as possible. Many attributes will automatically grant the necessary privileges to jumpstart a policy development, reducing the number of <strong class="source-inline">allow</strong> statements that need to take part of the policy.</p>
+			<p class="calibre3">The main reference policy, which is still in use on the system as a whole, defines quite a few attributes, as seen in all previous chapters. So, let's assign the <strong class="source-inline">daemon</strong> attribute to our domain:</p>
+			<p class="source-code"><strong class="bold">(typeattributeset cil_gen_require daemon)</strong></p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  (type domain)</p>
+			<p class="source-code">  <strong class="bold">(typeattributeset .daemon domain)</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">By assigning the <strong class="source-inline">daemon</strong> attribute, all existing policy rules for daemons are automatically applied to the <strong class="source-inline">pgpool.domain</strong> SELinux domain.</p>
+			<p class="calibre3">To find out which attributes are sensible to add, we can take a peek at existing daemon domains:</p>
+			<p class="source-code"># seinfo -t postgresql_t -x</p>
+			<p class="source-code">Types: 1</p>
+			<p class="source-code">  type postgresql_t, nsswitch_domain, can_change_object_identity, corenet_unlabeled_type, domain, kernel_system_state_reader, netlabel_peer_type, daemon, syslog_client_type, pcmcia_typeattr_1;</p>
+			<p class="calibre3">Now, we do not need to blindly take up all attributes, starting instead with those we feel confident with.</p>
+			<h2 id="_idParaDest-398" class="calibre10"><a id="_idTextAnchor403" class="pcalibre calibre6 pcalibre1"/>Adding entry point information</h2>
+			<p class="calibre3">Our next <a id="_idIndexMarker1036" class="pcalibre calibre6 pcalibre1"/>step is to add entry point information to the policy. This is a necessary step before we can start testing out, because we want the domain to become active. For that to happen, it has to be executable by the init system (or systemd) and transition to the domain we've just declared.</p>
+			<p class="calibre3">Let's start by defining our <strong class="source-inline">entrypoint</strong> type (<strong class="source-inline">pgpool.exec</strong>) and associate it with the right attributes:</p>
+			<p class="source-code"><strong class="bold">(roleattributeset cil_gen_require object_r)</strong></p>
+			<p class="source-code"><strong class="bold">(typeattributeset cil_gen_require file_type)</strong></p>
+			<p class="source-code"><strong class="bold">(typeattributeset cil_gen_require direct_init_entry)</strong></p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  <strong class="bold">(type exec)</strong></p>
+			<p class="source-code">  <strong class="bold">(roletype .object_r exec)</strong></p>
+			<p class="source-code">  <strong class="bold">(typeattributeset .file_type exec)</strong></p>
+			<p class="source-code">  <strong class="bold">(typeattributeset .direct_init_entry exec)</strong></p>
+			<p class="source-code">  <strong class="bold">(allow domain exec (file (entrypoint ioctl read getattr lock </strong><strong class="bold">map execute open)))</strong></p>
+			<p class="source-code">  <strong class="bold">(typetransition .initrc_domain exec process domain)</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">In this <a id="_idIndexMarker1037" class="pcalibre calibre6 pcalibre1"/>code block, we've performed several steps to ensure that a transition will occur:</p>
+			<ul class="calibre8">
+				<li class="calibre9">We've associated the <strong class="source-inline">pgpool.exec</strong> type with the <strong class="source-inline">file_type</strong> attribute (which is a generic attribute for files) and the <strong class="source-inline">direct_init_entry</strong> attribute (which is for file types that are used to launch system services).</li>
+				<li class="calibre9">We've marked the <strong class="source-inline">pgpool.exec</strong> type as <strong class="source-inline">entrypoint</strong> for the <strong class="source-inline">pgpool.domain</strong> type, as well as granted this domain the necessary privileges to read, open, and execute the <strong class="source-inline">pgpool.exec</strong> labeled resources (as needed for a starting process).</li>
+				<li class="calibre9">We've declared a type transition so that any <strong class="source-inline">initrc_domain</strong> labeled process that executes the <strong class="source-inline">pgpool.exec</strong> labeled resource will result in a domain transition toward <strong class="source-inline">pgpool.domain</strong>.</li>
+			</ul>
+			<p class="calibre3">We can now finish this step by adding a file context definition:</p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  <strong class="bold">(filecon "/usr/bin/pgpool" file</strong> </p>
+			<p class="source-code">    <strong class="bold">(.system_u .object_r exec ((s0) (s0)))</strong></p>
+			<p class="source-code">  <strong class="bold">)</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">With these changes made, we can load the policy and relabel the file:</p>
+			<p class="source-code"># restorecon -v /usr/bin/pgpool</p>
+			<p class="source-code">Relabeled /usr/bin/pgpool from system_u:object_r:bin_t:s0 to system_u:object_r:pgpool.exec:s0</p>
+			<p class="calibre3">We can <a id="_idIndexMarker1038" class="pcalibre calibre6 pcalibre1"/>now attempt to start the <strong class="source-inline">pgpool</strong> service, and hope that it fails (as that will show that the transition was successful, given that the <strong class="source-inline">pgpool.domain</strong> SELinux domain hardly has sufficient privileges to successfully start the entire service).</p>
+			<h2 id="_idParaDest-399" class="calibre10"><a id="_idTextAnchor404" class="pcalibre calibre6 pcalibre1"/>Gradually extending the policy further</h2>
+			<p class="calibre3">Once <a id="_idIndexMarker1039" class="pcalibre calibre6 pcalibre1"/>the domain transitions are successful, we can gradually extend the policy further through trial and error, just like we would do when developing SELinux policies using the reference policy style. However, rather than using <strong class="source-inline">audit2allow</strong> to guide us, we will need to interpret the denials ourselves and see how to better approach it.</p>
+			<p class="calibre3">Consider the failures that appear after starting the service:</p>
+			<p class="source-code"># ausearch -i -m avc -ts recent</p>
+			<p class="source-code">(Output reformatted for readability)</p>
+			<p class="source-code">avc: denied { map } for scontext=pgpool.domain </p>
+			<p class="source-code">                        tcontext=ld_so_t</p>
+			<p class="source-code">                        tclass=file</p>
+			<p class="source-code">avc: denied { read write open } for scontext=pgpool.domain </p>
+			<p class="source-code">                                    tcontext=null_device_t</p>
+			<p class="source-code">                                    tclass=chr_file</p>
+			<p class="calibre3">Now, rather than immediately adding <strong class="source-inline">allow</strong> rules for these types, let's see how this is accomplished for other daemons on the system:</p>
+			<p class="source-code"># sesearch -A -s postgresql_t -t ld_so_t -c file -p map</p>
+			<p class="source-code">allow domain file_type:file map; [ domain_can_mmap_files ]:True</p>
+			<p class="source-code">allow domain ld_so_t:file { execute getattr ioctl map open read };</p>
+			<p class="calibre3">So, this permission is based on the <strong class="source-inline">domain</strong> attribute, which we indeed forgot to add to the policy. Let's rectify this and retry:</p>
+			<p class="source-code"><strong class="bold">(typeattributeset cil_gen_require domain)</strong></p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  (type domain)</p>
+			<p class="source-code">  <strong class="bold">(typeattributeset .domain domain)</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">In this example, we can also see clearly what the impact is of the namespaces within CIL. We assigned the (global namespace-hosted) <strong class="source-inline">domain</strong> attribute to the (<strong class="source-inline">pgpool</strong> namespace-hosted) <strong class="source-inline">domain</strong> type. They are both named <strong class="source-inline">domain</strong>, but have a different namespace. This also shows how important attributes are.</p>
+			<p class="calibre3">Of course, not all privileges can be granted through attributes. By adding the target types as a dependency, we can directly include <strong class="source-inline">allow</strong> statements in our policy, like we did with the <strong class="source-inline">entrypoint</strong> declaration.</p>
+			<p class="calibre3">For instance, if we would want to explicitly allow our domain to signal the <strong class="source-inline">postgresql_t</strong> domain, execute the following command:</p>
+			<p class="source-code"><strong class="bold">(typeattributeset cil_gen_require postgresql_t)</strong></p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  <strong class="bold">(allow domain .postgresql_t (process (signal)))</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">As we <a id="_idIndexMarker1040" class="pcalibre calibre6 pcalibre1"/>are adding more and more privileges to the policy, we might want to optimize some of the definitions. There are two optimizations supported by CIL, and they are, not unsurprisingly, aligned with the reference policy's simplifications as CIL was developed by the same community.</p>
+			<h2 id="_idParaDest-400" class="calibre10"><a id="_idTextAnchor405" class="pcalibre calibre6 pcalibre1"/>Introducing permission sets</h2>
+			<p class="calibre3">The first <a id="_idIndexMarker1041" class="pcalibre calibre6 pcalibre1"/>simplification we can do is to simplify the permission sets we use. Remember the <strong class="source-inline">allow</strong> rule we added to allow our domain to execute its entrypoint file:</p>
+			<p class="source-code">(allow domain exec </p>
+			<p class="source-code">  (file </p>
+			<p class="source-code">    (entrypoint ioctl read getattr lock map execute open)</p>
+			<p class="source-code">  )</p>
+			<p class="source-code">)</p>
+			<p class="calibre3">Were we to use a reference policy-style approach, we would combine many of these permissions through the <strong class="source-inline">exec_file_perms</strong> macro. Well, CIL supports something similar, through a statement called <strong class="source-inline">classpermissionset</strong>.</p>
+			<p class="calibre3">If we want to simulate the reference policy-style approach completely, we would define <strong class="source-inline">classpermissionset</strong> in the global namespace, and use it, as follows:</p>
+			<p class="source-code"><strong class="bold">(classpermission exec_file_perms)</strong></p>
+			<p class="source-code"><strong class="bold">(classpermissionset exec_file_perms (file (ioctl read getattr </strong><strong class="bold">lock map execute open)))</strong></p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  (allow domain exec (file (entrypoint)))</p>
+			<p class="source-code">  <strong class="bold">(allow domain exec exec_file_perms)</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">In this example, we've defined <strong class="source-inline">classpermissionset</strong> in the global namespace, and then referred to it. Unlike the reference policy, however, we cannot just add <strong class="source-inline">exec_file_perms</strong> inside the permissions together with <strong class="source-inline">entrypoint</strong>. The <strong class="source-inline">classpermissionset</strong> statement has an explicit reference to the class associated with it. The <strong class="source-inline">allow</strong> statement in CIL is therefore a separate one that does not contain a class reference itself.</p>
+			<p class="calibre3">Furthermore, in the example, you will also notice that we did not prefix the <strong class="source-inline">exec_file_perms</strong> name with a dot, to refer to the global namespace. While we can prefix it perfectly to be consistent with the rest of the policy, using a dot prefix is not mandatory if there is <a id="_idIndexMarker1042" class="pcalibre calibre6 pcalibre1"/>no possible collision. If no local definition for a name exists within the current namespace, the policy will then check whether the parent namespace (and, hence, also the global namespace) has the name defined.</p>
+			<p class="calibre3">So, while the preceding policy will work just fine, we do recommend to prefix the global namespace-oriented names with a dot to make sure no local override would confuse the policy later on.</p>
+			<h2 id="_idParaDest-401" class="calibre10"><a id="_idTextAnchor406" class="pcalibre calibre6 pcalibre1"/>Adding macros</h2>
+			<p class="calibre3">The final <a id="_idIndexMarker1043" class="pcalibre calibre6 pcalibre1"/>simplification we can introduce is to add <strong class="bold">macros</strong>. CIL has <a id="_idIndexMarker1044" class="pcalibre calibre6 pcalibre1"/>an explicit support for macros, which allows them to be part of the loaded policy, and not just be referred to on the filesystem. With CIL macros, the code is part of the policy itself. There is no need to refer to the CIL code while building policies.</p>
+			<p class="calibre3">While this is a best practice that is aligned with object-oriented programming (as we can add macros to our namespaces so that they remain within the same object), the downside is that the current SELinux utilities are not able to quickly show which macros (and which interface they require) are available in the policy.</p>
+			<p class="calibre3">Now, let's enhance our <strong class="source-inline">pgpool</strong> policy with a domain transition macro, similar to the <strong class="source-inline">pgpool_domtrans()</strong> interface that would be created through a reference policy-style development:</p>
+			<p class="source-code">(block pgpool</p>
+			<p class="source-code">  <strong class="bold">(macro domtrans ((type SOURCEDOMAIN))</strong></p>
+			<p class="source-code">    <strong class="bold">(allow SOURCEDOMAIN exec exec_file_perms)</strong></p>
+			<p class="source-code">    <strong class="bold">(allow SOURCEDOMAIN domain (process (transition)))</strong></p>
+			<p class="source-code">    <strong class="bold">(typetransition SOURCEDOMAIN exec process domain)</strong></p>
+			<p class="source-code">  <strong class="bold">)</strong></p>
+			<p class="source-code">)</p>
+			<p class="calibre3">The macro definition itself starts with a name (in our case, <strong class="source-inline">domtrans</strong>) followed by the interface. This interface defines how many arguments are passed to the macro, and which type they have. In our example, only one argument is passed, and it is a SELinux type.</p>
+			<p class="calibre3">The macro is then followed by the code that is applied. The argument itself is referenced in the code (<strong class="source-inline">SOURCEDOMAIN</strong>) and will be substituted with the argument that is given later on, when the macro is explicitly called. While our example uses a capitalized variable name, this is not mandatory, and only serves as a visual statement of what will be substituted.</p>
+			<p class="calibre3">In another CIL policy, we can refer to this macro through the <strong class="source-inline">call</strong> statement. For instance, to allow the <strong class="source-inline">postgresql_t</strong> domain to transition to the <strong class="source-inline">pgpool.domain</strong> SELinux domain, we would add the following <strong class="source-inline">call</strong> statement to our policy:</p>
+			<p class="source-code">; Equivalent to "pgpool_domtrans(postgresql_t)" in refpolicy</p>
+			<p class="source-code">(typeattributeset cil_gen_require postgresql_t)</p>
+			<p class="source-code"><strong class="bold">(call pgpool.domtrans (postgresql_t))</strong></p>
+			<p class="calibre3">CIL macros <a id="_idIndexMarker1045" class="pcalibre calibre6 pcalibre1"/>provide all that is needed to generate the same simplicity in developing SELinux policies as we have within the reference policy, and even more as there are many constraints not applicable to CIL policies.</p>
+			<p class="calibre3">While it is possible that this will happen in the future, it is not planned at this moment for a number of reasons:</p>
+			<ul class="calibre8">
+				<li class="calibre9">The current reference policy has a significant amount of code in it, which would all need to be reworked. Furthermore, Linux distributions have extended this policy with many of their own additions, so the work needed to rewrite the SELinux policy code into CIL is significant. Not impossible, but not a feat to accomplish in a few weeks.</li>
+				<li class="calibre9">Almost all of the information and documentation online that helps developers in writing SELinux policies is based upon the current reference policy. This major source of information would become stale the moment a switch occurs, and the amount of documentation available online for CIL-based policy development is still pretty slim.</li>
+				<li class="calibre9">The CIL policy, while very powerful, is also a bit more complex due to its S-expressions. The design intention of CIL was not to replace SELinux policy development with CIL, but to allow higher level languages to be developed that translate and convert into CIL easily. Hence, if a rework is going to be done anyway, it is much more likely that a user- and development-friendly language will be designed that can be easily converted into CIL.</li>
+			</ul>
+			<p class="calibre3">As the SELinux development progresses, both on the policy level as well as in terms of user space <a id="_idIndexMarker1046" class="pcalibre calibre6 pcalibre1"/>and kernel support, we can expect more additions to be added to CIL and to its supporting tools.</p>
+			<h1 id="_idParaDest-402" class="calibre5"><a id="_idTextAnchor407" class="pcalibre calibre6 pcalibre1"/>Summary</h1>
+			<p class="calibre3">CIL for SELinux is a powerful, lower-level syntax and language that is used to express all possible SELinux policy code. The SELinux userspace utilities will automatically convert existing policies into CIL code, but through this conversion, a lot of CIL constructs are not used: the conversion only uses a smaller set of CIL capabilities to establish a valid translation.</p>
+			<p class="calibre3">The more advanced CIL capabilities, such as namespace support, macros, and the permission sets through the <strong class="source-inline">classpermissionset</strong> statement, are useful when developing our own, CIL-based SELinux policies. In this chapter, we've learned how to use CIL to build complete application policies. Because there is no reference policy-like framework to simplify development, we had to write all of the necessary code constructs ourselves.</p>
+			<p class="calibre3">While this means that developing CIL-based policies is more resource intensive, we did also see that CIL has a few benefits that reference policy-style development cannot deal with, such as the ability to declare ports or add SELinux constraints to an active policy.</p>
+			<p class="calibre3">We ended the chapter with a brief overview of why CIL-based development is not more widely used, but we will notice continuous improvements within SELinux on this matter in the foreseeable future.</p>
+			<p class="calibre3">This concludes our book and the information we have to offer to you. However, it is only the start of a journey, not the end. SELinux is a widely used technology, and we hope that this book provides you with the right material and knowledge to understand, grow, and contribute to the ecosystem. Thank you for your interest and your dedication.</p>
+			<h1 id="_idParaDest-403" class="calibre5"><a id="_idTextAnchor408" class="pcalibre calibre6 pcalibre1"/>Questions</h1>
+			<ol class="calibre18">
+				<li class="calibre9">How do we know CIL is here to stay?</li>
+				<li class="calibre9">Is the <strong class="source-inline">cil_gen_require</strong> attribute mandatory for CIL development?</li>
+				<li class="calibre9">What are examples of declarations that developers can do with CIL but not with other SELinux language styles?</li>
+				<li class="calibre9">How can we create similar support constructions such as interfaces in CIL?</li>
+			</ol>
+		</div>
+	</div></body></html>

@@ -1,0 +1,220 @@
+<html><head></head><body>
+		<div id="_idContainer037">
+			<h1 id="_idParaDest-134"><em class="italic"><a id="_idTextAnchor138"/>Chapter 10</em>: Understanding Shutdown and Reboot Commands</h1>
+			<p>By this point in your career, you most likely know the basic commands for shutting down or rebooting a text-mode Linux server. In this chapter, we'll look at some things that are more specific to the systemd method. So, bear with me. There's a chance that you might learn something that you didn't know before.</p>
+			<p>Specific topics in this chapter include the following:</p>
+			<ul>
+				<li>Shutting down with <strong class="source-inline">systemctl</strong></li>
+				<li>Halting with <strong class="source-inline">systemctl</strong></li>
+				<li>Rebooting with <strong class="source-inline">systemctl</strong></li>
+				<li>Using <strong class="source-inline">shutdown</strong> instead of <strong class="source-inline">systemctl</strong></li>
+			</ul>
+			<p>If you're ready, let's go.</p>
+			<h1 id="_idParaDest-135"><a id="_idTextAnchor139"/>Technical requirements</h1>
+			<p>Although either of your virtual machines will work equally well for this, all you need is a text-mode virtual machine, so there's no need to fire up the Alma desktop virtual machine if you don't want to. Toward the end of the chapter, we'll be working with some shell scripts. If you don't want to type them in yourself, simply download them from our Git repository.</p>
+			<p>Check out the following link to see the Code in Action video: <a href="https://bit.ly/3G6nbkD">https://bit.ly/3G6nbkD</a></p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Throughout this book, I've been using AlmaLinux 8 as a replacement for the soon-to-be discontinued CentOS 8. (Of course, depending upon when you're reading this, CentOS 8 may have already been discontinued.)</p>
+			<p class="callout">A few days before I started writing this chapter, the stable release of Rocky Linux 8 finally became available. Using it is the same as using AlmaLinux, or any other RHEL 8 clone for that matter. However, if security is your thing, Rocky does have one huge advantage. Unlike the other RHEL 8 clones, Rocky comes with a set of OpenSCAP profiles that you can apply either during or after the installation of the operating system. As things stand now, Rocky Linux is the only RHEL 8 clone that fully supports OpenSCAP. (If you want to learn more about OpenSCAP, be sure to check out my other book, <em class="italic">Mastering Linux Security and Hardening</em>, also from Packt Publishing.)</p>
+			<p>All right, if you're ready, let's get cracking.</p>
+			<h1 id="_idParaDest-136"><a id="_idTextAnchor140"/>Shutting down with systemctl</h1>
+			<p>Shutting down a systemd system is really easy, but there are a few options that you might not <a id="_idIndexMarker339"/>know about. Let's start with the <a id="_idIndexMarker340"/>basic command to shut down and power off a machine, which looks like this:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo systemctl poweroff</p>
+			<p>So, what exactly is happening here? If you open the <strong class="source-inline">systemctl</strong> man page and scroll down to the <strong class="source-inline">poweroff</strong> item, you'll see that this command starts <strong class="source-inline">poweroff.target</strong>, which looks like this:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Power-Off</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">Requires=systemd-poweroff.service</p>
+			<p class="source-code">After=systemd-poweroff.service</p>
+			<p class="source-code">AllowIsolate=yes</p>
+			<p class="source-code">JobTimeoutSec=30min</p>
+			<p class="source-code">JobTimeoutAction=poweroff-force</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">Alias=ctrl-alt-del.target</p>
+			<p>In the <strong class="source-inline">[Unit]</strong> section, you see that this <em class="italic">requires</em> <strong class="source-inline">systemd-poweroff.service</strong>, which means that this service will now get started. At the bottom of the <strong class="source-inline">[Unit]</strong> section, you will see two new parameters. The <strong class="source-inline">JobTimeoutSec=30min</strong> line gives systemd plenty of time to gracefully shut down all running services before it turns off the power. The <strong class="source-inline">JobTimeoutAction=poweroff-force</strong> line means that if all of the services haven't gracefully shut down within that 30-minute window, then systemd will turn off the power regardless. In the <strong class="source-inline">[Install]</strong> section, we see the <strong class="source-inline">Alias=ctrl-alt-del.target</strong> line. That seems a bit odd because the <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> key sequence is for rebooting a machine, not for <a id="_idIndexMarker341"/>shutting it down. It's not just an Ubuntu <a id="_idIndexMarker342"/>oddity this time – it's the same way on the Alma machine. However, this is easy to explain. It's just that if the system hangs hard during a shutdown, doing the <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> key sequence 7 times within 2 seconds will force the machine to do a reboot. You can then just boot to the GRUB command prompt, and shut the machine down from there. (You can read more about <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> under the <strong class="bold">SIGINT</strong> section of the <strong class="source-inline">systemd</strong> man page.)</p>
+			<p>Remember, using <em class="italic">Ctrl</em> + <em class="italic">A</em><em class="italic">lt</em> + <em class="italic">Del</em> to reboot a machine doesn't require root privileges. That's not normally a problem, because mission-critical servers should be locked away in a secure room where only authorized personnel can get to them. Even so, you might want to place restrictions on the ability to reboot servers. If this is the case, disable the <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> reboot feature by masking <strong class="source-inline">ctrl-alt-del.target</strong>. The command to do that is:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo systemctl mask ctrl-alt-del.target</p>
+			<p>Now, you can do <em class="italic">C</em><em class="italic">trl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> key sequences until the end of time, and nothing will happen.</p>
+			<p>On a desktop machine with a graphical interface, the <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> key sequence is controlled by the desktop configuration, which might be different across various desktop environments. On the Alma machine with its Gnome 3 environment, doing <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> brings up the normal shutdown menu, which looks like this:</p>
+			<div>
+				<div id="_idContainer036" class="IMG---Figure">
+					<img src="image/Figure_10.1_B17491.jpg" alt=""/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10<a id="_idTextAnchor141"/>.1 – The Gnome 3 Power Off menu on the Alma machine</p>
+			<p>Masking <strong class="source-inline">ctrl-alt-del.target</strong> on <a id="_idIndexMarker343"/>a desktop <a id="_idIndexMarker344"/>machine does not affect this behavior.</p>
+			<p><strong class="source-inline">systemd-poweroff.service</strong> only has a <strong class="source-inline">[Unit]</strong> section, which we see here:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Power-Off</p>
+			<p class="source-code">Documentation=man:systemd-halt.service(8)</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">Requires=shutdown.target umount.target final.target</p>
+			<p class="source-code">After=shutdown.target umount.target final.target</p>
+			<p class="source-code">SuccessAction=poweroff-force</p>
+			<p>This service requires <strong class="source-inline">shutdown.target</strong>, <strong class="source-inline">umount.target</strong>, and <strong class="source-inline">final.target</strong>. If we look in the unit files for these targets, we can see that they don't appear to do anything. For example, here's what the <strong class="source-inline">shutdown.target</strong> file looks like:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Shutdown</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">RefuseManualStart=yes</p>
+			<p>Our good <a id="_idIndexMarker345"/>friend <strong class="source-inline">strings</strong> shows <a id="_idIndexMarker346"/>us that <strong class="source-inline">shutdown.target</strong> is defined in the <strong class="source-inline">systemd</strong> executable file, as we see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:/lib/systemd$ strings systemd | grep 'shutdown.target'</p>
+			<p class="source-code">shutdown.target</p>
+			<p class="source-code">donnie@ubuntu20-04:/lib/systemd$</p>
+			<p>The same thing is true of <strong class="source-inline">umount.target</strong>, as we see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:/lib/systemd$ strings systemd | grep 'umount.target'</p>
+			<p class="source-code">umount.target</p>
+			<p class="source-code">donnie@ubuntu20-04:/lib/systemd$</p>
+			<p>Finally, we have <strong class="source-inline">final.target</strong>, as we see here:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Final Step</p>
+			<p class="source-code">Documentation=man:systemd.special(7)</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">RefuseManualStart=yes</p>
+			<p class="source-code">After=shutdown.target umount.target</p>
+			<p>Although it also doesn't appear to be doing anything, it's not defined in the <strong class="source-inline">systemd</strong> executable file, as we see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:/lib/systemd$ strings systemd | grep 'final.target'</p>
+			<p class="source-code">donnie@ubuntu20-04:/lib/systemd$</p>
+			<p>So, I don't <a id="_idIndexMarker347"/>know where <strong class="source-inline">final.target</strong> is defined, but that's okay. For our current topic, it's not important. I also couldn't find <a id="_idIndexMarker348"/>any information about what <strong class="source-inline">final.target</strong> actually does, other than this short blurb in the <strong class="source-inline">systemd.special</strong> man page:</p>
+			<p><em class="italic">"A special target unit that is used during the shutdown logic and may be used to pull in late services after all normal services are already terminated and all mounts unmounted."</em></p>
+			<p>I don't know what those <em class="italic">late services</em> are supposed to be, but again, that's okay. For our present discussion, it doesn't matter.</p>
+			<p>According to the <strong class="source-inline">systemctl</strong> man page, a <strong class="source-inline">systemctl poweroff</strong> command is supposed to send a <strong class="source-inline">wall</strong> message to all users who are logged into the system. However, that is incorrect. No message gets sent out, and there's no option switch to make it happen.</p>
+			<p>Normally, a <strong class="source-inline">systemctl poweroff</strong> command would shut down running services and unmount all mounted filesystems in an orderly manner. Using the <strong class="source-inline">--force</strong> option would shut down the system without taking time to shut down the services first. This could be handy if you have a service that's hung up and refuses to stop normally. Using the <strong class="source-inline">--force</strong> option <em class="italic">twice</em> would shut down the system without taking time to either shut down services <a id="_idIndexMarker349"/>normally or to unmount <a id="_idIndexMarker350"/>any mounted filesystems. Of course, this isn't recommended unless it's an absolute emergency, because it could corrupt your filesystem and cause data loss. On the other hand, using <strong class="source-inline">--force --force</strong> could be handy if the <strong class="source-inline">systemd</strong> process has crashed. This is because <strong class="source-inline">--force --force</strong> allows the <strong class="source-inline">systemctl</strong> executable to shut down the system without having to contact the <strong class="source-inline">systemd</strong> process.</p>
+			<p>Okay, let's <em class="italic">power off</em> the discussion about <strong class="source-inline">poweroff</strong>. Let's now talk briefly about halting a system.</p>
+			<h1 id="_idParaDest-137"><a id="_idTextAnchor142"/>Halting with systemctl</h1>
+			<p>Using a <strong class="source-inline">sudo systemctl halt</strong> command halts the operating system, but it doesn't power down the <a id="_idIndexMarker351"/>computer. Because I can read your mind, I know that you're saying, <em class="italic">But Donnie. Why would I want to halt the operating system but leave the computer running?</em> Well, I don't know. That's something that I've never figured out in my entire Linux career.</p>
+			<p>But seriously, <strong class="source-inline">halt.target</strong> works pretty much the same as <strong class="source-inline">poweroff.target</strong>. So, I'll leave it to you to look at the associated unit files, if you really want to.</p>
+			<p>All right, let's <em class="italic">reboot</em> this discussion by talking about rebooting.</p>
+			<h1 id="_idParaDest-138"><a id="_idTextAnchor143"/>Rebooting with systemctl</h1>
+			<p>You'll never <a id="_idIndexMarker352"/>guess what the command is to reboot a system. Okay, if you said <strong class="source-inline">sudo systemctl reboot</strong>, then you win today's grand prize. (Sadly, the grand prize consists of absolutely nothing, except for the good feeling that comes with giving a correct answer.)</p>
+			<p>Again, I'll leave it to you to look at the associated <strong class="source-inline">reboot.target</strong> files, because this also works pretty much the same as <strong class="source-inline">poweroff.target</strong>. One difference to note is that this time, the <strong class="source-inline">Alias=ctrl-alt-del.target</strong> line in the <strong class="source-inline">[Install]</strong> section actually does something for us. On a text mode machine, doing a <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> sequence at the local terminal will reboot the machine. So yes, that old three-finger salute is still with us. (You don't even need to enter an admin password to make this work. So, fortunately, doing <em class="italic">Ctrl</em> + <em class="italic">Alt</em> + <em class="italic">Del</em> from a remote terminal doesn't work.) If you want to try this on your VirtualBox virtual machine, you'll need to click on the virtual machine's <strong class="bold">Input</strong> menu, click on <strong class="bold">Keyboard</strong>, and then click on <strong class="bold">Insert Ctrl-Alt-Del</strong>. </p>
+			<p>Once again, I'm reading <a id="_idIndexMarker353"/>your mind. I know that you're saying, <em class="italic">But Donnie. These systemctl commands don't give us the cool options that we used to have with the old shutdown commands.</em> Yeah, you're right, which is why I still use the old <strong class="source-inline">shutdown</strong> commands. So, let's talk about them next, shall we?</p>
+			<h1 id="_idParaDest-139"><a id="_idTextAnchor144"/>Using shutdown instead of systemctl</h1>
+			<p>The old <strong class="source-inline">shutdown</strong> commands that we used on SysV systems came with some cool options. We could schedule a shutdown or reboot for some time in the future, cancel a scheduled <a id="_idIndexMarker354"/>shutdown, and broadcast a message about an impending shutdown or reboot to all users who were logged into the system. With the <strong class="source-inline">systemctl</strong> commands, you can't do any of that. Fortunately, the old <strong class="source-inline">shutdown</strong> options are still with us, in the form of a symbolic link that points to the <strong class="source-inline">systemctl</strong> executable, as we see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ cd /usr/sbin/</p>
+			<p class="source-code">donnie@ubuntu20-04:/usr/sbin$ ls -l shutdown</p>
+			<p class="source-code">lrwxrwxrwx 1 root root 14 May 27 11:16 shutdown -&gt; /bin/systemctl</p>
+			<p class="source-code">donnie@ubuntu20-04:/usr/sbin$</p>
+			<p>Even though you can't use the old <strong class="source-inline">shutdown</strong> options with <strong class="source-inline">systemctl</strong>, you can use them with the <strong class="source-inline">shutdown</strong> link that points to <strong class="source-inline">systemctl</strong>. (Strange, but true.) Now, I realize that you old-timers might know these <strong class="source-inline">shutdown</strong> commands already, and that's okay. You won't hurt my feelings if you're tempted to just skim over this. On the other hand, if you bear with me until the end, you'll see some cool stuff that you might not currently know about. If you're a Linux newbie, you're almost sure to find some useful information here. So, let's go.</p>
+			<p>Whenever you do a <strong class="source-inline">shutdown</strong> command, you can specify the time at which you want the shutdown to occur. For example, to perform an immediate shutdown, just do:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo shutdown now</p>
+			<p>On an old SysV system, this command would have just halted the operating system. To power down the machine, you would have had to use the <strong class="source-inline">-h</strong> option. On a systemd machine, this command powers off the machine, so the <strong class="source-inline">-h</strong> option switch is no longer necessary. (Curiously, the <strong class="source-inline">-h</strong> switch is still mentioned in the <strong class="source-inline">shutdown</strong> man page, even though it no longer does anything.)</p>
+			<p>You can also <a id="_idIndexMarker355"/>specify the time at which you want the shutdown to occur, using the 24-hour time format. For example, to shut down the machine at 6:00 P.M., do:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo shutdown 18:00</p>
+			<p class="source-code">Shutdown scheduled for Sun 2021-06-27 18:00:00 EDT, use 'shutdown -c' to cancel.</p>
+			<p class="source-code">donnie@ubuntu20-04:~$</p>
+			<p>At about 25 minutes before the scheduled shutdown time, the system will start sending broadcast messages to all logged-in users, as we see here for Goldie:</p>
+			<p class="source-code">goldie@ubuntu20-04:~$</p>
+			<p class="source-code">Broadcast message from root@ubuntu20-04 on pts/0 (Sun 2021-06-27 17:50:00 EDT):</p>
+			<p class="source-code">The system is going down for poweroff at Sun 2021-06-27 18:00:00 EDT!</p>
+			<p class="source-code">Broadcast message from root@ubuntu20-04 on pts/0 (Sun 2021-06-27 17:51:00 EDT):</p>
+			<p class="source-code">The system is going down for poweroff at Sun 2021-06-27 18:00:00 EDT!</p>
+			<p>The system will continue sending out this broadcast message until the shutdown actually occurs. The frequency with which the message gets sent out depends upon how soon the shutdown is scheduled to occur. Within the last ten minutes, the message will get sent out every minute. Fortunately, Goldie can regain use of the command prompt by just hitting the <em class="italic">Enter</em> key, which will allow her to finish what she's doing. (In case you're wondering, <em class="italic">Goldie</em> is the name of my youngest kitty. You'll never guess what color she is.)</p>
+			<p>If you change your mind and want to cancel the shutdown, use the <strong class="source-inline">-c</strong> option switch, as shown here:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo shutdown -c</p>
+			<p class="source-code">donnie@ubuntu20-04:~$</p>
+			<p>You can also <a id="_idIndexMarker356"/>send out your own customized broadcast message by simply placing it after the <strong class="source-inline">shutdown</strong> command:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo shutdown 18:45 "At 6:45 PM, this server will go down for maintenance. So, get your work done and log off."</p>
+			<p class="source-code">Shutdown scheduled for Sun 2021-06-27 18:45:00 EDT, use 'shutdown -c' to cancel.</p>
+			<p class="source-code">donnie@ubuntu20-04:~$</p>
+			<p>At five minutes before the scheduled shutdown time, a <strong class="source-inline">nologin</strong> file will get created in the <strong class="source-inline">/run/</strong> directory, as we see here:</p>
+			<p class="source-code">donnie@ubuntu20-04:/run$ ls -l no*</p>
+			<p class="source-code">-rw-r--r-- 1 root root 121 Jun 27 18:40 nologin</p>
+			<p class="source-code">donnie@ubuntu20-04:/run$</p>
+			<p>This will prevent any other users from logging in. The next time you boot up this system, this <strong class="source-inline">nologin</strong> file will get deleted.</p>
+			<p>Any time you schedule a future shutdown job, a <strong class="source-inline">scheduled</strong> file gets created in the <strong class="source-inline">/run/systemd/shutdown/</strong> directory. Look inside the file, and you'll see something like this:</p>
+			<p class="source-code">donnie@ubuntu20-04:/run/systemd/shutdown$ cat scheduled</p>
+			<p class="source-code">USEC=1624917600000000</p>
+			<p class="source-code">WARN_WALL=1</p>
+			<p class="source-code">MODE=poweroff</p>
+			<p class="source-code">donnie@ubuntu20-04:/run/systemd/shutdown$</p>
+			<p>The <strong class="source-inline">USEC=</strong> line specifies the time for the scheduled shutdown, in Unix epoch format. If you don't know <a id="_idIndexMarker357"/>when the system is scheduled to shut down and you want to find out, you can use a shell script to translate this to human-readable format. The first example of this type of script uses a <strong class="source-inline">perl</strong> command to do the actual translation. Here's what it looks like:</p>
+			<p class="source-code">#!/usr/bin/bash</p>
+			<p class="source-code">if [ -f /run/systemd/shutdown/scheduled ]; then</p>
+			<p class="source-code">        perl -wne 'm/^USEC=(\d+)\d{6}$/ and printf("Shutting down at: %s\n", scalar localtime $1)' &lt; /run/systemd/shutdown/scheduled</p>
+			<p class="source-code">else</p>
+			<p class="source-code">        echo "No shutdown is scheduled."</p>
+			<p class="source-code">fi</p>
+			<p class="source-code">exit</p>
+			<p>Save the file as <strong class="source-inline">scheduled_shutdown_1.sh</strong>, and set the executable permission, like this:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ chmod u+x scheduled_shutdown_1.sh</p>
+			<p class="source-code">donnie@ubuntu20-04:~$</p>
+			<p>Schedule a shutdown for whatever time you want, and then run the script. The output should look something like this:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ ./scheduled_shutdown_1.sh</p>
+			<p class="source-code">Shutting down at: Tue Jun 29 19:05:00 2021</p>
+			<p class="source-code">donnie@ubuntu20-04:~$</p>
+			<p>If <strong class="source-inline">perl</strong> isn't installed <a id="_idIndexMarker358"/>on your system or if you'd prefer to not use <strong class="source-inline">perl</strong>, then you can use <strong class="source-inline">awk</strong> to perform the translation. The script with <strong class="source-inline">awk</strong> looks like this:</p>
+			<p class="source-code">#/bin/bash</p>
+			<p class="source-code">if [ -f /run/systemd/shutdown/scheduled ]; then</p>
+			<p class="source-code">        date -d "@$( awk -F '=' '/USEC/{ $2=substr($2,1,10); print $2 }' /run/systemd/shutdown/scheduled )"</p>
+			<p class="source-code">else</p>
+			<p class="source-code">        echo "No shutdown is scheduled."</p>
+			<p class="source-code">fi</p>
+			<p class="source-code">exit</p>
+			<p>Both of these scripts are set up to search for the <strong class="source-inline">scheduled</strong> file, and to only run the translation command if the <strong class="source-inline">scheduled</strong> file exists. If the file doesn't exist, the script will inform you of that, and then exit gracefully.</p>
+			<p>To reboot a machine, just use <strong class="source-inline">shutdown</strong> with the <strong class="source-inline">-r</strong> option, like this:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo shutdown -r now</p>
+			<p>You can schedule a reboot and send custom broadcast messages the same way that you would do for a shutdown operation.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">You old-timers might remember that on SysV systems, there was also an <strong class="source-inline">f</strong> option that you could use with the <strong class="source-inline">-r</strong> option. Doing a <strong class="source-inline">sudo shutdown -rf now</strong> command would reboot the machine, and would cause an <strong class="source-inline">fsck</strong> operation to be performed on the machine's filesystems before mounting them. That <strong class="source-inline">f</strong> option is now gone, because systemd systems are set up to always do an <strong class="source-inline">fsck</strong> operation on all supported filesystems every time you boot the machine. This happens because <strong class="source-inline">systemd-fsckd.service</strong> runs as part of the boot-up process if any supported filesystems are detected. (By <em class="italic">supported</em> filesystems, I mean that <strong class="source-inline">fsck</strong> works on the <strong class="source-inline">ext4</strong> filesystem that's the default for Ubuntu, but it doesn't work on the <strong class="source-inline">xfs</strong> filesystem, which is the default for RHEL and RHEL clones. So, don't be too disappointed if you see that <strong class="source-inline">systemd-fsckd.service</strong> doesn't run on your Alma machine.)</p>
+			<p>In <a href="B17491_07_Final_NM_ePub.xhtml#_idTextAnchor091"><em class="italic">Chapter 7</em></a>, <em class="italic">Understanding systemd Timers</em>, we learned how to set up a job to automatically <a id="_idIndexMarker359"/>run when you boot up your machine. Now, let's see how to set up a job to run when you shut down the machine.</p>
+			<h1 id="_idParaDest-140"><a id="_idTextAnchor145"/>Running a job before shutting down</h1>
+			<p>Let's say that <a id="_idIndexMarker360"/>you want to have a job automatically run every time you shut down your computer. (I'll let you use your imagination about what kind of job that could be.) To set that up, just create your own custom service that's <strong class="source-inline">WantedBy</strong> <strong class="source-inline">the</strong> <strong class="source-inline">shutdown.target</strong>. Let's check out how.</p>
+			<p>We'll demonstrate this by creating a dummy shell script that goes along with our new service. In the <strong class="source-inline">/usr/local/bin/</strong> directory, create the <strong class="source-inline">script.sh</strong> file with the following contents:</p>
+			<p class="source-code">#!/bin/bash</p>
+			<p class="source-code"># Run script with systemd only at shutdown, and not for reboot.</p>
+			<p class="source-code">systemctl list-jobs | egrep -q 'reboot.target.*start' &amp;&amp; echo "Testing myscript.service for reboot" &gt; /root/reboot_test.txt</p>
+			<p class="source-code">systemctl list-jobs | egrep -q 'shutdown.target.*start' &amp;&amp; echo "Testing myscript.service for shutdown" &gt; /root/shutdown_test.txt</p>
+			<p>The first <strong class="source-inline">systemctl list-jobs</strong> command will search through the list of running jobs, looking for the <strong class="source-inline">reboot.target.*start*</strong> text string. If the text string is found, the <strong class="source-inline">&amp;&amp;</strong> operator will cause the <strong class="source-inline">echo</strong> command to run. The <strong class="source-inline">echo</strong> output will go to the <strong class="source-inline">reboot_test.txt</strong> file in the <strong class="source-inline">/root/</strong> directory. However, this will never actually happen, because this service will only get activated by <strong class="source-inline">shutdown.target</strong>, and not by <strong class="source-inline">reboot.target</strong>. The next line is the same, except it's looking for the <strong class="source-inline">shutdown.target.*start*</strong> text string. If that text string is found, the <strong class="source-inline">echo</strong> command will send its <a id="_idIndexMarker361"/>output to the <strong class="source-inline">/root/shutdown_test.txt</strong> file. After you've saved the file, set the executable permission by doing:</p>
+			<p class="source-code">donnie@ubuntu20-04:/usr/local/bin$ sudo chmod u+x script.sh</p>
+			<p>Next, use <strong class="source-inline">sudo systemctl edit --full --force myscript.service</strong> to create the service. Add the following contents:</p>
+			<p class="source-code">[Unit]</p>
+			<p class="source-code">Description=Run this service only when shutting down</p>
+			<p class="source-code">DefaultDependencies=no</p>
+			<p class="source-code">Conflicts=reboot.target</p>
+			<p class="source-code">Before=poweroff.target halt.target shutdown.target</p>
+			<p class="source-code">Requires=poweroff.target</p>
+			<p class="source-code">[Service]</p>
+			<p class="source-code">Type=oneshot</p>
+			<p class="source-code">ExecStart=/usr/local/bin/script.sh</p>
+			<p class="source-code">RemainAfterExit=yes</p>
+			<p class="source-code">[Install]</p>
+			<p class="source-code">WantedBy=shutdown.target</p>
+			<p>The <strong class="source-inline">ExecStart=</strong> line activates our shell script. In the <strong class="source-inline">[Install]</strong> section, we see that this service is <strong class="source-inline">WantedBy</strong> the <strong class="source-inline">shutdown.target</strong>.</p>
+			<p>Once you've <a id="_idIndexMarker362"/>saved this file, do the normal <strong class="source-inline">sudo systemctl daemon-reload</strong> and <strong class="source-inline">sudo systemctl enable myscript.service</strong> operations. To test things out, first shut the machine down and then start it back up. You should now see the <strong class="source-inline">shutdown_test.txt</strong> file in the <strong class="source-inline">/root/</strong> directory:</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo ls -l /root/</p>
+			<p class="source-code">[sudo] password for donnie:</p>
+			<p class="source-code">total 8</p>
+			<p class="source-code">-rw-r--r-- 1 root root   38 Jun 29 18:19 shutdown_test.txt</p>
+			<p class="source-code">drwxr-xr-x 3 root root 4096 Jun  3 20:20 snap</p>
+			<p class="source-code">donnie@ubuntu20-04:~$ sudo cat /root/shutdown_test.txt</p>
+			<p class="source-code">Testing myscript.service for shutdown</p>
+			<p class="source-code">donnie@ubuntu20-04:~$</p>
+			<p>Next, reboot the machine. This time, you'll see that no file gets created, proving that this service will run only for a shutdown, and not for a reboot.</p>
+			<p>Okay, I think that's about it. Let's wrap this baby up.</p>
+			<h1 id="_idParaDest-141"><a id="_idTextAnchor146"/>Summary</h1>
+			<p>As usual, we've seen some cool stuff in this chapter. We started out by looking at the <strong class="source-inline">systemctl</strong> commands for shutting down, halting, or rebooting a machine. We then saw that the old-style <strong class="source-inline">shutdown</strong> commands still work, and will allow you to use the scheduling and messaging features that you've always been used to using. We ended by creating a service that would run a job whenever you shut down the machine.</p>
+			<p>I realize that a lot of you might already have been familiar with a lot of what I presented in this chapter, but I did present some cool things at the end, and I hope that you enjoyed it.</p>
+			<p>This concludes part 1 of <em class="italic">Mastering systemd</em>. In part 2, we'll delve into the mysteries of <em class="italic">cgroups</em>. I'll see you there.</p>
+			<h1 id="_idParaDest-142"><a id="_idTextAnchor147"/>Questions</h1>
+			<ol>
+				<li>What is the command for rebooting a Linux machine?<p>a) <strong class="source-inline">sudo shutdown now</strong></p><p>b) <strong class="source-inline">sudo systemctl -r now</strong></p><p>c) <strong class="source-inline">sudo systemctl reboot now</strong></p><p>d) <strong class="source-inline">sudo systemctl reboot</strong></p><p>e) <strong class="source-inline">sudo shutdown --reboot</strong></p></li>
+				<li>What happens 5 minutes before a scheduled shutdown time?<p>a) The <strong class="source-inline">scheduled</strong> file gets created in the <strong class="source-inline">/run/systemd/shutdown/</strong> directory.</p><p>b) The <strong class="source-inline">scheduled</strong> file gets created in the <strong class="source-inline">/run/</strong> directory.</p><p>c) The <strong class="source-inline">nologin</strong> file gets created in the <strong class="source-inline">/run/systemd/shutdown/</strong> directory.</p><p>d) The <strong class="source-inline">nologin</strong> file gets created in the <strong class="source-inline">/run/</strong> directory.</p></li>
+				<li>When you schedule a future shutdown, which of the following happens?<p>a) A <strong class="source-inline">nologin</strong> file gets created in the <strong class="source-inline">/run/systemd/shutdown/</strong> directory.</p><p>b) A <strong class="source-inline">scheduled</strong> file gets created in the <strong class="source-inline">/run/systemd/shutdown/</strong> directory.</p><p>c) A <strong class="source-inline">nologin</strong> file gets created in the <strong class="source-inline">/run/systemd/</strong> directory.</p><p>d) A <strong class="source-inline">scheduled</strong> file gets created in the <strong class="source-inline">/run/</strong> directory.</p></li>
+				<li>What could happen if you do a <strong class="source-inline">sudo systemctl poweroff --force --force</strong> command?<p>a) Using the <strong class="source-inline">--force</strong> option twice would result in an error message.</p><p>b) The system will ignore the second <strong class="source-inline">--force</strong> option.</p><p>c) You could damage your filesystem, which could result in data loss.</p><p>d) If the first <strong class="source-inline">--force</strong> doesn't ensure that the <strong class="source-inline">power off</strong> command works, the second one surely will.</p></li>
+			</ol>
+			<h1 id="_idParaDest-143"><a id="_idTextAnchor148"/>Answers</h1>
+			<ol>
+				<li value="1">d</li>
+				<li>d</li>
+				<li>b</li>
+				<li>c</li>
+			</ol>
+			<h1 id="_idParaDest-144"><a id="_idTextAnchor149"/>Further reading</h1>
+			<p><strong class="bold">Run a script on a systemd system at shutdown</strong>: Note that the script doesn't work as it's shown in this article. This is because it has you create the script and save the output files in the <strong class="source-inline">/tmp/</strong> directory, which gets cleaned out every time yo<a id="_idTextAnchor150"/>u shut down the machine:</p>
+			<p><a href="https://www.golinuxcloud.com/run-script-with-systemd-at-shutdown-only-rhel/">https://www.golinuxcloud.com/run-script-with-systemd-at-shutdown-only-rhel/</a></p>
+			<p><strong class="bold">How to check the time for a delayed shutdown</strong>: You can find the answers to lots of your Linux admin questions with simple DuckDuckGo searches, as I did with this. Learn how to use DuckDuckGo. It can be a Linux administrator's best friend:</p>
+			<p><a href="https://unix.stackexchange.com/questions/229745/systemd-how-to-check-scheduled-time-of-a-delayed-shutdown">https://unix.stackexchange.com/questions/229745/systemd-how-to-check-scheduled-time-of-a-delayed-shutdown</a></p>
+		</div>
+	</body></html>

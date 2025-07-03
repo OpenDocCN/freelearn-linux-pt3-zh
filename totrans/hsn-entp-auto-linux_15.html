@@ -1,0 +1,338 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Performing Routine Maintenance with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>As you have worked through this book, you will have completed many steps to define and build a Linux environment for your enterprise that supports automation. However, Ansible's assistance with your environment does not end here. Even an environment that has been built and is in active use requires maintenance and intervention from time to time. Historically, these interventions would have been performed manually by system administrators, using shell commands or scripts.</p>
+<p>As we have discussed many times throughout this book, tasks that are run by hand present a number of challenges for the enterprise—not least that they may not be well documented, and hence there is a steep learning curve for new members of staff. In addition, our old friends auditability and repeatability come into play—how can you be sure of who did what, and when, if everyone is logging on to the shell of your Linux machines and performing tasks by hand?</p>
+<p>In this chapter, we explore the ways in which Ansible can assist the enterprise with the day-to-day management of the Linux estate and, especially, in performing routine maintenance tasks. Ansible is extremely powerful, and your possibilities for routine maintenance are not limited to the examples in this chapter—rather, they are intended to get you started, and show by example the kinds of tasks you may be able to automate.<span> </span></p>
+<p>Specifically, we will cover the following topics in this chapter:</p>
+<ul>
+<li><span>Tidying up disk space</span></li>
+<li><span>Monitoring for configuration drift</span></li>
+<li><span>Managing processes with Ansible</span></li>
+<li><span>Rolling updates with Ansible</span></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter includes examples, based on the following technologies:</p>
+<ul>
+<li class="mce-root">Ubuntu Server 18.04 LTS</li>
+<li class="mce-root">CentOS 7.6</li>
+<li class="mce-root">Ansible 2.8</li>
+</ul>
+<p>To run through these examples, you will need access to two servers or virtual machines running one each of the operating systems just listed, and also Ansible. Note that the examples given in this chapter may be destructive in nature (for example, they delete files, and make changes to server configuration), and if run as is, are only intended to be run in an isolated test environment.</p>
+<p class="mce-root">Once you are satisfied that you have a safe environment in which to operate, let's get started with routine system maintenance, with Ansible.</p>
+<p><span>All example code discussed in this chapter is available from GitHub, at the following URL:</span><span> <a href="https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter12">https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter12</a>.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Tidying up disk space</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the most routine and mundane (and yet, vitally important) tasks that a system administrator has to complete on a routine basis is clearing out disk space. Although ideally, systems should be well behaved—for example, log files should be rotated, and temporary files cleaned up—those with experience in the industry will know that this is not always the case. The author of this book has worked in environments where clearing out a given directory was considered a routine task—hence, a prime candidate for automation.</p>
+<p>Of course, you would not just randomly delete files from a filesystem. Any task like this should be performed in a precise manner. Let's proceed with a practical example—as this is hypothetical, let's create some test files to work with. Suppose our fictional application creates a data file every day, and never prunes its <kbd>data</kbd> directory. To synthesize this, we might create some data files, as follows:</p>
+<pre><strong>$ sudo mkdir -p /var/lib/appdata</strong><br/><strong>$ for i in $(seq 1 20); do DATE=$(date -d "-$i days" +%y%m%d%H%M); sudo touch -t $DATE /var/lib/appdata/$DATE; done</strong></pre>
+<p>The preceding commands create a directory called <kbd>/var/lib/appdata</kbd>, and then create one (empty) file for each day, for the last 20 days. We could, of course, create files with data in, but it makes no difference to this example—we don't actually want to fill the disk up!</p>
+<p>Now, let's suppose that our disk is getting full and that we want to prune this directory, keeping only the last 5 days' worth. If we were to do this by hand, we might use the venerable <kbd>find</kbd> command, to list the files meeting our criteria, and remove anything older. This might look something like this:</p>
+<pre><strong>$ sudo find /var/lib/appdata -mtime +5 -exec rm -f '{}' \;</strong></pre>
+<p>That is an easy enough command to run, and you might be surprised to learn how common it is to see commands like that in enterprise run-books for Linux servers. Let's improve on this, with Ansible. We know that if we implement this in Ansible, the following will be the case:</p>
+<ul>
+<li>The Ansible engine will return an appropriate status—<kbd>ok</kbd>, <kbd>changed</kbd>, or <kbd>failed</kbd>, depending on the actions taken. The <kbd>find</kbd> command shown in the preceding code block will return the same output and exit code, whether it deletes any files or not.</li>
+<li>The Ansible code we write will be self-documenting—for example, it will begin with an appropriate <kbd>name</kbd>—perhaps <kbd>Prune /var/lib/appdata</kbd>.</li>
+<li>The Ansible code can be run from AWX or Ansible Tower, ensuring that this routine task can be delegated to the appropriate team, using the built-in role-based access controls.</li>
+<li>In addition, the task can be given a user-friendly name in AWX, meaning operators don't need any specialist knowledge to jump in and start being effective in assisting with Linux environment management.</li>
+<li>AWX and Ansible Tower will faithfully log the output from the task run, to ensure it is possible to audit these cleanup jobs in the future.</li>
+</ul>
+<p>Of course, none of these Ansible benefits is new to us by now—we have frequently referred to them throughout the book. Nonetheless, it is my wish to impress upon you the benefits of effective automation in the enterprise. Let's start by defining a role to perform exactly this function—prune a directory of files over 5 days old with Ansible:</p>
+<ol>
+<li>We start by making use of the Ansible <kbd>find</kbd> module, which enables us to build up a list of filesystem objects (such as files or directories), just as the <kbd>find</kbd> shell command does. We will <kbd>register</kbd> the output in an Ansible variable to make use of it later on, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Find all files older than {{ max_age }} in {{ target_dir }}<br/>  find:<br/>    paths: "{{ target_dir }}"<br/>    age: "{{ max_age }}"<br/>    recurse: yes<br/>  register: prune_list</pre>
+<p style="padding-left: 60px">The code fragment shown here should be fairly self-explanatory—note, however,  that we have made use of variables for the <kbd>path</kbd> and <kbd>age</kbd> parameters; this is with good reason. Roles are all about reuse of code, and if we define these parameters using variables, we can reuse this role to prune other directories (for example, for different applications), without needing to change the role code itself. You will also observe that we can use the variables in the <kbd>name</kbd> of the task—very useful and powerful when returning to audit Ansible runs in the future.</p>
+<ol start="2">
+<li>The <kbd>find</kbd> module will build up a list of files we need to delete—however, given our goal of auditing, it might be useful for us to print these filenames in the Ansible output, to ensure we can come back later and find out exactly what was deleted. Note that we could print more data than just the path—perhaps also capturing size and timestamp information could be useful? All of this is available in the <kbd>prune_list</kbd> variable we captured earlier, and it is left as an exercise for you to explore this. (Hint: Replace <kbd>msg: "{{ item.path }}"</kbd> with <kbd>msg: "{{ item }}"</kbd>, to see all the information captured by the <kbd>find</kbd> task.) Run the following code:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Print file list for auditing purposes<br/>  debug:<br/>    msg: "{{ item.path }}"<br/>  loop:<br/>    "{{ prune_list.files }}"<br/>  loop_control:<br/>    label: "{{ item.path }}"</pre>
+<p style="padding-left: 60px">Here, we are simply using an Ansible loop to iterate over the data generated by the <kbd>find</kbd> module—specifically, extracting the <kbd>path</kbd> dictionary item from the <kbd>files</kbd> dictionary within our variable. The <kbd>loop_control</kbd> option prevents Ansible from printing the entire dictionary structure above each <kbd>debug</kbd> message, instead, just using the <kbd>path</kbd> to each file as the <kbd>label</kbd>.</p>
+<ol start="3">
+<li>Finally, we use the <kbd>file</kbd> module to remove the files, again looping over <kbd>prune_list</kbd>, just as we did previously, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Prune {{ target_dir }}<br/>  file:<br/>    path: "{{ item.path }}"<br/>    state: absent<br/>  loop:<br/>    "{{ prune_list.files }}"<br/>  loop_control:<br/>    label: "{{ item.path }}"</pre>
+<ol start="4">
+<li>With the role complete, we must define the variables for our play—in this example, I am defining them in the <kbd>site.yml</kbd> playbook that references our new role, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Prune Directory<br/>  hosts: all<br/>  become: yes<br/>  vars:<br/>    max_age: "5d"<br/>    target_dir: "/var/lib/appdata"<br/><br/>  roles:<br/>    - pruneappdata</pre>
+<p>Running this code with the test files generated earlier in this section will result in an output that looks something like this:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/644b6558-b091-4fb4-be4f-c2244b4faff0.png" style="width:53.75em;height:37.25em;"/></p>
+<p>The test file set has been reduced for the preceding screenshot, to ensure it fits on the screen—however, you can clearly see the output, and which files were deleted.</p>
+<p>While good housekeeping is an essential part of server maintenance, sometimes it is only desirable to take action (such as pruning a directory) if it is absolutely necessary. What if we decided that this role should only run when there is 10% or less disk space remaining on the filesystem containing <kbd>/var/lib/appdata</kbd>?</p>
+<p>The following process demonstrates how Ansible can be used to perform conditional housekeeping, operating only when the disk is more than 90% full:</p>
+<ol>
+<li>We start by modifying our existing role—first of all, we add a new task to the role, to get the disk usage as a percentage from our <kbd>target</kbd> directory, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Obtain free disk space for {{ target_dir }}<br/>  shell: df -h "{{ target_dir }}" | tail -n 1 | awk {'print $5 '} | sed 's/%//g'<br/>  register: dfresult<br/>  changed_when: false</pre>
+<p style="padding-left: 60px">Although there are Ansible facts that contain disk usage information, we use the <kbd>df</kbd> command here because it can query our directory directly—we must somehow trace this back to the mount point on which it lives if we are to successfully use Ansible facts. We also make use of <kbd>changed_when: false</kbd>, as this shell task will always show a changed result otherwise, which can be confusing in the output—this is a read-only query, so nothing should have changed!</p>
+<ol start="2">
+<li>With this data gathered and registered in the <kbd>dfresult</kbd> variable, we then wrap our existing code in a block. A block in Ansible is simply a way of wrapping a set of tasks together—thus, rather than having to put a <kbd>when</kbd> condition on each of our three tasks from our earlier example, we simply put the conditional on the block instead. The block would begin something like this:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Run file pruning only if disk usage is greater than 90 percent<br/>  block:<br/><br/>  - name: Find all files older than {{ max_age }} in {{ target_dir }}<br/>    find:</pre>
+<p style="padding-left: 60px">Note how the previous set of tasks is now indented by two spaces. This ensures that Ansible understands it is part of the block. Indent all the existing tasks, and conclude the block with the following code:</p>
+<pre style="padding-left: 60px">    loop_control:<br/>      label: "{{ item.path }}"<br/>  when: dfresult.stdout|int &gt; 90</pre>
+<p style="padding-left: 60px">Here, we are using the standard output captured in the <kbd>dfresult</kbd> variable, casting it to an integer, and then, checking to see if it is 90% or more. Thus, we only run the pruning tasks if the filesystem is more than 90% full. This is, of course, just one conditional—you could gather any data that you require to make any of your tasks run, in a variety of other cases. Running this new role on my test server, which has much less than 90% disk utilization, shows the pruning tasks being skipped altogether now, as can be seen in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/153ab9cf-57c9-49fc-b1eb-09882d409f3a.png" style="width:42.33em;height:26.17em;"/></p>
+<p>In this way, it is easy for us to perform routine disk housekeeping tasks across a large enterprise estate, and—as is ever the case with Ansible—the sky is the limit for what you can do. Hopefully, the examples from this section will give you some ideas on how to get started. In the next section, we will look at how Ansible can be used to effectively monitor for configuration drift, across your Linux estate.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Monitoring for configuration drift</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="200bea26-7066-4feb-a571-481a5f047ae4.xhtml" target="_blank">Chapter 7</a>, <em>Configuration Management with Ansible</em>, we have explored the ways that Ansible can be used both to deploy configuration at an enterprise scale and to enforce it. Let us now build on this, with something else—monitoring for configuration drift.</p>
+<p>As we discussed in <a href="c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml" target="_blank">Chapter 1</a>, <em>Building a Standard Operating Environment on Linux</em>, manual changes are the enemy of automation. Beyond this, they are also a security risk. Let us work with a specific example here, to demonstrate. As was suggested previously in this book, it would be advisable to manage the <strong>Secure Shell</strong> (<strong>SSH</strong>) server configuration with Ansible. SSH is the standard protocol for managing Linux servers and can be used not only for management but also for file transfer. In short, it is one of the key mechanisms through which people will access your servers, and hence it is vital that it is secure.</p>
+<p>It is also common, however, for a variety of people to have root access to Linux servers. Whether developers are deploying code, or system administrators are performing routine (or break-fix) work, it is considered perfectly normal for many people to have root access to a server. This is fine if everyone is <em>well behaved</em>, and actively supports the principles of automation in your enterprise. However, what happens if someone makes unauthorized changes?</p>
+<p>Through the SSH configuration, they might enable remote root logins. They might turn on password-based authentication when you have disabled this in favor of key-based authentication. Many times, these kinds of changes are made to support laziness—it is easier to copy files around as a root user, for example.</p>
+<p>Whatever the intention and root cause, someone manually making these changes to a Linux server you deployed previously is a problem. How do you go about detecting them, though? Certainly, you don't have time to log in to every server and check the files by hand. Ansible, however, can help.</p>
+<p>In <a href="200bea26-7066-4feb-a571-481a5f047ae4.xhtml" target="_blank">Chapter 7</a>, <em>Configuration Management with Ansible</em>, we proposed a simple Ansible example that deployed the SSH server configuration from a template and restarted the SSH service if the configuration was changed using a handler.</p>
+<p>We can actually repurpose this code for our configuration drift checks. Without even making any code changes, we can run the playbook with Ansible in <em>check</em> mode. Check mode makes no changes to the systems on which it is working—rather, it tries its best to predict any changes that might occur. The reliability of these predictions depends very much on the modules used in the role. For example, the <kbd>template</kbd> module can reliably predict changes because it knows whether the file that would be written is different from the file that is in place. Conversely, the <kbd>shell</kbd> module can never know the difference between a <kbd>change</kbd> and an <kbd>ok</kbd> result because it is such a general-purpose module (though it can detect failures with a reasonable degree of accuracy). Thus, I advocate strongly the use of <kbd>changed_when</kbd> when this module is used.</p>
+<p>Let's see what happens if we rerun the <kbd>securesshd</kbd> role from before, this time in check mode. The result can be seen in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/1e3395f9-8bd4-4af4-aaf2-2ed627fdd564.png" style="width:42.58em;height:20.92em;"/></p>
+<p>Here, we can see that someone has indeed changed the SSH server configuration—if it matched the template we were providing, the output would look like this instead:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/3a0b8a58-c5b3-448a-9570-ec42ac43e597.png" style="width:42.00em;height:17.33em;"/></p>
+<p>So far, so good—you could run this against a hundred, or even a thousand, servers, and you would know that any <kbd>changed</kbd> results came from servers where the SSH server configuration no longer matches the template. You could even run the playbook again to rectify the situation, only this time not in check mode (that is, without the <kbd>-C</kbd> flag on the command line).</p>
+<p>In an environment such as AWX or Ansible Tower, jobs (that is to say, running playbooks) are categorized into two different states—success and failure. Success is categorized as any playbook that runs to completion, producing only <kbd>changed</kbd> or <kbd>ok</kbd> results. Failure, however, comes about from one or more <kbd>failed</kbd> or <kbd>unreachable</kbd> states being returned from the playbook run.</p>
+<p>Thus, we could enhance our playbook by getting it to issue a <kbd>failed</kbd> state if the configuration file is different from the templated version. The bulk of the role remains exactly the same, but, on our template task, we add the following clauses:</p>
+<pre>  register: template_result<br/>  failed_when: (template_result.changed and ansible_check_mode == True) or template_result.failed</pre>
+<p class="CDPAlignLeft CDPAlign">These have the following effect on the operation of this task:</p>
+<ul>
+<li>The result of the task is registered in the <kbd>template_result</kbd> variable.</li>
+<li>We change the  failure condition of this task to the following:
+<ul>
+<li>The template task result was changed, and we are running it in check mode.</li>
+<li>Or, the template task failed for some other reason—this is a catch-all case, to ensure we still report other failure cases correctly (for example, access denied to a file).</li>
+</ul>
+</li>
+</ul>
+<p>You will observe the use of both logical <kbd>and</kbd> and <kbd>or</kbd> operators in the <kbd>failed_when</kbd> clause—a powerful way to expand on the operation of Ansible. Now, when we run the playbook in check mode and the file has changed, we see the following result:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/03d63c86-98b2-418c-b46d-14cae77c2b8a.png" style="width:42.25em;height:18.50em;"/></p>
+<p>Now, we can very clearly see that there is an issue on our host, and it will be reported as a failure in AWX and Ansible Tower too.</p>
+<p>Of course, this works very well for plain text files. What about binary files, though? Ansible is, of course, not a complete replacement for a file integrity monitoring tool such as <strong>Advanced Intrusion Detection Environment</strong> (<strong>AIDE</strong>) or the venerable <strong>Tripwire</strong>—however, it can help with the use of binary files too. In fact, the process is very simple. Let's suppose you want to ensure the integrity of <kbd>/bin/bash</kbd>—this is the shell that everyone uses by default on most systems, so the integrity of this file is incredibly important. If you have space to store a copy of the original binary on your Ansible server, then you can use the <kbd>copy</kbd> module to copy it across to the target hosts. The <kbd>copy</kbd> module makes use of checksumming to determine whether a file needs to be copied, and so, you can be sure that, if the <kbd>copy</kbd> module results in a <kbd>changed</kbd> result, then the target file differs from your original version, and integrity is compromised. The role code for this would look very similar to our template example here:</p>
+<pre>---<br/>- name: Copy bash binary to target host<br/>  copy:<br/>    src: files/bash<br/>    dest: /bin/bash<br/>    owner: root<br/>    group: root<br/>    mode: 0755<br/>  register: copy_result<br/>  failed_when: (copy_result.changed and ansible_check_mode == True) or copy_result.failed</pre>
+<p>Of course, storing original binaries on your Ansible server is inefficient, and also, means you have to keep them up to date, in line with your server patching schedule, which is not desirable when you have a large number of files to check. Fortunately, the Ansible <kbd>stat</kbd> module can generate checksums, as well as returning lots of other useful data about files, and so, we could very easily write a playbook to check that our binary for Bash has not been tampered with, by running the following code:</p>
+<pre>---<br/>- name: Get sha256 sum of /bin/bash<br/>  stat:<br/>    path: /bin/bash<br/>    checksum_algorithm: sha256<br/>    get_checksum: yes<br/>  register: binstat<br/><br/>- name: Verify checksum of /bin/bash<br/>  fail:<br/>    msg: "Integrity failure - /bin/bash may have been compromised!"<br/>  when: binstat.stat.checksum != 'da85596376bf384c14525c50ca010e9ab96952cb811b4abe188c9ef1b75bff9a'</pre>
+<p>This is a very simple example and could be enhanced significantly by ensuring the file path and name, and checksum, are variables rather than static values. It could also be made to loop over a dictionary of files and their respective checksums—these tasks are left as an exercise for you, and this is entirely possible, using techniques we have covered throughout this book. Now, if we run this playbook (whether in check mode or not), we will see a failed result if the integrity of Bash has not been maintained, and <kbd>ok</kbd> otherwise, as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/5b4a99b8-fbc9-4a79-912b-bd17cbac9ba4.png" style="width:46.17em;height:23.00em;"/></p>
+<p>Checksumming can be used to verify the integrity of configuration files too, so, this example role serves as a good basis for any file integrity checking you might wish to undertake.</p>
+<p>We have now completed our exploration of file and integrity monitoring with Ansible, and hence, the ability check for configuration drift. In the next section of this chapter, we'll take a look at how Ansible can be used to manage processes across an Enterprise Linux estate.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Understanding process management with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>Sooner or later, you will end up with the need to manage, and possibly even kill, processes on one or more Linux servers within your enterprise. Obviously, this is not an ideal scenario, and in day-to-day operations, most services should be managed using the Ansible <kbd>service</kbd> module, many examples of which we have seen in this book.</p>
+<p>What if, however, you need to actually kill a service that has hung? Obviously, a system administrator could SSH into the errant server and issue commands such as the following:</p>
+<pre><strong>$ ps -ef | grep &lt;processname&gt; | grep -v grep | awk '{print $2}'</strong><br/><strong>$ kill &lt;PID1&gt; &lt;PID2&gt;</strong></pre>
+<p>If the process refuses stubbornly to terminate, then the following may become necessary:</p>
+<pre><strong>$ kill -9 &lt;PID1&gt; &lt;PID2&gt;</strong></pre>
+<p>While this is a fairly standard practice, in which most system administrators will be well versed (and indeed, may have their own favorite tools to handle, such as <kbd>pkill</kbd>), it suffers the same problem as most manual interventions on a server—how can you keep track of what happened, and which processes were affected? If numeric <strong>process IDs</strong> (<strong>PIDs</strong>) were used, then even with access to the command history, it is still impossible to tell which process historically held that numeric PID.</p>
+<p>What we propose here is an unconventional use of Ansible—yet one that, if run through a tool such as AWX or Ansible Tower, would enable us to track all operations that were performed, along with details of who ran them and, if we put the process name in a parameter, what the target was too. This could be useful if, in the future, it becomes necessary to analyze the history of a problem, whereupon it would be easy to check which servers were acted upon, and which processes were targeted, along with precise timestamps.</p>
+<p>Let's build up a role to perform exactly this set of tasks. This chapter was originally written against Ansible 2.8, which did not feature a module for process management, and so, the following example uses native shell commands to handle this case:</p>
+<ol>
+<li>We start by running the process listing we proposed earlier in this section, but this time, registering the list of PIDs into an Ansible variable, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">---<br/>- name: Get PID's of running processes matching {{ procname }}<br/>  shell: "ps -ef | grep -w {{ procname }} | grep -v grep | grep -v ansible | awk '{print $2\",\"$8}'"<br/>  register: process_ids</pre>
+<p style="padding-left: 60px">Most people familiar with shell scripting should be able to understand this line—we are filtering the system process table for whole-word matches for the Ansible variable <kbd>procname</kbd>, and removing any extraneous process names that might come up and confuse the output, such as <kbd>grep</kbd> and <kbd>ansible</kbd>. Finally, we use <kbd>awk</kbd> to process the output into a comma-separated list, containing the PID, in the first column, and the process name itself in the second.</p>
+<ol start="2">
+<li>Now, we must start to take action on this output. We now loop over the <kbd>process_ids</kbd> variable populated previously, issuing a <kbd>kill</kbd> command against the first column in the output (that is, the numeric PID), as follows:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Attempt to kill processes nicely<br/>  shell: "kill {{ item.split(',')[0] }}"<br/>  loop:<br/>    "{{ process_ids.stdout_lines }}"<br/>  loop_control:<br/>    label: "{{ item }}"</pre>
+<p style="padding-left: 60px">You will observe the use of Jinja2 filtering here—we can use the built-in <kbd>split</kbd> function to split the data we created in the previous code block, taking only the first column of output (the numeric PID). However, we use the <kbd>loop_control</kbd> label to set the task label containing both the PID and process name, which could be very useful in an auditing or debugging scenario.</p>
+<ol start="3">
+<li>Any experienced system administrator will know that it is not sufficient to just issue a <kbd>kill</kbd> command to a process—some processes must be forcefully killed as they are hung. Not all processes exit immediately, so we will use the Ansible <kbd>wait_for</kbd> module to check for the PID in the <kbd>/proc</kbd> directory—when it becomes <kbd>absent</kbd>, then we know the process has exited. Run the following code:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Wait for processes to exit<br/>  wait_for:<br/>    path: "/proc/{{ item.split(',')[0] }}"<br/>    timeout: 5<br/>    state: absent<br/>  loop:<br/>    "{{ process_ids.stdout_lines }}"<br/>  ignore_errors: yes<br/>  register: exit_results</pre>
+<p style="padding-left: 60px">We have set the timeout here to 5 seconds—however, you should set it as appropriate in your environment. Once again, we register the output to a variable—we need to know which processes failed to exit, and hence, try killing them more forcefully. Note that we set <kbd>ignore_errors</kbd> here, as the <kbd>wait_for</kbd> module produces an error if the desired state (that is, <kbd>/proc/PID</kbd> becomes <kbd>absent</kbd>) does not occur within the <kbd>timeout</kbd> specified. This should not be an error in our role, simply a prompt for further processing.</p>
+<ol start="4">
+<li>We now loop over the results of the <kbd>wait_for</kbd>  task —only this time, we use the Jinja2 <kbd>selectattr</kbd> function, to select only dictionary items that have <kbd>failed</kbd> asserted; we don't want to forcefully terminate non-existent PIDs. Run the following code:</li>
+</ol>
+<pre style="padding-left: 60px">- name: Forcefully kill stuck processes<br/>  shell: "kill -9 {{ item.item.split(',')[0] }}"<br/>  loop:<br/>    "{{ exit_results.results | selectattr('failed') | list }}"<br/>  loop_control:<br/>    label: "{{ item.item }}"</pre>
+<p style="padding-left: 60px">Now, we attempt to kill the stuck processes with the <kbd>-9</kbd> flag—normally, sufficient to kill most hung processes. Note again the use of Jinaj2 filtering and the tidy labeling of the loop, to ensure we can use the output of this role for auditing and debugging.</p>
+<ol start="5">
+<li>Now, we run the playbook, specifying a value for <kbd>procname</kbd>—there is no default process to be killed, and I would not suggest that setting a default value for this variable is safe. Thus, in the following screenshot, I am setting it using the <kbd>-e</kbd> flag when I invoke the <kbd>ansible-playbook</kbd> command:</li>
+</ol>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/99908df0-83de-4c8e-ad70-76dae520fc2c.png" style="width:42.92em;height:26.92em;"/></p>
+<p>From the preceding screenshot, we can clearly see the playbook killing the <kbd>mysqld</kbd> process, and the output of the playbook is tidy and concise, yet contains enough information for debugging, should the need occur. </p>
+<p>As an addendum, if you are using Ansible 2.8 or later, there is now a native Ansible module called <kbd>pids</kbd> that will return a nice, clean list of PIDs for a given process name, if it is running. Adapting our role for this new functionality, we can, first of all, remove the shell command and replace it with the <kbd>pids</kbd> module, which is much easier to read, like this:</p>
+<pre>---<br/>- name: Get PID's of running processes matching {{ procname }}<br/>  pids:<br/>    name: "{{ procname }}"<br/>  register: process_ids</pre>
+<p>From this point on, the role is almost identical to before, except that, rather than the comma-separated list we generated from our shell command, we have a simple list that just contains the PIDs for each running process that matches the procname variable in name. Thus, we no longer need to use the split Jinja2 filter on our variables when executing commands on them. Run the following code:</p>
+<pre>- name: Attempt to kill processes nicely<br/>  shell: "kill {{ item }}"<br/>  loop:<br/>    "{{ process_ids.pids }}"<br/>  loop_control:<br/>    label: "{{ item }}"<br/><br/>- name: Wait for processes to exit<br/>  wait_for:<br/>    path: "/proc/{{ item }}"<br/>    timeout: 5<br/>    state: absent<br/>  loop:<br/>    "{{ process_ids.pids }}"<br/>  ignore_errors: yes<br/>  register: exit_results<br/><br/>- name: Forcefully kill stuck processes<br/>  shell: "kill -9 {{ item.item }}"<br/>  loop:<br/>    "{{ exit_results.results | selectattr('failed') | list }}"<br/>  loop_control:<br/>    label: "{{ item.item }}"</pre>
+<p>This block of code performs the same functions as before, only now, it is a little more readable, as we've reduced the number of Jinja2 filters required, and we have removed one shell command, in favor of the <kbd>pids</kbd> module. <span>These techniques, combined with the </span><kbd>service</kbd><span> module discussed earlier, should give you a sound basis to meet all of your process control needs with Ansible.</span></p>
+<p>In the next and final section of this chapter, we'll take a look at how to use Ansible when you have multiple nodes in a cluster, and you don't want to take them all out of service at once.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Rolling updates with Ansible</h1>
+                </header>
+            
+            <article>
+                
+<p>No chapter on routine maintenance would be complete without a look at rolling updates. So far in this book, we have kept our examples simple with one or two hosts, and have worked on the basis that all examples can be scaled up to manage hundreds, if not thousands, of servers using the same roles and playbooks.</p>
+<p>This, by and large, holds true—however, there are certain special cases where perhaps we need to look a little deeper at the operation of Ansible. Let's build up a hypothetical example, where we have four web application servers behind a load balancer. A new release of the web application code needs to be deployed, and the deployment process requires multiple steps (thus, multiple Ansible tasks). In our simple example, the deployment process will be as follows:</p>
+<ol>
+<li>Deploy the web application code to the server. </li>
+<li>Restart the web server service, to pick up the new code.</li>
+</ol>
+<div class="packt_tip">In a production environment, you would almost certainly want to take further steps to ensure the integrity of your web service—for example, if it is behind a load balancer, you would take it out of service during the code deployment, and ensure it is not returned to service until it is validated as working properly. It is not anticipated that everyone reading this book will have access to such an environment, and so, the example has been kept simple, to ensure everyone can try it out.</div>
+<p>We could easily write a simple Ansible role to perform this task—an example is shown, as follows:</p>
+<pre>---<br/>- name: Deploy new code<br/>  template:<br/>    src: templates/web.html.j2<br/>    dest: /var/www/html/web.html<br/><br/>- name: Restart web server<br/>  service:<br/>    name: nginx<br/>    state: restarted</pre>
+<p>This code performs our two steps in turn, exactly as we desire. However, let's have a look at what happens when we run this role in a playbook. The result is shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/9d39932e-4386-4e93-846f-bbb71bd6d76f.png" style="width:51.67em;height:36.08em;"/></p>
+<p>Notice how Ansible performed the tasks. First of all, the new code was deployed on all four servers. Only then, were they restarted. This may not be desirable, for a number of reasons. For example, the servers may be in an inconsistent state after the first task, and you would not want all four servers to be in an inconsistent state at once, as anyone using the web application would experience errors. Also, if the playbook goes wrong for some reason and produces a failed state, it will faithfully fail on all four servers, thus breaking the entire web application for everyone, and causing a service outage.</p>
+<p>To prevent these kinds of issues from occurring, we can use the <kbd>serial</kbd> keyword, to ask Ansible to only perform the update on a given number of servers at a time. For example, if we insert the line <kbd>serial: 2</kbd> into the <kbd>site.yml</kbd> playbook calling this role, suddenly the behavior becomes rather different, as the following screenshot shows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/d36cc8c5-8931-40e9-b934-d5ae7827d1f8.png" style="width:48.25em;height:33.67em;"/></p>
+<p>The preceding output is truncated to save space but clearly shows that the playbook is now being run on only two servers at a time—thus, during the initial phase of the run, only <kbd>cluster1</kbd> and <kbd>cluster2</kbd> are inconsistent, while <kbd>cluster3</kbd> and <kbd>cluster4</kbd> remain consistent and untouched. Only when all tasks are completed on the first two servers are the next two processed.</p>
+<p>Failure handling is also important, and a danger of automation is that you could break an entire environment very easily if an issue exists in the code or playbook. For example, if our <kbd>Deploy new code</kbd> task fails for all servers, running the playbook on two servers at a time will not help. Ansible will still faithfully do what it is asked—in this case, break all four servers.</p>
+<p>In this instance, it is a good idea to add to the playbook the <kbd>max_fail_percentage</kbd> parameter too. For example, if we set this to <kbd>50</kbd>, then Ansible will stop processing hosts as soon as 50% of its inventory has failed, as shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/173b92e9-ce2b-459b-93c4-caeca67c9f43.png" style="width:53.83em;height:41.50em;"/></p>
+<p>As we can see here, even though our inventory has not been changed, Ansible has stopped after processing <kbd>cluster1</kbd> and <kbd>cluster2</kbd>—because they failed, it is not performing any tasks on <kbd>cluster3</kbd> and <kbd>cluster4</kbd>; thus, at least two hosts remain in service with good code, allowing users to continue using the web application, in spite of the failure.</p>
+<p>It is important to make use of these Ansible features when working with large, load-balanced environments, to ensure that failures do not propagate to an entire estate of servers. That concludes our look at the use of Ansible in routine server maintenance—as ever, the possibilities are endless, but it is hoped that once again, this chapter has given you some inspiration and examples upon which to build.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>Ansible is a very powerful tool, but not just for deployment and configuration management. Although these are core strengths it possesses, it is also of powerful assistance when it comes to day-to-day management tasks. As ever, when coupled with an enterprise management tool such as AWX or Ansible Tower, it becomes incredibly important in the management of your Linux estate, especially for auditing and debugging purposes.</p>
+<p><span>In this chapter, you learned how to tidy up disk space using Ansible, and how to make this conditional. You then learned how Ansible can help monitor configuration drift, and even alert to possible tampering with binary files. You learned how to manage processes on remote servers using Ansible, and finally, how to perform rolling updates in a graceful and managed fashion, across a load-balanced pool of servers.</span></p>
+<p>In the next chapter, we take a look at securing your Linux servers in a standardized fashion, with CIS Benchmarks.</p>
+<div class="page">
+<div class="layoutArea">
+<div class="column">
+<div class="page">
+<div class="layoutArea">
+<div class="column"/>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>Why might you make use of the output from the <kbd>df</kbd> command rather than an Ansible fact when examining disk space?</li>
+<li>Which Ansible module is used to locate files based on given criteria, such as age?</li>
+<li>Why is it important to monitor for configuration drift?</li>
+<li>What are two ways in which you can monitor a text-based configuration file for changes in Ansible?</li>
+<li>How would you manage a <kbd>systemd</kbd> service on a remote server using Ansible?</li>
+<li>What is the name of the built-in filtering within Ansible that can help process string output (for example, to split a comma-separated list)?</li>
+<li>How would you split a comma-separated list in an Ansible variable?</li>
+<li>When operating in a load-balanced environment, why would you not want all tasks performed on all the servers in one go?</li>
+<li>Which Ansible feature can prevent you from rolling out a failed task to all servers?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li><span>For an in-depth understanding of Ansible, please refer to <em>Mastering Ansible, Third Edition—James Freeman</em></span> and <span><em>Jesse Keating</em> (<a href="https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition">https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition</a>)</span></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>
