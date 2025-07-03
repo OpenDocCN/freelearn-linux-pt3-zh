@@ -1,465 +1,650 @@
 - en: '*Chapter 9*: Secure Virtualization'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '*第 9 章*：安全虚拟化'
 - en: More and more system tools have built-in support for SELinux or use SELinux's
     features to further harden their own service offering. When we look at virtualization,
     libvirt is the reigning champion as a virtualization management tool, using the
     **QEMU** and **Kernel-Based Virtual Machine** (**KVM**) hypervisors.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 越来越多的系统工具内置了对 SELinux 的支持，或使用 SELinux 的功能来进一步加固自身的服务提供。当我们讨论虚拟化时，libvirt 是虚拟化管理工具的领军者，使用
+    **QEMU** 和 **基于内核的虚拟机** (**KVM**) 管理程序。
 - en: In this chapter, administrators will learn what **secure Virtualization** (**sVirt**)
     is and how it is applied by the libvirt tool suite, which SELinux domains are
     put in place, and how sVirt uses SELinux categories to isolate guests from each
     other. We will study how SELinux can help reduce the risks of virtualization and
     understand how the SELinux policy is tuned to support virtualization services.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，管理员将学习什么是 **安全虚拟化**（**sVirt**），以及它是如何通过 libvirt 工具套件应用的，SELinux 域如何设置，以及
+    sVirt 如何使用 SELinux 分类将客户机相互隔离。我们将研究 SELinux 如何帮助降低虚拟化风险，并理解如何调整 SELinux 策略以支持虚拟化服务。
 - en: 'In this chapter, we''re going to cover the following main topics:'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将涵盖以下主要内容：
 - en: Understanding SELinux-secured virtualization
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 理解 SELinux 安全虚拟化
 - en: Enhancing libvirt with SELinux support
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 SELinux 支持增强 libvirt
 - en: Using Vagrant with libvirt
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 Vagrant 与 libvirt
 - en: Technical requirements
+  id: totrans-7
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: 'Check out the following video to see the Code in Action: [https://bit.ly/2T805Ug](https://bit.ly/2T805Ug)'
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: 查看以下视频，了解代码的实际应用：[https://bit.ly/2T805Ug](https://bit.ly/2T805Ug)
 - en: While it is possible to run the examples in this chapter on an older system,
     we recommend using a more modern system that has hardware support for virtualization.
     This will ensure higher performance during the exercises, as full emulation can
     severely hamper the progress, especially on older systems.
+  id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然在旧系统上运行本章示例是可行的，但我们建议使用支持硬件虚拟化的更现代的系统。这将确保在练习过程中获得更高的性能，因为完全仿真可能会严重拖慢进度，尤其是在旧系统上。
 - en: 'To verify whether your system has hardware support for virtualization (and
     can therefore use the Linux KVM-based virtualization), the following command should
     have output:'
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 要验证系统是否支持硬件虚拟化（从而能够使用基于 Linux KVM 的虚拟化），以下命令应该有输出：
 - en: '[PRE0]'
+  id: totrans-11
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: If no output is shown, then the system does not support hardware-assisted virtualization.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果没有输出，则表示系统不支持硬件辅助虚拟化。
 - en: Understanding SELinux-secured virtualization
+  id: totrans-13
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解 SELinux 安全虚拟化
 - en: Virtualization is a core concept that plays a part in many infrastructural service
     designs. Ever since its inception in the early 1970s as a means of isolating workloads
     and abstracting hardware dependencies, virtualization implementations have grown
     tremendously. When we look at infrastructure service offerings today, we quickly
     realize that many cloud providers would be out of service if they could not rely
     on the benefits and virtues of virtualization.
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 虚拟化是许多基础设施服务设计中的核心概念。自 1970 年代初期作为隔离工作负载和抽象硬件依赖关系的手段出现以来，虚拟化实现已取得了巨大的发展。今天，当我们看基础设施服务提供时，我们很快意识到，如果没有依赖虚拟化的好处和优点，许多云服务提供商将无法运营。
 - en: One of the properties that virtualization offers is isolation, which SELinux
     can support and augment quite nicely.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 虚拟化提供的特性之一是隔离，而 SELinux 可以很好地支持并增强这一特性。
 - en: Introducing virtualization
+  id: totrans-16
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 介绍虚拟化
 - en: When we look at virtualization, we look at the abstraction layers it provides
     to hide certain resource views (such as hardware or processing power). Virtualization
     contributes to the development of more efficient hardware usage (which results
     in better cost control), centralized views on resources and systems, more flexibility
     in the number of operating systems that the company can deal with, standardization
     of resource allocation, and even improved security services.
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们讨论虚拟化时，我们关注的是它提供的抽象层，用以隐藏某些资源视图（如硬件或处理能力）。虚拟化有助于提高硬件使用效率（从而带来更好的成本控制）、集中化的资源和系统视图、公司可处理的操作系统数量的灵活性、资源分配的标准化，甚至改进的安全服务。
 - en: 'There are several virtualization types around:'
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 存在几种虚拟化类型：
 - en: '**Full-system emulation**: Where hardware is completely emulated through software.
     QEMU is an open source emulation software capable of handling full-system emulation,
     allowing administrators and developers to run virtual platforms with different
     processor architectures not otherwise compatible with their own systems.'
+  id: totrans-19
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**全系统仿真**：通过软件完全仿真硬件。QEMU是一款开源仿真软件，能够处理全系统仿真，使管理员和开发人员能够在其系统不兼容的情况下运行具有不同处理器架构的虚拟平台。'
 - en: '**Native virtualization**: Where main parts of the hardware are shared across
     instances, and guests can run unmodified on them. Linux''s **KVM**, which is also
     supported through QEMU, is an example of this type of virtualization.'
+  id: totrans-20
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**本地虚拟化**：在这种情况下，硬件的主要部分在各个实例之间共享，客户机可以在其上不加修改地运行。Linux的**KVM**就是这种类型的虚拟化，它也通过QEMU获得支持。'
 - en: '**Paravirtualization**: Where the guest operating system uses specific APIs
     offered by the virtualization layer (on which unmodified operating systems cannot
     be hosted). Initial releases of Xen only supported paravirtualization. Using KVM
     with VirtIO drivers is another, more modular example.'
+  id: totrans-21
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**准虚拟化**：客户机操作系统使用虚拟化层提供的特定API（在这些虚拟化层上，无法托管未经修改的操作系统）。Xen的初始版本只支持准虚拟化。使用KVM与VirtIO驱动程序是另一个更具模块化的示例。'
 - en: '**OS-level virtualization or containerization**: Where the guest uses the host
     operating system (kernel) but does not see the processes and other resources running
     on the host. Docker containers or LXC containers are examples of OS-level virtualization.'
+  id: totrans-22
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**操作系统级虚拟化或容器化**：客户机使用主机操作系统（内核），但看不见主机上运行的进程和其他资源。Docker容器或LXC容器就是操作系统级虚拟化的例子。'
 - en: '**Application virtualization**: Where the application runs under a specialized
     software runtime. A popular example here is the support for Java applications,
     running on the **Java Virtual Machine** (**JVM**).'
+  id: totrans-23
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**应用虚拟化**：应用程序在专用软件运行时环境中运行。这里一个常见的例子是支持Java应用程序，它们运行在**Java虚拟机**（**JVM**）上。'
 - en: Many virtualization platforms support a few virtualization types. QEMU can range
     from full emulation to paravirtualization, depending on its configuration.
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 许多虚拟化平台支持几种虚拟化类型。QEMU根据其配置，可以从全仿真到准虚拟化不等。
 - en: 'When we work with virtualization layers, the following terms come up frequently:'
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们处理虚拟化层时，以下术语会频繁出现：
 - en: The **host** is the (native) operating system or server on which the virtualization
     software is running.
+  id: totrans-26
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**主机**是运行虚拟化软件的（本地）操作系统或服务器。'
 - en: The **guest** is the virtualized service (generally an operating system or container)
     that runs on the host.
+  id: totrans-27
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**客户机**是运行在主机上的虚拟化服务（通常是操作系统或容器）。'
 - en: The **hypervisor** is the specialized virtualization software that manages the
     hardware abstraction and resource-sharing capabilities of the virtualization platform.
     It is responsible for creating and running the virtual machines.
+  id: totrans-28
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**虚拟机监控器**是管理虚拟化平台的硬件抽象和资源共享能力的专业虚拟化软件。它负责创建和运行虚拟机。'
 - en: An **image** is a file or set of files that represents the filesystem, disk,
     or other medium assigned to a guest.
+  id: totrans-29
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**镜像**是代表分配给客户机的文件系统、磁盘或其他介质的一组文件。'
 - en: A **virtual machine** is the abstracted hardware or resource set in which the
     guest runs.
+  id: totrans-30
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**虚拟机**是客户机运行的抽象硬件或资源集合。'
 - en: We will be using these terms in this chapter, as well as in [*Chapter 10*](B16276_10_Final_VK.xhtml#_idTextAnchor279),
     *Using Xen Security Modules with FLASK*, and [*Chapter 11*](B16276_11_Final_VK.xhtml#_idTextAnchor293),
     *Enhancing the Security of Containerized Workloads*, as those chapters also cover
     specific virtualization implementations and how SELinux actively provides additional
     security controls in them.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将使用这些术语，并且在[*第10章*](B16276_10_Final_VK.xhtml#_idTextAnchor279)《使用Xen安全模块与FLASK》和[*第11章*](B16276_11_Final_VK.xhtml#_idTextAnchor293)《增强容器化工作负载的安全性》中也会使用这些术语，因为这些章节同样涉及到特定的虚拟化实现以及SELinux如何在其中主动提供额外的安全控制。
 - en: Before we embark on configuring and tuning virtualization services, let's first
     see what SELinux has to offer for virtualized environments.
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们开始配置和调整虚拟化服务之前，先来看看SELinux为虚拟化环境提供了什么。
 - en: Reviewing the risks of virtualization
+  id: totrans-33
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 审视虚拟化的风险
 - en: Virtualization comes with a number of risks though. If we ask architects or
     other risk-conscious people about the risks of virtualization, they will talk
     about virtual machine sprawl, challenges related to secure or insecure APIs, the
     higher complexity of virtualized services, and whatnot.
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，虚拟化带来了一些风险。如果我们向架构师或其他关注风险的人询问虚拟化的风险，他们会谈到虚拟机扩展、与安全或不安全API相关的挑战、虚拟化服务的更高复杂性等问题。
 - en: 'Going over the challenges of virtualization itself is beyond the scope of this
     chapter, but there are a few notable risks that play directly into SELinux''s
     field of interest. If we can integrate SELinux with a virtualization layer, then
     we can mitigate these risks more proactively:'
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 虚拟化本身的挑战超出了本章的范围，但有一些值得注意的风险直接与SELinux的关注领域相关。如果我们能够将SELinux与虚拟化层结合使用，就能更积极地缓解这些风险：
 - en: The first risk is **data sensitivity** within a virtual machine. Whenever multiple
     virtual machines are hosted together, you could have the risk that one guest is
     able (be it through a flaw in the virtualization software, the hypervisor's networking
     capabilities, or through side-channel attacks) to access sensitive data on another
     virtual machine.
+  id: totrans-36
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 第一个风险是**虚拟机中的数据敏感性**。当多个虚拟机共同托管时，可能存在一个来宾能够通过虚拟化软件的漏洞、虚拟化管理程序的网络功能或通过侧信道攻击等方式访问另一虚拟机上的敏感数据的风险。
 - en: With SELinux, data sensitivity can be controlled using sensitivity ranges. Guests
     can run with different sensitivity ranges, guaranteeing the data sensitivity even
     on the virtualization layer.
+  id: totrans-37
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 使用SELinux，可以通过敏感度范围来控制数据的敏感性。不同的来宾可以在不同的敏感度范围内运行，即使在虚拟化层上也能保证数据的敏感性。
 - en: Another risk is the **security of offline guest images**. Here, either administrators
     or misconfigured virtual machines might gain access to another guest image. SELinux
     can prevent this through properly labeled guest images and ensuring that images
     of offline virtual machines are typed differently from online virtual machines.
+  id: totrans-38
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 另一个风险是**离线来宾镜像的安全性**。在这种情况下，管理员或配置错误的虚拟机可能会获得对另一个来宾镜像的访问权限。SELinux可以通过正确标记的来宾镜像来防止这种情况，并确保离线虚拟机的镜像与在线虚拟机的镜像在类型上有所不同。
 - en: Virtual machines can also **exhaust the resources** on a system. On Linux systems,
     many resources can be controlled through the **control groups** (**cgroups**)
     subsystem. As this subsystem is governed through system calls and regular file
     APIs, SELinux can be used to further control access to this facility, ensuring
     that the cgroups maintained by libvirt, for instance, remain solely under the
     control of libvirt.
+  id: totrans-39
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 虚拟机也可以**耗尽系统资源**。在Linux系统中，许多资源可以通过**控制组**（**cgroups**）子系统进行控制。由于该子系统是通过系统调用和常规文件API来管理的，因此可以使用SELinux进一步控制对该功能的访问，确保例如libvirt维护的控制组仅由libvirt控制。
 - en: '**Break-out attacks**, where vulnerabilities within the hypervisor are exploited
     to try to reach the host operating system, can be mitigated through SELinux''s
     type enforcement as even a hypervisor does not require full administrative access
     to everything on the host.'
+  id: totrans-40
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**突破攻击**，即利用虚拟化管理程序中的漏洞试图访问宿主操作系统的攻击，可以通过SELinux的类型强制得到缓解，因为即使是虚拟化管理程序也不需要对宿主的所有内容拥有完全的管理权限。'
 - en: SELinux can also be used to **authorize access to the hypervisor**, ensuring
     that only the right teams (through the role-based access controls) are able to
     control the hypervisor and its definitions.
+  id: totrans-41
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: SELinux还可以用于**授权访问虚拟化管理程序**，确保只有正确的团队（通过基于角色的访问控制）能够控制虚拟化管理程序及其定义。
 - en: Finally, SELinux also offers improved **guest isolation**, which goes beyond
     just the guest image accesses. Thanks to SELinux's MCS implementation, guests
     can be separated from each other in a mandatory approach. With type enforcement,
     the allowed behavior of guests can be defined and controlled. This is a key capability
     used by hosting providers as they allow running (for them) untrusted guest virtual
     machines.
+  id: totrans-42
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 最后，SELinux还提供了更好的**来宾隔离**，这不仅仅是针对来宾镜像的访问。得益于SELinux的MCS实现，来宾可以以强制性的方法彼此隔离。通过类型强制，来宾的允许行为可以被定义和控制。这是托管服务提供商使用的关键能力，因为它们允许运行（对它们来说）不可信的来宾虚拟机。
 - en: SELinux, however, is not a full security solution for virtualization providers.
     One main design constraint with SELinux is that it is not dynamic if the system
     itself is not SELinux-aware. When we assign a type to a virtual machine, this
     type is generally rigid and set in stone. Virtual machines will have different
     behavior characteristics depending on the software running on them.
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，SELinux 并不是虚拟化提供商的完整安全解决方案。SELinux 的一个主要设计限制是，如果系统本身不是 SELinux 感知的，它就不是动态的。当我们为虚拟机分配一个类型时，这个类型通常是固定的，不会改变。虚拟机的行为特性将根据其运行的软件而有所不同。
 - en: A virtual machine running a web server has different behavior characteristics
     than one running a database or an email gateway. Although SELinux policy administrators
     would be capable of creating new domains for each virtual machine, this is not
     efficient. As a result, most SELinux policies will only offer a few domains usable
     by the virtual machine with broad characteristics.
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 运行 web 服务器的虚拟机与运行数据库或邮件网关的虚拟机具有不同的行为特性。虽然 SELinux 策略管理员可以为每个虚拟机创建新的域，但这样做效率低下。因此，大多数
+    SELinux 策略将只提供几个可以被虚拟机使用的、具有广泛特性的域。
 - en: With libvirt, these domains are part of the sVirt solution.
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 libvirt 时，这些域是 sVirt 解决方案的一部分。
 - en: Reusing existing virtualization domains
+  id: totrans-46
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 重用现有的虚拟化域
 - en: When Red Hat introduced its virtualization solution, it also added SELinux support,
     calling the resulting technology **sVirt**, derived from *secure virtualization*.
     As secure virtualization as a term is hardly unique in the market, we use the
     term sVirt predominantly to refer to the SELinux integration within virtualization
     management solutions such as libvirt.
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 当 Red Hat 引入其虚拟化解决方案时，也加入了 SELinux 支持，并将最终的技术命名为 **sVirt**，源自 *secure virtualization*（安全虚拟化）。由于“安全虚拟化”这一术语在市场上并不独特，我们主要使用术语
+    sVirt 来指代 SELinux 在虚拟化管理解决方案中的集成，例如 libvirt。
 - en: 'With sVirt, the open source community has a reusable approach for augmenting
     the security posture of virtualization and containerization through SELinux. It
     does this through the following domains and types, which can be used regardless
     of the underlying virtualization platform:'
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 sVirt，开源社区为通过 SELinux 增强虚拟化和容器化的安全性提供了一种可重用的方法。它通过以下域和类型来实现这一点，这些域和类型可以在任何底层虚拟化平台上使用：
 - en: The hypervisor software itself, such as `libvirtd`, uses the `virtd_t` domain.
+  id: totrans-49
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`libvirtd` 等虚拟机监控软件本身使用 `virtd_t` 域。'
 - en: Guests (virtual machines) that do not require any interaction with the host
     system and resources beyond those associated with a generic virtual machine generally
     use the `svirt_t` domain. This domain is the most isolated guest domain for full
     virtualization solutions.
+  id: totrans-50
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 不需要与主机系统交互，并且除了与通用虚拟机相关的资源之外不需要任何其他资源的来宾（虚拟机）通常会使用 `svirt_t` 域。该域是最为隔离的来宾域，适用于完全虚拟化解决方案。
 - en: Guests that require more interaction with the host, such as using the QEMU networking
     capabilities and sharing services, will use the `svirt_qemu_net_t` domain.
+  id: totrans-51
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 需要与主机进行更多交互的来宾，例如使用 QEMU 网络功能和共享服务的，将使用 `svirt_qemu_net_t` 域。
 - en: Guests that use the KVM networking capabilities and sharing services will use
     the `svirt_kvm_net_t` domain. It is very similar in permissions to `svirt_qemu_net_t`
     but optimized for KVM.
+  id: totrans-52
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 KVM 网络功能和共享服务的来宾将使用 `svirt_kvm_net_t` 域。该域在权限上与 `svirt_qemu_net_t` 相似，但经过优化，适用于
+    KVM。
 - en: Containerized guests, as we will see in [*Chapter 11*](B16276_11_Final_VK.xhtml#_idTextAnchor293),
     *Enhancing the Security of Containerized Workloads*, will use the `svirt_lxc_net_t`
     domain, whose privileges are optimized for OS-level virtualization.
+  id: totrans-53
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 容器化的来宾，如我们在 [*第11章*](B16276_11_Final_VK.xhtml#_idTextAnchor293) 中看到的，*增强容器化工作负载的安全性*，将使用
+    `svirt_lxc_net_t` 域，其特权经过优化，适用于操作系统级虚拟化。
 - en: Guests that require more flexible memory accesses (such as executing writable
     memory segments and memory stacks) will use the `svirt_tcg_t` domain. This flexible
     memory access is common for full virtualization guests whose emulation/virtualization
     requires the use of a **Tiny Code Generator** (**TCG**), hence the name.
+  id: totrans-54
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 需要更灵活内存访问（例如执行可写内存段和内存堆栈）的来宾将使用 `svirt_tcg_t` 域。这种灵活的内存访问在完全虚拟化的来宾中很常见，因为它们的仿真/虚拟化需要使用
+    **Tiny Code Generator** (**TCG**)，因此得名。
 - en: Image files that contain a guest's data will be labeled with the `svirt_image_t`
     type.
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 包含来宾数据的镜像文件将标记为 `svirt_image_t` 类型。
 - en: Image files that are not in use at the moment will use the default `virt_image_t`
     type.
+  id: totrans-56
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当前未使用的镜像文件将使用默认的 `virt_image_t` 类型。
 - en: Image files used in a read-only fashion will have the `virt_content_t` type
     assigned to them.
+  id: totrans-57
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 以只读方式使用的镜像文件将被分配 `virt_content_t` 类型。
 - en: To enable some flexibility in what the domains are allowed to do, additional
     SELinux booleans are put in effect, which we'll cover next.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了在域允许做的事情上提供一些灵活性，额外的 SELinux 布尔值被启用，我们接下来将介绍这些内容。
 - en: Fine-tuning virtualization-supporting SELinux policy
+  id: totrans-59
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 微调虚拟化支持的 SELinux 策略
 - en: Use caution when toggling SELinux booleans to control the confinement of virtualization
     domains. Such booleans influence the SELinux policy on the host level, and cannot
     be used to change the access controls or privileges of individual guests. As such,
     when we change the value of an SELinux boolean, the change affects the permissions
     of all guests on that host.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 在切换 SELinux 布尔值以控制虚拟化域的限制时要小心。这些布尔值会影响主机级别的 SELinux 策略，不能用来更改单个来宾的访问控制或权限。因此，当我们更改
+    SELinux 布尔值的值时，这个变化会影响该主机上所有来宾的权限。
 - en: 'Let''s see what the various SELinux booleans are for virtualized environments:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看虚拟化环境中各种 SELinux 布尔值的作用：
 - en: The `staff_use_svirt` boolean, if enabled, allows the `staff_t` user domain
     to interact with and manage virtual machines, as by default this is only allowed
     for unconfined users.
+  id: totrans-62
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果启用 `staff_use_svirt` 布尔值，则允许 `staff_t` 用户域与虚拟机进行交互和管理，因为默认情况下这仅允许未受限用户。
 - en: The `unprivuser_use_svirt` boolean, if enabled, allows unprivileged user domains
     (such as `user_t`) to interact with and manage virtual machines.
+  id: totrans-63
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果启用 `unprivuser_use_svirt` 布尔值，则允许无特权的用户域（例如 `user_t`）与虚拟机进行交互和管理。
 - en: With the `virt_read_qemu_ga_data` and `virt_rw_qemu_ga_data` booleans, the QEMU
     guest agent (which is an optional agent running inside the guests, facilitating
     operations such as freezing filesystems during backup routines) can read or even
     manage data labeled with the `virt_qemu_ga_data_t` type. This type, however, is
     not in use by default, and these SELinux booleans are disabled by default.
+  id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `virt_read_qemu_ga_data` 和 `virt_rw_qemu_ga_data` 布尔值，QEMU 来宾代理（它是一个可选的代理，运行在来宾中，帮助进行如备份过程中的文件系统冻结等操作）可以读取或管理标记为
+    `virt_qemu_ga_data_t` 类型的数据。然而，该类型默认未使用，这些 SELinux 布尔值默认是禁用的。
 - en: The `virt_sandbox_share_apache_content` boolean allows the guest domains to
     share web content. This is most commonly used for containers but is possible on
     guests as well if the hypervisor supports mapping host filesystems into the guest.
+  id: totrans-65
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`virt_sandbox_share_apache_content` 布尔值允许来宾域共享 web 内容。这通常用于容器，但如果虚拟机管理程序支持将主机文件系统映射到来宾，也可以在来宾中使用。'
 - en: With `virt_sandbox_use_audit` enabled, this boolean allows the guest domains
     to send audit messages to the host's audit service.
+  id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 启用 `virt_sandbox_use_audit` 后，这个布尔值允许来宾域将审计消息发送到主机的审计服务。
 - en: The `virt_sandbox_use_fusefs` boolean grants the guest domains the privilege
     to mount and interact with `virt_use_fusefs` boolean allows the guests to read
     files on these filesystems.
+  id: totrans-67
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`virt_sandbox_use_fusefs` 布尔值授予来宾域挂载并与 `virt_use_fusefs` 布尔值交互的特权，后者允许来宾读取这些文件系统上的文件。'
 - en: If the `virt_sandbox_use_netlink` boolean is active, then guest domains can
     use Netlink system calls to manipulate the networking stack within the host.
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果 `virt_sandbox_use_netlink` 布尔值处于活动状态，则来宾域可以使用 Netlink 系统调用操作主机内的网络堆栈。
 - en: With `virt_transition_userdomain`, containers can transition to a user domain
     (including the unconfined user domain `unconfined_t`).
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `virt_transition_userdomain`，容器可以过渡到用户域（包括未受限用户域 `unconfined_t`）。
 - en: When we enable `virt_use_execmem`, guests can use executable memory.
+  id: totrans-70
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当启用 `virt_use_execmem` 时，来宾可以使用可执行内存。
 - en: The `virt_use_glusterd`, `virt_use_nfs`, and `virt_use_samba` booleans allow
     guests to use network filesystems mounted on the host, offered through GlusterFS,
     NFS, and Samba respectively. Note that this does not involve mounts inside the
     guest itself, such as a guest that connects to an NFS server. The booleans handle
     interaction through filesystem mounts on the host.
+  id: totrans-71
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`virt_use_glusterd`、`virt_use_nfs` 和 `virt_use_samba` 布尔值允许来宾使用挂载在主机上的网络文件系统，分别通过
+    GlusterFS、NFS 和 Samba 提供。请注意，这不涉及来宾内部的挂载，例如连接到 NFS 服务器的来宾。这些布尔值处理通过主机上的文件系统挂载进行的交互。'
 - en: Device access is also governed through some SELinux booleans, such as the `virt_use_comm`
     boolean to interact with serial and parallel communication ports, `virt_use_pcscd`
     to allow guests to access smartcards, and `virt_use_usb` to grant access to USB
     devices.
+  id: totrans-72
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 设备访问也通过一些 SELinux 布尔值进行管理，例如 `virt_use_comm` 布尔值，用于与串行和并行通信端口交互；`virt_use_pcscd`，允许来宾访问智能卡；以及
+    `virt_use_usb`，授予访问 USB 设备的权限。
 - en: The `virt_use_rawip` boolean allows guests to use and interact with raw IP sockets,
     allowing network interaction that circumvents some of the processing logic within
     the regular network stack.
+  id: totrans-73
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`virt_use_rawip` 布尔值允许来宾使用并与原始 IP 套接字进行交互，从而绕过常规网络栈中的一些处理逻辑，进行网络交互。'
 - en: With `virt_use_sanlock`, guests can interact with the sanlock service, a lock
     manager for shared storage.
+  id: totrans-74
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `virt_use_sanlock`，来宾可以与 sanlock 服务进行交互，这是一个用于共享存储的锁管理器。
 - en: When `virt_use_xserver` is set to true, guests can use the X server on the host.
+  id: totrans-75
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当 `virt_use_xserver` 设置为 true 时，来宾可以使用主机上的 X 服务器。
 - en: If security-sensitive operations need to be allowed for a single guest or a
     small set of guests, it is advisable to run those guests on an isolated host where
     these operations are then allowed while running the other guests on hosts where
     the policy does not allow these particular actions.
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果需要允许某个来宾或一小部分来宾执行安全敏感操作，建议将这些来宾运行在一个隔离的主机上，在该主机上允许这些操作，同时将其他来宾运行在不允许这些特定操作的主机上。
 - en: Administrators can also use different SELinux domains for specific guests, fine-tuning
     the access controls for an individual virtual machine. How we can assign specific
     domains depends on the underlying technology of course. In the *Enhancing libvirt
     with SELinux support* section, we will introduce this for libvirt-based virtualization.
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 管理员还可以为特定的来宾使用不同的 SELinux 域，微调单个虚拟机的访问控制。如何分配特定域当然取决于底层技术。在 *通过 SELinux 支持增强
+    libvirt* 这一部分中，我们将介绍如何在基于 libvirt 的虚拟化中实现这一点。
 - en: Understanding sVirt's use of MCS
+  id: totrans-78
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 理解 sVirt 使用 MCS
 - en: The SELinux domains and the mentioned types are not enough to implement proper
     confinement and isolation between guests. sVirt adds another layer of security
     by using SELinux's **Multi-Category Security** (**MCS**) extensively.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux 域和所提到的类型不足以实现来宾之间的适当限制和隔离。sVirt 通过广泛使用 SELinux 的 **多类别安全**（**MCS**）增加了另一层安全性。
 - en: Within SELinux, some domains are marked as an MCS-constrained type. When this
     is the case, the domain will not be able to access resources that do not have
     the same set of categories (or more) assigned as the current context, as it will
     not be able to extend their own active category set—something we saw in [*Chapter
     8*](B16276_08_Final_VK.xhtml#_idTextAnchor237), *SEPostgreSQL – Extending PostgreSQL
     with SELinux*.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 SELinux 中，一些域被标记为 MCS 约束类型。当是这种情况时，该域将无法访问没有相同分类集（或更多分类集）资源，因为它无法扩展其自身的活动分类集——这一点我们在
+    [*第 8 章*](B16276_08_Final_VK.xhtml#_idTextAnchor237)，*SEPostgreSQL – 使用 SELinux
+    扩展 PostgreSQL* 中看到过。
 - en: 'The sVirt implementation ensures that the virtualization domains mentioned
     earlier are all marked as MCS-constrained types. This can be confirmed by asking
     the system which types have the `mcs_constrained_type` attribute set:'
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: sVirt 实现确保之前提到的虚拟化域都标记为 MCS 约束类型。可以通过询问系统哪些类型设置了 `mcs_constrained_type` 属性来确认这一点：
 - en: '[PRE1]'
+  id: totrans-82
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Through the MCS constraints, sVirt enables proper isolation between guests.
     Every running virtual machine (generally running as `svirt_t`) will be assigned
     two (random) SELinux categories. The images that virtual machine needs to use
     are assigned the same two SELinux categories.
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过 MCS 限制，sVirt 实现了来宾之间的正确隔离。每个运行中的虚拟机（通常运行为 `svirt_t`）将被分配两个（随机的）SELinux 分类。虚拟机需要使用的镜像将被分配相同的两个
+    SELinux 分类。
 - en: Whenever a virtual machine wants to access the wrong image, the difference in
     MCS categories will result in SELinux denying the access. Similarly, if one virtual
     machine is trying to connect to or attack another virtual machine, the MCS protections
     will once again prevent these actions from happening.
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 每当虚拟机试图访问错误的镜像时，MCS 分类的差异将导致 SELinux 拒绝访问。同样，如果一台虚拟机试图连接或攻击另一台虚拟机，MCS 保护将再次阻止这些行为的发生。
 - en: sVirt selects two categories to allow a large number of guests to run even when
     there are only a few categories available. Assume that the hypervisor is running
     with the `c10.c99` category range. That means that the hypervisor can only select
@@ -470,660 +655,983 @@
     categories, however, the number of supported simultaneously running guests becomes
     4,005 (the number of unique pairs in a set of 90, obtained through the formula
     *n*(n-1)/2)*.
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: sVirt 选择两个类别，即使只有少数类别可用，也能允许大量来宾运行。假设虚拟机监控程序正在使用 `c10.c99` 类别范围运行。这意味着虚拟机监控程序最多只能选择
+    90 个类别。如果每个来宾只分配一个类别，则虚拟机监控程序最多可以支持 90 个来宾，才会允许多个来宾之间相互交互（当然，假设恶意行为者发现了允许这种交互的漏洞，虚拟机监控程序软件通常会禁止这种访问）。然而，如果使用两个类别，则同时运行的来宾数量将变为
+    4,005（这是通过公式 *n*(n-1)/2* 得到的，表示从 90 个类别中选择的唯一对数）。
 - en: Let's see what libvirt's SELinux support looks like.
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看看 libvirt 的 SELinux 支持是怎样的。
 - en: Enhancing libvirt with SELinux support
+  id: totrans-87
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 增强 libvirt 以支持 SELinux
 - en: The libvirt project offers a virtualization abstraction layer, through which
     administrators can manage virtual machines without direct knowledge of or expertise
     in the underlying virtualization platform. As such, administrators can use the
     libvirt-offered tools to manage virtual machines running on QEMU, QEMU/KVM, Xen,
     and so on.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: libvirt 项目提供了一个虚拟化抽象层，管理员可以通过它管理虚拟机，而无需直接了解或精通底层的虚拟化平台。因此，管理员可以使用 libvirt 提供的工具来管理在
+    QEMU、QEMU/KVM、Xen 等上运行的虚拟机。
 - en: To use the sVirt approach, libvirt can be built with SELinux support. When this
     is the case and the guests are governed (security-wise) through SELinux, then
     the sVirt domains and types are used/enforced by libvirt. The libvirt code will
     also perform the category selection to enforce guest isolation and will ensure
     that the image files are assigned the right label (image files that are in use
     should get a different label than inactive images files).
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 要使用 sVirt 方法，可以构建带有 SELinux 支持的 libvirt。当这种情况发生时，且来宾（从安全角度）由 SELinux 管理，则 sVirt
+    域和类型将由 libvirt 使用/强制执行。libvirt 代码还会执行类别选择以强制实施来宾隔离，并确保图像文件被分配正确的标签（正在使用的图像文件应该与不活跃的图像文件分配不同的标签）。
 - en: Differentiating between shared and dedicated resources
+  id: totrans-90
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 区分共享资源和专用资源
 - en: The different labels for images allow for different use cases. The image used
     to host the main operating system (of the guest) will generally receive the `svirt_image_t`
     label and will be recategorized with the same pair of categories as the guest
     runtime itself (running as `svirt_t`). This image is writable by the guest.
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: 不同的图像标签允许不同的使用场景。用于托管主要操作系统（来宾系统）的图像通常会接收 `svirt_image_t` 标签，并与来宾运行时本身（以 `svirt_t`
+    运行）共享相同的类别对进行重新分类。此图像是可由来宾写入的。
 - en: When we consider an image that needs to be readable or writable by multiple
     guests, then libvirt can opt not to assign any categories to the file. Without
     categories, MCS constraints don't apply (well, they still apply, but any set of
     categories dominates an empty set, and as such, actions against those properly
     labeled files are allowed).
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们考虑一个需要多个来宾读取或写入的图像时，libvirt 可以选择不为该文件分配任何类别。没有类别时，MCS 约束不适用（实际上它们仍然适用，但任何类别集都会主导空类别集，因此对这些正确标记的文件的操作是允许的）。
 - en: Images that need to be mounted read-only for a guest (such as bootable media)
     are assigned the `virt_content_t` type. If they are dedicated, then categories
     can be assigned as well. For shared read access, no categories need to be assigned.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 需要为来宾以只读方式挂载的图像（如可启动媒体）会被分配 `virt_content_t` 类型。如果是专用的，则还可以分配类别。对于共享读访问，无需分配类别。
 - en: Note that these label differences apply mainly to virtualization technologies
     and not container technologies.
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，这些标签差异主要适用于虚拟化技术，而不适用于容器技术。
 - en: Assessing the libvirt architecture
+  id: totrans-95
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 评估 libvirt 架构
 - en: 'The libvirt project has several clients that interact with the `libvirtd` daemon.
     This daemon is responsible for managing the local hypervisor software (be it QEMU/KVM,
     Xen, or any other virtualization software) and is even able to manage remote hypervisors.
     This latter functionality is often used for proprietary hypervisors that offer
     the necessary APIs to manage the virtual resources on the host:'
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: libvirt 项目有多个客户端与 `libvirtd` 守护进程交互。该守护进程负责管理本地虚拟化管理程序软件（无论是 QEMU/KVM、Xen 还是其他任何虚拟化软件），甚至能够管理远程虚拟化管理程序。后一种功能通常用于提供必要
+    API 来管理主机上虚拟资源的专有虚拟化管理程序：
 - en: '![Figure 9.1 – High-level libvirt architecture ](img/B16276_09_001.jpg)'
+  id: totrans-97
   prefs: []
   type: TYPE_IMG
+  zh: '![图 9.1 – libvirt 高层架构](img/B16276_09_001.jpg)'
 - en: Figure 9.1 – High-level libvirt architecture
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 9.1 – libvirt 高层架构
 - en: Due to the cross-platform and cross-hypervisor nature of the libvirt project,
     sVirt is a good match. Instead of hypervisor-specific domains, generic (yet confined)
     domains are used to ensure the security of the environment.
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于 libvirt 项目的跨平台和跨虚拟化管理程序特性，sVirt 是一个很好的匹配。为了确保环境的安全，使用的是通用（但受限的）域，而不是特定于虚拟化管理程序的域。
 - en: Configuring libvirt for sVirt
+  id: totrans-100
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 为 sVirt 配置 libvirt
 - en: Most systems that support libvirt on SELinux systems will have SELinux support
     automatically enabled. If this is not the case, but SELinux support is possible,
     then all it takes is to configure libvirt to allow the SELinux security model.
     We map the SELinux security model in libvirt on a per-hypervisor basis.
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 大多数支持 libvirt 的 SELinux 系统将自动启用 SELinux 支持。如果不是这样，但 SELinux 支持是可能的，那么只需配置 libvirt
+    以允许 SELinux 安全模型。我们在 libvirt 中按每个虚拟化管理程序的基础映射 SELinux 安全模型。
 - en: 'The configuration parameters related to sVirt are generally defined on a per-hypervisor
     basis. For instance, for the QEMU-based virtualization driver, we need to edit
     the `/etc/libvirt/qemu.conf` file. Let''s look at the various parameters related
     to secure virtualization:'
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 与 sVirt 相关的配置参数通常是按每个虚拟化管理程序的基础定义的。例如，对于基于 QEMU 的虚拟化驱动程序，我们需要编辑 `/etc/libvirt/qemu.conf`
+    文件。让我们看看与安全虚拟化相关的各种参数：
 - en: 'The first parameter, which defines whether sVirt is active or not, is the `security_``driver`
     parameter. While libvirt will by default enable SELinux once it detects SELinux
     is active, we can explicitly mark sVirt support as enabled by setting the `selinux`
     value:'
+  id: totrans-103
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 第一个参数，定义 sVirt 是否启用的是 `security_``driver` 参数。虽然 libvirt 会在检测到 SELinux 激活时默认启用
+    SELinux，但我们可以通过设置 `selinux` 值显式标记 sVirt 支持为启用：
 - en: '[PRE2]'
+  id: totrans-104
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'A second sVirt-related setting in libvirt is `security_default_confined`. This
     variable defines whether guests are by default confined (and thus associated with
     the sVirt protections) or not. The default value is `1`, which means that the
     confinement is by default enabled. To disable it, you need to set it to `0`:'
+  id: totrans-105
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: libvirt 中与 sVirt 相关的第二个设置是 `security_default_confined`。该变量定义了虚拟机是否默认受限（因此与 sVirt
+    保护相关）或不受限。默认值为 `1`，表示默认启用限制。要禁用它，您需要将其设置为 `0`：
 - en: '[PRE3]'
+  id: totrans-106
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'Users of the libvirt software can also ask to create an unconfined guest (and
     libvirt allows this by default). If we set `security_require_confined` to `1`,
     then no unconfined guests can be created:'
+  id: totrans-107
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: libvirt 软件的用户也可以请求创建一个未受限制的虚拟机（libvirt 默认允许此操作）。如果我们将 `security_require_confined`
+    设置为 `1`，则不能创建未受限制的虚拟机：
 - en: '[PRE4]'
+  id: totrans-108
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: We can confirm that sVirt is running when we have a guest active on the platform,
     as we can then consult the label for its processes to verify that it indeed received
     two random categories.
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
+  zh: 当平台上有活动的虚拟机时，我们可以确认 sVirt 正在运行，因为我们可以检查其进程的标签，验证它是否确实获得了两个随机类别。
 - en: 'Let''s create such a guest, using the regular QEMU hypervisor. We use an Alpine
     Linux ISO to boot the guest with, but that is merely an example—you can substitute
     it with any ISO you want:'
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们创建这样一个虚拟机，使用常规的 QEMU 虚拟化管理程序。我们使用 Alpine Linux ISO 来启动虚拟机，但这只是一个示例——您可以用任何您想要的
+    ISO 替换它：
 - en: '[PRE5]'
+  id: totrans-111
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'The locations mentioned are important, as they will ensure that the files are
     properly labeled:'
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 提到的位置很重要，因为它们将确保文件被正确标记：
 - en: In `/var/lib/libvirt/boot` (and `/var/lib/libvirt/isos`), read-only content
     should be placed, which will result in the files automatically being labeled with
     `virt_content_t`.
+  id: totrans-113
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在 `/var/lib/libvirt/boot`（和 `/var/lib/libvirt/isos`）中，应放置只读内容，这将导致文件自动被标记为 `virt_content_t`。
 - en: In `/var/lib/libvirt/images`, we create the actual guest images. When the guests
     are shut down, the images will be labeled with `virt_image_t`, but once started,
     the labels will be adjusted to match the categories associated with the domain.
+  id: totrans-114
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在`/var/lib/libvirt/images`中，我们创建实际的虚拟机镜像。当虚拟机关闭时，镜像将标记为`virt_image_t`，但一旦启动，标签会根据与域相关的类别进行调整。
 - en: The command will create a guest called `test`, with 128 MB of memory and 1 vCPU.
     No specific graphics support will be enabled, meaning that the standard console
     or screen of the virtual machine will not be associated with any graphical service
     such as **Virtual Network Computing** (**VNC**) but will rely on a serial console
     definition inside the guest. Furthermore, we have the guest use a small, 1 GB
     disk that uses the **QEMU copy-on-write** (**QCOW2**) format.
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 该命令将创建一个名为`test`的虚拟机，分配128 MB内存和1个虚拟CPU。不会启用任何特定的图形支持，这意味着虚拟机的标准控制台或屏幕将不会与任何图形服务（如**虚拟网络计算**（**VNC**））相关联，而是依赖于虚拟机内部的串行控制台定义。此外，我们还让虚拟机使用一个1
+    GB的小磁盘，并采用**QEMU写时复制**（**QCOW2**）格式。
 - en: 'Once we have created the guest and launched it, we can check its label easily:'
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦我们创建了虚拟机并启动它，我们可以轻松检查其标签：
 - en: '[PRE6]'
+  id: totrans-117
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'To list the currently defined guests, use the `virsh` command:'
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: 要列出当前定义的虚拟机，可以使用`virsh`命令：
 - en: '[PRE7]'
+  id: totrans-119
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: The `--all` argument will ensure that even guests that are defined but are not
     running currently are listed as well.
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: '`--all`参数将确保即使是已经定义但当前未运行的虚拟机也会被列出。'
 - en: Important note
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: Within libvirt, guests are actually called **domains**. As SELinux (and thus
     this book) also uses the term *domain* frequently when referring to the context
     of a process, we will be using *guest* as terminology when referring to libvirt's
     domains to keep possible confusion to a minimum.
+  id: totrans-122
   prefs: []
   type: TYPE_NORMAL
+  zh: 在libvirt中，虚拟机实际上被称为**域**。由于SELinux（因此本书）在提到进程上下文时也常使用*域*一词，因此我们在提到libvirt的域时，将使用*虚拟机*这一术语，以避免可能的混淆。
 - en: The `virsh` command is the main entry point for interacting with libvirt. For
     instance, to send a shutdown signal to a guest, you would use the `shutdown` argument,
     whereas the `destroy` argument will force the shutdown of the guest. Finally,
     to remove a definition, you would use `undefine`.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: '`virsh`命令是与libvirt交互的主要入口。例如，要向虚拟机发送关机信号，可以使用`shutdown`参数，而`destroy`参数则会强制虚拟机关机。最后，要删除定义，可以使用`undefine`。'
 - en: As shown in the previous example, the guest we defined is running with the `svirt_tcg_t`
     domain. Let's see how we can adjust the labels used by libvirt for guests.
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前面示例所示，我们定义的虚拟机正在运行` svirt_tcg_t`域。让我们看看如何调整libvirt为虚拟机使用的标签。
 - en: Changing a guest's SELinux labels
+  id: totrans-125
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 更改虚拟机的SELinux标签
 - en: Once a guest has been defined, libvirt allows administrators to modify its parameters
     by editing an XML file representing the guest. Within this XML file, the SELinux
     labeling has a place as well.
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦定义了虚拟机，libvirt允许管理员通过编辑表示虚拟机的XML文件来修改其参数。在这个XML文件中，SELinux标签也有一个位置。
 - en: 'To view the current definition, you can use the `dumpxml` argument to `virsh`:'
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 要查看当前定义，可以使用`virsh`的`dumpxml`参数：
 - en: '[PRE8]'
+  id: totrans-128
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'At the end of the XML, the security labels are shown. For SELinux, this could
     look like so:'
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 在XML的末尾，会显示安全标签。对于SELinux，它可能是这样的：
 - en: '[PRE9]'
+  id: totrans-130
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'If we want to modify these settings, we can use the `edit` argument to `virsh`:'
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们想修改这些设置，可以使用`virsh`的`edit`参数：
 - en: '[PRE10]'
+  id: totrans-132
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: This will open the XML file in the local editor. However, once we accomplish
     that, we'll notice that the `seclabel` entries are nowhere to be found. That is
     because the default behavior is to use dynamic labels (hence `type='dynamic'`)
     with default labels, which does not require any default definition.
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将打开本地编辑器中的XML文件。然而，一旦我们完成这一步，我们会注意到`seclabel`条目并没有出现。这是因为默认行为是使用动态标签（因此`type='dynamic'`）和默认标签，这不需要任何默认定义。
 - en: 'Let''s instead use a static definition, and have the guest run with the `c123,c124`
     category pair. In the displayed XML, at the end (but still within the `<domain>...</domain>`
     definition), place the following XML snippet:'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们改用静态定义，并让虚拟机使用`c123,c124`类别对运行。在显示的XML中，在结尾（但仍然在`<domain>...</domain>`定义内），放入以下XML片段：
 - en: '[PRE11]'
+  id: totrans-135
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: To run a guest with a different type is of course done in a similar fashion,
     changing `svirt_tcg_t` to a different type. However, keep in mind that not all
     types can be used regardless. For instance, the default `svirt_t` domain cannot
     be used with QEMU's full-system virtualization (as QEMU uses TCG if it cannot
     use KVM).
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 以不同类型运行来宾当然也可以用类似的方式进行，改变 `svirt_tcg_t` 为其他类型。然而，记住并非所有类型都能使用。例如，默认的 `svirt_t`
+    域不能与 QEMU 的完全系统虚拟化一起使用（因为如果 QEMU 不能使用 KVM，它会使用 TCG）。
 - en: Important note
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: The default types that libvirt uses are declared inside `/etc/selinux/targeted/contexts`,
     in the `virtual_domain_context` and `virtual_image_context` files. However, it
     is not recommended to change these files as they will be overwritten when SELinux
     policy updates are released by the distribution.
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: libvirt 使用的默认类型声明在 `/etc/selinux/targeted/contexts` 中，分别在 `virtual_domain_context`
+    和 `virtual_image_context` 文件中。然而，不建议更改这些文件，因为它们会在 SELinux 策略更新时被发行版覆盖。
 - en: The `relabel` statement requests libvirt to relabel all resources for the guest
     according to the guest's current assigned label (`relabel='yes'`) or not (`relabel='no'`).
     With dynamic category assignment, this will always be `yes`, while with static
     definitions both values are possible.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: '`relabel` 语句请求 libvirt 根据来宾当前分配的标签（`relabel=''yes''`）或不进行重新标记（`relabel=''no''`）来重新标记所有资源。对于动态类别分配，这将始终是
+    `yes`，而对于静态定义，两个值都是可能的。'
 - en: 'Of course, if we want to, we can use dynamic category assignment with custom
     type definitions as well. For that, we declare `type=''dynamic''` but explicitly
     define a label within a `<baselabel>` entity, like so:'
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 当然，如果我们需要，我们也可以使用带有自定义类型定义的动态类别分配。为此，我们声明 `type='dynamic'`，但在 `<baselabel>`
+    实体中显式定义一个标签，如下所示：
 - en: '[PRE12]'
+  id: totrans-141
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: This will have the guest run with a dynamically associated category pair, while
     using a custom label rather than the default selected one.
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将使来宾使用动态关联的类别对运行，同时使用自定义标签，而不是默认选择的标签。
 - en: Customizing resource labels
+  id: totrans-143
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 自定义资源标签
 - en: If the guest definition has relabeling active (either because it uses dynamic
     category assignment or on explicit request of the administrator), then the resources
     that the guest uses will be relabeled accordingly.
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果来宾定义启用了重新标记（无论是由于使用了动态类别分配，还是管理员明确请求），则来宾使用的资源将相应地进行重新标记。
 - en: 'Administrators can customize the labeling behavior of libvirt through the same
     interface we used previously: guest definition files. For instance, if we would
     not want libvirt to relabel the `test.qcow2` file that represents the guest''s
     disk, we could add to the XML like so:'
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: 管理员可以通过我们之前使用的相同接口自定义 libvirt 的标记行为：来宾定义文件。例如，如果我们不希望 libvirt 重新标记表示来宾磁盘的 `test.qcow2`
+    文件，我们可以像这样将其添加到 XML 中：
 - en: '[PRE13]'
+  id: totrans-146
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: This is useful when you want to allow the sharing of some resources across different
     guests, without making them readable by all guests. In such a situation, we could
     label the file itself with (say) `svirt_image_t:s0:c123` and have the guests with
     category pairs always contain the category `c123`.
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 这在你希望允许不同来宾之间共享一些资源，但又不希望所有来宾都能读取这些资源时非常有用。在这种情况下，我们可以将文件本身标记为（例如）`svirt_image_t:s0:c123`，并确保具有类别对的来宾始终包含类别
+    `c123`。
 - en: Controlling available categories
+  id: totrans-148
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 控制可用的类别
 - en: When libvirt selects random categories, it does so based on its own category
     range. By default, MCS systems will have this range set to `c0.c1023`. To change
     the category range, we need to ensure that we launch the libvirt daemon (`libvirtd`)
     in the proper context.
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 当 libvirt 选择随机类别时，它会根据自己的类别范围进行选择。默认情况下，MCS 系统将这个范围设置为 `c0.c1023`。要更改类别范围，我们需要确保以正确的上下文启动
+    libvirt 守护进程（`libvirtd`）。
 - en: 'With systemd, we saw in [*Chapter 7*](B16276_07_Final_VK.xhtml#_idTextAnchor216),
     *Configuring Application-Specific SELinux Controls*, that this can be accomplished
     by editing the service unit file and defining the right `SELinuxContext` variable.
     Let''s apply this to `libvirtd` as well:'
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 systemd 中，我们在 [*第7章*](B16276_07_Final_VK.xhtml#_idTextAnchor216)，*配置特定应用的
+    SELinux 控制* 中看到，这可以通过编辑服务单元文件并定义正确的 `SELinuxContext` 变量来实现。让我们也将其应用于 `libvirtd`：
 - en: 'First, copy over the system-provided `libvirtd.service` file to `/etc/systemd/system`:'
+  id: totrans-151
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，将系统提供的 `libvirtd.service` 文件复制到 `/etc/systemd/system`：
 - en: '[PRE14]'
+  id: totrans-152
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'Edit the `libvirtd.service` file and add the following definition:'
+  id: totrans-153
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 编辑 `libvirtd.service` 文件并添加以下定义：
 - en: '[PRE15]'
+  id: totrans-154
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'Reload the daemon definitions for systemd so that it picks up the new `libvirtd.service`
     file:'
+  id: totrans-155
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 重新加载 systemd 的守护进程定义，以便它能够获取新的 `libvirtd.service` 文件：
 - en: '[PRE16]'
+  id: totrans-156
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'Restart the `libvirtd` daemon:'
+  id: totrans-157
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 重启 `libvirtd` 守护进程：
 - en: '[PRE17]'
+  id: totrans-158
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'We can now start our guests again and verify that each guest is now running
     with a category pair within the range defined for the `libvirtd` daemon:'
+  id: totrans-159
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们可以重新启动我们的虚拟机并验证每个虚拟机现在是否在`libvirtd`守护进程定义的范围内运行。
 - en: '[PRE18]'
+  id: totrans-160
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: As we can see, the categories selected by libvirt are now within the defined
     range.
+  id: totrans-161
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 如我们所见，libvirt 选择的类别现在都在定义的范围内。
 - en: 'Systems that do not use systemd can edit the SysV-style `init` script and use
     `runcon`:'
+  id: totrans-162
   prefs: []
   type: TYPE_NORMAL
+  zh: 不使用 systemd 的系统可以编辑 SysV 风格的`init`脚本，并使用`runcon`：
 - en: '[PRE19]'
+  id: totrans-163
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: Every time we launch a new guest, the libvirt code will randomly select two
     categories. The service will then check whether these categories are part of its
     own range and whether the category pair is already used or not. If any of these
     checks fail, libvirt will randomly select a new pair of categories until a free
     pair matches the requirements.
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 每次启动新虚拟机时，libvirt 的代码会随机选择两个类别。然后，服务将检查这些类别是否属于其自身的范围，以及该类别对是否已被使用。如果这些检查中的任何一个失败，libvirt
+    将随机选择一对新的类别，直到找到符合要求的空闲类别对。
 - en: Changing the storage pool locations
+  id: totrans-165
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 更改存储池位置
 - en: A very common configuration change with libvirt is to reconfigure it to use
     a different storage pool location. This has a slight impact on SELinux as well,
     as we do not have proper file context definitions for the new location.
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: libvirt 的一个非常常见的配置更改是将其重新配置为使用不同的存储池位置。这对 SELinux 也有轻微影响，因为我们没有为新位置定义正确的文件上下文。
 - en: 'Let''s see how to create a new pool location and change the SELinux configuration
     for it:'
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看一下如何创建一个新的存储池位置并更改 SELinux 配置：
 - en: 'List the current storage pools to make sure the new pool name is not already
     taken:'
+  id: totrans-168
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 列出当前的存储池，以确保新池的名称未被占用：
 - en: '[PRE20]'
+  id: totrans-169
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'Create the target location:'
+  id: totrans-170
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建目标位置：
 - en: '[PRE21]'
+  id: totrans-171
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: 'Create the new storage pool with `pool-define-as`. In the following command,
     we name the pool `large_images`:'
+  id: totrans-172
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用`pool-define-as`创建新的存储池。在以下命令中，我们将池命名为`large_images`：
 - en: '[PRE22]'
+  id: totrans-173
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'Configure SELinux to label the pool properly:'
+  id: totrans-174
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 配置 SELinux 以正确标记存储池：
 - en: '[PRE23]'
+  id: totrans-175
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: 'Relabel the directory structure:'
+  id: totrans-176
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 重新标记目录结构：
 - en: '[PRE24]'
+  id: totrans-177
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: 'Have libvirt populate the directory structure:'
+  id: totrans-178
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 让 libvirt 填充目录结构：
 - en: '[PRE25]'
+  id: totrans-179
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: 'Start the storage pool:'
+  id: totrans-180
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 启动存储池：
 - en: '[PRE26]'
+  id: totrans-181
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'Turn on auto-start so that, when `libvirtd` starts, the pool is immediately
     usable as well:'
+  id: totrans-182
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 打开自动启动，以便当 `libvirtd` 启动时，存储池也可以立即使用：
 - en: '[PRE27]'
+  id: totrans-183
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'We can verify that everything is functioning properly with the `pool-info`
     command:'
+  id: totrans-184
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们可以使用`pool-info`命令来验证一切是否正常运作：
 - en: '[PRE28]'
+  id: totrans-185
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: The output will show the current and available capacity for the new location.
+  id: totrans-186
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 输出将显示新位置的当前和可用容量。
 - en: If we host the storage pool on an NFS-mounted location, then we need to enable
     the `virt_use_nfs` SELinux boolean as well.
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们将存储池托管在 NFS 挂载的位置上，那么我们还需要启用`virt_use_nfs` SELinux 布尔值。
 - en: Now that we've fully grasped how to configure libvirt and SELinux for it, let's
     see how we can use the popular Vagrant tool with libvirt.
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经完全掌握了如何配置 libvirt 和 SELinux，接下来让我们看看如何将流行的 Vagrant 工具与 libvirt 配合使用。
 - en: Using Vagrant with libvirt
+  id: totrans-189
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用 Vagrant 与 libvirt
 - en: Vagrant is a framework to quickly spin up and manage virtual machines and is
     very popular within development communities. While Vagrant uses Oracle VirtualBox
     as the hypervisor by default, we can install a libvirt plugin to use Vagrant with
     libvirt, benefiting from the sVirt security offered by SELinux.
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: Vagrant 是一个快速启动和管理虚拟机的框架，在开发社区中非常流行。虽然 Vagrant 默认使用 Oracle VirtualBox 作为虚拟机管理程序，但我们可以安装
+    libvirt 插件来将 Vagrant 与 libvirt 一起使用，从而受益于 SELinux 提供的 sVirt 安全性。
 - en: Deploying Vagrant and the libvirt plugin
+  id: totrans-191
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 部署 Vagrant 和 libvirt 插件
 - en: 'The Vagrant application can be installed from a single RPM file. Find the latest
     version at [https://www.vagrantup.com/downloads.html](https://www.vagrantup.com/downloads.html)
     and install it. For instance, for CentOS systems, you can use `yum` directly:'
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: Vagrant 应用程序可以通过一个单独的 RPM 文件进行安装。您可以在 [https://www.vagrantup.com/downloads.html](https://www.vagrantup.com/downloads.html)
+    找到最新版本并安装。例如，对于 CentOS 系统，您可以直接使用 `yum`：
 - en: '[PRE29]'
+  id: totrans-193
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: To install the libvirt plugin, we first need to make sure that the dependencies
     are installed as well. The documentation, online at [https://github.com/vagrant-libvirt/vagrant-libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt),
     gives a good overview of which packages need to be installed. Do not forget this
     step, as dependency failures during the plugin installation are not always obvious.
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 要安装 libvirt 插件，我们首先需要确保依赖项已正确安装。在线文档 [https://github.com/vagrant-libvirt/vagrant-libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt)
+    给出了需要安装的包的概述。不要忘记这一步，因为插件安装过程中出现的依赖项失败并不总是显而易见的。
 - en: 'Once the dependencies are installed, use `vagrant` itself to download and install
     the plugin:'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 安装好依赖后，使用`vagrant`本身下载并安装插件：
 - en: '[PRE30]'
+  id: totrans-196
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: After installing the plugin, we can go forward with setting up a Vagrant box.
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: 安装完插件后，我们可以继续设置Vagrant box。
 - en: Installing a libvirt-compatible box
+  id: totrans-198
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 安装一个兼容libvirt的box
 - en: 'Vagrant uses **boxes**: images prepared for quick installation using Vagrant.
     Not all Vagrant boxes are compatible with the libvirt provider. Luckily, the Vagrant
     Cloud website at [https://app.vagrantup.com/boxes/search?provider=libvirt](https://app.vagrantup.com/boxes/search?provider=libvirt)
     allows you to quickly find compatible boxes.'
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
+  zh: Vagrant使用**box**：这些是为快速安装Vagrant而准备的镜像。并不是所有的Vagrant box都与libvirt提供者兼容。幸运的是，Vagrant
+    Cloud网站（[https://app.vagrantup.com/boxes/search?provider=libvirt](https://app.vagrantup.com/boxes/search?provider=libvirt)）允许你快速找到兼容的box。
 - en: 'Suppose we want to use a Fedora image called `fedora/32-cloud-base`, then we
     can configure it as follows:'
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: 假设我们想要使用一个名为`fedora/32-cloud-base`的Fedora镜像，那么我们可以按如下方式进行配置：
 - en: 'Create a new directory, which we will define the box configuration in, and
     enter this location:'
+  id: totrans-201
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建一个新的目录，我们将在其中定义box配置，并进入该位置：
 - en: '[PRE31]'
+  id: totrans-202
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'Initialize the Vagrant box, using the `fedora/32-cloud-base` box definition:'
+  id: totrans-203
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 初始化Vagrant box，使用`fedora/32-cloud-base`的box定义：
 - en: '[PRE32]'
+  id: totrans-204
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'Edit the `Vagrantfile`, and add the following code:'
+  id: totrans-205
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 编辑`Vagrantfile`并添加以下代码：
 - en: '[PRE33]'
+  id: totrans-206
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: This will configure the libvirt provider to use the `images` directory as the
     default storage pool, and use the QEMU driver within libvirt.
+  id: totrans-207
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这将配置libvirt提供者使用`images`目录作为默认存储池，并在libvirt中使用QEMU驱动。
 - en: 'Still inside the `Vagrantfile`, add the following code to give the box a proper
     name:'
+  id: totrans-208
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 仍然在`Vagrantfile`中，添加以下代码来为box指定一个合适的名称：
 - en: '[PRE34]'
+  id: totrans-209
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: The name chosen here is `test`, and will result in a virtual guest named `vagrant_test`.
+  id: totrans-210
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这里选择的名称是`test`，这将导致一个名为`vagrant_test`的虚拟机。
 - en: 'To launch the test guest, run the `vagrant up` command like so:'
+  id: totrans-211
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要启动测试虚拟机，像这样运行`vagrant up`命令：
 - en: '[PRE35]'
+  id: totrans-212
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: Once the guest is up and running, you can connect to it using `vagrant ssh`.
     While you can manipulate the guest with the `virsh` commands, you can also use
     `vagrant halt` to shut down, or `vagrant destroy` followed by `vagrant box remove`
     to remove the box from the system completely.
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦虚拟机启动并运行，你可以使用`vagrant ssh`连接到它。虽然你可以使用`virsh`命令操作虚拟机，但你也可以使用`vagrant halt`来关闭虚拟机，或者使用`vagrant
+    destroy`，然后运行`vagrant box remove`来彻底从系统中移除该box。
 - en: Configuring Vagrant boxes
+  id: totrans-214
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 配置Vagrant box
 - en: Once a box is deployed, it is available through libvirt as a standard guest.
     That means that the operations we've seen before to modify its labels or tweak
     SELinux controls using the SELinux booleans still apply.
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦一个box被部署，它就可以通过libvirt作为标准虚拟机使用。这意味着我们之前看到的通过修改标签或使用SELinux布尔值调整SELinux控制的操作仍然适用。
 - en: 'Let''s first verify that Vagrant is indeed using libvirt to launch its own
     boxes:'
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们首先验证一下Vagrant是否确实在使用libvirt来启动自己的box：
 - en: '[PRE36]'
+  id: totrans-217
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: 'Sure enough, the guest is available and titled `vagrant_test`. We can modify
     its configuration with `virsh edit` as well:'
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
+  zh: 的确，虚拟机已可用，名为`vagrant_test`。我们也可以使用`virsh edit`命令来修改其配置：
 - en: '[PRE37]'
+  id: totrans-219
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: As long as the Vagrant box is not destroyed, the settings in libvirt will persist.
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: 只要Vagrant box没有被销毁，libvirt中的设置将会持续存在。
 - en: Summary
+  id: totrans-221
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 总结
 - en: Virtualization is a powerful technology whose security posture can be augmented
     thanks to SELinux. With sVirt, the open source community has a powerful approach
     to isolate guests and ensure virtual machines are only able to access the resources
     they should.
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: 虚拟化是一项强大的技术，其安全性可以通过SELinux得到增强。通过sVirt，开源社区提供了一种强有力的方法来隔离虚拟机，确保虚拟机只能访问它们应该访问的资源。
 - en: In this chapter, we looked at virtualization and the risks associated with it.
     We discussed how some of these risks can be mitigated through the same set of
     controls that SELinux offers, such as type enforcement (limiting what guests can
     do) and MCS confinement (isolating guests from each other).
+  id: totrans-223
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这一章中，我们探讨了虚拟化及其相关的风险，并讨论了如何通过SELinux提供的控制手段（如类型强制和MCS隔离）来缓解这些风险。
 - en: We then covered how libvirt supports several virtualization technologies on
     Linux platforms and how it includes a technology called sVirt that enables SELinux
     integration, offering guest isolation and access controls. We saw how administrators
     can manipulate the sVirt logic within libvirt, such as through different domain
     labels or category sets. We finished the chapter with information on how to use
     Vagrant with libvirt.
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
+  zh: 接着，我们介绍了 libvirt 如何在 Linux 平台上支持多种虚拟化技术，以及它如何包含一项名为 sVirt 的技术，该技术实现了 SELinux
+    集成，提供了客户机隔离和访问控制。我们看到管理员如何在 libvirt 内操作 sVirt 逻辑，例如通过不同的域标签或类别集。我们以如何将 Vagrant
+    与 libvirt 一起使用的信息结束了本章内容。
 - en: In the next chapter, we'll look at another virtualization solution, called Xen,
     which has adopted an SELinux-based technology for its hardening.
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章，我们将介绍另一种虚拟化解决方案，称为 Xen，它采用了一种基于 SELinux 的技术来加强安全性。
 - en: Questions
+  id: totrans-226
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 问题
 - en: What is unique about sVirt that cannot be done with regular SELinux configuration?
+  id: totrans-227
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: sVirt 有什么独特之处是常规 SELinux 配置无法做到的？
 - en: What are the two main risks that SELinux tackles with virtualization?
+  id: totrans-228
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: SELinux 在虚拟化中解决的两个主要风险是什么？
 - en: What is the difference between `virt_image_t`, `svirt_image_t`, and `virt_content_t`?
+  id: totrans-229
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '`virt_image_t`、`svirt_image_t` 和 `virt_content_t` 之间有什么区别？'
 - en: How do you change guest labels with libvirt?
+  id: totrans-230
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如何使用 libvirt 更改客户机标签？
 - en: How can we use Vagrant yet still benefit from sVirt?
+  id: totrans-231
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们如何使用 Vagrant 并仍然受益于 sVirt？

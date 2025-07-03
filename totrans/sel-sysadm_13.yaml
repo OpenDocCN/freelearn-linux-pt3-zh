@@ -1,64 +1,91 @@
 - en: '*Chapter 11*: Enhancing the Security of Containerized Workloads'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '*第11章*：增强容器化工作负载的安全性'
 - en: Container platforms and management frameworks provide application-level abstraction
     to administrators and developers. Lightweight container frameworks allow for rapid
     development and deployment of new applications, whereas heavier container platforms
     allow for optimal resource consumption and highly resilient hosting platforms.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 容器平台和管理框架为管理员和开发者提供了应用层抽象。轻量级容器框架允许快速开发和部署新应用，而较重的容器平台则可以实现资源的最优消耗和高度弹性的托管平台。
 - en: SELinux plays a vital role in many of these frameworks and platforms, ensuring
     that untrusted containers cannot escape or interact with resources they are not
     supported to interact with. In this chapter, we look at how SELinux is supported,
     ranging from `systemd-nspawn` to `podman` (and Docker), and finally in larger
     environments with Kubernetes. We also learn how to create custom SELinux domains
     for containers using the `udica` utility.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux在许多框架和平台中发挥着重要作用，确保不受信任的容器无法逃脱或与它们不应交互的资源进行交互。在本章中，我们将探讨SELinux如何得到支持，从`systemd-nspawn`到`podman`（以及Docker），最后是在更大的环境中与Kubernetes结合使用。我们还将学习如何使用`udica`工具为容器创建自定义的SELinux域。
 - en: 'In this chapter, we''re going to cover the following main topics:'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将涵盖以下主要内容：
 - en: Using SELinux with systemd's container support
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用SELinux与systemd的容器支持
 - en: Configuring podman
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 配置podman
 - en: Leveraging Kubernetes' SELinux support
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 利用Kubernetes的SELinux支持
 - en: Technical requirements
+  id: totrans-7
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: 'Check out the following video to see the Code in Action: [https://bit.ly/34aHOfl](https://bit.ly/34aHOfl)'
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: 查看以下视频，观看代码实际运行： [https://bit.ly/34aHOfl](https://bit.ly/34aHOfl)
 - en: Using SELinux with systemd's container support
+  id: totrans-9
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用SELinux与systemd的容器支持
 - en: In [*Chapter 7*](B16276_07_Final_VK.xhtml#_idTextAnchor216), *Configuring Application-Specific
     SELinux Controls*, we introduced systemd as an SELinux-aware application suite,
     capable of launching different services with configurable SELinux contexts. Besides
     service support, systemd has quite a few other features up its sleeve. One of
     these features is `systemd-nspawn`.
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 在[*第7章*](B16276_07_Final_VK.xhtml#_idTextAnchor216)，*配置特定应用的SELinux控制*中，我们介绍了systemd作为一个SELinux感知的应用套件，能够以可配置的SELinux上下文启动不同的服务。除了服务支持外，systemd还拥有其他不少功能。其中之一就是`systemd-nspawn`。
 - en: With `systemd-nspawn`, systemd provides container capabilities, allowing administrators
     to interact with systemd-managed containers in an integrated way, almost as if
     these containers were services themselves. It uses the same primitives as LXC
     from the Linux Containers project (which was the predecessor of the modern container
     frameworks) and Docker, based upon namespaces (hence the `n` in `nspawn`).
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用`systemd-nspawn`，systemd提供容器功能，允许管理员以集成的方式与systemd管理的容器进行交互，几乎就像这些容器本身就是服务一样。它使用与Linux
+    Containers项目（现代容器框架的前身）和Docker相同的原语，基于命名空间（因此有`nspawn`中的`n`）。
 - en: Informational note
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 信息性说明
 - en: '**The Linux Containers project** has a product called **LXC** that combines
     several isolation and resource management services within the Linux kernel, such
     as **control groups** (**cgroups**) and namespace isolation. cgroups allow for
@@ -66,34 +93,43 @@
     namespaces allow for hiding information and limiting the view on system resources.
     Early versions of Docker were built upon LXC, although Docker has since embraced
     the Linux services itself directly without using LXC.'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: '**Linux Containers项目**有一个名为**LXC**的产品，它结合了Linux内核中的多个隔离和资源管理服务，如**控制组**（**cgroups**）和命名空间隔离。cgroups允许对CPU、内存和I/O的资源消耗进行限制或调节，而命名空间则允许隐藏信息并限制对系统资源的访问视图。Docker的早期版本是建立在LXC之上的，尽管Docker后来直接使用了Linux服务本身，而不再使用LXC。'
 - en: SELinux-wise, the software running inside the container might not have a correct
     view on the SELinux state (depending on the container configuration) as the container
     is isolated from the host itself. SELinux does not yet have namespace support
     to allow containers or other isolated processes to have their own SELinux view,
     so if a container has a view on the SELinux state, it should never be allowed
     to modify it.
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 在SELinux方面，容器内运行的软件可能无法正确地查看SELinux的状态（这取决于容器配置），因为容器与主机本身是隔离的。SELinux目前尚不支持命名空间，无法让容器或其他隔离进程拥有自己的SELinux视图，因此，如果容器能够查看SELinux状态，它绝不应该被允许修改它。
 - en: Now, unlike Docker, `podman`, and Kubernetes, which can use the sVirt approach
     we saw in [*Chapter 9*](B16276_09_Final_VK.xhtml#_idTextAnchor257), *Secure Virtualization*,
     the `systemd-nspawn` approach does not support this technology.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
 - en: Informational note
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
 - en: The `systemd-nspawn` command might not be installed by default. On CentOS, Debian,
     and related distributions, the package that provides this tool is called `systemd-container`.
     Other distributions such as Gentoo and Arch Linux have it installed as part of
     the default systemd installation.
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
 - en: Let's see how `systemd-nspawn` works and what its SELinux support looks like.
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
 - en: Initializing a systemd container
+  id: totrans-19
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -103,67 +139,86 @@
     or create one ourselves. Let''s use the Jailkit software, as used in [*Chapter
     7*](B16276_07_Final_VK.xhtml#_idTextAnchor216), *Configuring Application-Specific
     SELinux Controls*, and build a container from it:'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
 - en: 'First, create the directory the container runtimes will be hosted in:'
+  id: totrans-21
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE0]'
+  id: totrans-22
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'Edit the `/etc/jailkit/jk_init.ini` file and include the following section:'
+  id: totrans-23
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE1]'
+  id: totrans-24
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: This section tells Jailkit what it should copy into the directory, and which
     users to support.
+  id: totrans-25
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
 - en: 'Execute the `jk_init` command to populate the directory:'
+  id: totrans-26
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE2]'
+  id: totrans-27
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'Finally, start the container using `systemd-nspawn`:'
+  id: totrans-28
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE3]'
+  id: totrans-29
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: As Nginx will by default attempt to run as a daemon, the container would immediately
     stop as it no longer has an active process. By launching with the `daemon off`
     option, `nginx` will remain in the foreground, and the container can continue
     to work.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
 - en: Using a specific SELinux context
+  id: totrans-31
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'When we launch a container directly, this container will run with the SELinux
     context of the user. We can, however, pass on the target context for the container
     using command-line arguments:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
 - en: The `--selinux-context=` option (`-Z` for short) allows the administrator to
     define the SELinux context for the runtime processes of the container.
+  id: totrans-33
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The `--selinux-apifs-context=` option (`-L` for short) allows the administrator
     to define the SELinux context for the files and filesystem of the container.
+  id: totrans-34
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -171,6 +226,7 @@
     The processes running inside a container cannot perform any type of transitions,
     so regular SELinux domains are often not feasible to use. Taking our Nginx example
     again, the `httpd_t` domain cannot be used for this container.
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
 - en: We can use the SELinux types that the distribution provides for container workloads.
@@ -178,119 +234,156 @@
     known as `svirt_lxc_net_t`) and a file-oriented SELinux type, `container_file_t`.
     While this domain does not hold all possible privileges needed for any container,
     it provides a good baseline for containers.
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let''s use this type for our container:'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
 - en: 'First, we need to extend the `container_t` privileges with some additional
     rights for the `nginx` daemon. Create a CIL policy file with the following content:'
+  id: totrans-38
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE4]'
+  id: totrans-39
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'Load this file as a new SELinux module:'
+  id: totrans-40
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE5]'
+  id: totrans-41
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Relabel the files of the container with the `container_file_t` SELinux type:'
+  id: totrans-42
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE6]'
+  id: totrans-43
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Launch the container with the appropriate labels:'
+  id: totrans-44
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE7]'
+  id: totrans-45
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: Whenever a container is launched, it remains attached to the current session.
     We can of course create service files that launch the containers in the background,
     or use session management services such as `screen` or `tmux`. A more user-friendly
     approach, however, is to use `machinectl`.
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
 - en: Facilitating container management with machinectl
+  id: totrans-47
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: The `machinectl` command allows administrators to manage containers or even
     virtual machines more easily through systemd. For containers, `machinectl` will
     use `systemd-nspawn`.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let''s use this `machinectl` command to download, start, and stop a container:'
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
 - en: 'First, download a ready-to-go container image with the `pull-tar` argument
     and prepare it on the system:'
+  id: totrans-50
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE8]'
+  id: totrans-51
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'List the available images with the `list-images` argument:'
+  id: totrans-52
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE9]'
+  id: totrans-53
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'We can now clone this image and launch the container:'
+  id: totrans-54
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE10]'
+  id: totrans-55
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'To access the container environment, use the `shell` argument:'
+  id: totrans-56
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE11]'
+  id: totrans-57
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'We can shut down the container using the `poweroff` argument:'
+  id: totrans-58
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE12]'
+  id: totrans-59
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: When we use `machinectl`, the containers will run in the `unconfined_service_t`
     SELinux domain. There is currently no way to override this. Luckily, we have other
     tools available to facilitate container management that do have more significant
     built-in SELinux support, such as Docker and `podman`.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
 - en: Configuring podman
+  id: totrans-61
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
 - en: The `podman` utility is the default container management utility on CentOS 8
     and other distributions derived from Red Hat Enterprise Linux. Other distributions
     such as Gentoo can also easily get access to `podman` by installing `libpod`.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
 - en: Selecting podman over Docker
+  id: totrans-63
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -298,6 +391,7 @@
     we are simply using it for basic container management operations. The commands
     are very similar, and `podman` even has a Docker compatibility layer that facilitates
     the usage of `podman` for administrators who are used to working with Docker.
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
 - en: Under the hood though, there are quite a few differences. For one, `podman`
@@ -306,153 +400,215 @@
     design principles and supports a different container runtime, which supports the
     **Open Container Initiative** (**OCI**)-based definitions, called the **Container
     Runtime Interface for OCI** (**CRI-O**).
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let''s use `podman` to deploy a PostgreSQL container on the system:'
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
 - en: 'First, we need to find the appropriate container. We can use the `podman search`
     command for this:'
+  id: totrans-67
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE13]'
+  id: totrans-68
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'Of the various PostgreSQL containers listed, we pick the Bitnami one:'
+  id: totrans-69
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: '[PRE14]'
+  id: totrans-70
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'We can now launch a container, assign a password to the PostgreSQL superuser
     (`postgres`), and make sure that the PostgreSQL port (`5432`) is made available
     to the system:'
+  id: totrans-71
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们可以启动一个容器，为 PostgreSQL 超级用户（`postgres`）设置密码，并确保 PostgreSQL 端口（`5432`）对系统可用：
 - en: '[PRE15]'
+  id: totrans-72
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: This command will create a container definition, based on the container base
     we've just downloaded, and start it on the system.
+  id: totrans-73
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 此命令将基于我们刚刚下载的容器基础创建一个容器定义，并在系统上启动它。
 - en: 'We can use `psql` to validate that the database runs:'
+  id: totrans-74
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们可以使用`psql`来验证数据库是否运行：
 - en: '[PRE16]'
+  id: totrans-75
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'When we''re done with the container, we can stop it (using `podman stop`),
     which keeps the current container information, allowing us to revive it again
     later (using `podman start`) or remove the container from the system completely:'
+  id: totrans-76
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 当我们完成容器操作时，可以停止它（使用`podman stop`），这样会保留当前的容器信息，允许我们稍后重新启动它（使用`podman start`）或完全从系统中删除容器：
 - en: '[PRE17]'
+  id: totrans-77
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'Removing the container removes the container runtime, but the base container
     image remains on the system:'
+  id: totrans-78
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 删除容器会移除容器运行时，但基础容器镜像仍然保留在系统上：
 - en: '[PRE18]'
+  id: totrans-79
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: This allows us to quickly start another container without having to download
     the files again.
+  id: totrans-80
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 这样，我们可以快速启动另一个容器，而无需重新下载文件。
 - en: Using containers is a fast and effective way to quickly install and deploy software
     on the system. Additionally, SELinux provides some additional protections to make
     sure that these containers do not misbehave.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用容器是一种快速有效的方式，可以迅速在系统上安装和部署软件。此外，SELinux 提供了一些额外的保护措施，确保这些容器不会出现不当行为。
 - en: Using containers with SELinux
+  id: totrans-82
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用 SELinux 的容器
 - en: 'When we look at the active runtime, we will notice that SELinux is already
     confining these containers in a way we understand:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们查看活动的运行时时，我们会注意到 SELinux 已经以我们理解的方式限制了这些容器：
 - en: '[PRE19]'
+  id: totrans-84
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'The running processes have two categories assigned and are executing in the
     `container_t` SELinux domain. This is the sVirt approach we saw in [*Chapter 9*](B16276_09_Final_VK.xhtml#_idTextAnchor257),
     *Secure Virtualization*. Unlike virtual machines though, containers are often
     used in a more transient way: when a new version of the container base is released,
     the containers are scrapped, and new ones are started. Virtual machines often
     undergo in-system upgrades, and thus have a longer lifespan.'
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 正在运行的进程被分配到两个类别，并在`container_t` SELinux 域中执行。这是我们在[*第 9 章*](B16276_09_Final_VK.xhtml#_idTextAnchor257)中看到的sVirt方法，*安全虚拟化*。然而，与虚拟机不同，容器通常以更为临时的方式使用：当容器基础的新版本发布时，容器会被废弃，新的容器会启动。虚拟机通常会进行系统内升级，因此具有更长的生命周期。
 - en: The transient approach with containers also means that we need to provide data
     persistence in a different way. The approach that most containers use is to allow
     mapping locations from the host into the container environment.
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 容器的临时性方式还意味着我们需要以不同的方式提供数据持久性。大多数容器使用的方法是允许从主机将位置映射到容器环境中。
 - en: 'Let''s use `podman` to map a location outside the container to the `/bitnami/postgresql`
     location inside the container, as needed by the PostgreSQL container:'
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们使用`podman`将容器外部的位置映射到容器内部的`/bitnami/postgresql`位置，这是 PostgreSQL 容器所需要的：
 - en: 'First, create the location where we want to store the PostgreSQL data(base)
     on the host:'
+  id: totrans-88
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，在主机上创建我们想要存储 PostgreSQL 数据（库）的位置：
 - en: '[PRE20]'
+  id: totrans-89
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'Next, change the ownership of this location to the user with user ID `1001`
     (the user ID that the container uses internally):'
+  id: totrans-90
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，将此位置的所有权更改为具有用户 ID `1001` 的用户（这是容器内部使用的用户 ID）：
 - en: '[PRE21]'
+  id: totrans-91
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: 'Now start the container, creating a mapping from this location to the container:'
+  id: totrans-92
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在启动容器，创建从此位置到容器的映射：
 - en: '[PRE22]'
+  id: totrans-93
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: The mapping itself contains an SELinux-specific variable, namely the trailing
     `:Z`. If we were to omit this from the mapping, then the location would still
     be made accessible inside the container. However, the PostgreSQL runtime would
     not be able to use it.
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 映射本身包含一个 SELinux 特定的变量，即尾部的`:Z`。如果我们省略此映射中的`：Z`，该位置仍然可以在容器内部访问。然而，PostgreSQL
+    运行时将无法使用它。
 - en: Important note
+  id: totrans-95
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: The use of `:Z` in directory mappings (or `:Z` (or `:z`, as we will see shortly)
     than not!
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 在目录映射中使用`:Z`（或稍后我们会看到的`:Z`（或`:z`））要比不使用好！
 - en: Containers are still part of the host operating system. When we create the `/srv/db/postgresql-test`
     location, it will receive the `var_t` SELinux type by default. Containers that
     want to use this location would require write privileges to `var_t`. However,
     this privilege is not one we want to provide. After all, the containers should
     be isolated as much as possible from the host—this isolation is what the sVirt
     technology is about after all.
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
 - en: 'Hence, we need to relabel this location accordingly. The SELinux type to use
@@ -460,51 +616,65 @@
     only the right container can access this location. Restricting and isolating access
     is what the `:Z` (with a capitalized `Z`) does in the command: labeling the directory
     with the `container_file_t` type and associating the right categories with it.'
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
 - en: 'If we want to have a location accessible by *multiple containers*, we can tell
     `podman` to *share* the location, yet still be labeled with the `container_file_t`
     SELinux type. To accomplish that, we would use the `:z` argument (with a lowercase
     `z`), like so:'
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE23]'
+  id: totrans-100
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: Creating appropriate mappings is not the only approach where SELinux configuration
     comes into play. If we want, we can also tell `podman` to use different SELinux
     domains for the container as well.
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
 - en: Changing a container's SELinux domain
+  id: totrans-102
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'To control the SELinux context under which a container is launched, we use
     the `--security-opt` argument to the `podman` command. For instance, to run an
     Nginx container with the `container_logreader_t` SELinux domain, we use the following:'
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE24]'
+  id: totrans-104
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: This domain is slightly more privileged than the default `container_t` domain,
     as it also has read privileges on log files. We could use this to have a web server
     expose the log files, for instance.
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
 - en: 'Other labeling options that we can pass on are as follows:'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
 - en: The SELinux user, with the `label=user:<SELinux user>` argument.
+  id: totrans-107
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The SELinux role, with the `label=role:<SELinux role>` argument.
+  id: totrans-108
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The SELinux sensitivity level, with the `label=level:<SELinux level>` argument.
+  id: totrans-109
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -512,6 +682,7 @@
     This sets the SELinux context for the location mappings that have the `:Z` and
     `:z` suffixes set. The selected type must be an entry point for the container's
     SELinux domain.
+  id: totrans-110
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -519,17 +690,22 @@
     this argument set, a container will run without any SELinux isolation. Now, it
     does not disable SELinux for the container, but associates an unconfined domain
     called `spc_t` with the container:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE25]'
+  id: totrans-112
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: While for most use cases, the default `container_t` domain is sufficiently privileged,
     it might be too privileged for some. Luckily, we can easily create new SELinux
     domains specific to our use case.
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
 - en: Creating custom domains with udica
+  id: totrans-114
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -538,60 +714,87 @@
     give to each container. Furthermore, if we would launch a container but need to
     associate more privileges with it, then we would have to extend `container_t`
     with more privileges, resulting in all containers receiving this privilege extension.
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: '`container_t` 域被配置为广泛可重用，这意味着它对常见用例有许多特权，这些特权您可能不想给每个容器。此外，如果我们启动一个容器，但需要为其关联更多特权，那么我们将不得不扩展
+    `container_t` 以获取更多特权，结果是所有容器都会收到此特权扩展。'
 - en: To quickly build up new policies, a tool called `udica` can be used. The `udica`
     tool reads the container definition and creates a custom SELinux policy from it.
     We can then use this custom policy for this particular container, allowing other
     containers to remain untouched.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了快速建立新策略，可以使用名为 `udica` 的工具。`udica` 工具读取容器定义并从中创建自定义 SELinux 策略。然后，我们可以将此自定义策略用于此特定容器，允许其他容器保持不变。
 - en: 'Let''s use this for a Jupyter Notebook, which we want to grant read/write privileges
     to a (shared) user home directory location:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们将其用于 Jupyter Notebook，我们希望为（共享的）用户主目录位置授予读/写权限：
 - en: 'First, we create the definition of the container:'
+  id: totrans-118
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，我们创建容器的定义：
 - en: '[PRE26]'
+  id: totrans-119
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'Next, inspect this container using `podman inspect` and store the results in
     a file:'
+  id: totrans-120
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，使用 `podman inspect` 检查此容器并将结果存储在文件中：
 - en: '[PRE27]'
+  id: totrans-121
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'Use `udica` to generate an SELinux policy for it:'
+  id: totrans-122
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用 `udica` 为其生成 SELinux 策略：
 - en: '[PRE28]'
+  id: totrans-123
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'Load the custom policy as mentioned by the `udica` output:'
+  id: totrans-124
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 根据 `udica` 输出加载自定义策略：
 - en: '[PRE29]'
+  id: totrans-125
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: 'Stop and remove the container, and then recreate it with the parameter as mentioned
     in the `udica` output:'
+  id: totrans-126
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 停止并删除容器，然后根据 `udica` 输出重新创建它：
 - en: '[PRE30]'
+  id: totrans-127
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: The custom SELinux policy has the privileges to write to the home directory,
     as the container had a mapping from `/home/lisa/work`, and `udica` automatically
     created the permissions for it. If we wanted the container to only have read-only
@@ -599,69 +802,99 @@
     `:z` for SELinux-specific changes). This would map the location inside the container
     with read-only access, and `udica` would only create read privileges for the associated
     SELinux type.
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 自定义 SELinux 策略具有写入主目录的特权，因为容器从 `/home/lisa/work` 映射，并且 `udica` 自动为其创建了权限。如果我们希望容器仅具有只读特权，我们可以使用带有尾部
+    `:ro` 的映射（而不是 `:Z` 或 `:z` 用于 SELinux 特定更改）。这将映射容器内部的位置，并且 `udica` 仅为关联的 SELinux
+    类型创建读权限。
 - en: If creating custom policies is a bit too specific, we can also fine-tune the
     privileges of the `container_t` domain with the appropriate SELinux booleans.
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果创建自定义策略有点过于具体，我们还可以使用适当的 SELinux 布尔值来微调 `container_t` 域的特权。
 - en: Toggling container_t privileges with SELinux booleans
+  id: totrans-130
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用 SELinux 布尔值切换 `container_t` 特权
 - en: The `container_t` SELinux domain is associated with the `svirt_sandbox_domain`
     attribute, and through that association, will automatically be managed by several
     of the `virt_*` SELinux booleans that we saw in [*Chapter 9*](B16276_09_Final_VK.xhtml#_idTextAnchor257),
     *Secure Virtualization*.
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: '`container_t` SELinux 域与 `svirt_sandbox_domain` 属性关联，通过这种关联，将自动由我们在[*第9章*](B16276_09_Final_VK.xhtml#_idTextAnchor257)中看到的
+    `virt_*` SELinux 布尔值管理。'
 - en: 'There are a few container-specific SELinux booleans as well:'
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 也有一些特定于容器的 SELinux 布尔值：
 - en: With `container_use_cephfs`, containers can use CephFS-based storage. This is
     predominantly used when the containers are managed by larger container-cluster
     software such as Kubernetes.
+  id: totrans-133
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `container_use_cephfs`，容器可以使用基于 CephFS 的存储。这主要用于容器由较大的容器集群软件（如 Kubernetes）管理时。
 - en: With `container_manage_cgroup`, containers can manage cgroups. This is needed
     when the container hosts systemd inside, which is often the case for full-blown
     container runtimes (rather than process-specific containers). Such containers
     host almost complete Linux systems.
+  id: totrans-134
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `container_manage_cgroup`，容器可以管理 cgroups。当容器内部托管有 systemd 时，这是必需的，这种情况通常适用于完整的容器运行时（而不是特定进程的容器）。这些容器托管几乎完整的
+    Linux 系统。
 - en: With `container_connect_any`, the `container_t` SELinux domain can connect to
     any TCP port.
+  id: totrans-135
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `container_connect_any`，`container_t` SELinux 域可以连接到任何 TCP 端口。
 - en: Keep in mind though that these booleans influence the privileges of the `container_t`
     domain, and thus are in effect for all containers.
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，这些布尔值影响 `container_t` 域的特权，因此对所有容器都有效。
 - en: Tuning the container hosting environment
+  id: totrans-137
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 调整容器托管环境
 - en: The `podman` utility will by default store its container volumes and base images
     in `/var/lib/containers`. Administrators can add more locations through the `storage.conf`
     configuration file available in `/etc/containers`. However, you need to adjust
     the SELinux configuration accordingly as well.
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
 - en: 'Suppose that the `/srv/containers` location will be used, then we need to create
     an equivalence rule to make sure that this location is labeled appropriately:'
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE31]'
+  id: totrans-140
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: If the location is a network mount, you might need to change the appropriate
     SELinux booleans as well.
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
 - en: Leveraging Kubernetes' SELinux support
+  id: totrans-142
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -669,14 +902,17 @@
     container orchestration frameworks that allow scaling container deployment and
     management across multiple systems. Kubernetes is a popular container orchestration
     framework with a good community, as well as commercial support.
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
 - en: Kubernetes uses the container software found on the machines under the hood.
     When, for instance, we install Kubernetes on Fedora's CoreOS, it will detect that
     Docker is available and use the Docker engine for managing the containers.
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
 - en: Configuring Kubernetes with SELinux support
+  id: totrans-145
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -684,15 +920,18 @@
     from single-node playground deployments up to commercially supported installations.
     One of the well-documented installation methods on the Kubernetes website is to
     use `kubeadm` for bootstrapping Kubernetes clusters.
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
 - en: Important note
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
 - en: The installation of Kubernetes is documented on the Kubernetes website at [https://kubernetes.io/docs/setup/production-environment/tools/kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm).
     In this section, we will not go through the individual steps to set up a working
     Kubernetes instance, but give pointers as to which changes are needed for having
     proper SELinux support.
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
 - en: The `kubeadm` command, when initializing the Kubernetes cluster, will download
@@ -701,6 +940,7 @@
     their operations. These mappings are not done using the `:Z` or `:z` options—it
     would even be wrong to do so, as the locations are system-wide locations that
     should retain their current SELinux labels.
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
 - en: As a result, Kubernetes' services will be running with the default `container_t`
@@ -709,136 +949,199 @@
     have the services run with the highly privileged `spc_t` domain for now. Applying
     this change however during the installation is hard, as we would need to change
     the domain sufficiently quickly before the installation fails.
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
 - en: 'While we can create deployment configuration information for Kubernetes that
     immediately configures the services with `spc_t`, another method can be pursued:'
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
 - en: 'Mark the `container_t` type as a permissive domain before the installation
     starts. While this will prevent any SELinux controls on the container, we can
     argue that the installation of Kubernetes is done in a contained and supervised
     manner:'
+  id: totrans-152
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在安装开始之前，将 `container_t` 类型标记为宽松域。虽然这会防止 SELinux 对容器的控制，但我们可以认为 Kubernetes 的安装是以封闭和受监督的方式进行的：
 - en: '[PRE32]'
+  id: totrans-153
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'Run `kubeadm init`, which will install the services on the system:'
+  id: totrans-154
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 运行 `kubeadm init`，它将在系统上安装服务：
 - en: '[PRE33]'
+  id: totrans-155
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: 'When the services are installed, go to `/etc/kubernetes/manifests`. Inside
     this directory, you will find four manifests, each one representing a Kubernetes
     service:'
+  id: totrans-156
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 安装服务后，转到 `/etc/kubernetes/manifests`。在此目录中，您将找到四个清单，每个清单代表一个 Kubernetes 服务：
 - en: '[PRE34]'
+  id: totrans-157
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'Edit each manifest file (`etcd.yaml`, `kube-apiserver.yml`, `kube-controller-manager.yml`,
     and `kube-scheduler.yml`) and add a security context definition that configures
     the service to run with the `spc_t` domain. This is done as a configuration directive
     under the `containers` section:'
+  id: totrans-158
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 编辑每个清单文件（`etcd.yaml`、`kube-apiserver.yml`、`kube-controller-manager.yml` 和 `kube-scheduler.yml`），并添加一个安全上下文定义，使服务以
+    `spc_t` 域运行。此操作作为 `containers` 部分下的配置指令进行：
 - en: '[PRE35]'
+  id: totrans-159
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'During the Kubernetes installation, the `kubelet` service will be installed,
     which will detect that these files have been changed, and will automatically restart
     the containers. If not, you can shut down and remove the container definitions
     within Docker, and `kubelet` will automatically recreate them:'
+  id: totrans-160
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在 Kubernetes 安装过程中，将安装 `kubelet` 服务，它会检测到这些文件已被更改，并会自动重启容器。如果没有，您可以关闭并删除 Docker
+    中的容器定义，`kubelet` 将自动重新创建它们：
 - en: '[PRE36]'
+  id: totrans-161
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: 'Verify that the services are now running with the privileged `spc_t` domain:'
+  id: totrans-162
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 验证服务是否现在以特权 `spc_t` 域运行：
 - en: '[PRE37]'
+  id: totrans-163
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: 'Remove the permissive state of `container_t` so that it is back to enforcing
     mode:'
+  id: totrans-164
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 移除 `container_t` 的宽松状态，使其恢复到强制模式：
 - en: '[PRE38]'
+  id: totrans-165
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: With these slight adjustments during the installation, Kubernetes is now running
     fine with SELinux support enabled.
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: 在安装过程中进行这些微小调整后，Kubernetes 现在可以正常运行，并启用了 SELinux 支持。
 - en: Setting SELinux contexts for pods
+  id: totrans-167
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 设置 SELinux 上下文以用于 pods
 - en: 'Within Kubernetes, containers are part of pods. A `podman` utility is also
     able to use the pods concept (hence the name). For instance, we could put the
     Nginx container in a pod called `webserver` like so:'
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Kubernetes 中，容器是 pod 的一部分。`podman` 工具也能够使用 pod 的概念（因此得名）。例如，我们可以将 Nginx 容器放入一个名为
+    `webserver` 的 pod 中，如下所示：
 - en: '[PRE39]'
+  id: totrans-169
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: Unlike `podman`, Kubernetes does not rely on command-line interaction to create
     and manage resources such as pods. Instead, it uses manifest files (as we've briefly
     touched upon in the *Configuring Kubernetes with SELinux support* section). Kubernetes
     administrators or DevOps teams will create manifest files and apply those to the
     environment.
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
+  zh: 与 `podman` 不同，Kubernetes 不依赖命令行交互来创建和管理如 pods 之类的资源。相反，它使用清单文件（正如我们在 *配置带 SELinux
+    支持的 Kubernetes* 部分简要提到的那样）。Kubernetes 管理员或 DevOps 团队将创建清单文件，并将其应用于环境。
 - en: 'For instance, to have the Nginx containers run on Kubernetes, the following
     manifest could be used:'
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，为了让 Nginx 容器在 Kubernetes 上运行，可以使用以下清单：
 - en: '[PRE40]'
+  id: totrans-172
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'This manifest is a Kubernetes deployment, and tells Kubernetes that we want
     to run two Nginx containers. To apply this to the environment, use `kubectl apply`:'
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个清单是一个 Kubernetes 部署，它告诉 Kubernetes 我们想要运行两个 Nginx 容器。要将其应用于环境，使用 `kubectl
+    apply`：
 - en: '[PRE41]'
+  id: totrans-174
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'As with the manifests for the Kubernetes services, we can tell Kubernetes to
     use a specific SELinux type:'
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 与 Kubernetes 服务的清单一样，我们可以告诉 Kubernetes 使用特定的 SELinux 类型：
 - en: '[PRE42]'
+  id: totrans-176
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: The `seLinuxOptions` block can contain `user`, `role`, `type`, and `level` to
     define the SELinux user, SELinux role, SELinux type and SELinux sensitivity level.
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: '`seLinuxOptions` 块可以包含 `user`、`role`、`type` 和 `level`，用于定义 SELinux 用户、SELinux
+    角色、SELinux 类型和 SELinux 敏感级别。'
 - en: 'Unlike the regular container management services (such as Docker or CRI-O),
     Kubernetes does not allow changing SELinux labels on mapped volumes (except on
     single-node deployments): when we map volumes into containers, they retain their
     current SELinux label on the system. Hence, if you want to make sure that the
     resources are accessible from a regular `container_t` domain, you need to make
     sure these locations are labeled with `container_file_t`.'
+  id: totrans-178
   prefs: []
   type: TYPE_NORMAL
+  zh: 与常规容器管理服务（如 Docker 或 CRI-O）不同，Kubernetes 不允许更改映射卷上的 SELinux 标签（单节点部署除外）：当我们将卷映射到容器时，它们会保留系统上当前的
+    SELinux 标签。因此，如果您希望确保资源可以从常规的 `container_t` 域访问，您需要确保这些位置被标记为 `container_file_t`。
 - en: Kubernetes does offer advanced access controls itself. Enabling volumes within
     the containers is also handled by a plugin architecture, with several plugins
     already available. When the plugin enables SELinux labeling, then Kubernetes will
@@ -846,9 +1149,11 @@
     this support is currently only made available on single-node deployments (using
     the local host storage plugin)—and for such deployments, using `podman` is much
     simpler.
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
 - en: Summary
+  id: totrans-180
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -858,6 +1163,7 @@
     added from the system without affecting others. With SELinux, this workload is
     further isolated from the host and, in case of sVirt protections, also from each
     other.
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
 - en: We've seen how systemd has container support but lacks sVirt-based protections,
@@ -867,30 +1173,37 @@
     and resources, and with `udica` we've learned how to create custom policies without
     much development effort. Finally, we've seen how Kubernetes can be configured
     to use SELinux labeling as well.
+  id: totrans-182
   prefs: []
   type: TYPE_NORMAL
 - en: With all these SELinux-capable technologies behind us, we are ready to tackle
     the SELinux policy development itself. In the next chapter, we'll learn to work
     with SELinux policies in depth and tune the policies to our needs.
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
 - en: Questions
+  id: totrans-184
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
 - en: Why is Docker or `podman` preferred over `machinectl` for SELinux?
+  id: totrans-185
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: How do we ensure host data is properly mapped within a container?
+  id: totrans-186
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: How can we create a custom policy from a container definition?
+  id: totrans-187
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: Where in Kubernetes' manifests can we place SELinux settings?
+  id: totrans-188
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
