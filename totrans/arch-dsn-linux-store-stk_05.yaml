@@ -3,15 +3,18 @@
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '5'
 - en: Understanding the Block Layer, Multi-Queue, and Device Mapper
   id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解块层、多队列和设备映射器
 - en: “I feel the need... the need for speed.” – Maverick in Top Gun
   id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: “我感到需要……需要速度。”——《壮志凌云》中的 Maverick
 - en: '[*Chapter 4*](B19430_04.xhtml#_idTextAnchor072) introduced us to the role of
     the block layer in the kernel. We were able to see what constitutes a block device
     and explored the major data structures in the block layer. This chapter will build
@@ -19,6 +22,7 @@
   id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: '[*第 4 章*](B19430_04.xhtml#_idTextAnchor072)介绍了内核中块层的作用。我们了解了块设备的构成，并探索了块层中的主要数据结构。本章将在此基础上继续加深对块层的理解。'
 - en: 'This chapter will introduce you to two major concepts: the multi-queue block
     I/O mechanism and the device mapper framework. The kernel’s block layer has undergone
     significant changes in recent years to tackle performance concerns. The introduction
@@ -35,6 +39,10 @@
   id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将介绍两个主要概念：多队列块 I/O 机制和设备映射框架。近年来，为了应对性能问题，内核的块层经历了重大变化。多队列框架的引入是这一方向的重要里程碑，正如在[*第
+    4 章*](B19430_04.xhtml#_idTextAnchor072)中讨论的那样。性能是处理块设备时的关键考虑因素，内核已经实施了多种改进来优化磁盘驱动器性能。在[*第
+    4 章*](B19430_04.xhtml#_idTextAnchor072)中，我们查看了块层中的请求和响应队列结构，它们处理块设备的 I/O 请求。在本章中，我们将首先介绍单请求队列模型、其性能限制以及在使用现代高性能存储设备（如
+    NVMe 和 SSD）时块层面临的挑战。我们还将解释单请求队列模型如何影响多核系统的性能。
 - en: The second major topic of this chapter will be the mapping framework in the
     kernel, known as the device mapper. The device mapper framework in the kernel
     works in conjunction with the block layer and is responsible for mapping physical
@@ -45,35 +53,42 @@
   id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章的第二个主要主题将是内核中的映射框架，称为设备映射器。内核中的设备映射器框架与块层协同工作，负责将物理块设备映射到逻辑块设备。正如我们将看到的，设备映射器框架为实现各种技术（如逻辑卷管理、RAID、加密和薄配置）奠定了基础。最后，我们还将简要讨论块层中的缓存机制。
 - en: 'We will discuss the following main topics:'
   id: totrans-6
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将讨论以下主要主题：
 - en: The problem with single-request queues
   id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 单请求队列的问题
 - en: The multi-queue block I/O mechanism
   id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 多队列块 I/O 机制
 - en: The device mapper framework
   id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 设备映射器框架
 - en: Multi-tier caching in the block layer
   id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 块层中的多级缓存
 - en: Technical requirements
   id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: In addition to the Linux operating system concepts we covered previously, the
     topics discussed in this chapter require a basic understanding of modern processors
     and storage technologies. Any practical experience in Linux storage administration
@@ -81,6 +96,7 @@
   id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了我们之前讨论的 Linux 操作系统概念外，本章讨论的主题需要对现代处理器和存储技术有基本了解。任何在 Linux 存储管理方面的实践经验，都将大大增强你对某些方面的理解。
 - en: The commands and examples presented in this chapter are distribution-agnostic
     and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
     Fedora, and others. There are quite a few references to the kernel source code.
@@ -89,11 +105,13 @@
   id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章中展示的命令和示例是与发行版无关的，可以在任何 Linux 操作系统上运行，如 Debian、Ubuntu、Red Hat、Fedora 等。文中有许多与内核源代码相关的引用。如果你想下载内核源代码，可以从[https://www.kernel.org](https://www.kernel.org)下载。本章和本书中提到的代码片段来自内核`5.19.9`。
 - en: Looking at problems with single-request queues
   id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 看看单请求队列的问题
 - en: 'The operating system must handle block devices so that they operate at their
     full potential. An application may need to perform I/O operations on arbitrary
     locations on a block device, which requires seeking multiple disk locations and
@@ -110,11 +128,15 @@
   id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 操作系统必须处理块设备，以确保它们能够充分发挥潜力。应用程序可能需要对块设备的任意位置执行 I/O 操作，这需要寻址多个磁盘位置，并可能延长操作的时间。当使用旋转机械硬盘时，持续的随机访问不仅会降低性能，还可能产生显著的噪音。尽管如今仍在使用，像
+    **串行先进技术附件** (**SATA**) 这样的接口曾是机械硬盘的首选协议。内核块层的原始设计是为机械硬盘作为首选介质的时代所设计的。这些传统硬盘只能处理几百次
+    IOPs。两件事改变了这一点：多核处理器的崛起和硬盘技术的进步。随着这些变化，存储堆栈中的瓶颈从物理硬件转移到了内核中的软件层。
 - en: 'In the legacy design, the kernel’s block layer handled I/O requests in one
     of the following ways:'
   id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 在传统设计中，内核的块层以以下方式处理 I/O 请求：
 - en: The block layer maintained a single-request queue, a linked list structure,
     to handle I/O requests. New requests were inserted at the tail end of the queue.
     The block layer implemented techniques such as merging and coalescing (which we’ll
@@ -124,6 +146,7 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 块层维护了一个单一的请求队列，采用链表结构来处理 I/O 请求。新请求会被插入到队列的尾部。在将这些请求交给驱动程序之前，块层会对其进行合并和聚合等技术处理（我们将在下一章中解释）。
 - en: In some cases, the I/O requests had to bypass the request queues and land directly
     on the device driver. This meant that all the processing done in the request queue
     would be performed by the driver. This usually resulted in a negative performance
@@ -132,11 +155,13 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在某些情况下，I/O 请求必须绕过请求队列，直接进入设备驱动程序。这意味着所有在请求队列中完成的处理都会由驱动程序执行。通常，这会导致性能负面影响。
 - en: 'Even with the use of modern solid-state drives, this design suffered from major
     limitations. This approach further results in a three-fold problem:'
   id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 即使使用了现代固态硬盘，这种设计仍然存在重大局限性。这种方法进一步导致了三重问题：
 - en: The request queue containing I/O requests didn’t scale to handle the needs of
     modern processors. On multi-core systems, a single-request queue had to be shared
     between multiple cores. Therefore, to access the request queue, a locking mechanism
@@ -151,6 +176,8 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 包含 I/O 请求的请求队列无法扩展以满足现代处理器的需求。在多核系统中，单一请求队列必须在多个核心之间共享。因此，为了访问请求队列，使用了锁机制。这个全局锁用于同步对块层请求队列的共享访问。为了实现不同的
+    I/O 处理技术，CPU 核心需要获取请求队列的锁。这意味着，如果另一个核心需要操作请求队列，它必须等待相当长的时间。所有 CPU 核心都处于对请求队列锁的争用状态。很容易看出，这种设计使得请求队列成为多核系统中的单点争用。
 - en: A single-request queue also introduces cache coherency problems. Each CPU core
     has its own L1/L2 cache, which may contain a copy of the shared data. When a CPU
     core modifies some data after acquiring a global lock to the request queue and
@@ -168,12 +195,15 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 单一请求队列还会引入缓存一致性问题。每个 CPU 核心都有自己的 L1/L2 缓存，可能包含共享数据的副本。当一个 CPU 核心在获取请求队列的全局锁后修改一些数据，并在其缓存中更新这些数据时，其他核心的缓存中可能仍然包含这些数据的过时副本。因此，一个核心所做的修改可能不会及时传播到其他核心的缓存中。这会导致不同核心之间对于共享数据的视图不一致。当某个核心释放请求队列的全局锁时，其所有权会转移到已经在等待该锁的另一个核心。尽管存在几种缓存一致性协议，确保缓存保持共享数据的一致视图，但关键问题是，单队列设计本身并没有提供机制来同步不同
+    CPU 核心的缓存。这增加了确保缓存一致性所需的总体工作负载。
 - en: This frequent switching of request queue locks between cores results in an increased
     number of interrupts.
   id: totrans-22
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 这种在核心之间频繁切换请求队列锁的做法导致了中断次数的增加。
 - en: All in all, the use of multiple cores meant that multiple execution threads
     would be simultaneously competing for the same shared lock. The higher the number
     of CPUs/cores in the system, the higher the lock contention for the request queue.
@@ -183,24 +213,30 @@
   id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 总的来说，使用多个核心意味着多个执行线程会同时竞争同一个共享锁。系统中 CPU/核心的数量越高，请求队列的锁竞争就越激烈。由于获取锁时的旋转和竞争，浪费了大量的
+    CPU 周期。在多插槽系统中，这大大减少了 IOPs 的数量。
 - en: '*Figure 5**.1* highlights the limitations of using the single queue model:'
   id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: '*图 5**.1* 突出了使用单队列模型的局限性：'
 - en: '![Figure 5.1 – The single-request queue model](img/B19430_05_01.jpg)'
   id: totrans-25
   prefs: []
   type: TYPE_IMG
+  zh: '![图 5.1 – 单请求队列模型](img/B19430_05_01.jpg)'
 - en: Figure 5.1 – The single-request queue model
   id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 5.1 – 单请求队列模型
 - en: From *Figure 5**.1*, it becomes abundantly clear that regardless of the CPU
     core count and the type of underlying physical storage, the single queue block
     layer’s design could not scale up to match their performance requirements.
   id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 从 *图 5**.1* 中可以清楚地看出，无论 CPU 核心数和底层物理存储的类型如何，单队列块层的设计都无法扩展以匹配它们的性能需求。
 - en: In the past decade or so, enterprise storage environments have shifted to solid-state
     drives and non-volatile memory. These devices do not have mechanical parts and
     are capable of handling I/O requests in parallel. The design of these devices
@@ -212,16 +248,20 @@
   id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 在过去十年左右，企业存储环境已经转向固态硬盘和非易失性存储器。这些设备没有机械部件，能够并行处理 I/O 请求。这些设备的设计确保了在进行随机访问时不会出现性能惩罚。随着闪存驱动器成为首选的持久存储介质，过去在块层中用于处理
+    HDD 的传统技术已经过时。为了充分利用 SSD 的增强能力，块层的设计也需要相应成熟。
 - en: In the next section, we’ll see how the block layer has evolved to meet this
     challenge.
   id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将看到块层如何发展以应对这一挑战。
 - en: Understanding the multi-queue block I/O framework
   id: totrans-30
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解多队列块 I/O 框架
 - en: The organization of the storage hierarchy in Linux bears some resemblance to
     the network stack in Linux. Both are multi-layered and strictly define the role
     of each layer in the stack. Device drivers and physical interfaces are involved
@@ -309,16 +349,19 @@
   id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 多队列API利用标签来指示哪个请求已经完成。每个请求都有一个标签，这是一个从零到分派队列大小之间的整数值。块层生成一个标签，随后该标签被设备驱动程序使用，从而消除了重复标识符的需要。一旦驱动程序完成请求的处理，标签将被返回到块层，以示操作完成。以下部分突出了在多队列块层实现中起着至关重要作用的一些主要数据结构。
 - en: Looking at data structures
   id: totrans-41
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 查看数据结构
 - en: 'Here are some of the primary data structures that are essential to implement
     the multi-queue block layer:'
   id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是实现多队列块层所必需的一些主要数据结构：
 - en: The first relevant data structure that’s used by the multi-queue framework is
     the `blk_mq_register_dev` structure, which contains all the necessary information
     required when registering a new block device to the block layer. It contains various
@@ -327,6 +370,7 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 多队列框架使用的第一个相关数据结构是`blk_mq_register_dev`结构，它包含了在将新块设备注册到块层时所需的所有必要信息。它包含多个字段，提供有关驱动程序能力和要求的详细信息。
 - en: The `blk_mq_ops` data structure serves as a reference for the multi-queue block
     layer to access the device driver’s specific routines. This structure serves as
     an interface for communication between the driver and the `blk-mq` layer, enabling
@@ -335,42 +379,50 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`blk_mq_ops`数据结构作为多队列块层访问设备驱动程序特定例程的参考。该结构充当驱动程序与`blk-mq`层之间通信的接口，使得驱动程序能够无缝地集成到多队列处理框架中。'
 - en: The software staging queues are represented by the `blk_mq_ctx` structure. This
     structure is allocated on a per-CPU core basis.
   id: totrans-45
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 软件暂存队列由`blk_mq_ctx`结构表示。该结构是按每个CPU核心分配的。
 - en: The corresponding structure for hardware dispatch queues is defined by the `blk_mq_hw_ctx`
     struct. This represents the hardware context with which a request queue is associated.
   id: totrans-46
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 硬件分派队列的对应结构由`blk_mq_hw_ctx`结构定义。它表示与请求队列关联的硬件上下文。
 - en: The task of mapping software staging queues to hardware dispatch queues is performed
     by the `blk_mq_queue_map` structure.
   id: totrans-47
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将软件暂存队列映射到硬件分派队列的任务由`blk_mq_queue_map`结构执行。
 - en: The requests are created and sent to the block device through the `blk_mq_submit_bio`
     function.
   id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 请求通过`blk_mq_submit_bio`函数创建并发送到块设备。
 - en: 'The following figure paints a picture of how these functions are interconnected:'
   id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下图展示了这些功能是如何相互连接的：
 - en: '![Figure 5.3 – Interplay of major structures in the multi-queue framework](img/B19430_05_03.jpg)'
   id: totrans-50
   prefs: []
   type: TYPE_IMG
+  zh: '![图5.3 – 多队列框架中主要结构的相互作用](img/B19430_05_03.jpg)'
 - en: Figure 5.3 – Interplay of major structures in the multi-queue framework
   id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 图5.3 – 多队列框架中主要结构的相互作用
 - en: To summarize, the multi-queue interface solves the limitations faced by the
     block layer when working with modern storage devices that have multiple queues.
     Historically, regardless of the capabilities of the underlying physical storage
@@ -386,16 +438,19 @@
   id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，多队列接口解决了块层在处理具有多个队列的现代存储设备时所面临的限制。历史上，不管底层物理存储介质的能力如何，块层都保持一个单一的请求队列来处理I/O请求。在具有多个核心的系统中，这很快就成为了一个主要瓶颈。由于请求队列是通过全局锁在所有CPU核心之间共享的，每个CPU核心都花费了相当多的时间等待其他核心释放锁。为了克服这一挑战，开发了一个新的框架，来满足现代处理器和存储设备的需求。多队列框架通过为每个CPU核心隔离请求队列来解决块层的限制。该框架采用了双队列设计，包括软件分阶段队列和硬件调度队列。
 - en: With that, we have analyzed the multi-queue framework in the block layer. We
     will now shift our focus and explore the device mapper framework.
   id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 到此为止，我们已经分析了块层中的多队列框架。现在，我们将转向探讨设备映射器框架。
 - en: Looking at the device mapper framework
   id: totrans-54
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 查看设备映射器框架
 - en: By default, managing physical block devices is rigid in that there are only
     a handful of ways in which an application can make use of them. When dealing with
     block devices, informed decisions have to be made regarding disk partitioning
@@ -415,6 +470,7 @@
   id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，管理物理块设备是比较僵化的，应用程序只能通过少数几种方式使用这些设备。在处理块设备时，必须做出关于磁盘分区和空间管理的明智决策，以确保可用资源的最佳使用。在过去，薄配置、快照、卷管理和加密等功能仅限于企业存储阵列。然而，随着时间的推移，这些功能已成为任何本地存储基础设施的关键组成部分。在操作物理驱动器时，操作系统的上层通常需要具备实施和维持这些功能的能力。Linux内核提供了设备映射器框架，用于实现这些概念。设备映射器由内核用于将物理块设备映射到更高级别的虚拟块设备。设备映射器框架的主要目标是为物理设备创建一个高级抽象层。设备映射器提供了一种机制，可以修改传输中的bio结构并将其映射到块设备。使用设备映射器框架为实现诸如逻辑卷管理等功能奠定了基础。
 - en: The device mapper provides a generic way to create virtual layers of block devices
     on top of physical devices and implement features such as striping, mirroring,
     snapshots, and multipathing. Like most things in Linux, the functionality of the
@@ -425,6 +481,7 @@
   id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 设备映射器提供了一种通用方法，用于在物理设备之上创建虚拟块设备层，并实现如条带化、镜像、快照和多路径等功能。像Linux中的大多数功能一样，设备映射器框架的功能被划分为内核空间和用户空间。与策略相关的工作，如定义物理到逻辑的映射，位于用户空间，而实现这些策略以建立映射的功能则位于内核空间。
 - en: 'The device mapper’s application interface is the `ioctl` system call. This
     system call adjusts the special file’s underlying device parameters. The logical
     devices that employ the device mapper framework are managed via the `dmsetup`
@@ -433,19 +490,24 @@
   id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 设备映射器的应用程序接口是 `ioctl` 系统调用。此系统调用调整特殊文件的底层设备参数。采用设备映射器框架的逻辑设备通过 `dmsetup` 命令和
+    `libdevmapper` 库进行管理，后者实现了相应的用户接口，如下图所示：
 - en: '![Figure 5.4 – Major components of the device mapper framework](img/B19430_05_04.jpg)'
   id: totrans-58
   prefs: []
   type: TYPE_IMG
+  zh: '![图 5.4 – 设备映射器框架的主要组件](img/B19430_05_04.jpg)'
 - en: Figure 5.4 – Major components of the device mapper framework
   id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 5.4 – 设备映射器框架的主要组件
 - en: 'If we run `strace` on the `dmsetup` command, we will see that it makes use
     of the `libdevmapper` library and the `ioctl` interface:'
   id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们在 `dmsetup` 命令上运行 `strace`，我们会看到它利用了 `libdevmapper` 库和 `ioctl` 接口：
 - en: '[PRE0]'
   id: totrans-61
   prefs: []
@@ -459,36 +521,44 @@
   id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 建立映射设备的应用程序，如 LVM，通过 `libdevmapper` 库与设备映射器框架进行通信。`libdevmapper` 库使用 `ioctl`
+    命令将数据传输到 `/dev/mapper/control` 设备。`/dev/mapper/control` 设备是一个专用设备，作为设备映射器框架的控制机制。
 - en: 'From *Figure 5**.4*, we can see that the device mapper framework in kernel
     space implements a modular architecture for storage management. The device mapper
     framework’s functionality consists of the following three major components:'
   id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 从 *图 5.4* 中，我们可以看到，内核空间中的设备映射器框架实现了一个模块化的存储管理架构。设备映射器框架的功能包括以下三个主要组件：
 - en: Mapped device
   id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 映射设备
 - en: Mapping table
   id: totrans-65
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 映射表
 - en: Target device
   id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 目标设备
 - en: Let’s briefly look at their respective roles.
   id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们简要看看它们各自的角色。
 - en: Looking at the mapped device
   id: totrans-68
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 查看映射设备
 - en: 'A block device, such as a whole disk or an individual partition, can be *mapped*
     to another device. The mapped device is a logical device provided by the device
     mapper driver and usually exists in the `/dev/mapper` directory. Logical volumes
@@ -497,6 +567,8 @@
   id: totrans-69
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个块设备，例如整个磁盘或单个分区，可以被 *映射* 到另一个设备。映射设备是设备映射器驱动程序提供的逻辑设备，通常存在于 `/dev/mapper`
+    目录中。LVM 中的逻辑卷就是映射设备的例子。映射设备在 `drivers/md/dm-core.h` 中定义。如果我们查看这个定义，会遇到一个熟悉的结构：
 - en: '[PRE1]'
   id: totrans-70
   prefs: []
@@ -507,11 +579,13 @@
   id: totrans-71
   prefs: []
   type: TYPE_NORMAL
+  zh: 如 [*第 4 章*](B19430_04.xhtml#_idTextAnchor072) 所述，`gendisk` 结构代表内核中的物理硬盘概念。
 - en: Looking at the mapping table
   id: totrans-72
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 查看映射表
 - en: 'A mapped device is defined by a mapping table. This mapping table represents
     a mapping from a mapped device to target devices. A mapped device is defined by
     a table that describes how each range of logical sectors of the device should
@@ -521,6 +595,8 @@
   id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: 映射设备由映射表定义。该映射表表示从映射设备到目标设备的映射。映射设备由一个表定义，描述设备的每个逻辑扇区范围如何映射，使用设备映射器框架支持的设备表映射。`drivers/md/dm-core.h`
+    中定义的映射表包含指向映射设备的指针：
 - en: '[PRE2]'
   id: totrans-74
   prefs: []
@@ -532,11 +608,13 @@
   id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 该结构允许在设备映射器堆栈中创建、修改和删除映射。可以通过运行 `dmsetup` 命令查看映射表的详细信息。
 - en: Looking at the target device
   id: totrans-76
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 查看目标设备
 - en: 'As explained earlier, the device mapper framework creates virtual block devices
     by defining mappings on physical block devices. Logical devices are created using
     “targets,” which can be thought of as modularized plugins. Different mapping types,
@@ -547,6 +625,7 @@
   id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前所述，设备映射框架通过定义物理块设备上的映射来创建虚拟块设备。逻辑设备是通过“目标”创建的，可以将其视为模块化插件。可以使用这些目标创建不同的映射类型，如线性、镜像、快照等。数据通过这些映射从虚拟块设备传递到物理块设备。目标设备结构定义在`include/linux/device-mapper.h`中。用于映射的单位是扇区：
 - en: '[PRE3]'
   id: totrans-78
   prefs: []
@@ -571,6 +650,9 @@
   id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 设备映射器可能有点令人困惑，所以让我们通过说明我们之前解释的构建模块的一个简单用例来帮助理解。我们将使用*线性*目标，它为逻辑卷管理奠定了基础。如前所述，我们将使用`dmsetup`命令，因为它实现了设备映射器的用户空间功能。我们将创建一个名为`dm_disk`的线性映射目标。如果你打算运行以下命令，请确保在空白磁盘上运行它们。这里，我使用了两块磁盘，`sdc`和`sdd`（你可以使用任何空的磁盘进行练习！）。注意，在按下`dmsetup
+    create`命令后，它会提示你输入数据。`sdc`和`sdd`磁盘通过它们的主次设备号进行引用。你可以使用`lsblk`命令来查找磁盘的主次设备号。`sdc`的主次设备号是8和32，表示为`8:32`。同样，`sdd`的组合是`8:48`。其余的输入字段将在稍后解释。一旦你输入了所需的数据，使用*Ctrl*
+    + *D*退出。以下示例将创建一个5 GiB的线性目标：
 - en: '[PRE4]'
   id: totrans-80
   prefs: []
@@ -580,12 +662,14 @@
   id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是我们所做的：
 - en: We have created a logical device called `dm_disk` by using specific portions
     or ranges from two physical disks, `sdc` and `sdd`.
   id: totrans-82
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们通过使用两块物理磁盘` sdc`和`sdd`的特定部分或范围，创建了一个名为`dm_disk`的逻辑设备。
 - en: 'The first line of input that we’ve entered, `dm_disk: 0 2048000 linear 8:32
     0`, means that the first `2048000 sectors (0-2047999)` of `dm_disk` will use the
     sectors of `/dev/sdc`, starting from sector 0\. Therefore, the first `2048000
@@ -594,6 +678,7 @@
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '我们输入的第一行数据`dm_disk: 0 2048000 linear 8:32 0`意味着`dm_disk`的前`2048000个扇区（0-2047999）`将使用来自`/dev/sdc`的扇区，从扇区0开始。因此，`sdc`的前`2048000个扇区（0-2047999）`将被`dm_disk`使用。'
 - en: 'The second line, `dm_disk: 2048000 8192000 linear 8:48 1024`, means that the
     next `8192000 sectors` (after `sector number 2047999`) of `dm_disk` are being
     allocated from `sdd`. These `8192000` sectors from `sdd` will be allocated from
@@ -604,17 +689,20 @@
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '第二行`dm_disk: 2048000 8192000 linear 8:48 1024`表示`dm_disk`的下一个`8192000个扇区`（从`扇区号2047999`开始）将从`sdd`中分配。这些来自`sdd`的`8192000`个扇区将从扇区号`1024`开始分配。如果磁盘上没有数据，我们可以在这里使用任何扇区号。如果已有数据，则应从未使用的范围分配扇区。'
 - en: The total number of sectors in `dm_disk` will be `8192000 + 2048000 =` `10240000`.
   id: totrans-85
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '`dm_disk`中的总扇区数将是`8192000 + 2048000 =` `10240000`。'
 - en: With a sector size of 512 bytes, the size of `dm_disk` will be `(8192000 x 512)
     + (2048000 x 512) ≈` `5 GiB`.
   id: totrans-86
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 以512字节为扇区大小，`dm_disk`的大小将是`(8192000 x 512) + (2048000 x 512) ≈` `5 GiB`。
 - en: The `0-2047999` sector numbers of `dm_disk` are mapped from `sdc`, whereas the
     `2048000-10239999` sector numbers are mapped from `sdd`. The example we’ve discussed
     is a simple one, but it should be evident that we can map a logical device to
@@ -622,23 +710,28 @@
   id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: '`dm_disk`的`0-2047999`扇区号映射自`sdc`，而`2048000-10239999`扇区号映射自`sdd`。我们讨论的这个例子是一个简单的例子，但应该能显而易见，我们可以将逻辑设备映射到任意数量的硬盘，并实现不同的概念。'
 - en: 'The following figure summarizes what we explained earlier:'
   id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 下图总结了我们之前解释的内容：
 - en: '![Figure 5.5 – Linear target mapping in the device mapper framework](img/B19430_05_05.jpg)'
   id: totrans-89
   prefs: []
   type: TYPE_IMG
+  zh: '![图 5.5 – 设备映射框架中的线性目标映射](img/B19430_05_05.jpg)'
 - en: Figure 5.5 – Linear target mapping in the device mapper framework
   id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 5.5 – 设备映射框架中的线性目标映射
 - en: 'The device mapper framework supports a wide variety of targets. Some of them
     are explained here:'
   id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: 设备映射框架支持多种目标类型。以下是其中一些目标的解释：
 - en: '**Linear**: As we saw earlier, a linear mapping target can map a continuous
     range of blocks to another block device. This is the basic building block of logical
     volume management.'
@@ -646,22 +739,26 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**线性**：如我们之前所看到的，线性映射目标可以将一段连续的块范围映射到另一个块设备。这是逻辑卷管理的基本构建块。'
 - en: '**Raid**: The raid target is used to implement the concept of software raid.
     It is capable of supporting different raid types.'
   id: totrans-93
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**RAID**：RAID目标用于实现软件RAID的概念。它支持不同类型的RAID。'
 - en: '**Crypt**: The crypt target is used to encrypt data on block devices.'
   id: totrans-94
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**加密**：加密目标用于在块设备上加密数据。'
 - en: '`(raid 0)` across multiple underlying disks.'
   id: totrans-95
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`(raid 0)` 跨多个底层磁盘。'
 - en: '**Multipath**: The multipath mapping target is utilized in storage environments
     where a host has multiple paths to a storage device. It allows a multipath device
     to be mapped.'
@@ -669,6 +766,7 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**多路径**：多路径映射目标用于存储环境中，主机有多个路径通向存储设备的情况。它允许将多路径设备进行映射。'
 - en: '**Thin**: The thin target is used for thin provisioning – that is, creating
     devices larger than the size of the underlying physical device. The physical space
     is allocated only when written to.'
@@ -676,6 +774,7 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**精简**：精简目标用于精简配置——即创建大于底层物理设备大小的设备。物理空间仅在写入时分配。'
 - en: As repeatedly mentioned earlier, the linear mapping target is most commonly
     implemented in LVM. Most Linux distributions use LVM by default for space allocation
     and partitioning. To the common user, LVM is probably one of the more well-known
@@ -684,16 +783,19 @@
   id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前所述，线性映射目标通常在LVM中实现。大多数Linux发行版默认使用LVM进行空间分配和分区。对于普通用户来说，LVM可能是Linux中最著名的功能之一。通过之前提到的例子，可以很容易理解它如何应用于LVM或任何其他目标。
 - en: 'As most of you should be aware, LVM is divided into three basic entities:'
   id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 如大多数人所知，LVM分为三个基本实体：
 - en: '**Physical volume**: The physical volume is at the lowest layer. The underlying
     physical disk or partition is a physical volume.'
   id: totrans-100
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**物理卷**：物理卷位于最底层。底层的物理磁盘或分区即为物理卷。'
 - en: '**Volume group**: The volume group divides the space available in a physical
     volume into a sequence of chunks, called physical extents. A physical extent represents
     a contiguous range of blocks. It is the smallest unit of disk space that can be
@@ -702,6 +804,8 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**卷组**：卷组将物理卷中可用的空间划分为一系列块，称为物理区。物理区表示一段连续的块范围。它是LVM可以单独管理的最小磁盘空间单位。默认情况下，使用4
+    MB的区块大小。'
 - en: '**Logical volume**: From the space available in a volume group, logical volumes
     can be created. Logical volumes are typically divided into smaller chunks of data,
     each known as a logical extent. Since LVM utilizes linear target mapping, there
@@ -712,14 +816,17 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**逻辑卷**：在卷组中可用的空间中，可以创建逻辑卷。逻辑卷通常被划分为更小的数据块，每个数据块称为逻辑区。由于LVM使用线性目标映射，物理区和逻辑区之间存在直接的对应关系。因此，逻辑卷可以视为LVM建立的映射，它将逻辑区与物理区关联起来。可以通过下图进行可视化：'
 - en: '![Figure 5.6 – LVM architecture](img/B19430_05_06.jpg)'
   id: totrans-103
   prefs: []
   type: TYPE_IMG
+  zh: '![图 5.6 – LVM 架构](img/B19430_05_06.jpg)'
 - en: Figure 5.6 – LVM architecture
   id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 5.6 – LVM 架构
 - en: The logical volumes, as we all know, can be treated like any regular block device,
     and filesystems can be created on top of them. A single logical volume that spans
     multiple physical disks is similar to `RAID-0`. The type of mapping to be used
@@ -731,6 +838,7 @@
   id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们所知道的，逻辑卷可以像任何常规的块设备一样使用，文件系统可以在其上创建。一个跨多个物理磁盘的单一逻辑卷类似于`RAID-0`。物理和逻辑扩展之间使用何种映射方式由目标决定。由于LVM基于线性目标，因此物理扩展和逻辑扩展之间存在一对一的映射关系。假设我们使用`dm-raid`目标并配置`RAID-1`在多个块设备之间进行镜像。在这种情况下，多个物理扩展将映射到单个逻辑扩展。
 - en: 'Let’s wrap up our discussion of the device mapper framework by mapping some
     key facts in our minds. The device mapper framework plays a vital role in the
     kernel and is responsible for implementing several key concepts in the storage
@@ -748,11 +856,13 @@
   id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们通过将一些关键事实牢记在心来总结一下关于设备映射框架的讨论。设备映射框架在内核中扮演着至关重要的角色，负责实现存储层次结构中的多个关键概念。内核使用设备映射框架将物理块设备映射到更高级别的虚拟块设备。设备映射框架的功能被划分为用户空间和内核空间。用户空间接口由`libdevmapper`库和`dmsetup`工具组成。内核部分由三个主要组件构成：映射设备、映射表和目标设备。设备映射框架为Linux中的几个重要技术提供了基础，例如LVM。LVM在物理磁盘和分区之上提供了一个薄的抽象层。这层抽象使得存储管理员可以根据空间需求轻松调整文件系统的大小，从而提供了高度的灵活性。在结束本章之前，让我们简要了解一下块层使用的缓存机制。
 - en: Looking at multi-tier caching mechanisms in the block layer
   id: totrans-107
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 查看块层中的多级缓存机制
 - en: The performance of physical storage is usually orders of magnitude slower than
     that of processors and memory. The Linux kernel is well aware of this limitation.
     Hence, it uses the available memory as a cache and performs all operations in
@@ -763,6 +873,7 @@
   id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 物理存储的性能通常比处理器和内存慢几个数量级。Linux内核深知这一限制，因此，它利用可用内存作为缓存，在将所有数据写入底层磁盘之前，先在内存中执行所有操作。这种缓存机制是内核的默认行为，并在提高块设备性能方面起着核心作用。这也有助于提高系统的整体性能。
 - en: Although solid state and NVMe drives are now commonplace in most storage infrastructures,
     the traditional spinning drives are still being used for cases where capacity
     is required and performance is not a major concern. When we talk about drive performance,
@@ -777,6 +888,7 @@
   id: totrans-109
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管固态硬盘和 NVMe 驱动器现在在大多数存储基础设施中已经非常普及，但传统的旋转硬盘仍然被用于容量需求较大且性能不是主要关注点的场景。当我们谈论硬盘性能时，随机工作负载是旋转机械硬盘的*致命弱点*。相比之下，闪存驱动器的性能并不受这种限制，但它们的价格远高于机械硬盘。理想情况下，能够同时获得两种介质的优势将是非常理想的。大多数存储环境都是混合型的，努力高效利用两种类型的硬盘。最常见的技术之一是将*热数据*或频繁使用的数据放置在最快的物理介质上，而将*冷数据*迁移到较慢的机械硬盘上。大多数企业级存储阵列都提供内置的存储分层功能，实现这种缓存功能。
 - en: The Linux kernel is also capable of implementing such a cache solution. The
     kernel offers several options to combine the capacity offered by spinning mechanical
     drives with the speed of access offered by SSDs. As we saw earlier, the device
@@ -789,22 +901,27 @@
   id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux 内核也能够实现这种缓存解决方案。内核提供了几种选项，可以将旋转机械硬盘提供的容量与 SSD 提供的访问速度结合起来。正如我们之前所看到的，设备映射框架提供了多种目标，可以在块设备上添加额外的功能。其中一个目标是
+    `dm-cache` 目标。`dm-cache` 目标可以通过将部分数据迁移到更快的驱动器（如 SSD）来提高机械硬盘的性能。这种方法有点与内核的默认缓存机制相悖，但在某些情况下它可能非常有用。
 - en: 'Most cache mechanisms offer the following operational modes:'
   id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 大多数缓存机制提供以下操作模式：
 - en: '**Write-back**: This mode caches newly written data but does not write it immediately
     to the target device.'
   id: totrans-112
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**回写（Write-back）**：此模式缓存新写入的数据，但不会立即将其写入目标设备。'
 - en: '**Write-through**: In this mode, new data is written to the target while still
     retaining it in the cache for subsequent reads.'
   id: totrans-113
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**直写（Write-through）**：在此模式下，数据写入目标设备的同时，仍然保留在缓存中，以便后续读取。'
 - en: '**Write-around**: This mode implements read-only caching. Data written to the
     device goes directly to the slower mechanical drive and is not written to the
     fast SSD.'
@@ -812,6 +929,7 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**写绕（Write-around）**：此模式实现只读缓存。写入设备的数据直接写入较慢的机械硬盘，而不会写入快速的 SSD。'
 - en: '**Pass-through**: To enable pass-through mode, the cache needs to be clean.
     Reading is served from the origin device that bypasses the cache. Writing is forwarded
     to the origin device and *invalidates* the cache block.'
@@ -819,21 +937,25 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**直通（Pass-through）**：要启用直通模式，缓存需要保持清洁。读取操作将绕过缓存，从源设备直接提供。写入操作会转发到源设备并*使缓存块无效*。'
 - en: 'The `dm-cache` target supports all the previously mentioned modes, except write-around.
     The required functionality is implemented through the following three devices:'
   id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: '`dm-cache` 目标支持前述所有模式，除了写绕（write-around）模式。所需的功能通过以下三个设备实现：'
 - en: '**Origin device**: This will always be the slow primary storage device'
   id: totrans-117
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**源设备（Origin device）**：这将始终是较慢的主存储设备。'
 - en: '**Cache device**: This is a high-performing drive, usually an SSD'
   id: totrans-118
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**缓存设备（Cache device）**：这是一个高性能驱动器，通常是 SSD。'
 - en: '**Metadata device**: Although this is optional and this information can also
     be saved on the fast cache device, this device is used for keeping track of all
     the metadata information, such as which disk blocks are in the cache, which blocks
@@ -842,6 +964,7 @@
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**元数据设备（Metadata device）**：尽管这是可选的，并且这些信息也可以保存在快速缓存设备上，但该设备用于跟踪所有元数据，例如哪些磁盘块在缓存中，哪些块是脏的，等等。'
 - en: Another similar caching solution is `dm-writecache`, which is also a device
     mapper target. As its name suggests, the main focus of `dm-writecache` is strictly
     write-back caching. It only caches write operations and does not perform any read
@@ -851,6 +974,7 @@
   id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个类似的缓存解决方案是 `dm-writecache`，它也是一个设备映射器目标。顾名思义，`dm-writecache` 的主要功能是写回缓存。它只缓存写操作，不执行任何读取或写直通缓存。之所以不缓存读取操作，是因为读取的数据应该已经在页缓存中。写操作会缓存到更快的存储设备上，然后在后台迁移到较慢的磁盘。
 - en: Another notable solution that has gained widespread popularity is `bcache`.
     The `bcache` solution supports all four caching modes defined previously. `bcache`
     uses a far more complex approach and lets all sequential operations go to the
@@ -862,11 +986,15 @@
   id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个获得广泛关注的解决方案是`bcache`。`bcache`解决方案支持之前定义的所有四种缓存模式。`bcache`采用了更为复杂的方法，并默认将所有顺序操作发送到机械硬盘。由于
+    SSD 在随机操作中表现优异，因此在 SSD 上缓存大规模顺序操作通常不会带来太多好处。因此，`bcache` 会检测顺序操作并跳过它们。`bcache`的开发者将其与
+    L2 `bcache` 项目进行了对比，这也推动了 *Bcachefs* 文件系统的发展。
 - en: Summary
   id: totrans-122
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 总结
 - en: This chapter was the second chapter in our exploration of the block layer in
     the kernel. The two main topics we discussed in detail were the multi-queue and
     device mapper frameworks. At the start of this chapter, we looked into the legacy
@@ -879,6 +1007,7 @@
   id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章是我们探索内核块层的第二章。我们详细讨论的两个主要主题是多队列和设备映射框架。在本章开始时，我们探讨了块层中的传统单请求队列模型、其局限性以及在现代存储驱动器和多核系统上运行时对性能的负面影响。接下来，我们介绍了内核中的多队列框架。我们描述了多队列框架如何解决单请求模型的局限性，并提升现代存储驱动器的性能，这些驱动器能够支持多个硬件队列。
 - en: We also got a chance to look at the device mapper framework in the kernel. The
     device mapper framework is an essential part of the kernel and is responsible
     for implementing several technologies, such as multipathing, logical volumes,
@@ -888,8 +1017,10 @@
   id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还获得了机会，了解了内核中的设备映射框架。设备映射框架是内核的重要组成部分，负责实现多项技术，如多路径、逻辑卷、加密和 RAID。其中最著名的是逻辑卷管理。我们了解了设备映射器如何通过映射技术实现这些强大的功能。
 - en: In the next chapter, we’ll conclude our discussion of the block layer after
     exploring the different I/O schedulers in the kernel.
   id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将在探索内核中不同的 I/O 调度器后，总结关于块层的讨论。
