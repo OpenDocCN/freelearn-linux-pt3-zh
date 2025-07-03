@@ -1,75 +1,107 @@
 - en: '*Chapter 5*: Controlling Network Communications'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '*第5章*：控制网络通信'
 - en: The SELinux mandatory access controls go much beyond its file and process access
     controls. One of the features provided by SELinux is its ability to control network
     communications. By default, general network access controls use the socket-based
     access control mechanism, but more detailed approaches are also possible.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux的强制访问控制远远超出了文件和进程访问控制的范围。SELinux提供的一个功能是控制网络通信的能力。默认情况下，一般的网络访问控制使用基于套接字的访问控制机制，但也可以采取更详细的方法。
 - en: In this chapter, we will learn how network access controls are governed by SELinux,
     cover what administrators can do to further strengthen network communications
     using `iptables`, and describe how SELinux policies can be used for cross-system
     security through labeled IPsec. We'll finish the chapter with an introduction
     to CIPSO labeling and its integration with SELinux.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将介绍SELinux如何控制网络访问，讲解管理员如何利用`iptables`进一步加强网络通信安全，并描述如何通过标记的IPsec使用SELinux策略来实现跨系统安全。最后，我们将介绍CIPSO标记及其与SELinux的集成。
 - en: 'We cover the following topics in this chapter:'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将讨论以下主题：
 - en: Controlling process communications
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 控制进程通信
 - en: Linux firewalling and SECMARK support
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Linux防火墙和SECMARK支持
 - en: Securing high-speed InfiniBand networks
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 保护高速InfiniBand网络
 - en: Understanding labeled networking
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 理解带标记的网络
 - en: Using labeled IPsec with SELinux
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用带标记的IPsec与SELinux
 - en: Supporting CIPSO with NetLabel and SELinux
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 支持NetLabel和SELinux的CIPSO
 - en: Technical requirements
+  id: totrans-10
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: Not all sections in this chapter apply to all environments. For InfiniBand support,
     for instance, InfiniBand hardware is needed, whereas for NetLabel/CIPSO support,
     the network in its entirety needs to support the CIPSO (or CALIPSO in the case
     of IPv6) protocol for the hosts to be able to communicate with each other.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章并非所有部分都适用于所有环境。例如，InfiniBand支持需要InfiniBand硬件，而NetLabel/CIPSO支持则需要整个网络都支持CIPSO（或者在IPv6的情况下支持CALIPSO）协议，才能使主机之间能够相互通信。
 - en: 'Check out the following video to see the Code in Action: [https://bit.ly/34bVDdm](https://bit.ly/34bVDdm)'
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 查看以下视频，了解代码的实际应用：[https://bit.ly/34bVDdm](https://bit.ly/34bVDdm)
 - en: Controlling process communications
+  id: totrans-13
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 控制进程通信
 - en: Linux applications communicate with each other either directly or over a network.
     But the difference between direct communication and networked communication, from
     an application programmer's point of view, is not always that big. Let's look
     at the various communication methods that Linux supports and how SELinux aligns
     with them.
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux应用程序可以直接或通过网络进行通信。但从应用程序开发者的角度来看，直接通信和网络通信之间的区别并不总是那么显著。让我们来看一下Linux支持的各种通信方式，以及SELinux如何与它们对接。
 - en: Using shared memory
+  id: totrans-15
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用共享内存
 - en: The least network-like method is the use of shared memory. Applications can
     share certain parts of the memory with each other and use those shared segments
     to communicate between two (or more) processes. To govern access to the shared
@@ -78,53 +110,75 @@
     (ensuring that two applications do not overwrite each other's values without knowing
     about the value change), whereas a mutex can be interpreted as a special semaphore
     that only takes the values 0 or 1.
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 最不类似网络的方法是使用共享内存。应用程序可以相互共享某些内存部分，并利用这些共享段在两个（或更多）进程之间进行通信。为了管理对共享内存的访问，应用程序开发者可以使用**互斥量**（**mutexes**）或**信号量**。信号量是一个原子递增或递减的整数（确保两个应用程序不会在不知情的情况下覆盖彼此的值），而互斥量可以理解为一种特殊的信号量，只取0或1的值。
 - en: 'On Linux, two implementations exist for shared memory access and control: SysV-style
     and POSIX-style. We will not dwell on the advantages and disadvantages of each,
     but rather look at how SELinux governs access to these implementations.'
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 在Linux中，共享内存访问和控制有两种实现方式：SysV风格和POSIX风格。我们不会过多讨论各自的优缺点，而是重点探讨SELinux如何管理这些实现的访问控制。
 - en: 'SELinux controls the SysV-style primitives through specific classes: `sem`
     for semaphores and `shm` for shared memory. The semaphores, mutexes, and shared
     memory segments inherit the context of the first process that creates them.'
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux通过特定的类别控制SysV风格的原语：`sem`用于信号量，`shm`用于共享内存。信号量、互斥量和共享内存段继承创建它们的第一个进程的上下文。
 - en: 'Administrators who want to control the SysV-style primitives can use the various
     `ipc*` commands: `ipcs` (to list), `ipcrm` (to remove), and `ipcmk` (to create).'
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 想要控制 SysV 风格原语的管理员可以使用各种 `ipc*` 命令：`ipcs`（列出）、`ipcrm`（删除）和 `ipcmk`（创建）。
 - en: 'For instance, let''s first list the resources and then remove the listed shared
     memory:'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，首先列出资源，然后删除已列出的共享内存：
 - en: '[PRE0]'
+  id: totrans-21
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: When POSIX-style semaphores, mutexes, and shared memory segments are used, SELinux
     controls those operations through the file-based access controls. The POSIX-style
     approach uses regular files in `/dev/shm`, which is simpler for administrators
     to control and manage.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 当使用 POSIX 风格的信号量、互斥量和共享内存段时，SELinux 通过基于文件的访问控制来管理这些操作。POSIX 风格的方法使用位于 `/dev/shm`
+    中的常规文件，这使得管理员能够更简单地进行控制和管理。
 - en: Communicating locally through pipes
+  id: totrans-23
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 通过管道进行本地通信
 - en: A second large family of communication methods in operating systems is the use
     of pipes. As the name implies, pipes are generally one-way communication tunnels,
     with information flowing from one (or more) senders to one receiver (there are
     exceptions to this, such as Solaris pipes, which act as bidirectional channels,
     but those are not supported on Linux). Another name for a pipe is **first-in,
     first-out** (**FIFO**).
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 操作系统中第二大类通信方法是使用管道。顾名思义，管道通常是单向通信通道，信息从一个（或多个）发送者流向一个接收者（也有例外，比如 Solaris 管道，它作为双向通道，但
+    Linux 不支持）。管道的另一个名字是**先进先出**（**FIFO**）。
 - en: 'We have two types of pipes in Linux: **anonymous pipes** (also known as **unnamed
     pipes**) and **named pipes**. The difference is that a named pipe uses a file
     in the regular filesystem as its identification, whereas anonymous pipes are constructed
     through the applications with no representation in the regular filesystem.'
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Linux 中有两种类型的管道：**匿名管道**（也称为**无名管道**）和**命名管道**。它们的区别在于，命名管道使用常规文件系统中的文件作为标识，而匿名管道则通过应用程序构建，没有在常规文件系统中表示。
 - en: "In both cases, SELinux will see the pipes as files of the `fifo_file` class.\
     \ Named pipes will have their path associated with the regular filesystem and\
     \ are created using the `mknod` or `mkfifo` commands (or through the `mkfifo()`\
@@ -132,36 +186,53 @@
     \ shown as part of the `pipefs` filesystem. This is a pseudo filesystem, not accessible\
     \ to users, but still represented as \La filesystem through Linux's **virtual\
     \ file system** (**VFS**) abstraction."
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这两种情况下，SELinux 会将管道视为 `fifo_file` 类别的文件。命名管道将与常规文件系统中的路径相关联，并通过 `mknod` 或 `mkfifo`
+    命令创建（或者通过应用程序中的 `mkfifo()` 函数创建）。然而，匿名管道将作为 `pipefs` 文件系统的一部分显示。这个文件系统是一个伪文件系统，用户无法访问，但仍然通过
+    Linux 的**虚拟文件系统**（**VFS**）抽象表示为一个文件系统。
 - en: 'From an SELinux policy point of view, the FIFO file is the target for which
     the access controls apply: two domains that both have the correct set of privileges
     toward the context of the FIFO file will be able to communicate with each other.'
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 从 SELinux 策略的角度来看，FIFO 文件是访问控制应用的目标：两个域如果拥有对 FIFO 文件上下文的正确权限集，就能够相互通信。
 - en: 'Administrators can find out which process is communicating over FIFOs with
     other processes through tools such as `lsof`, or by querying the `/proc` filesystem
     (as part of the `/proc/<pid>/fd` listings). The `lsof` tool supports the `-Z`
     option to show the SELinux context of the process, and even supports wildcards:'
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 管理员可以通过诸如 `lsof` 等工具，或者通过查询 `/proc` 文件系统（作为 `/proc/<pid>/fd` 列表的一部分），来查找哪些进程正在通过
+    FIFOs 与其他进程进行通信。`lsof` 工具支持 `-Z` 选项来显示进程的 SELinux 上下文，甚至支持通配符：
 - en: '[PRE1]'
+  id: totrans-29
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: In this example, `lsof` displays information about all processes that use a
     `postfix_*` label.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个例子中，`lsof` 显示了使用 `postfix_*` 标签的所有进程的信息。
 - en: Conversing over UNIX domain sockets
+  id: totrans-31
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 在 UNIX 域套接字上进行通信
 - en: With pipes supporting one-way communication only, any conversation between two
     processes would require two pipes. Also, true client/server-like communication
     with pipes is challenging to implement. To accomplish the more advanced communication
     flows, processes will use sockets.
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于管道仅支持单向通信，两个进程之间的任何对话都需要两个管道。此外，使用管道进行真正的客户端/服务器式通信是具有挑战性的。为了实现更复杂的通信流，进程将使用套接字。
 - en: 'Most administrators are aware that TCP and UDP communication occurs over sockets.
     Applications can bind to a socket and listen for incoming communications or use
     the socket to connect to other, remote services. But even on a single Linux system,
@@ -170,51 +241,74 @@
     sockets. `ioctl()` system call usage. **UNIX domain sockets**, on the other hand,
     are higher-level and more directly accessible by administrators, which is why
     we explain them here in more detail.'
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 大多数管理员都知道，TCP 和 UDP 通信是通过套接字进行的。应用程序可以绑定到套接字并监听传入的通信，或者使用套接字连接到其他远程服务。但即使在单一的
+    Linux 系统上，套接字也可以用来促进通信流的传递。可以用于进程通信的有两种套接字类型：UNIX 域套接字和 netlink 套接字。`ioctl()`
+    系统调用的使用。**UNIX 域套接字**则更高级，并且管理员可以更直接地访问它们，这也是我们在这里更详细地解释它们的原因。
 - en: 'We can distinguish between two UNIX domain socket definitions, as with pipes:
     unnamed sockets and named sockets. And like pipes, the distinction is in the path
     used to identify a socket. Named sockets are created on the regular filesystem,
     while unnamed sockets are part of the `sockfs` pseudo filesystem. Similarly, sockets
     can be queried through utilities such as `lsof` or through the `/proc/<pid>/fd`
     listings.'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以像管道一样区分两种 UNIX 域套接字定义：未命名套接字和命名套接字。就像管道一样，它们的区别在于用来识别套接字的路径。命名套接字是在常规文件系统中创建的，而未命名套接字是
+    `sockfs` 伪文件系统的一部分。类似地，套接字可以通过诸如 `lsof` 等工具查询，或者通过 `/proc/<pid>/fd` 列表查看。
 - en: There is another distinction regarding UNIX domain sockets though, namely, the
     communication format that the UNIX domain socket allows. UNIX domain sockets can
     be created as **datagram sockets** (data sent to the socket retains its chunk
     size and format) or **streaming sockets** (data sent to the socket can be read
     in different-sized chunks). This has some repercussions for the SELinux policy
     rules.
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 关于 UNIX 域套接字，还有一个区别，即 UNIX 域套接字允许的通信格式。UNIX 域套接字可以创建为 **数据报套接字**（发送到套接字的数据保持其块大小和格式）或
+    **流套接字**（发送到套接字的数据可以以不同大小的块进行读取）。这对 SELinux 策略规则有一定影响。
 - en: For SELinux, communicating over UNIX domain sockets requires both domains to
     have the proper communication privileges toward the socket file type (`open`,
     `read`, and `write`), depending on the direction of the communication.
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于 SELinux，通过 UNIX 域套接字进行通信要求两个域具有适当的通信权限，具体取决于通信的方向，对套接字文件类型的权限（`open`、`read`
+    和 `write`）。
 - en: 'Additionally, the sending (client) domain requires additional privileges toward
     the receiving (server) domain:'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 此外，发送（客户端）域需要额外的权限，以便对接收（服务器）域进行访问：
 - en: The `connectto` privilege in the `unix_stream_socket` class in the case of stream
     sockets
+  id: totrans-38
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在流套接字情况下，`unix_stream_socket` 类中的 `connectto` 权限
 - en: The `sendto` privilege in the `unix_dgram_socket` class in the case of datagram
     sockets
+  id: totrans-39
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在数据报套接字情况下，`unix_dgram_socket` 类中的 `sendto` 权限
 - en: As you can see, the privileges depend on the communication type used across
     the socket.
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 如你所见，权限取决于通过套接字使用的通信类型。
 - en: Understanding netlink sockets
+  id: totrans-41
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 理解 netlink 套接字
 - en: Another socket type that can be used for process communication is netlink. **Netlink
     sockets** are sockets that allow user space applications to communicate and interact
     with kernel processes, and, in special cases (where network management is delegated
@@ -222,37 +316,56 @@
     space application. Unlike the regular UNIX domain sockets, whose target context
     associates with the owner of that socket, netlink sockets are always local to
     the SELinux context.
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个可以用于进程通信的套接字类型是 netlink。**Netlink 套接字**是允许用户空间应用程序与内核进程通信并交互的套接字，并且在特殊情况下（当网络管理被
+    Linux 内核委托给用户空间进程时），它们还可以与另一个用户空间应用程序通信。与常规的 UNIX 域套接字不同，后者的目标上下文与该套接字的拥有者相关联，netlink
+    套接字始终与 SELinux 上下文本地相关。
 - en: 'Put differently, when a domain such as `sysadm_t` wants to manipulate the kernel''s
     routing information, it will open and communicate with the kernel through a netlink
     route socket, identified through the `netlink_route_socket` class:'
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 换句话说，当一个像 `sysadm_t` 这样的域想要操作内核的路由信息时，它将通过 netlink 路由套接字与内核进行通信，这个套接字通过 `netlink_route_socket`
+    类来标识：
 - en: '[PRE2]'
+  id: totrans-44
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: As applications gain more features, it might be that some of these features
     are no longer allowed by the current SELinux policy. Administrators will then
     need to update the SELinux policy to allow the netlink communication.
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 随着应用程序功能的增加，可能会出现某些功能不再被当前 SELinux 策略允许的情况。管理员需要更新 SELinux 策略以允许 netlink 通信。
 - en: An overview of supported netlink sockets can be devised from the netlink information
     on the manual page (`man netlink`), from which the SELinux classes can easily
     be derived. For instance, the `NETLINK_XFRM` socket is supported through the SELinux
     `netlink_xfrm_socket` class.
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以从手册页（`man netlink`）中的 netlink 信息中概括出支持的 netlink 套接字，从中可以轻松推导出 SELinux 类。例如，`NETLINK_XFRM`
+    套接字通过 SELinux 的 `netlink_xfrm_socket` 类获得支持。
 - en: Dealing with TCP, UDP, and SCTP sockets
+  id: totrans-47
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 处理 TCP、UDP 和 SCTP 套接字
 - en: When we go further up the chain, we look at socket communication over the network.
     In this case, rather than communicating directly between processes (and thus in
     Linux terminology between SELinux domains), the flows are from, and to, TCP, UDP,
     and **Stream Control Transmission Protocol** (**SCTP**) sockets.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们进一步深入时，我们将查看通过网络进行的套接字通信。在这种情况下，通信不是直接在进程之间进行的（因此在 Linux 术语中是 SELinux 域之间的通信），而是通过
+    TCP、UDP 和 **流控制传输协议** (**SCTP**) 套接字进行的。
 - en: SELinux will assign types to these ports as well, and these types are then the
     types to use for socket communication. For SELinux, a client application connecting
     to the DNS port (TCP port `53`, which receives the `dns_port_t` type in most SELinux
@@ -261,145 +374,217 @@
     permission. For UDP services (and thus the `udp_socket` class), `name_connect`
     is not used. Daemon applications use the `name_bind` privileges to bind themselves
     to their associated port.
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux 也会为这些端口分配类型，这些类型随后会用于套接字通信。对于 SELinux，连接到 DNS 端口的客户端应用程序（TCP 端口 `53`，在大多数
+    SELinux 策略中接收 `dns_port_t` 类型）在 `tcp_socket` 类中使用 `name_connect` 权限与端口类型进行通信。SCTP
+    协议（使用 `sctp_socket` 类）也使用相同的权限。对于 UDP 服务（因此是 `udp_socket` 类），`name_connect` 不被使用。守护进程应用程序使用
+    `name_bind` 权限将自己绑定到其关联的端口。
 - en: Important note
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要说明
 - en: Support for SCTP has only been recently introduced in SELinux, and not all Linux
     distributions have updated their policies accordingly. To see whether SCTP support
     is active, check the value of the `/sys/fs/selinux/policy_capabilities/extended_socket_class`
     file. A value of `1` means that the policy has SCTP support included, whereas
     a value of `0` (or an absent file) means that the system does not yet support
     SCTP.
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux 仅在最近才引入对 SCTP 的支持，并且并非所有 Linux 发行版都已相应更新其策略。要查看是否启用了 SCTP 支持，可以检查 `/sys/fs/selinux/policy_capabilities/extended_socket_class`
+    文件的值。值为 `1` 表示策略已包含 SCTP 支持，而值为 `0`（或文件不存在）表示系统尚不支持 SCTP。
 - en: 'Administrators can fine-tune which label to assign to which TCP, UDP, or SCTP
     port. For this, the `semanage port` command can be used. For instance, to list
     the current port definitions, you''d use this command:'
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 管理员可以微调为每个 TCP、UDP 或 SCTP 端口分配哪个标签。为此，可以使用 `semanage port` 命令。例如，要列出当前的端口定义，可以使用以下命令：
 - en: '[PRE3]'
+  id: totrans-53
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: In this example, we see that the `http_port_t` label is assigned to a set of
     TCP ports. Web server domains that can bind to `http_port_t` are, as such, allowed
     to bind to any of the mentioned ports.
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 在此示例中，我们看到 `http_port_t` 标签已分配给一组 TCP 端口。可以绑定到 `http_port_t` 的 Web 服务器域因此可以绑定到任何提到的端口。
 - en: 'To allow a daemon, such as an SSH server, to bind to other (or additional)
     ports, we need to tell SELinux to map this port to the appropriate label. For
     instance, to allow the SSH server to bind to port `10122`, we first check whether
     this port already holds a dedicated label. This can be accomplished using the
     `sepolicy` command:'
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了允许守护进程（如 SSH 服务器）绑定到其他（或附加的）端口，我们需要告诉 SELinux 将该端口映射到适当的标签。例如，要允许 SSH 服务器绑定到端口
+    `10122`，我们首先检查该端口是否已经有专用标签。这可以通过 `sepolicy` 命令来完成：
 - en: '[PRE4]'
+  id: totrans-56
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'The `unreserved_port_t` label is not a dedicated one, so we can assign the
     `ssh_port_t` label to it:'
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: '`unreserved_port_t` 标签不是专用标签，因此我们可以将 `ssh_port_t` 标签分配给它：'
 - en: '[PRE5]'
+  id: totrans-58
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Removing a port definition works similarly:'
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 删除端口定义的过程类似：
 - en: '[PRE6]'
+  id: totrans-60
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'When a specific port type is already assigned, then the utility will give the
     following error:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 当特定端口类型已经分配时，实用程序将显示以下错误：
 - en: '[PRE7]'
+  id: totrans-62
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: If this is the case and another port cannot be used, then no option exists other
     than to modify the SELinux policy.
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果是这种情况且无法使用另一个端口，则除了修改 SELinux 策略外别无选择。
 - en: Listing connection contexts
+  id: totrans-64
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 列出连接上下文
 - en: 'Many of the tools in an administrator''s arsenal can display security context
     information. As with the core utilities, most of these tools use the `-Z` option
     for this. For instance, to list the running network-bound services, netstat can
     be used:'
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 许多管理员工具可以显示安全上下文信息。与核心工具一样，大多数这些工具使用`-Z`选项来实现这一功能。例如，要列出当前正在运行的网络绑定服务，可以使用 netstat：
 - en: '[PRE8]'
+  id: totrans-66
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'Even `lsof` displays the context when asked to:'
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: 即使是`lsof`也可以在被请求时显示上下文信息：
 - en: '[PRE9]'
+  id: totrans-68
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: Another advanced command for querying connections is the `ss` command. Just
     calling `ss` will display all the connections of the current system. When adding
     `-Z`, it adds the context information as well.
+  id: totrans-69
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个用于查询连接的高级命令是`ss`命令。仅运行`ss`命令会显示当前系统的所有连接。当添加`-Z`时，它还会添加上下文信息。
 - en: 'For instance, the following command queries for listening TCP services:'
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，以下命令查询监听的 TCP 服务：
 - en: '[PRE10]'
+  id: totrans-71
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: More advanced queries can be called as well — consult the `ss` manual page for
     more information.
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 也可以调用更高级的查询命令——有关更多信息，请查阅`ss`手册页。
 - en: Note
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意
 - en: The use of the `-Z` option to show SELinux context information or consider SELinux
     context information in the activity that is requested by the user is a general
     but not mandatory practice amongst application developers. It is recommended to
     check the manual page of the application to confirm whether, and how, SELinux
     is supported by a tool. For instance, to get the `ss` manual page, run `man ss`.
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用`-Z`选项来显示 SELinux 上下文信息，或者在用户请求的活动中考虑 SELinux 上下文信息，是应用程序开发人员普遍但非强制的做法。建议检查应用程序的手册页，以确认工具是否以及如何支持
+    SELinux。例如，要查看`ss`手册页，可以运行`man ss`。
 - en: All these interactions are still quite primitive in nature, with the last set
     (which focuses on sockets) being more network-related than the others. Once we
     look into interaction between systems, we might not have enough control through
     just the sockets though. To enable more fine-grained control, we'll look at firewall
     capabilities and their SECMARK support next.
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 所有这些交互方式本质上仍然非常原始，最后一组（专注于套接字的部分）与网络关系更密切。可一旦我们查看系统之间的交互时，单凭套接字可能无法提供足够的控制。为了实现更精细的控制，接下来我们将研究防火墙功能及其
+    SECMARK 支持。
 - en: Linux firewalling and SECMARK support
+  id: totrans-76
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Linux 防火墙和 SECMARK 支持
 - en: 'The approach with TCP, UDP, and SCTP ports has a few downsides. One of them
     is that SELinux has no knowledge of the target host, so cannot reason about its
     security properties. This method also offers no way of limiting daemons from binding
     on any interface: in a multi-homed situation, we might want to make sure that
     a daemon only binds on the interface facing the internal network and not the internet-facing
     one, or vice versa.'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用 TCP、UDP 和 SCTP 端口的做法有一些缺点。其中之一是 SELinux 无法了解目标主机，因此无法推测其安全属性。这种方法也无法限制守护进程仅绑定到特定接口：在多网卡情况下，我们可能希望确保守护进程仅绑定到面向内部网络的接口，而不是面向互联网的接口，反之亦然。
 - en: 'In the past, SELinux allowed support for this binding issue through the **interface**
     and **node** labels: a domain could be configured to only bind to one interface
     and not to any other, or even on a specific address (referred to as the node).
     This support had its flaws though, and has been largely deprecated in favor of
     SECMARK filtering.'
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 过去，SELinux 通过**接口**和**节点**标签来支持这个绑定问题：一个域可以配置为仅绑定到一个接口，而不绑定到任何其他接口，甚至可以绑定到一个特定的地址（称为节点）。然而，这种支持存在缺陷，且已被大多数情况弃用，转而支持
+    SECMARK 过滤。
 - en: Before explaining SECMARK and how administrators can control it, let's first
     take a quick look at Linux's netfilter subsystem, the de facto standard for local
     firewall capabilities on Linux systems.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 在解释 SECMARK 以及管理员如何控制它之前，首先简要了解一下 Linux 的 netfilter 子系统，它是 Linux 系统上本地防火墙功能的事实标准。
 - en: Introducing netfilter
+  id: totrans-80
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 介绍 netfilter
 - en: Like LSM, the Linux netfilter subsystem provides hooks in various stages of
     its networking stack processing framework, which can then be implemented by one
     or more modules. For instance, `ip_tables` (which uses the `iptables` command
@@ -408,41 +593,57 @@
     must inform the netfilter framework of that hook's priority. This enables controllable
     ordering in the execution of modules (as multiple calls for the same hook can
     and will be used together).
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 像LSM一样，Linux的netfilter子系统在其网络栈处理框架的不同阶段提供了钩子，模块可以在这些阶段中实现。例如，`ip_tables`（使用`iptables`命令作为其控制应用程序）是这些模块之一，而`ip6_tables`和`ebtables`是netfilter模块的其他例子。实现netfilter钩子的模块必须向netfilter框架报告该钩子的优先级。这使得模块的执行顺序可以控制（因为多个调用相同钩子的操作会一起使用）。
 - en: The `ip_tables` framework is the one we will be looking at in more detail because
     it supports the SECMARK approach. This framework is commonly referred to as just
     `iptables`, which is the name of its control application. We will be using this
     term for the remainder of this book.
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: '`ip_tables`框架是我们将在本书中详细讨论的框架，因为它支持SECMARK方法。这个框架通常被称为`iptables`，它是其控制应用程序的名称。我们将在本书剩余部分使用这个术语。'
 - en: '`iptables` offers several *tables*, functionally-oriented classifications for
     network processing. The common ones are as follows:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: '`iptables`提供了多个*表*，这些表是基于功能的网络处理分类。常见的表如下：'
 - en: The `filter` table enables the standard network-filtering capabilities.
+  id: totrans-84
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`filter`表启用标准的网络过滤功能。'
 - en: The `nat` table is intended to modify routing-related information from packets,
     such as the source and/or destination address.
+  id: totrans-85
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`nat`表用于修改数据包中的路由相关信息，例如源地址和/或目标地址。'
 - en: The `mangle` table is used to modify most of a packet's fields.
+  id: totrans-86
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`mangle`表用于修改数据包的大部分字段。'
 - en: The `raw` table is enabled when administrators want to opt out certain packets/flows
     from the connection-tracking capabilities of netfilter.
+  id: totrans-87
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`raw`表在管理员希望将某些数据包/流量从netfilter的连接跟踪功能中排除时启用。'
 - en: The `security` table is offered to allow administrators to label packets once
     regular processing is complete.
+  id: totrans-88
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`security`表允许管理员在常规处理完成后对数据包进行标记。'
 - en: Within each table, `iptables` offers a default set of chains. These default
     chains specify where in the processing flow (and thus which hook in the netfilter
     framework) rules are to be processed. Each chain has a default policy – the default
@@ -450,88 +651,123 @@
     can add several rules to process sequentially. When a rule matches, the configured
     action applies. This action can be to allow the packet to flow through this hook
     in the netfilter framework, be denied, or perform additional processing.
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 在每个表中，`iptables`提供了一组默认的链。这些默认链指定了规则处理的处理流位置（也即在netfilter框架中的哪个钩子）。每个链都有一个默认策略——如果链中的规则没有匹配，返回的默认值是什么。在链中，管理员可以添加多个规则以按顺序处理。当规则匹配时，配置的动作将被执行。这个动作可以是允许数据包通过netfilter框架中的这个钩子，拒绝数据包，或者执行额外的处理。
 - en: 'Commonly provided chains (not all chains are offered for all tables) include
     the following:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 常见的链（并非所有表都提供所有链）包括以下几种：
 - en: The `PREROUTING` chain, which is the first packet-processing step once a packet
     is received
+  id: totrans-91
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`PREROUTING`链是数据包接收到后的第一个数据包处理步骤。'
 - en: The `INPUT` chain, which is for processing packets meant for the local system
+  id: totrans-92
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`INPUT`链用于处理目标是本地系统的数据包。'
 - en: The `FORWARD` chain, which is for processing packets meant to be forwarded to
     another remote system
+  id: totrans-93
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`FORWARD`链用于处理目标是转发到另一个远程系统的数据包。'
 - en: The `OUTPUT` chain, which is for processing packets originating from the local
     system
+  id: totrans-94
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`OUTPUT`链用于处理来自本地系统的数据包。'
 - en: The `POSTROUTING` chain, which is the last packet-processing step before a packet
     is sent
+  id: totrans-95
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`POSTROUTING`链是数据包发送前的最后一个数据包处理步骤。'
 - en: Overly simplified, the implementation of these tables and their chains roughly
     associates with the priority of the calls within the netfilter framework. The
     chains are easily associated with the hooks provided by the netfilter framework,
     whereas the table tells netfilter which chain implementations are to be executed
     first.
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 简化地说，这些表及其链的实现大致与netfilter框架内调用的优先级相关。链容易与netfilter框架提供的钩子相关联，而表则告诉netfilter哪个链实现应当先执行。
 - en: Implementing security markings
+  id: totrans-97
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 实现安全标记。
 - en: With packet labeling, we can use the filtering capabilities of `iptables` (and
     `ip6tables`) to assign labels to packets and connections. The idea is that the
     local firewall tags packets and connections and then the kernel uses SELinux to
     grant (or deny) application domains the right to use those tagged packets and
     connections.
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过数据包标记，我们可以使用 `iptables`（和 `ip6tables`）的过滤功能为数据包和连接分配标签。其思想是本地防火墙为数据包和连接打标签，然后内核使用
+    SELinux 授予（或拒绝）应用程序域使用这些带标签的数据包和连接的权限。
 - en: 'This packet labeling is known as `mangle` and `security`. Only these tables
     currently have the action of tagging packets and connections available in their
     rule set:'
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 此数据包标签称为 `mangle` 和 `security`。目前只有这些表在其规则集中具有标记数据包和连接操作的功能：
 - en: The `mangle` table has a higher execution priority than most other tables. Implementing
     SECMARK rules on this level is generally done when all packets need to be labeled,
     even when many of these packets will eventually be dropped.
+  id: totrans-100
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`mangle` 表比大多数其他表具有更高的执行优先级。在这个层次上实施 SECMARK 规则通常是当所有数据包都需要被标记时，即使这些数据包中的许多最终将被丢弃。'
 - en: The `security` table is next in execution priority after the `filter` table.
     This allows the regular firewall rules to be executed first, and only tag those
     packets allowed by the regular firewall. Using the `security` table allows the
     `filter` table to implement the discretionary access control rules first and have
     SELinux execute its mandatory access control logic only if the DAC rules are executed
     successfully.
+  id: totrans-101
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`security` 表在 `filter` 表之后具有执行优先级。这允许先执行常规防火墙规则，仅对常规防火墙允许的数据包打标签。使用 `security`
+    表允许 `filter` 表首先执行自主访问控制规则，并且只有在成功执行 DAC 规则后，SELinux 才执行其强制访问控制逻辑。'
 - en: 'Once a SECMARK action triggers, it will assign a packet type to the packet
     or communication. SELinux policy rules will then validate whether a domain is
     allowed to receive (`recv`) or send packets of a given type. For instance, the
     Firefox application (running in the `mozilla_t` domain) will be allowed to send
     and receive HTTP client packets:'
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦 SECMARK 操作触发，它将为数据包或通信分配一个数据包类型。然后 SELinux 策略规则将验证是否允许域接收（`recv`）或发送给定类型的数据包。例如，Firefox
+    应用程序（运行在 `mozilla_t` 域中）将被允许发送和接收 HTTP 客户端数据包：
 - en: '[PRE11]'
+  id: totrans-103
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: Another supported permission set for SECMARK-related packets is `forward_in`
     and `forward_out`. These permissions are checked when using forwarding in netfilter.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: SECMARK 相关数据包的另一个支持的权限集是 `forward_in` 和 `forward_out`。在 netfilter 中使用转发时会检查这些权限。
 - en: One important thing to be aware of is that once a SECMARK action is defined,
     then all the packets that eventually reach the operating system's applications
     will have a label associated with them — even if no SECMARK rule exists for the
@@ -539,78 +775,114 @@
     applies the default `unlabeled_t` label. The default SELinux policy implemented
     in some distributions (such as CentOS) allows all domains to send and receive
     `unlabeled_t` packets, but this is not true for all Linux distributions.
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 需要注意的一点是，一旦定义了 SECMARK 操作，那么最终到达操作系统应用程序的所有数据包都将与一个标签相关联 — 即使内核正在检查的数据包或连接没有
+    SECMARK 规则。如果发生这种情况，内核会应用默认的 `unlabeled_t` 标签。一些发行版（如 CentOS）中默认实施的 SELinux 策略允许所有域发送和接收
+    `unlabeled_t` 数据包，但并非所有 Linux 发行版都是如此。
 - en: Assigning labels to packets
+  id: totrans-106
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 为数据包分配标签
 - en: When no SECMARK-related rules are loaded in the netfilter subsystem, then SECMARK
     is not enabled and none of the SELinux rules related to SECMARK permissions are
     checked. The network packets are not labeled, so no enforcement can be applied
     to them. Of course, the regular socket-related access controls still apply — SECMARK
     is just an additional control measure.
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 当 netfilter 子系统中没有加载任何 SECMARK 相关规则时，SECMARK 就未启用，并且不检查与 SECMARK 权限相关的任何 SELinux
+    规则。网络数据包没有标签，因此不能应用任何强制控制。当然，仍然适用于常规套接字相关的访问控制 — SECMARK 只是一种额外的控制措施。
 - en: Once a single SECMARK rule is active, SELinux starts enforcing the packet-label
     mechanism on all packets. This means that all the network packets now need a label
     on them (as SELinux can only deal with labeled resources). The default label (the
     initial security context) for packets is `unlabeled_t`, which means that no marking
     rule matches this network packet.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦启用单个 SECMARK 规则，SELinux 就会对所有数据包执行包标签机制。这意味着现在所有的网络数据包都需要有一个标签（因为 SELinux
+    只能处理有标签的资源）。数据包的默认标签（初始安全上下文）是 `unlabeled_t`，这意味着没有匹配此网络数据包的标记规则。
 - en: Because SECMARK rules are now enforced, SELinux checks all domains that interact
     with network packets to see whether they are authorized to send or receive these
     packets. To simplify management, some distributions enable send and receive rights
     against the `unlabeled_t` packets for all domains. Without these rules, all network
     services would stop functioning properly the moment a single SECMARK rule becomes
     active.
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于现在执行了SECMARK规则，SELinux检查所有与网络数据包交互的域，以查看它们是否被授权发送或接收这些数据包。为了简化管理，一些发行版允许所有域对`unlabeled_t`数据包授予发送和接收权限。如果没有这些规则，一旦启用单个SECMARK规则，所有网络服务将无法正常工作。
 - en: To assign a label to a packet, we need to define a set of rules that match a
     particular network flow, and then call the SECMARK logic (to tag the packet or
     communication with a label). Most rules will immediately match the `ACCEPT` target
     as well, to allow this particular communication to reach the system.
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 要为数据包分配标签，我们需要定义一组与特定网络流匹配的规则，然后调用SECMARK逻辑（为数据包或通信标记一个标签）。大多数规则将立即匹配`ACCEPT`目标，以允许此特定通信到达系统。
 - en: 'Let''s implement two rules:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们实现两个规则：
 - en: The first is to allow communication toward websites (port `80`) and tag the
     related network packets with the `http_client_packet_t` type (so that web browsers
     are allowed to send and receive these packets).
+  id: totrans-112
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 第一个规则是允许与网站（端口`80`）的通信，并将相关的网络数据包标记为`http_client_packet_t`类型（以便Web浏览器可以发送和接收这些数据包）。
 - en: The second is to allow communication toward the locally running web server (port
     `80` as well) and tag its related network packets with the `http_server_packet_t`
     type (so that web servers are allowed to send and receive these packets).
+  id: totrans-113
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 第二个规则是允许与本地运行的Web服务器（端口`80`）的通信，并将其相关的网络数据包标记为`http_server_packet_t`类型（以便Web服务器可以发送和接收这些数据包）。
 - en: For each rule set, we also enable connection tracking so that related packets
     are automatically labeled correctly and passed.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于每一组规则，我们还启用连接跟踪功能，以便相关数据包能够自动正确标记并通过。
 - en: 'Use the following commands for the web server traffic:'
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用以下命令处理Web服务器流量：
 - en: '[PRE12]'
+  id: totrans-116
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Use these commands for the browser traffic:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用以下命令处理浏览器流量：
 - en: '[PRE13]'
+  id: totrans-118
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'Finally, to copy connection labels to the established and related packets,
     use the following commands:'
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，要将连接标签复制到已建立和相关的数据包，请使用以下命令：
 - en: '[PRE14]'
+  id: totrans-120
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: Even this simple example shows that firewall rule definitions are an art by
     themselves, and that the SECMARK labeling is just a small part of it. However,
     using the SECMARK rules makes it possible to allow certain traffic while still
@@ -619,102 +891,142 @@
     with the internet while all other browsers and commands aren't. Tag all browsing-related
     traffic with a specific label, and only allow that browser domain the `send` and
     `recv` permissions on that label.
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 即便是这个简单的例子也表明，防火墙规则的定义本身就是一门艺术，而SECMARK标签只是其中的一小部分。然而，使用SECMARK规则可以允许某些流量，同时确保只有明确的域才能与该流量进行交互。例如，它可以在自助服务终端系统上实现，只允许一个浏览器与互联网通信，而所有其他浏览器和命令都无法通信。将所有与浏览相关的流量标记为特定标签，并只允许该浏览器域在该标签上具有`send`和`recv`权限。
 - en: Transitioning to nftables
+  id: totrans-122
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 过渡到nftables
 - en: 'While `iptables` is still one of the most widely used firewall technologies
     on Linux, two other contenders (`nftables` and `bpfilter`) are rising rapidly
     in terms of popularity. The first of these, `nftables`, has a few operational
     benefits over `iptables`, while retaining focus on the netfilter support in the
     Linux kernel:'
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管`iptables`仍然是Linux上最广泛使用的防火墙技术之一，但另外两个竞争者（`nftables`和`bpfilter`）在流行度上正迅速上升。首先是`nftables`，它在某些操作上比`iptables`有一些优势，同时仍然专注于Linux内核中的netfilter支持：
 - en: The code base for `nftables` and its Linux kernel support is much more streamlined.
+  id: totrans-124
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`nftables`的代码库及其Linux内核支持更加精简。'
 - en: Error reporting is much better.
+  id: totrans-125
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 错误报告更为完善。
 - en: Filtering rules can be incrementally changed rather than requiring a full reload
     of all rules.
+  id: totrans-126
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 过滤规则可以逐步更改，而不需要重新加载所有规则。
 - en: The `nftables` framework has recently received support for SECMARK, so let's
     see how to apply the `http_server_packet_t` and `http_client_packet_t` labels
     to the appropriate traffic.
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: '`nftables`框架最近已获得SECMARK支持，让我们看看如何将`http_server_packet_t`和`http_client_packet_t`标签应用于相应的流量。'
 - en: 'The most common approach for applying somewhat larger `nftables` rules is to
     use a configuration file with the `nft` interpreter set:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 应用稍大一些的`nftables`规则最常见的方法是使用配置文件，并设置`nft`解释器：
 - en: '[PRE15]'
+  id: totrans-129
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: The syntax that `nftables` uses is recognizable when we compare it with `iptables`.
     The script starts with defining the SECMARK values. After that, we create a mapping
     between a port (`80` in the example) and the value used for the SECMARK support.
     Of course, already established sessions also receive the appropriate SECMARK labeling.
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: '`nftables`使用的语法与`iptables`比较时是可以识别的。脚本首先定义SECMARK值。之后，我们创建一个端口（例如示例中的`80`）与用于SECMARK支持的值之间的映射。当然，已经建立的会话也会收到适当的SECMARK标签。'
 - en: 'If we define multiple entries, the `elements` variable uses commas to separate
     the various values:'
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们定义多个条目，`elements`变量使用逗号分隔不同的值：
 - en: '[PRE16]'
+  id: totrans-132
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: Next to `nftables`. A second firewall solution that is gaining traction is eBPF,
     which we cover next.
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了`nftables`之外，另一个获得关注的防火墙解决方案是eBPF，接下来我们将介绍它。
 - en: Assessing eBPF
+  id: totrans-134
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 评估eBPF
 - en: eBPF (and the `bpfilter` command) is completely different in nature compared
     to `iptables` and `nftables`, so let's first see how eBPF functions before we
     cover the SELinux support details for it.
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: eBPF（以及`bpfilter`命令）本质上与`iptables`和`nftables`完全不同，因此在介绍eBPF的SELinux支持细节之前，先了解一下eBPF的工作原理。
 - en: Understanding how eBPF works
+  id: totrans-136
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 理解eBPF的工作原理
 - en: The **extended Berkeley Packet Filter** (**eBPF**) is a framework that uses
     an in-kernel virtual machine that interprets and executes eBPF code, rather low-level
     instructions comparable to processor instruction set operations. Because of its
     very low-level, yet processor-agnostic language, it can be used to create very
     fast, highly optimized rules.
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: '**扩展伯克利数据包过滤器**（**eBPF**）是一个框架，使用内核中的虚拟机来解释和执行eBPF代码，这些代码包括类似于处理器指令集操作的低级指令。由于它是非常低级的，且与处理器无关的语言，它可以用来创建非常快速且高度优化的规则。'
 - en: BPF was originally used for analyzing and filtering network traffic (for example,
     within `tcpdump`). Because of its high efficiency, it was soon found in other
     tools as well, growing beyond the plain network filtering and analysis capabilities.
     As BPF expanded toward other use cases, it became extended BPF, or eBPF.
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: BPF最初用于分析和过滤网络流量（例如，在`tcpdump`中）。由于其高效性，它很快被发现应用于其他工具，超出了简单的网络过滤和分析功能。随着BPF扩展到其他用例，它被称为扩展BPF，或者eBPF。
 - en: The eBPF framework in the Linux kernel has been successfully used for performance
     monitoring, where eBPF applications hook into runtime processes and kernel subsystems
     to measure performance and feed back the metrics to user-space applications. It,
     of course, also supports filtering on (network) sockets, cgroups, process scheduling,
     and many more — and the list is growing rapidly.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux内核中的eBPF框架已成功用于性能监控，其中eBPF应用程序接入运行时进程和内核子系统，测量性能并将指标反馈给用户空间应用程序。它当然还支持对（网络）套接字、cgroups、进程调度等的过滤，且支持的功能列表正在迅速增长。
 - en: As with the LSM framework, which uses hooks into the system calls and other
     security-sensitive operations in the Linux kernel, eBPF hooks into the Linux kernel
     as well. Occasionally it can use existing hooks (as with the Linux **kernel probes**
     or **kprobes** framework) and thus benefit from the stability of these interfaces.
     We can thus expect eBPF to grow its support further in other areas of the Linux
     kernel as well.
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 与使用钩子接入系统调用和其他安全敏感操作的LSM框架一样，eBPF也接入了Linux内核。它偶尔可以使用现有的钩子（如Linux的**内核探针**或**kprobes**框架），从而受益于这些接口的稳定性。因此，我们可以预期eBPF将在Linux内核的其他领域进一步扩展其支持。
 - en: eBPF applications (**eBPF programs**) are defined in user space, and then submitted
     to the Linux kernel. The kernel verifies the security and consistency of the code
     to ensure that the virtual machine will not attempt to break out of the boundaries
@@ -722,44 +1034,61 @@
     Linux kernel has some operations that modify eBPF code to suit the environment
     or security rules), the eBPF program runs in the Linux kernel (within its virtual
     machine) and executes its purpose.
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: eBPF应用程序（**eBPF程序**）是在用户空间定义的，然后提交到Linux内核。内核验证代码的安全性和一致性，以确保虚拟机不会试图突破它所工作领域的边界。如果通过验证（可能会稍微修改代码，因为Linux内核有些操作会修改eBPF代码以适应环境或安全规则），eBPF程序会在Linux内核中运行（在其虚拟机内），并执行其预定的任务。
 - en: Note
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意
 - en: The Linux kernel can compile the eBPF instructions into native, processor-specific
     instructions, rather than having the virtual machine interpret them. However,
     as this leads to a higher security risk, this `/proc/sys/net/core/bpf_jit_enable`
     to `1`.
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux 内核可以将 eBPF 指令编译成本地的、特定于处理器的指令，而不是让虚拟机来解释它们。然而，由于这会带来更高的安全风险，因此将 `/proc/sys/net/core/bpf_jit_enable`
+    设置为 `1`。
 - en: These programs can load and save information in memory, called maps. These **eBPF
     maps** can be read or written to by user-space applications, and thus offer the
     main interface to interact with running eBPF programs. These maps are accessed
     through file descriptors, allowing processes to pass along and clone these file
     descriptors as needed.
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些程序可以在内存中加载和保存信息，称为映射。这些 **eBPF 映射** 可以被用户空间应用程序读取或写入，从而提供与运行中的 eBPF 程序交互的主要接口。这些映射通过文件描述符进行访问，允许进程根据需要传递和克隆这些文件描述符。
 - en: Various products and projects are using eBPF to create high-performance network
     capabilities, such as software-defined network configurations, DDoS mitigation
     rules, load balancers, and more. Unlike the netfilter-based firewalls, which rely
     on a massive code base within the kernel tuned through configuration, eBPF programs
     are built specifically for their purpose and nothing more, and only that code
     is actively running.
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: 各种产品和项目正在使用 eBPF 创建高性能网络功能，例如软件定义网络配置、DDoS 缓解规则、负载均衡器等。与基于 netfilter 的防火墙不同，后者依赖于内核中的庞大代码库，并通过配置进行调优，eBPF
+    程序是专门为其目的构建的，仅此而已，且只有这些代码在积极运行。
 - en: Securing eBPF programs and maps
+  id: totrans-146
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 保护 eBPF 程序和映射
 - en: The default security measures in place for eBPF programs and maps are very limited,
     partly because lots of trust is put in the Linux kernel verifier (which verifies
     the eBPF code before it passes the code on to the virtual machine), and partly
     because the eBPF code was only allowed to be loaded when the process involved
     has the `CAP_SYS_ADMIN` capability. And as this capability basically means full
     system access, additional security controls were not deemed necessary.
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于 eBPF 程序和映射，默认的安全措施非常有限，部分原因是 Linux 内核验证器（在将 eBPF 代码传递给虚拟机之前验证代码）被高度信任，部分原因是只有在相关进程具有
+    `CAP_SYS_ADMIN` 能力时，才允许加载 eBPF 代码。由于该能力基本上意味着完全的系统访问，因此没有认为有必要进行额外的安全控制。
 - en: Since Linux kernel 4.4, some types of eBPF programs (such as socket filtering)
     can be loaded even by unprivileged processes (but, of course, only toward the
     sockets these processes have access to). The system allows loading programs to
@@ -768,130 +1097,194 @@
     not all Linux distributions offer a Linux kernel that supports these capabilities
     already. But Linux administrators that want more fine-grained control over eBPF
     can use SELinux to tune and tweak eBPF handling.
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 自 Linux 内核 4.4 起，一些类型的 eBPF 程序（例如套接字过滤）即使由非特权进程加载也可以运行（但当然，只能针对这些进程有权限访问的套接字）。系统允许加载与
+    cgroup `CAP_NET_ADMIN` 能力相关的程序。最近，加载 eBPF 程序的权限已被添加到 `CAP_BPF` 和 `CAP_TRACING`
+    能力中，尽管并非所有 Linux 发行版都已经提供支持这些能力的内核。但希望对 eBPF 进行更精细控制的 Linux 管理员，可以使用 SELinux 来调节和调整
+    eBPF 的处理。
 - en: 'SELinux has a `bpf` class, which governs the basic eBPF operations: `prog_load`,
     `prog_run`, `map_create`, `map_read`, and `map_write`. Whenever a process creates
     a program or map, this program or map inherits the SELinux label of this process.
     If the file descriptors regarding these maps or programs are leaked, the malicious
     application still requires the necessary privileges toward this label before it
     can exploit it.'
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux 有一个 `bpf` 类，用于管理基本的 eBPF 操作：`prog_load`、`prog_run`、`map_create`、`map_read`
+    和 `map_write`。每当一个进程创建一个程序或映射时，该程序或映射将继承该进程的 SELinux 标签。如果这些映射或程序的文件描述符被泄露，恶意应用程序仍然需要拥有对该标签的必要权限，才能利用它。
 - en: User-space operations can interact with the eBPF framework through the `/sys/fs/bpf`
     virtual filesystem, so some Linux distributions associate a specific SELinux label
     (`bpf_t`) with this location as well. This allows administrators to manage access
     through SELinux policy rules in relation to this type.
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 用户空间操作可以通过 `/sys/fs/bpf` 虚拟文件系统与 eBPF 框架交互，因此一些 Linux 发行版将特定的 SELinux 标签（`bpf_t`）与此位置关联。这允许管理员通过
+    SELinux 策略规则管理对这种类型的访问。
 - en: While eBPF is extremely extensible, the number of simplified frameworks surrounding
     it is small given its very early phase. We can, however, expect that more elaborate
     support will come soon, as a new tool called `bpfilter` is showing off the capabilities
     of eBPF-based firewalling on Linux systems.
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管 eBPF 极具扩展性，但目前围绕它的简化框架数量较少，因为它仍处于非常早期的阶段。然而，我们可以预期，随着一个名为 `bpfilter` 的新工具展示了基于
+    eBPF 的防火墙功能，更多复杂的支持会很快到来。
 - en: Filtering traffic with bpfilter
+  id: totrans-152
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 使用 bpfilter 过滤流量
 - en: 'The `bpfilter` application is an application that builds a new eBPF program
     to filter and process traffic. It allows administrators to build firewall capabilities
     without understanding the low-level eBPF instructions, and has recently started
     supporting `iptables`: administrators create rules with iptables, and `bpfilter`
     translates and converts these into eBPF programs.'
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bpfilter` 应用程序是一种构建新的 eBPF 程序以过滤和处理流量的应用程序。它允许管理员在不理解低级 eBPF 指令的情况下构建防火墙功能，并且最近开始支持
+    `iptables`：管理员通过 iptables 创建规则，而 `bpfilter` 将这些规则转换并转化为 eBPF 程序。'
 - en: Important note
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: While `bpfilter` is part of the Linux kernel tree, it should be considered a
     proof-of-value currently, rather than a production-ready firewall capability.
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然 `bpfilter` 是 Linux 内核树的一部分，但目前应视为一种价值证明，而非生产就绪的防火墙功能。
 - en: '`bpfilter` creates eBPF programs that hook inside the Linux kernel between
     the network device driver and the TCP/IP stack in a layer called the **eXpress
     Data Path** (**XDP**). At this level, the eBPF programs have access to the full
     network packet information (including link layer protocols such as Ethernet).'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bpfilter` 创建的 eBPF 程序会在 Linux 内核中网络设备驱动程序和 TCP/IP 栈之间的一个层次中钩住，称为 **eXpress
+    Data Path** (**XDP**) 层。在这一层，eBPF 程序可以访问完整的网络数据包信息（包括如以太网等链路层协议）。'
 - en: To use `bpfilter`, the Linux kernel needs to be built with the appropriate settings,
     including `CONFIG_BPFILTER` and `CONFIG_BPFILTER_UMH`. The latter is the `bpfilter`
     user mode helper that will capture `iptables`-generated firewall rules, and translate
     those into eBPF applications.
+  id: totrans-157
   prefs: []
   type: TYPE_NORMAL
+  zh: 要使用 `bpfilter`，需要在 Linux 内核中启用适当的设置，包括 `CONFIG_BPFILTER` 和 `CONFIG_BPFILTER_UMH`。后者是
+    `bpfilter` 用户模式助手，它将捕获由 `iptables` 生成的防火墙规则，并将这些规则转换为 eBPF 应用程序。
 - en: 'Before we load the `bpfilter` user mode helper, we need to allow `execmem`
     permission in SELinux:'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 在加载 `bpfilter` 用户模式助手之前，我们需要在 SELinux 中允许 `execmem` 权限：
 - en: '[PRE17]'
+  id: totrans-159
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'Next, load the `bpfilter` module, which will have the user mode helper active
     on the system:'
+  id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，加载 `bpfilter` 模块，这将使用户模式助手在系统中处于激活状态：
 - en: '[PRE18]'
+  id: totrans-161
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: 'Now, load the `iptables` firewall using the commands listed previously. The
     instructions are translated into eBPF programs, as shown with `bpftool`:'
+  id: totrans-162
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，使用前面列出的命令加载 `iptables` 防火墙。这些指令会被转换成 eBPF 程序，如 `bpftool` 所示：
 - en: '[PRE19]'
+  id: totrans-163
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: The eBPF code itself can be displayed as well, but is hardly readable at this
     point for administrators.
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: eBPF 代码本身也可以显示，但目前对于管理员来说几乎难以阅读。
 - en: All of the aforementioned firewall capabilities interact with the TCP/IP stack
     supported within the Linux kernel. There are, however, networks that do not rely
     on TCP/IP, such as InfiniBand. Luckily, even on those more specialized network
     environments, SELinux can be used to control communication flows.
+  id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述所有防火墙功能都与 Linux 内核中支持的 TCP/IP 栈交互。然而，也有一些网络并不依赖于 TCP/IP，例如 InfiniBand。幸运的是，即使在这些更专业的网络环境中，SELinux
+    也可以用于控制通信流。
 - en: Securing high-speed InfiniBand networks
+  id: totrans-166
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 保护高速 InfiniBand 网络
 - en: The **InfiniBand** standard is a relatively recent (in network history) technology
     that enables very high throughput and very low latency. It accomplishes this by
     having a very low overhead on the network layer (protocol) and direct access from
     user applications to the network level. This direct access also has implications
     for SELinux, as the Linux kernel is no longer actively involved in the transport
     of data across an InfiniBand link.
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: '**InfiniBand** 标准是一项相对较新的（在网络历史上）技术，能够实现非常高的吞吐量和非常低的延迟。它通过在网络层（协议）上具有非常低的开销，并且允许用户应用程序直接访问网络层来实现这一点。这种直接访问也对
+    SELinux 有影响，因为 Linux 内核不再积极参与通过 InfiniBand 链路传输数据。'
 - en: Let's first look at what InfiniBand looks like, after which we can see how to
     still apply SELinux controls to its communication flows.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们首先了解 InfiniBand 的样子，然后再看看如何继续对其通信流应用 SELinux 控制。
 - en: Directly accessing memory
+  id: totrans-169
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 直接访问内存
 - en: One of the main premises of InfiniBand is to allow user applications to have
     direct access to the network. By itself, InfiniBand is a popular **Remote Direct
     Memory Access** (**RDMA**) implementation, which has received significant support
     from vendors. We find RDMA actively used in high-performance clusters.
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
+  zh: InfiniBand 的一个主要前提是允许用户应用程序直接访问网络。InfiniBand 本身是一个流行的**远程直接内存访问**（**RDMA**）实现，并且得到了供应商的广泛支持。我们发现
+    RDMA 在高性能集群中被广泛使用。
 - en: Because of the direct access, controls are only possible while setting up the
     access approach. Without SELinux, all that is needed to set up and manage InfiniBand
     communications is to have access to the device file itself. If a process can write
     to the InfiniBand device, then it can use InfiniBand. By default, these devices
     are only accessible by the `root` user.
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于是直接访问，控制措施只能在设置访问方式时实施。如果没有 SELinux，设置和管理 InfiniBand 通信所需要做的仅仅是访问设备文件本身。如果一个进程能够写入
+    InfiniBand 设备，那么它就能使用 InfiniBand。默认情况下，这些设备只有 `root` 用户可以访问。
 - en: The InfiniBand devices are the network cards or **Host Channel Adapters** (**HCA**)
     and can have multiple ports. An InfiniBand **port** is the link or interface that
     connects to an InfiniBand subnet. The subnet is the high-speed network on which
     multiple machines (ports) are connected. As with regular networks, InfiniBand
     switches are used to facilitate communication across a subnet, and routers can
     be used to connect different subnets with each other.
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: InfiniBand 设备是网络卡或**主机通道适配器**（**HCA**），并且可以有多个端口。InfiniBand **端口**是连接到 InfiniBand
+    子网的链路或接口。子网是多个机器（端口）连接的高速网络。与常规网络一样，InfiniBand 交换机用于促进子网之间的通信，路由器则用于连接不同的子网。
 - en: An InfiniBand subnet is managed by a **Subnet Manager** (**SM**). This is a
     process that coordinates the management of the different ports within the subnet,
     as well as the partitions. **Partitions** in InfiniBand are a way to differentiate
@@ -899,118 +1292,175 @@
     (**VLANs**) in more regular networks. With partitioned communication, it is the
     subnet manager that tells which ports can be used for which partitions of the
     communication.
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: InfiniBand 子网由**子网管理器**（**SM**）管理。这是一个协调子网内不同端口以及分区管理的进程。InfiniBand 中的**分区**是一种区分子网内不同通信的方式，类似于常规网络中的**虚拟局域网**（**VLAN**）。在分区通信中，子网管理器指定哪些端口可以用于哪个通信分区。
 - en: Protecting InfiniBand networks
+  id: totrans-174
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 保护 InfiniBand 网络
 - en: Unlike regular networks, where firewalls and switch-level access controls are
     the norm for preventing unauthorized access, InfiniBand has few protection measures
     in place. InfiniBand largely assumes that the network is within a trusted environment.
     However, that does not exclude us from applying more rigid controls over which
     process can access the InfiniBand network in SELinux.
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 与常规网络不同，常规网络中防火墙和交换机级别的访问控制是防止未经授权访问的常见手段，而 InfiniBand 的保护措施很少。InfiniBand 在很大程度上假设网络处于一个受信任的环境中。然而，这并不排除我们在
+    SELinux 中对哪些进程可以访问 InfiniBand 网络进行更严格的控制。
 - en: 'As the communication flow itself is directly mapped in-memory toward the devices,
     the Linux kernel does not have any hooks available to do packet-level controls
     like it can with regular TCP/UDP traffic (using the SECMARK capabilities), or
     even session-level controls with sockets. Instead, SELinux focuses on two main
     controls, as visualized in the following diagram:'
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于通信流本身直接映射到设备的内存中，Linux 内核没有可用于像常规 TCP/UDP 流量那样进行数据包级控制的钩子（例如使用 SECMARK 功能），甚至没有用于套接字的会话级控制。相反，SELinux
+    集中于以下两个主要控制，如下图所示：
 - en: '![Figure 5.1 – SELinux InfiniBand controls ](img/B16276_05_001.jpg)'
+  id: totrans-177
   prefs: []
   type: TYPE_IMG
+  zh: '![图 5.1 – SELinux InfiniBand 控制](img/B16276_05_001.jpg)'
 - en: Figure 5.1 – SELinux InfiniBand controls
+  id: totrans-178
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 5.1 – SELinux InfiniBand 控制
 - en: 'These two main controls are as follows:'
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 这两个主要控制措施如下：
 - en: Controlling who can manage the InfiniBand subnet
+  id: totrans-180
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 控制谁可以管理 InfiniBand 子网
 - en: Controlling who can access an InfiniBand partition
+  id: totrans-181
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 控制谁可以访问 InfiniBand 分区
 - en: To properly govern these controls, the `semanage` application assigns the right
     type to the appropriate InfiniBand resource. However, not all SELinux policies
     already contain the appropriate types, so we need to add those in as well.
+  id: totrans-182
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了正确管理这些控制，`semanage` 应用程序会将正确的类型分配给适当的 InfiniBand 资源。然而，并非所有 SELinux 策略都包含适当的类型，因此我们还需要将这些类型添加进来。
 - en: Managing the InfiniBand subnet
+  id: totrans-183
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 管理 InfiniBand 子网
 - en: Let's start with managing the InfiniBand network. With InfiniBand on Linux,
     this is most often accomplished using the `opensm` application. Many InfiniBand
     adapters have multiple ports, allowing a server to participate in multiple InfiniBand
     subnets. With SELinux, we can control which domain can manage a subnet by controlling
     access to the InfiniBand port on a device.
+  id: totrans-184
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们从管理InfiniBand网络开始。在Linux中使用InfiniBand，通常通过`opensm`应用程序来实现。许多InfiniBand适配器有多个端口，允许服务器参与多个InfiniBand子网。通过SELinux，我们可以控制哪个域可以管理子网，通过控制对设备上InfiniBand端口的访问。
 - en: First, we need to assign a label to the InfiniBand port associated with a subnet.
     To accomplish that, we first need to obtain the right InfiniBand device, create
     the appropriate label (type), and then assign it to the port.
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，我们需要为与子网关联的InfiniBand端口分配一个标签。为了实现这一点，我们首先需要获取正确的InfiniBand设备，创建合适的标签（类型），然后将其分配给端口。
 - en: 'Let''s start by querying the available InfiniBand-capable devices on the system
     using `ibv_devinfo`:'
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以通过使用`ibv_devinfo`命令来查询系统中可用的InfiniBand设备：
 - en: '[PRE20]'
+  id: totrans-187
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'Next, we create a type (label) to assign to the port. This type is only used
     to validate the access from the `opensm` application to this port. We use the
     CIL language for this (which we will elaborate upon in [*Chapter 16*](B16276_16_Final_VK.xhtml#_idTextAnchor391),
     *Developing Policies with SELinux CIL*). Create a file with the following content
     (let''s call it `infiniband_subnet.cil`):'
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们创建一个类型（标签）并将其分配给端口。此类型仅用于验证`opensm`应用程序对该端口的访问。我们使用CIL语言来实现这一点（我们将在[*第16章*](B16276_16_Final_VK.xhtml#_idTextAnchor391)，*使用SELinux
+    CIL开发策略*中详细说明）。创建一个文件，内容如下（我们称之为`infiniband_subnet.cil`）：
 - en: '[PRE21]'
+  id: totrans-189
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: In the previous code, we enhance the SELinux policy with a new type called `local_ibendport_t`,
     assign it the `ibendport_type` attribute, and then grant the `opensm_t` domain
     the `manage_subnet` privilege within the `infiniband_endport` class.
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前面的代码中，我们通过一个新的类型`local_ibendport_t`来增强SELinux策略，将其分配给`ibendport_type`属性，然后授予`opensm_t`域在`infiniband_endport`类中管理子网的权限。
 - en: 'Let''s load this policy enhancement:'
+  id: totrans-191
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们加载此策略增强：
 - en: '[PRE22]'
+  id: totrans-192
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'Finally, we assign this newly created type to the InfiniBand port:'
+  id: totrans-193
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们将新创建的类型分配给InfiniBand端口：
 - en: '[PRE23]'
+  id: totrans-194
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: 'This command assigns the `local_ibendport_t` type to port number `1` of the
     `rxe0` device (as obtained from `ibv_devinfo`). Once this mapping is in place,
     we can query it using `semanage` as well:'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 此命令将`local_ibendport_t`类型分配给`rxe0`设备的端口号`1`（通过`ibv_devinfo`获取）。一旦映射完成，我们也可以使用`semanage`查询它：
 - en: '[PRE24]'
+  id: totrans-196
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: Without any mappings, the command does not display any output.
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果没有任何映射，命令将不会显示任何输出。
 - en: Important note
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: Currently, most Linux distributions have not incorporated InfiniBand support
     within the SELinux policy, requiring us to create our own custom labels. We can
     expect that distributions will add in default types for InfiniBand resources,
     and that SELinux support for InfiniBand will be extended with sane defaults.
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
+  zh: 目前，大多数Linux发行版尚未在SELinux策略中加入InfiniBand支持，因此我们需要创建自定义标签。我们可以预期，发行版将为InfiniBand资源添加默认类型，并且SELinux对InfiniBand的支持将随着合理的默认设置而扩展。
 - en: If we use InfiniBand on an SELinux-enabled system without any port mappings,
     the initial security context for unlabeled classes will be used as the label for
     this port, namely, `unlabeled_t`. It is, however, not recommended to stick to
@@ -1019,356 +1469,518 @@
     its use should be carefully considered to ensure that logging interpretation and
     SELinux policy rules vis-à-vis InfiniBand resources are clear (through well-documented
     types).
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们在启用了SELinux的系统上使用InfiniBand且没有任何端口映射，未标记类的初始安全上下文将作为该端口的标签， 即`unlabeled_t`。然而，不建议使用此标签，因为它通常用于未标记的资源。将任何权限授予`unlabeled_t`类型应仅限于具有高特权的进程，并且在使用时应仔细考虑，以确保日志解释和SELinux策略规则与InfiniBand资源的关系是清晰的（通过良好文档化的类型）。
 - en: Controlling access to InfiniBand partitions
+  id: totrans-201
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 控制对InfiniBand分区的访问
 - en: While the previous section focused on allowing the management application `opensm`
     to manage a subnet, this section will focus on restricting access to the InfiniBand
     network to the right domains. As mentioned before, an InfiniBand subnet can be
     divided further into separate networks using InfiniBand partitions.
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: 前一部分专注于允许管理应用程序`opensm`管理子网，本节将重点讨论如何限制对InfiniBand网络的访问，仅允许正确的域进行访问。如前所述，InfiniBand子网可以通过使用InfiniBand分区进一步划分为多个网络。
 - en: Originally, these partitions are used to allow **Quality of Service** (**QoS**)
     or specific bandwidth and performance requirements on flows. The SM defines the
     partitions and its attributes, and applications use a **Partition Key** (**P_Key**)
     to inform the InfiniBand network as regards to which partition certain communications
     must be done.
+  id: totrans-203
   prefs: []
   type: TYPE_NORMAL
+  zh: 最初，这些分区用于在流上实现**服务质量**（**QoS**）或特定的带宽和性能要求。SM定义了分区及其属性，应用程序使用**分区键**（**P_Key**）来通知InfiniBand网络哪些通信必须在特定分区中进行。
 - en: SELinux can govern these partitions by creating a mapping between the InfiniBand
     subnet plus P_Key and an SELinux type. However, as with the subnet management,
     we need to find the appropriate details first and create an appropriate SELinux
     type before we can define the mapping.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux可以通过在InfiniBand子网和P_Key与SELinux类型之间创建映射来管理这些分区。然而，与子网管理一样，我们首先需要找到适当的详细信息并创建一个合适的SELinux类型，才能定义映射。
 - en: Let's start by figuring out the subnet and partition details. Both are managed
     by `opensm`. If you do not have access to the `opensm` configuration, then you
     need to ascertain these details from the (InfiniBand) network administrator.
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们从确定子网和分区的详细信息开始。这两个信息由`opensm`进行管理。如果您无法访问`opensm`配置文件，则需要从（InfiniBand）网络管理员处获取这些详细信息。
 - en: 'Within the `opensm` partition configuration (`/etc/rdma/partitions.conf`),
     the subnet and prefix can be found as follows:'
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`opensm`分区配置（`/etc/rdma/partitions.conf`）中，子网和前缀可以如下找到：
 - en: '[PRE25]'
+  id: totrans-207
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: In this example, two partitions are defined. The first one is the default partition,
     which needs to remain (`0x7fff`). The second partition with key `0x0610` is active
     on the `rxe0` device and port `1`. It is this second partition that we will protect
     with SELinux.
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: 在此示例中，定义了两个分区。第一个是默认分区，需保持（`0x7fff`）。第二个分区，其键为`0x0610`，在`rxe0`设备和端口`1`上处于活动状态。我们将使用SELinux保护的正是这个第二个分区。
 - en: 'Let''s create a new type to assign to this partition. We use the CIL format
     again to define the policy enhancement, and store these rules in a file called
     `infiniband_pkey.cil`:'
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们创建一个新的类型，并将其分配给此分区。我们再次使用CIL格式定义策略增强，并将这些规则存储在名为`infiniband_pkey.cil`的文件中：
 - en: '[PRE26]'
+  id: totrans-210
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: Within this example, we've created the `local_ibpkey_t` type, assigned it to
     the `ibpkey_type` attribute, and granted `unconfined_t` access privilege within
     the `infiniband_pkey` class.
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 在此示例中，我们创建了`local_ibpkey_t`类型，将其分配给`ibpkey_type`属性，并在`infiniband_pkey`类中授予了`unconfined_t`访问权限。
 - en: 'Let''s load the policy:'
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们加载策略：
 - en: '[PRE27]'
+  id: totrans-213
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'We can now create an appropriate mapping to this partition, and limit it to
     the `ff12::` subnet prefix:'
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在可以为这个分区创建适当的映射，并将其限制在`ff12::`子网前缀内：
 - en: '[PRE28]'
+  id: totrans-215
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'While we can create separate types for each partition, we can also use an SELinux
     range to use SELinux category support:'
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然我们可以为每个分区创建单独的类型，但我们也可以使用SELinux范围来支持SELinux类别：
 - en: '[PRE29]'
+  id: totrans-217
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: With categories, we can grant access based on the source domain category, something
     we benefit from with other network protection measures such as labeled networking,
     which we tackle next.
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用类别，我们可以根据源域类别授予访问权限，这一点在我们接下来讨论的其他网络保护措施（如标记化网络）中也能受益。
 - en: Understanding labeled networking
+  id: totrans-219
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解标记化网络
 - en: Another approach to further fine-tune access controls on the network level is
     to introduce labeled networking. With labeled networking, security information
     passes on between hosts (unlike SECMARK, which only starts when the netfilter
     subsystem receives the packet, and whose marking never leaves the host). This
     is also known as peer labeling, as the security information passes on between
     hosts (peers).
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: 进一步微调网络级访问控制的另一种方法是引入标记化网络。通过标记化网络，安全信息会在主机之间传递（与SECMARK不同，SECMARK仅在netfilter子系统接收到数据包时才开始，并且其标记不会离开主机）。这也被称为对等标记，因为安全信息在主机（对等体）之间传递。
 - en: The advantage of labeled networking is that security information remains across
     the network, allowing end-to-end enforcement on mandatory access-control settings
     between systems as well as retaining the sensitivity level of communication flows
     between systems. The major downside, however, is that this requires an additional
     network technology (protocol) that can manage labels on network packets or flows.
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
+  zh: 标记化网络的优点在于安全信息在网络中保持一致，允许在系统之间强制执行端到端的强制访问控制设置，同时保留系统之间通信流的敏感级别。然而，主要的缺点是，这需要一种额外的网络技术（协议），能够管理网络数据包或流的标签。
 - en: 'SELinux currently supports two implementations as part of the labeled networking
     approach: NetLabel and labeled IPsec. With NetLabel, two implementations exist:
     fallback labeling and CIPSO. In both cases, only the sensitivity of the source
     domain is retained across the communication. Labeled IPsec supports transporting
     the entire security context with it.'
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux 当前支持两种实现方式，作为标签化网络方法的一部分：NetLabel 和标签化 IPsec。使用 NetLabel 时，存在两种实现方式：回退标签和
+    CIPSO。在这两种情况下，只有源域的敏感度会在通信过程中保留。标签化的 IPsec 支持传输整个安全上下文。
 - en: Note
+  id: totrans-223
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意
 - en: NetLabel actually supports loopback-enabled, full-label support. In that case,
     the full label (and not only the sensitivity and categories) is passed on. However,
     this only works for communications that go through the loopback interface and,
     as such, do not leave the current host.
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
+  zh: NetLabel 实际上支持启用回环的完整标签支持。在这种情况下，完整标签（而不仅仅是敏感度和类别）会被传递。然而，这仅适用于通过回环接口的通信，因此不会离开当前主机。
 - en: 'Quite some time ago, support for NetLabel/CIPSO and labeled IPsec merged into
     a common framework, which introduces three additional privilege checks in SELinux:
     interface checking, node checking, and peer checking. These privilege checks are
     only active when labeled traffic is used; without labeled traffic, these checks
     are simply ignored.'
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 很久以前，NetLabel/CIPSO 和标签化 IPsec 的支持合并为一个公共框架，这引入了 SELinux 中的三项额外权限检查：接口检查、节点检查和对等检查。这些权限检查仅在使用标签化流量时激活；如果没有标签化流量，这些检查会被简单忽略。
 - en: Fallback labeling with NetLabel
+  id: totrans-226
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用 NetLabel 进行回退标签
 - en: The NetLabel project supports fallback labeling, where administrators can assign
     labels to traffic from or to network locations that don't use labeled networking.
     By using fallback labeling, the peer controls mentioned in the next few sections
     can be applied even without labeled IPsec or NetLabel/CIPSO being in place.
+  id: totrans-227
   prefs: []
   type: TYPE_NORMAL
+  zh: NetLabel 项目支持回退标签功能，管理员可以为来自或前往未使用标签化网络的网络位置的流量分配标签。通过使用回退标签，即使没有标签化的 IPsec
+    或 NetLabel/CIPSO，接下来几节提到的对等控制也能得以应用。
 - en: 'The `netlabelctl` command controls the NetLabel configurations. Let''s create
     a fallback label assignment for all traffic originating from the `192.168.100.1`
     address:'
+  id: totrans-228
   prefs: []
   type: TYPE_NORMAL
+  zh: '`netlabelctl` 命令用于控制 NetLabel 配置。让我们为所有来自 `192.168.100.1` 地址的流量创建一个回退标签分配：'
 - en: '[PRE30]'
+  id: totrans-229
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: 'To list the current definitions, use the following command:'
+  id: totrans-230
   prefs: []
   type: TYPE_NORMAL
+  zh: 要列出当前定义，请使用以下命令：
 - en: '[PRE31]'
+  id: totrans-231
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: With this rule in place, labeled networking is active. Any traffic originating
     from the `192.168.100.1` address will be labeled with the `netlabel_peer_t:s0`
     label, while all other traffic will be labeled with the (default) `unlabeled_t:s0`
     label. Of course, the SELinux policy must allow all domains to have the `recv`
     permission from either the `unlabeled_t` peers or the `netlabel_peer_t` peers.
+  id: totrans-232
   prefs: []
   type: TYPE_NORMAL
+  zh: 有了这个规则，标签化网络将被激活。任何来自 `192.168.100.1` 地址的流量都会被标记为 `netlabel_peer_t:s0` 标签，而所有其他流量则会被标记为（默认）`unlabeled_t:s0`
+    标签。当然，SELinux 策略必须允许所有域从 `unlabeled_t` 对等方或 `netlabel_peer_t` 对等方接收 `recv` 权限。
 - en: Fallback labeling is useful for supporting a mix of labeled networking environments
     and non-labeled networks, which is why we list it here before documenting the
     various labeled networking technologies.
+  id: totrans-233
   prefs: []
   type: TYPE_NORMAL
+  zh: 回退标签在支持标签化网络环境与非标签化网络混合使用时非常有用，这也是我们在此记录它的原因，先于描述各种标签化网络技术。
 - en: Limiting flows based on the network interface
+  id: totrans-234
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 基于网络接口限制流量
 - en: The idea involving interface checking is that each packet that comes into a
     system passes an `ingress` check on an interface, whereas a packet that goes out
     of a system passes an `egress` check. `ingress` and `egress` are the SELinux permissions
     involved, whereas interfaces are given a security context.
+  id: totrans-235
   prefs: []
   type: TYPE_NORMAL
+  zh: 接口检查的想法是，每个进入系统的包都会通过接口上的 `ingress` 检查，而每个离开系统的包都会通过 `egress` 检查。`ingress` 和
+    `egress` 是涉及的 SELinux 权限，而接口则被赋予一个安全上下文。
 - en: 'Interface labels can be granted using the `semanage` tool and are especially
     useful for assigning sensitivity levels to interfaces in case of MLS, although
     assigning different labels to the interface is also possible (but requires more
     adjustments to the running SELinux policy to return with a working system):'
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以使用 `semanage` 工具授予接口标签，特别适用于在 MLS 情况下为接口分配敏感级别，尽管也可以为接口分配不同的标签（但这需要对正在运行的
+    SELinux 策略进行更多调整，以保证系统能够正常工作）：
 - en: '[PRE32]'
+  id: totrans-237
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'Like the other `semanage` commands, we can view the current mappings as follows:'
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
+  zh: 与其他 `semanage` 命令类似，我们可以按如下方式查看当前的映射：
 - en: '[PRE33]'
+  id: totrans-239
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: Keep in mind that for inbound communications, the acting domain is the peer.
     With labeled IPsec, this would be the client domain initiating the connection,
     whereas in NetLabel/CIPSO, this is the associated peer label (such as `netlabel_peer_t`).
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 请记住，对于传入通信，执行域是对等域。对于标记的 IPsec，这将是发起连接的客户端域，而在 NetLabel/CIPSO 中，这是关联的对等标签（例如
+    `netlabel_peer_t`）。
 - en: By default, the interface is labeled with `netif_t` and without sensitivity
     constraints. This will, however, not be shown in the `semanage interface -l` output
     as its default output is empty.
+  id: totrans-241
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，接口被标记为 `netif_t`，且没有敏感度约束。然而，这不会在 `semanage interface -l` 输出中显示，因为其默认输出为空。
 - en: Accepting peer communication from selected hosts
+  id: totrans-242
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 接受来自选定主机的对等通信
 - en: 'SELinux nodes represent specific hosts (or a network of hosts) that data is
     sent to (`sendto`) or received from (`recvfrom`) and are handled through the SELinux
     node class. Just like interfaces, these can be listed and defined by the `semanage`
     tool. In the following example, we mark the `10.0.0.0/8` network with the `node_t`
     type and associate a set of categories with it:'
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux 节点表示数据发送到（`sendto`）或接收自（`recvfrom`）的特定主机（或主机网络），并通过 SELinux 节点类进行处理。就像接口一样，这些可以通过
+    `semanage` 工具列出和定义。在以下示例中，我们将 `10.0.0.0/8` 网络标记为 `node_t` 类型，并为其关联一组类别：
 - en: '[PRE34]'
+  id: totrans-244
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'Again, we can list the current definitions, too:'
+  id: totrans-245
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还可以列出当前的定义：
 - en: '[PRE35]'
+  id: totrans-246
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: Like the network interface flow, the acting domain for incoming communications
     is the peer label.
+  id: totrans-247
   prefs: []
   type: TYPE_NORMAL
+  zh: 类似于网络接口流，传入通信的执行域是对等标签。
 - en: By default, nodes are labeled with `node_t` and without category constraints.
     This will, however, not be shown in the `semanage node -l` output as its default
     output is empty.
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，节点被标记为`node_t`，且没有类别约束。然而，在`semanage node -l`的输出中，这不会显示，因为其默认输出为空。
 - en: Verifying peer-to-peer flow
+  id: totrans-249
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 验证对等流
 - en: The final check is a `peer` class check. For labeled IPsec, this is the label
     of the socket sending out the data (such as `mozilla_t`). For NetLabel/CIPSO,
     however, the peer will be static, based on the source, as CIPSO is only able to
     pass on sensitivity levels. A common label seen for NetLabel is `netlabel_peer_t`.
+  id: totrans-250
   prefs: []
   type: TYPE_NORMAL
+  zh: 最终检查是`peer`类检查。对于标记的 IPsec，这是发送数据的套接字的标签（例如`mozilla_t`）。然而，对于 NetLabel/CIPSO，对等标签将是静态的，基于源，因为
+    CIPSO 只能传递敏感度级别。NetLabel 中常见的标签是`netlabel_peer_t`。
 - en: Unlike the interface and node checks, peer checks have the peer domain as the
     target rather than the source.
+  id: totrans-251
   prefs: []
   type: TYPE_NORMAL
+  zh: 与接口和节点检查不同，对等检查将对等域作为目标，而不是源。
 - en: Important note
+  id: totrans-252
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要说明
 - en: In all the labeled networking use cases, the process listed in a denial has
     nothing to do with the denial shown in the audit logs. This is because the denial
     triggers from within a kernel subsystem rather than through a call made by a user
     process. As a result, the kernel interrupts an unrelated process to prepare and
     log the denial, and this process name is used in the denial event.
+  id: totrans-253
   prefs: []
   type: TYPE_NORMAL
+  zh: 在所有标记的网络使用案例中，拒绝列表中的进程与审计日志中显示的拒绝无关。这是因为拒绝是从内核子系统内部触发的，而不是通过用户进程调用触发的。因此，内核中断了一个不相关的进程以准备并记录拒绝，且该进程名称在拒绝事件中被使用。
 - en: 'To finish up, look at the following diagram, which provides an overview of
     these various controls and the level to which they apply:'
+  id: totrans-254
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，查看以下图表，它提供了这些各种控制及其适用级别的概览：
 - en: '![Figure 5.2 – Schematic overview of the various network-related SELinux controls
     ](img/B16276_05_002.jpg)'
+  id: totrans-255
   prefs: []
   type: TYPE_IMG
+  zh: '![图 5.2 – 各种与网络相关的 SELinux 控制的示意图](img/B16276_05_002.jpg)'
 - en: Figure 5.2 – Schematic overview of the various network-related SELinux controls
+  id: totrans-256
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 5.2 – 各种与网络相关的 SELinux 控制的示意图
 - en: The top-level controls are handled on the domain level (such as `httpd_t`),
     whereas the bottom-level controls are on the peer level (such as `netlabel_peer_t`).
+  id: totrans-257
   prefs: []
   type: TYPE_NORMAL
+  zh: 顶级控制在域级别处理（如`httpd_t`），而底层控制则在对等级别处理（如 `netlabel_peer_t`）。
 - en: Using old-style controls
+  id: totrans-258
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用旧式控制
 - en: Most Linux distributions enable the `network_peer_control` capability. This
     is an enhancement within the SELinux subsystem that uses the previously mentioned
     peer class for verifying peer-to-peer flow.
+  id: totrans-259
   prefs: []
   type: TYPE_NORMAL
+  zh: 大多数 Linux 发行版启用 `network_peer_control` 功能。这是 SELinux 子系统中的一种增强功能，利用前述的对等类来验证对等流。
 - en: However, SELinux policies can opt to return to the previous approach, where
     peer-to-peer flow is no longer controlled over the peer class, but uses the `tcp_socket`
     class for communication. In that case, the `tcp_socket` class will be used against
     the `peer` domain, and it will also use the `recvfrom` permission (on top of the
     existing `tcp_socket` permissions).
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，SELinux 策略可以选择回到之前的方式，在这种方式下，同伴之间的流量不再通过同伴类进行控制，而是使用 `tcp_socket` 类进行通信。在这种情况下，`tcp_socket`
+    类将会用于 `peer` 域，并且还会使用 `recvfrom` 权限（除了已有的 `tcp_socket` 权限之外）。
 - en: 'The current value of the `network_peer_control` capability can be queried through
     the SELinux filesystem:'
+  id: totrans-261
   prefs: []
   type: TYPE_NORMAL
+  zh: 当前 `network_peer_control` 能力的值可以通过 SELinux 文件系统查询：
 - en: '[PRE36]'
+  id: totrans-262
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: If the value is `0`, then the previously mentioned peer controls will be handled
     through the `tcp_socket` class instead of the peer class.
+  id: totrans-263
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果该值为 `0`，则前面提到的同伴控制将通过 `tcp_socket` 类而非同伴类进行处理。
 - en: 'The default labeled networking controls within SELinux do not pass on any process
     context, and the use of fallback labeling with NetLabel is most commonly used
     in environments where the system participates in both labeled as well as unlabeled
     networks. However, there is a much more common networking implementation that
     not only supports labeled networking, but even passes on the domain context and
     does not require specialized environments: labeled IPsec.'
+  id: totrans-264
   prefs: []
   type: TYPE_NORMAL
+  zh: SELinux 中的默认标签化网络控制不会传递任何进程上下文，而使用 NetLabel 的回退标签化通常用于系统既参与标签化网络又参与非标签化网络的环境。然而，还有一种更常见的网络实现，它不仅支持标签化网络，还能传递域上下文，并且不需要专门的环境：标签化
+    IPsec。
 - en: Using labeled IPsec with SELinux
+  id: totrans-265
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用带标签的 IPsec 与 SELinux
 - en: Although setting up and maintaining an IPsec setup is far beyond the scope of
     this book, let's look at a simple IPsec example to show how to enable labeled
     IPsec on a system. Remember that the labeled network controls on the interface,
     node, and peer levels, as mentioned earlier, are automatically enabled the moment
     we use labeled IPsec.
+  id: totrans-266
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管设置和维护一个 IPsec 配置远超本书的范围，但让我们看一个简单的 IPsec 示例，展示如何在系统上启用标签化 IPsec。记住，之前提到的接口、节点和同伴级别的标签化网络控制，都是在我们使用标签化
+    IPsec 时自动启用的。
 - en: 'In an IPsec setup, there are three important concepts to be aware of:'
+  id: totrans-267
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 IPsec 配置中，有三个重要的概念需要注意：
 - en: The **security policy database** (**SPD**) contains the rules and information
     for the kernel to know when communication should be handled by an IP policy (and,
     as a result, handled through a security association).
+  id: totrans-268
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**安全策略数据库**（**SPD**）包含了内核在何时应通过 IP 策略处理通信的规则和信息（从而通过安全关联处理通信）。'
 - en: A **security association** (**SA**) is a one-way channel between two hosts and
     contains all the security information about the channel. When labeled IPsec is
     in use, it also contains the context information of the client that caused the
     security association to materialize.
+  id: totrans-269
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**安全关联**（**SA**）是两个主机之间的单向通道，包含该通道的所有安全信息。当使用标签化 IPsec 时，它还包含了导致安全关联形成的客户端的上下文信息。'
 - en: The **security association database** (**SAD**) contains the individual security
     associations.
+  id: totrans-270
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**安全关联数据库**（**SAD**）包含了各个安全关联。'
 - en: Security associations with a labeled IPsec setup are no longer purely indexed
     by the source and target address, but also the source context. As such, a Linux
     system that participates in a labeled IPsec setup will easily have several dozen
     SAs for a single communication flow between hosts, as each SA now also represents
     a client domain.
+  id: totrans-271
   prefs: []
   type: TYPE_NORMAL
+  zh: 在标签化 IPsec 配置中，安全关联不再仅仅通过源和目标地址进行索引，还包括源上下文。因此，参与标签化 IPsec 配置的 Linux 系统，在主机之间的单一通信流中，很容易就会有数十个
+    SA，因为每个 SA 现在还代表一个客户端域。
 - en: 'Labeled IPsec introduces a few additional access controls through SELinux:'
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
+  zh: 标签化 IPsec 通过 SELinux 引入了一些额外的访问控制：
 - en: Individual entries in the SPD are given a context. Domains that want to obtain
     an SA need to have the `polmatch` privilege (part of the `association` class)
     against this context. Also, domains that initiate an SA need to have the `setcontext`
     privilege (also part of the `association` class) against the target domain.
+  id: totrans-273
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: SPD 中的每个条目都有一个上下文。想要获取 SA 的域需要拥有对该上下文的 `polmatch` 权限（这是 `association` 类的一部分）。此外，发起
+    SA 的域需要拥有对目标域的 `setcontext` 权限（也是 `association` 类的一部分）。
 - en: Only authorized domains can make modifications to the SPD, which is also governed
     through the `setcontext` privilege, but now also against the SPD context entries.
     This privilege is generally granted to IPsec tools, such as Libreswan's pluto
     (`ipsec_t`).
+  id: totrans-274
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -1376,6 +1988,7 @@
     with their own association and the `recvfrom` privilege with the association of
     the `peer` domain. The receiving domain also requires the `recv` privilege from
     the `peer` class associated with the `peer` domain.
+  id: totrans-275
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -1384,19 +1997,24 @@
     it can control whether `httpd_t` allows or denies incoming communication from
     `mozilla_t` (as it requires the `recvfrom` privilege on the `mozilla_t` association).
     The following diagram displays this complex game of privileges:'
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 5.3 – Example SELinux controls for labeled IPsec ](img/B16276_05_003.jpg)'
+  id: totrans-277
   prefs: []
   type: TYPE_IMG
 - en: Figure 5.3 – Example SELinux controls for labeled IPsec
+  id: totrans-278
   prefs: []
   type: TYPE_NORMAL
 - en: In the next example, we will set up a simple IPsec tunnel between two hosts
     using the Libreswan tool.
+  id: totrans-279
   prefs: []
   type: TYPE_NORMAL
 - en: Setting up regular IPsec
+  id: totrans-280
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1405,43 +2023,57 @@
     as `/etc/ipsec.d`) where admins or applications can place connection-specific
     settings. Generally, this `include` directory is used for the actual IPsec configurations,
     whereas the general `ipsec.conf` file is for Libreswan behavior.
+  id: totrans-281
   prefs: []
   type: TYPE_NORMAL
 - en: 'To create a host-to-host connection, we first define a shared secret on both
     hosts. Let''s call the connection `rem1-rem2` (as those are the hostnames used
     for the two hosts), so the shared secret will be stored as `/etc/ipsec.d/rem1-rem2.secrets`:'
+  id: totrans-282
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE37]'
+  id: totrans-283
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: 'Next, we define the VPN connection in `/etc/ipsec.d/rem1-rem2.conf` as follows:'
+  id: totrans-284
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE38]'
+  id: totrans-285
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: The settings that enable labeled IPsec are commented out for now to first test
     the IPsec connection without this feature.
+  id: totrans-286
   prefs: []
   type: TYPE_NORMAL
 - en: 'Launch the IPsec service on both systems:'
+  id: totrans-287
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE39]'
+  id: totrans-288
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: Verify whether the connection works, for instance, by checking the network traffic
     with `tcpdump`, or by checking the state with `ip xfrm state`.
+  id: totrans-289
   prefs: []
   type: TYPE_NORMAL
 - en: Enabling labeled IPsec
+  id: totrans-290
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: To use labeled IPsec with Libreswan, uncomment the `labeled-ipsec` and `policy-label`
     directives in the `/etc/ipsec.d/rem1-rem2.conf` IPsec definition. Restart the
     `ipsec` service, and try the connection again.
+  id: totrans-291
   prefs: []
   type: TYPE_NORMAL
 - en: When an application tries to communicate over IPsec with remote domains, `pluto`
@@ -1452,19 +2084,23 @@
     point onward, the sending side will add the agreed-upon SPI information to the
     IPsec packets so that the remote side can immediately associate the right context
     with it again.
+  id: totrans-292
   prefs: []
   type: TYPE_NORMAL
 - en: The huge advantage here is that the client and server contexts, including sensitivity
     and categories, are synchronized (they are not actually sent over the wire with
     each packet, but exchanged initially when the security associations are set up).
+  id: totrans-293
   prefs: []
   type: TYPE_NORMAL
 - en: In certain specialized or highly secure environments, labeled networking is
     supported within the network itself. The most common labeling technology used
     is CIPSO, whose SELinux support we cover next.
+  id: totrans-294
   prefs: []
   type: TYPE_NORMAL
 - en: Supporting CIPSO with NetLabel and SELinux
+  id: totrans-295
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1474,6 +2110,7 @@
     common SELinux type (rather than the SELinux type associated with the source or
     target) but will have sensitivity labels based on the sensitivity label of the
     remote side.
+  id: totrans-296
   prefs: []
   type: TYPE_NORMAL
 - en: Part of NetLabel's configuration are mapping definitions that inform the system
@@ -1482,36 +2119,43 @@
     standard defines the DOI as a collection of systems that interpret the CIPSO label
     similarly, or, in our case, use the same SELinux policy and configuration of sensitivity
     labels.
+  id: totrans-297
   prefs: []
   type: TYPE_NORMAL
 - en: Once these mappings have been established, NetLabel/CIPSO will pass on the sensitivity
     information (and categories) between hosts. The context we will see on the communication
     flows will be `netlabel_peer_t`, a default context assigned to NetLabel/CIPSO-originated
     traffic.
+  id: totrans-298
   prefs: []
   type: TYPE_NORMAL
 - en: Through this approach, we can start daemons with a sensitivity range and thus
     only accept connections from users or clients that have the right security clearance,
     even on remote, NetLabel/CIPSO-enabled systems.
+  id: totrans-299
   prefs: []
   type: TYPE_NORMAL
 - en: Configuring CIPSO mappings
+  id: totrans-300
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: A preliminary requirement for having a good CIPSO-enabled network is to have
     a common understanding of which DOI will be used and what its consequences are.
     Labeled networks can use different DOIs for specific purposes.
+  id: totrans-301
   prefs: []
   type: TYPE_NORMAL
 - en: 'Along with the DOI, we also need to take care of how the categories and sensitivities
     are passed on over the CIPSO-enabled network. The CIPSO tag controls this setting,
     and NetLabel supports this with the following three values:'
+  id: totrans-302
   prefs: []
   type: TYPE_NORMAL
 - en: With `tags:1`, the categories are provided in the CIPSO package in a bitmap
     approach. This is the most common approach, but limits the number of supported
     categories to 240 (from 0 to 239).
+  id: totrans-303
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -1519,16 +2163,19 @@
     range of categories (up to 65,543), but only supports at most 15 enumerated categories.
     Try to use `tags:2` when you have many categories but for each scope, only a few
     categories need to be supported.
+  id: totrans-304
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: With `tags:5`, the categories can be mentioned in a ranged approach (lowest
     and highest), with at most seven such low/high pairs.
+  id: totrans-305
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Note that the CIPSO tag results are handled under the hood: system administrators
     only need to configure the NetLabel mapping to use a selected tag value.'
+  id: totrans-306
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let''s assume that we have two CIPSO-enabled networks, which have `10.1.0.0/16`
@@ -1536,37 +2183,51 @@
     tag value `1`. First, we enable CIPSO and allow it to pass CIPSO-labeled packages
     with the DOI set to either `1` or `2`. We don''t perform any translations (so
     the category and sensitivity set on the CIPSO package is the one used by SELinux):'
+  id: totrans-307
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE40]'
+  id: totrans-308
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'If we need to translate (say that we use sensitivity `s0-s3` while the CIPSO
     network uses sensitivity `100-103`), a command would look like so:'
+  id: totrans-309
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE41]'
+  id: totrans-310
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'Next, we implement mapping rules, telling the NetLabel configuration which
     network traffic is to be associated with `doi:1` or `doi:2`:'
+  id: totrans-311
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE42]'
+  id: totrans-312
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: 'To list the current mappings, use the `list` option:'
+  id: totrans-313
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE43]'
+  id: totrans-314
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: That's it. We removed the initial default mapping (as that would prevent the
     addition of new default mappings) and then configured NetLabel to tag traffic
     for the given networks with the right CIPSO configuration.
+  id: totrans-315
   prefs: []
   type: TYPE_NORMAL
 - en: Adding domain-specific mappings
+  id: totrans-316
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1574,25 +2235,33 @@
     well-defined DOI rather than the default one configured earlier on. For instance,
     to have the SSH daemon (running in the `sshd_t` domain) have its network traffic
     labeled with CIPSO `doi:3`, we''d use this:'
+  id: totrans-317
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE44]'
+  id: totrans-318
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: 'The mapping rules can even be more selective than that. We can tell NetLabel
     to use `doi:2` for SSH traffic originating from one network, use `doi:3` for SSH
     traffic originating from another network, and even use unlabeled network traffic
     when it comes from any other network:'
+  id: totrans-319
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE45]'
+  id: totrans-320
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: The NetLabel framework will try to match the most specific rule first, so 0.0.0.0/0
     is only matched when no other rule matches.
+  id: totrans-321
   prefs: []
   type: TYPE_NORMAL
 - en: Using local CIPSO definitions
+  id: totrans-322
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1600,54 +2269,70 @@
     However, when using local (over the loopback interface) CIPSO, it is possible
     to use full label controls. When enabled, peer controls will not be applied against
     the default `netlabel_peer_t` type, but will use the client or server domain.
+  id: totrans-323
   prefs: []
   type: TYPE_NORMAL
 - en: 'To use local CIPSO definitions, first declare the DOI for local use:'
+  id: totrans-324
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE46]'
+  id: totrans-325
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: 'Next, have the local communication use the defined DOI (`5` in our example):'
+  id: totrans-326
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE47]'
+  id: totrans-327
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: With this enabled, local communication will be associated with `doi:5` and use
     the local mapping, passing the full label to the mandatory access control system
     (SELinux).
+  id: totrans-328
   prefs: []
   type: TYPE_NORMAL
 - en: Supporting IPv6 CALIPSO
+  id: totrans-329
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: CIPSO is an IPv4 protocol, but a similar framework exists for IPv6, named `calipso`
     rather than `cipsov4`.
+  id: totrans-330
   prefs: []
   type: TYPE_NORMAL
 - en: 'CALIPSO has a few small differences compared to CIPSO in NetLabel:'
+  id: totrans-331
   prefs: []
   type: TYPE_NORMAL
 - en: Only one tag type is supported (unlike CIPSO's three tag types). As a result,
     CALIPSO administrators do not need to specify `tags:#` anywhere.
+  id: totrans-332
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: CALIPSO only uses pass-through mode. Translations are not supported.
+  id: totrans-333
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The NetLabel CALIPSO implementation currently does not support local mode, where
     the full label would be passed on.
+  id: totrans-334
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Beyond these differences, the use of CALIPSO is very similar to CIPSO.
+  id: totrans-335
   prefs: []
   type: TYPE_NORMAL
 - en: Summary
+  id: totrans-336
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1659,6 +2344,7 @@
     the realms of network-based communication, more advanced communication control
     can be accomplished through Linux netfilter support, using SECMARK labeling, and
     through peer labeling.
+  id: totrans-337
   prefs: []
   type: TYPE_NORMAL
 - en: In the case of SECMARK labeling, local firewall rules are used to map contexts
@@ -1666,34 +2352,42 @@
     either the application context itself (labeled IPsec) or its sensitivity level
     (netfilter/CIPSO) identify the resources the access controls apply. This allows
     an almost application-to-application network flow control through SELinux policies.
+  id: totrans-338
   prefs: []
   type: TYPE_NORMAL
 - en: We learned that the most common firewall frameworks (`iptables` and `nftables`)
     support SECMARK already, while the more recent eBPF-based `bpfilter` application
     has yet to receive this support.
+  id: totrans-339
   prefs: []
   type: TYPE_NORMAL
 - en: In the next chapter, we look at how we can use common infrastructure-as-code
     frameworks to address the various SELinux controls in a server environment.
+  id: totrans-340
   prefs: []
   type: TYPE_NORMAL
 - en: Questions
+  id: totrans-341
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
 - en: How do you map an SELinux type to a TCP port?
+  id: totrans-342
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: Does SECMARK labeling change the network packets as they go over the wire?
+  id: totrans-343
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: What `semanage` subcommands are used for InfiniBand support?
+  id: totrans-344
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: Is specialized equipment needed for labeled IPsec?
+  id: totrans-345
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
