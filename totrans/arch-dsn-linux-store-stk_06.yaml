@@ -964,6 +964,7 @@
   id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前所述，当从队列中选择一个请求进行处理时，队列的预算会减少该请求的大小——也就是请求中的扇区数。这对于同步请求是成立的，但对于异步请求来说，这个成本要高得多。这也是读取操作优先于写入操作的一种方式。对于异步请求，队列会按请求中的扇区数进行收费，并乘以`bfq_async_charge_factor`的值，即3。根据内核文档，当前的收费因子值是通过一项调优过程确定的，该过程涉及了各种硬件和软件配置。
 - en: In summary, the BFQ scheduler employs equitable queuing approaches by apportioning
     a proportion of the I/O throughput to each process. It makes use of per-process
     queues for synchronous requests and a per-device queue for asynchronous requests.
@@ -975,11 +976,13 @@
   id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，BFQ调度器通过分配一定比例的I/O吞吐量给每个进程，采用公平排队的方法。它使用每个进程的队列来处理同步请求，并使用每个设备的队列来处理异步请求。它为每个进程分配一个预算。这个预算是根据I/O优先级以及进程上次调度时传输的扇区数来计算的。尽管BFQ调度器比较复杂，并且相较于其他调度器会带来稍微更大的开销，但它被广泛使用，因为它提高了系统的响应时间，并减少了对时间敏感应用的延迟。
 - en: Kyber – prioritizing throughput
   id: totrans-125
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: Kyber – 优先考虑吞吐量
 - en: The Kyber scheduler is also a relatively newer entry in the disk scheduling
     world. Although the BFQ scheduler is older than the Kyber scheduler, both officially
     became a part of the kernel version 4.12\. The Kyber scheduler is specifically
@@ -987,6 +990,7 @@
   id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: Kyber调度器也是磁盘调度领域中相对较新的一个成员。尽管BFQ调度器比Kyber调度器更早，但两者都在内核版本4.12中正式成为一部分。Kyber调度器特别为现代高性能存储设备设计。
 - en: Historically, the ultimate goal of disk schedulers has been to reduce seek times
     for mechanical drives so that the overhead caused by random access operations
     can be decreased. Consequently, the different disk schedulers have used complex
@@ -1001,6 +1005,7 @@
   id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 从历史上看，磁盘调度器的最终目标是减少机械硬盘的寻道时间，从而降低随机访问操作所带来的开销。因此，不同的磁盘调度器使用了复杂且精密的技术来实现这一共同目标。每个调度器以不同的方式优先考虑某些性能方面，这在处理I/O请求时会引入额外的开销。随着现代硬盘，如SSD和NVMe，已经不再受随机访问操作的限制，一些调度器所使用的复杂技术可能不再适用于这些设备。例如，BFQ调度器每个请求的开销稍微较高，因此它不被认为适合具有高吞吐量硬盘的系统。这就是Kyber调度器发挥作用的地方。
 - en: 'The Kyber scheduler doesn’t have complex internal scheduling algorithms. It
     is intended to be used in environments that comprise high-performing storage devices.
     It uses a very straightforward approach and implements some basic policies to
@@ -1011,6 +1016,8 @@
   id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: Kyber 调度器没有复杂的内部调度算法。它旨在用于包含高性能存储设备的环境。它使用非常简单的方法并实施一些基本策略来管理 I/O 请求。Kyber 调度器将底层设备划分为多个域。其理念是为不同类型的
+    I/O 请求维护队列。通过检查 `block/kyber-iosched.c` 中的代码，我们可以观察到以下请求类型：
 - en: '[PRE2]'
   id: totrans-129
   prefs: []
@@ -1025,6 +1032,7 @@
   id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: Kyber 调度器将请求分为以下几类——读取、写入、丢弃和其他请求。Kyber 调度器为这些类型的请求维护队列。丢弃请求用于如 SSD 这样的设备。设备上的文件系统可以发出此请求，以丢弃文件系统未使用的块。对于前面提到的请求类型，调度器会对设备队列中相应操作的数量进行限制：
 - en: '[PRE3]'
   id: totrans-131
   prefs: []
@@ -1041,14 +1049,18 @@
   id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: Kyber 调度方法的关键在于限制调度队列的大小。这直接与在请求队列中等待 I/O 请求所花费的时间相关。调度器只将有限数量的操作发送到调度队列，确保调度队列不会过于拥挤，从而实现调度队列中请求的快速处理。因此，请求队列中的
+    I/O 操作不必等待太长时间即可得到服务。这种方法减少了延迟。以下图示说明了 Kyber 调度器的逻辑：
 - en: '![Figure 6.10 – The Kyber I/O scheduler](img/B19430_06_10.jpg)'
   id: totrans-133
   prefs: []
   type: TYPE_IMG
+  zh: '![图 6.10 – Kyber I/O 调度器](img/B19430_06_10.jpg)'
 - en: Figure 6.10 – The Kyber I/O scheduler
   id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 6.10 – Kyber I/O 调度器
 - en: To determine the number of requests to be allowed in the dispatch queue, the
     Kyber scheduler uses a simple but effective approach. It calculates the completion
     time of each request, and based on this feedback, it adjusts the number of requests
@@ -1058,12 +1070,14 @@
   id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了确定允许进入调度队列的请求数量，Kyber 调度器采用了一种简单但有效的方法。它计算每个请求的完成时间，并根据这一反馈调整调度队列中的请求数量。此外，读取和同步写入的目标延迟是可调参数，可以进行修改。根据这些值，调度器将限制请求以满足这些目标延迟。
 - en: The Kyber scheduler prioritizes requests in the read queue over those in the
     write queue, unless a write request has been outstanding for too long, meaning
     the target latency has been breached.
   id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: Kyber 调度器优先处理读取队列中的请求，而不是写入队列中的请求，除非写入请求已经等待过长时间，意味着目标延迟已被突破。
 - en: The Kyber scheduler is a performance powerhouse when it comes to modern storage
     devices. It is tailored for high-speed storage devices, such as SSDs and NVMe,
     and prioritizes low-latency I/O operations. This scheduler dynamically adjusts
@@ -1073,11 +1087,14 @@
   id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: Kyber 调度器在现代存储设备方面是一款性能强大的工具。它专为高速存储设备（如 SSD 和 NVMe）量身定制，并优先考虑低延迟 I/O 操作。该调度器通过仔细检查
+    I/O 请求动态调整自身，并使得可以为同步写入和读取操作设定目标延迟。因此，它调节 I/O 请求，以满足指定的目标。
 - en: None – minimal scheduling overhead
   id: totrans-138
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 无 – 最小调度开销
 - en: 'The scheduling of I/O requests is a multifaceted problem. The scheduler has
     to take care of several aspects, such as reordering requests in the queue, allocating
     a portion of disk shares to each process, controlling the execution duration of
@@ -1225,52 +1242,63 @@
   id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述方法只会暂时设置调度器，并在重启后恢复默认设置。要使此更改永久生效，请编辑 `/etc/default/grub` 文件，并将 `elevator=bfq`
+    参数添加到 `GRUB_CMDLINE_LINUX_DEFAULT` 行中。然后，重新生成 `GRUB` 配置并重启系统。
 - en: Merely changing the scheduler will not result in two-fold performance gains.
     Usually, the improvement figure will be somewhere between 10–20%.
   id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 单纯改变调度器并不会带来两倍的性能提升。通常，性能提升在 10% 到 20% 之间。
 - en: 'Although each environment is different and scheduler performance may vary depending
     upon several variables, as a baseline, the following are some of the use cases
     of the schedulers that we’ve discussed in this chapter:'
   id: totrans-157
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管每个环境不同，调度器的性能可能会根据多个变量而有所变化，但作为基准，以下是我们在本章中讨论的调度器的一些使用场景：
 - en: '| **Use case** | **Recommended** **I/O scheduler** |'
   id: totrans-158
   prefs: []
   type: TYPE_TB
+  zh: '| **使用场景** | **推荐的** **I/O 调度器** |'
 - en: '| A desktop GUI, interactive applications, and soft real-time applications,
     such as audio and video players | BFQ, as it guarantees good system responsiveness
     and low latency for time-sensitive applications |'
   id: totrans-159
   prefs: []
   type: TYPE_TB
+  zh: '| 桌面 GUI、交互式应用程序和软实时应用程序，如音频和视频播放器 | BFQ，因为它能保证良好的系统响应性和低延迟，适用于时间敏感型应用 |'
 - en: '| Traditional mechanical drives | BFQ or MQ-deadline – both are considered
     suitable for slower drives. Kyber/none are biased in favor of faster disks. |'
   id: totrans-160
   prefs: []
   type: TYPE_TB
+  zh: '| 传统机械驱动 | BFQ 或 MQ-deadline – 都被认为适用于较慢的驱动。Kyber/none 偏向于支持更快的磁盘。 |'
 - en: '| High-performing SSDs and NVMe drives as local storage | Preferably none,
     but Kyber might also be a good alternative in some cases |'
   id: totrans-161
   prefs: []
   type: TYPE_TB
+  zh: '| 高性能 SSD 和 NVMe 驱动作为本地存储 | 最好使用 none，但在某些情况下 Kyber 也可能是一个不错的替代方案 |'
 - en: '| Enterprise storage arrays | None, as most storage arrays have built-in logic
     to schedule I/Os more efficiently |'
   id: totrans-162
   prefs: []
   type: TYPE_TB
+  zh: '| 企业存储阵列 | None，因为大多数存储阵列内置了逻辑来更高效地调度 I/O |'
 - en: '| Virtualized environments | MQ-deadline is a good option. If the hypervisor
     layer does its own I/O scheduling, then using the none scheduler might be beneficial.
     |'
   id: totrans-163
   prefs: []
   type: TYPE_TB
+  zh: '| 虚拟化环境 | MQ-deadline 是一个不错的选择。如果虚拟机管理程序层已经自行调度 I/O，那么使用 none 调度器可能会有帮助。 |'
 - en: Table 6.1 – Typical use cases for I/O schedulers
   id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 表 6.1 – I/O 调度器的典型使用场景
 - en: Please note that these are not strict use cases, as often, several conditions
     might be overlapping. The type of application, workload, host system, and storage
     media are just some of the factors that must be kept in mind before deciding on
@@ -1280,11 +1308,14 @@
   id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，这些并非严格的使用场景，因为通常多个条件可能会重叠。应用类型、工作负载、主机系统和存储介质等因素在选择调度器之前都需要考虑。通常，deadline
+    调度器被认为是一个多用途的选择，因为它的 CPU 开销较小。BFQ 在桌面环境中表现良好，而 none 和 Kyber 更适合高端存储设备。
 - en: Summary
   id: totrans-166
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 总结
 - en: This chapter provided an overview of I/O scheduling, which is a critical function
     of the block layer. When a read or write request passes through all the layers
     of the virtual filesystem, it eventually arrives at the block layer. The chapter
@@ -1298,6 +1329,8 @@
   id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章概述了 I/O 调度，这是块层的一个关键功能。当一个读写请求穿过虚拟文件系统的所有层时，最终会到达块层。本章探讨了各种 I/O 调度器及其特性，包括优点和缺点。块层包含多个适用于特定使用场景的
+    I/O 调度器。I/O 调度器的选择在决定如何处理下层的 I/O 请求中起着至关重要的作用。为了做出更具性能导向的决策，大多数调度器使用一些常见技术，以帮助提高整体磁盘性能。本章讨论的技术包括合并、聚合、排序和插入。
 - en: We also explained the different scheduling options available in the kernel.
     The kernel has a separate set of I/O schedulers for single- and multi-queue devices.
     The single-queue schedulers have been deprecated since kernel version 5.0\. The
@@ -1312,35 +1345,42 @@
   id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还解释了内核中不同的调度选项。内核为单队列和多队列设备提供了不同的I/O调度程序。自内核版本5.0起，单队列调度器已经被弃用。多队列调度选项包括多队列Deadline调度器、BFQ、Kyber和None调度器。每个调度器适用于特定的使用场景，没有一个适用于所有情况的单一推荐方案。MQ-deadline调度器具有良好的通用性能。BFQ调度器更倾向于交互式应用，而Kyber和None则面向高端存储设备。选择调度器时，了解环境的详细信息至关重要，其中包括工作负载类型、应用程序、主机系统和后端物理介质等细节。
 - en: This chapter concludes part two of the book, in which we delved into the block
     layer. In the next chapter, we’ll see the different types of storage media available
     today and explain the differences between them.
   id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章总结了本书第二部分的内容，我们深入探讨了块层。下一章，我们将看到当前可用的不同类型存储介质，并解释它们之间的差异。
 - en: 'Part 3: Descending into the Physical Layer'
   id: totrans-170
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第三部分：深入物理层
 - en: This part will introduce you to the architecture and major components of the
     SCSI subsystem in the Linux kernel. You will also be introduced to the different
     types of physical storage media available today and the differences in their implementation.
   id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 本部分将介绍Linux内核中SCSI子系统的架构和主要组件。你还将了解当前可用的不同类型物理存储介质及其实现差异。
 - en: 'This part contains the following chapters:'
   id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 本部分包含以下章节：
 - en: '[*Chapter 7*](B19430_07.xhtml#_idTextAnchor124), *The SCSI Subsystem*'
   id: totrans-173
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[*第7章*](B19430_07.xhtml#_idTextAnchor124)，*SCSI子系统*'
 - en: '[*Chapter 8*](B19430_08.xhtml#_idTextAnchor134), *Illustrating the Layout of
     Physical Media*'
   id: totrans-174
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[*第8章*](B19430_08.xhtml#_idTextAnchor134)，*物理介质布局示意*'
