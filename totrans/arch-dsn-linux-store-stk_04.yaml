@@ -1,19 +1,26 @@
 - en: '4'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '4'
 - en: Understanding the Block Layer, Block Devices, and Data Structures
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解块层、块设备和数据结构
 - en: The first three chapters of this book were centered around the first component
     of the kernel’s I/O hierarchy, which is the VFS layer. We explained the functions
     and purpose of VFS, as well as how it serves as an intermediary layer between
     the generic system call interface and filesystems, along with its primary data
     structures. In addition, we discussed the filesystems that can be found under
     the VFS layer and introduced some of the essential concepts associated with them.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 本书的前三章主要围绕内核 I/O 层次结构的第一个组成部分——VFS 层展开。我们解释了 VFS 的功能和目的，以及它如何充当通用系统调用接口与文件系统之间的中介层，并介绍了其主要数据结构。此外，我们还讨论了可以在
+    VFS 层下找到的文件系统，并介绍了一些与之相关的基本概念。
 - en: 'We’ll now turn our focus to the second major section in the kernel’s storage
     hierarchy: the block layer. The block layer deals with block devices and is responsible
     for handling I/O operations performed on block devices. All the user-space programs
@@ -26,55 +33,81 @@
     their full potential. In this chapter, we’re going to introduce the block layer,
     define block devices, and then dive into the major data structures in the block
     layer.'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在将重点转向内核存储层次结构中的第二个主要部分：块层。块层处理块设备，并负责处理在块设备上执行的 I/O 操作。所有的用户空间程序都使用块层接口来寻址和访问底层存储设备。在过去的十多年里，物理存储介质发生了显著变化，从较慢的机械硬盘转向了更快的闪存驱动器。因此，内核中的块层也经历了大量修改。由于存储硬件的性能至关重要，内核代码进行了多项优化，以便磁盘驱动器能够充分发挥其潜力。本章中，我们将介绍块层，定义块设备，然后深入探讨块层中的主要数据结构。
 - en: 'Here’s a summary of what follows:'
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是接下来内容的总结：
 - en: Explaining the role of the block layer
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 解释块层的作用
 - en: Defining block devices
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 定义块设备
 - en: The defining characteristics of a block device
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 块设备的定义特征
 - en: Representation of block devices
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 块设备的表示
 - en: Looking at the major data structures in the block layer
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 查看块层中的主要数据结构
 - en: The journey of an I/O request in the block layer
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: I/O 请求在块层的传递过程
 - en: Technical requirements
+  id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: The Linux kernel’s block layer is a slightly complex topic. A good understanding
     of the material presented in the first three chapters will help you comprehend
     the interaction between the block layer and various filesystems. Having experience
     with the C programming language will help you understand the code presented in
     this chapter. Additionally, any practical experience with a Linux system will
     enhance your understanding of the concepts discussed herein.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux 内核的块层是一个稍显复杂的话题。理解前三章中介绍的内容将有助于你理解块层与各种文件系统之间的交互。具备 C 编程语言的经验将帮助你理解本章中展示的代码。此外，任何
+    Linux 系统的实践经验都将增强你对本文中讨论的概念的理解。
 - en: If you want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
     The code segments referred to in this chapter and book are from kernel `5.19.9`.
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你想下载内核源码，可以从[https://www.kernel.org](https://www.kernel.org)下载。本章和本书中引用的代码片段来自内核
+    `5.19.9`。
 - en: Explaining the role of the block layer
+  id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 解释块层的作用
 - en: The block layer is tasked with implementing the kernel interfaces that enable
     filesystems to interact with storage devices. In the context of accessing physical
     storage, applications use block devices, and any requests to access data on these
@@ -85,36 +118,51 @@
     The interfaces that are implemented in the block layer are central to managing
     physical storage in Linux. The device files for block devices are created in the
     `/``dev` directory.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 块层负责实现内核接口，使文件系统能够与存储设备交互。在访问物理存储的过程中，应用程序使用块设备，所有对这些设备数据的访问请求都由块层管理。内核还包含一个位于块层之上的映射层。该层提供了一种灵活而强大的方式，将一个块设备映射到另一个设备，从而支持创建快照、加密数据和创建跨多个物理设备的逻辑卷等操作。块层中实现的接口对于管理
+    Linux 中的物理存储至关重要。块设备的设备文件位于`/dev`目录下。
 - en: Like VFS, abstraction is the core function of the block layer. The VFS layer
     allows applications to make generic requests for interacting with files without
     having to worry about the underlying filesystem. In a similar vein, the block
     layer allows applications to access storage devices uniformly. The choice of backend
     storage medium is not a point of concern for the application.
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 像 VFS 一样，抽象是块层的核心功能。VFS 层允许应用程序以通用的方式进行文件交互请求，而无需担心底层文件系统。同样，块层也允许应用程序以统一的方式访问存储设备。应用程序无需关心后端存储介质的选择。
 - en: 'To highlight the major functions of the block layer, let’s build on the storage
     hierarchy we defined when describing VFS. The following figure outlines the major
     components of the block layer:'
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了突出块层的主要功能，让我们在描述 VFS 时所定义的存储层次结构基础上进行扩展。下图概述了块层的主要组件：
 - en: '![Figure 4.1 – I/O hierarchy from VFS to the block layer](img/B19430_04_01.jpg)'
+  id: totrans-18
   prefs: []
   type: TYPE_IMG
+  zh: '![图 4.1 – 从 VFS 到块层的 I/O 层次结构](img/B19430_04_01.jpg)'
 - en: Figure 4.1 – I/O hierarchy from VFS to the block layer
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 4.1 – 从 VFS 到块层的 I/O 层次结构
 - en: 'Let’s take a brief look at these functions:'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们简要了解这些功能：
 - en: The block layer provides an upstream interface to filesystems and allows them
     to access a diverse range of storage devices uniformly. Likewise, it implements
     a downstream interface for drivers and storage devices by providing them with
     a single point of entry from all applications.
+  id: totrans-21
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 块层提供了一个向上接口供文件系统使用，使其能够以统一的方式访问各种存储设备。同样，它也为驱动程序和存储设备提供下行接口，通过提供一个所有应用程序都可以访问的单一入口点。
 - en: As we’ll see in this chapter, the block layer incorporates several tricky structures
     to provide its services generically. Probably the most important of them is the
     `bio` structure. The filesystem layer creates a bio structure to represent the
@@ -128,40 +176,57 @@
     (**LVM**). The device mapper creates every logical volume as a mapped device.
     LVM provides a great deal of flexibility to storage administrators and simplifies
     storage management.
+  id: totrans-22
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 正如我们将在本章中看到的，块层包含了一些复杂的结构，以通用的方式提供其服务。其中最重要的结构可能是`bio`结构。文件系统层创建一个 bio 结构来表示
+    I/O 请求，并将其传递到块层。bio 结构负责将所有 I/O 请求传输到驱动程序。映射层则负责提供一个基础设施，将物理块设备映射到逻辑设备。映射层可以通过使用内核中的设备映射框架来实现这一点。设备映射器为内核中的几种技术奠定了基础，包括卷管理、多路径、精简配置、加密和软件
+    RAID。其中最著名的技术是**逻辑卷管理**（**LVM**）。设备映射器将每个逻辑卷创建为一个映射设备。LVM 为存储管理员提供了极大的灵活性，并简化了存储管理。
 - en: The `blk-mq` framework has become an important part of the block layer as it
     solved its performance limitations by isolating request queues for every CPU core.
     This framework is responsible for shepherding block I/O requests to multiple dispatch
     queues. We’ll cover the `blk-mq` framework in more detail in [*Chapter 5*](B19430_05.xhtml#_idTextAnchor090).
+  id: totrans-23
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`blk-mq` 框架已经成为块层的重要组成部分，因为它通过为每个 CPU 核心隔离请求队列解决了性能限制。这个框架负责将块 I/O 请求引导到多个派发队列。我们将在[*第
+    5 章*](B19430_05.xhtml#_idTextAnchor090)中详细介绍 `blk-mq` 框架。'
 - en: The block layer also includes several schedulers for handling I/O requests.
     These schedulers are pluggable and can be set for individual block devices. Non-multi-queue
     schedulers have been deprecated and are no longer supported in modern kernels.
     As we’ll see in [*Chapter 6*](B19430_06.xhtml#_idTextAnchor101), these schedulers
     make use of several techniques to make intelligent decisions regarding I/O scheduling.
+  id: totrans-24
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 块层还包括几个用于处理 I/O 请求的调度程序。这些调度程序是可插拔的，并且可以为单个块设备设置。非多队列调度程序已被弃用，并且在现代内核中不再受支持。正如我们在[*第
+    6 章*](B19430_06.xhtml#_idTextAnchor101)中看到的，这些调度程序利用多种技术来做出关于 I/O 调度的智能决策。
 - en: Additionally, the block layer implements functions such as error handling and
     collecting I/O statistics for block devices.
+  id: totrans-25
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 此外，块层还实现了如错误处理和收集块设备 I/O 统计信息等功能。
 - en: At the heart of the block layer are block devices. Apart from devices that stream
     data, such as tape drives, most storage devices, such as mechanical drives, and
     solid-state drives flashcards, are considered block-based devices. Let’s take
     a look at the defining traits of a block device and how they’re represented in
     Linux.
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 块层的核心是块设备。除了像磁带驱动器这样的流式数据设备外，大多数存储设备，如机械硬盘和固态硬盘（闪存卡），都被认为是基于块的设备。让我们来看看块设备的定义特征以及它们在
+    Linux 中的表现。
 - en: Defining block devices
+  id: totrans-27
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义块设备
 - en: There are two major ways that the kernel exchanges data with external devices.
     One method is to exchange one character at a time with the device. Devices addressed
     through such methods are known as character devices. Character devices are addressed
@@ -170,8 +235,10 @@
     access methods, managing character devices is simpler for the kernel. Devices
     such as keyboards, text-based consoles, and serial ports are all examples of character
     devices.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 内核与外部设备交换数据有两种主要方式。一种方法是与设备逐个字符地交换数据。通过这种方法寻址的设备被称为字符设备。字符设备通过一串连续的数据进行寻址。程序可以通过它们来执行逐字符的输入和输出操作。由于缺少随机访问方法，内核管理字符设备相对简单。键盘、基于文本的控制台和串行端口等设备都是字符设备的例子。
 - en: Communicating through one character at a time is acceptable when the volume
     of data is low, such as when using serial ports or keyboards. A keyboard can only
     accept one character at a time, so the use of a character interface makes sense.
@@ -185,8 +252,10 @@
     The kernel has to make critical decisions regarding the addressing and organization
     of block devices as these can significantly impact not only the block device but
     also the overall system performance.
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 当数据量较少时，通过逐个字符进行通信是可以接受的，例如使用串行端口或键盘时。键盘一次只能接受一个字符，因此使用字符接口是合理的。但当传输大量数据时，这种方式就变得不可行。当写入物理磁盘时，我们希望它们能够一次处理多个字符，并允许数据随机访问。内核以固定大小的块（称为块）来寻址物理驱动器。除了传统磁盘外，光盘驱动器和闪存驱动器等设备也使用这种方法。这些设备被称为块设备。与字符设备相比，块设备更复杂，管理起来需要更多的注意。内核必须在块设备的寻址和组织上做出重要决策，因为这些决策不仅会影响块设备本身，还会影响整个系统的性能。
 - en: Block devices can exist in memory. This can be achieved by creating a *ramdisk*.
     One of the most notable use cases of ramdisks is during the boot-up sequence in
     Linux systems. An **initial ramdisk** (**initrd**) is responsible for loading
@@ -194,48 +263,65 @@
     can be created on a ramdisk and mounted like any regular filesystem. The speed
     of RAM makes ramdisks incredibly fast. But due to the volatile nature of RAM,
     any data written to a ramdisk is maintained only until the device is powered on.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 块设备可以存在于内存中。这可以通过创建一个 *ramdisk* 来实现。ramdisk 的一个显著应用场景是在 Linux 系统的启动序列中。**初始
+    ramdisk**（**initrd**）负责在内存中加载一个临时根文件系统，以帮助启动过程。可以在 ramdisk 上创建文件系统并像常规文件系统一样挂载。由于
+    RAM 的速度非常快，ramdisk 的速度也非常快。但由于 RAM 的易失性，写入 ramdisk 的任何数据仅在设备开机时保留。
 - en: Although ramdisks are also block-based, they’re rarely used. As you’ll see,
     throughout this book, a block device is typically regarded as a persistent data
     storage medium with a filesystem layer on top.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管 ramdisk 也是基于块的，但它们很少被使用。正如你在本书中将看到的，块设备通常被视为具有文件系统层的持久数据存储介质。
 - en: 'All operations on block devices are performed by the kernel in fixed-size chunks
     of *N* bytes, known as *blocks*, which is the currency of exchange when dealing
     with block devices. The actual value of *N* varies across the stack since different
     layers in the kernel’s I/O hierarchy use chunks of different sizes to address
     block devices. Because of this, the term block is defined in several ways, depending
     on its presence in the stack:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 所有对块设备的操作都由内核以固定大小的 *N* 字节块进行，这些块被称为 *块*，是处理块设备时的交换货币。*N* 的实际值在内核 I/O 层次结构中的不同层次中有所不同，因为不同的层次使用不同大小的块来处理块设备。因此，术语“块”根据其在堆栈中的位置有不同的定义：
 - en: '**User-space applications**: As applications interact with the kernel space
     through standard system calls, the term **block** in this context refers to the
     amount of data read from and written to via system calls. Depending on the application,
     this can vary in size.'
+  id: totrans-33
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**用户空间应用程序**：当应用程序通过标准系统调用与内核空间交互时，**块**在此上下文中指的是通过系统调用读取和写入的数据量。根据应用程序的不同，这个大小可以有所不同。'
 - en: '**Page cache**: The kernel makes extensive use of the VFS page cache to improve
     the performance of read and write operations. Here, the fundamental unit of data
     transfer is a *page*, which is 4 KB in size.'
+  id: totrans-34
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**页面缓存**：内核广泛使用 VFS 页面缓存来提高读写操作的性能。在这里，数据传输的基本单元是 *页面*，其大小为 4 KB。'
 - en: '**Disk-based filesystems**: As explained in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053),
     a block represents the fixed number of bytes in which I/O operations are performed
     by the filesystem. Although filesystems allow for higher block sizes, often up
     to 64 KB, the block size for a filesystem is usually between 512 bytes and 4 KB
     because of the page size.'
+  id: totrans-35
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**基于磁盘的文件系统**：如在[*第3章*](B19430_03.xhtml#_idTextAnchor053)中所述，块表示文件系统进行 I/O
+    操作时固定数量的字节。尽管文件系统允许更大的块大小，通常最大可达 64 KB，但由于页面大小的原因，文件系统的块大小通常在 512 字节到 4 KB 之间。'
 - en: '**Physical storage**: On physical disks, the smallest addressable unit is known
     as a sector, which is usually 512 bytes. This sector is often further classified
     as logical or physical.'
+  id: totrans-36
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**物理存储**：在物理磁盘上，最小的可寻址单元被称为扇区，通常为 512 字节。该扇区通常会进一步分类为逻辑扇区或物理扇区。'
 - en: We discussed filesystem blocks in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053).
     Don’t get confused; the filesystem block’s size is not the fundamental unit of
     block I/O. The basic unit of block I/O is a sector. The data structures in the
@@ -244,73 +330,103 @@
     as an unsigned integer type that is large enough to represent the maximum number
     of sectors that can be addressed by the block device. It is used extensively throughout
     the block layer in structures such as “bio” to represent disk addresses and offsets.
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们在[*第3章*](B19430_03.xhtml#_idTextAnchor053)中讨论了文件系统块。不要混淆；文件系统块的大小不是块 I/O 的基本单元。块
+    I/O 的基本单元是扇区。块层中的数据结构在内核代码中定义了一个 `sector_t` 类型的变量，表示一个偏移量或大小，它是 512 的倍数。`sector_t`
+    变量被定义为一个无符号整数类型，足够大以表示块设备可以寻址的最大扇区数。它在块层中被广泛使用，在诸如 “bio” 等结构中表示磁盘地址和偏移量。
 - en: To summarize, devices that are organized and addressed in terms of blocks are
     known as block devices. They allow for random access and offer superior performance
     compared to character devices. To take full advantage of block devices, the kernel
     has to make informed decisions regarding their addressing and organization.
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结一下，按块组织和寻址的设备称为块设备。它们允许随机访问，并且相比字符设备提供更优的性能。为了充分利用块设备，内核必须做出关于其寻址和组织的明智决策。
 - en: Let’s briefly go over some key features that define a block device.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们简要回顾一下定义块设备的一些关键特性。
 - en: The defining characteristics of a block device
+  id: totrans-40
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 块设备的定义特征
 - en: 'As discussed earlier, block devices allow far more advanced ways to handle
     I/O requests. Some of the defining characteristics of block devices are as follows:'
+  id: totrans-41
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前所述，块设备允许使用更为高级的方式来处理 I/O 请求。块设备的一些定义特征如下：
 - en: '**Random access**: Block devices allow for random access. This means that the
     device can *seek* from one position to another.'
+  id: totrans-42
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**随机访问**：块设备允许随机访问。这意味着设备可以从一个位置*跳跃*到另一个位置。'
 - en: '**Block size**: Block devices address and transfer data in fixed-sized blocks.'
+  id: totrans-43
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**块大小**：块设备以固定大小的块进行寻址和数据传输。'
 - en: '**Stackability**: Block devices can be stacked through the use of the device
     mapper framework. This extends the basic functionalities of physical disks and
     allows for scaling logical volumes.'
+  id: totrans-44
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**可堆叠性**：块设备可以通过设备映射框架进行堆叠。这扩展了物理磁盘的基本功能，并允许扩展逻辑卷。'
 - en: '**Buffered I/O**: Block devices use buffered I/O, which means that data is
     written to a buffer in memory before being written to the device. Read and write
     operations on block devices make extensive use of the page cache. Data that’s
     read from the block device is loaded and kept in memory for a certain period.
     Similarly, any data to be written to a block device is written to the cache first.'
+  id: totrans-45
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**缓冲 I/O**：块设备使用缓冲 I/O，这意味着数据在写入设备之前会先写入内存中的缓冲区。对块设备的读写操作广泛使用页面缓存。读取块设备中的数据时，会将其加载并保留在内存中一段时间。同样，任何要写入块设备的数据都会先写入缓存。'
 - en: '**Filesystems/partitioning**: Block devices can be partitioned into smaller
     logical units, with separate filesystems created on top of them.'
+  id: totrans-46
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**文件系统/分区**：块设备可以被分割成较小的逻辑单元，并在其上创建独立的文件系统。'
 - en: '**Request queues**: Block devices implement the concept of request queues,
     which are responsible for managing the I/O requests that are submitted to a block
     device.'
+  id: totrans-47
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**请求队列**：块设备实现了请求队列的概念，负责管理提交到块设备的 I/O 请求。'
 - en: Let’s see how block devices are represented in Linux.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看块设备在 Linux 中是如何表示的。
 - en: Looking at the representation of block devices
+  id: totrans-49
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 查看块设备的表示方式
 - en: When discussing VFS, we saw that abstractions are at the heart of the kernel’s
     I/O stack. The block layer is no exception to this rule. Regardless of the differences
     in the physical make and model, the kernel should be able to work with storage
     devices uniformly. To implement a standard interface for all devices, the operations
     should be independent of the properties of the underlying storage device.
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 在讨论 VFS 时，我们看到抽象是内核 I/O 堆栈的核心。块层也不例外。无论物理设备的型号和制造方式如何，内核都应该能够统一地与存储设备进行交互。为了为所有设备实现标准接口，操作应该独立于底层存储设备的属性。
 - en: 'As explained in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015), almost everything
     is represented in the form of a file, including hardware devices. A block device
     is a special file and is named as such because the kernel interacts with it using
@@ -322,32 +438,51 @@
     on the `sda` drive is represented as `sda1`. If we look at the `sd*` devices in
     `/dev`, notice that the file type is `b`, for block devices. You can also list
     block devices using the `lsblk` command, as shown in the following figure:'
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 如在 [*第 1 章*](B19430_01.xhtml#_idTextAnchor015) 中解释的那样，几乎所有的东西都以文件的形式表示，包括硬件设备。块设备是一个特殊的文件，之所以如此命名，是因为内核通过固定数量的字节与其交互。根据设备的性质，表示它们的文件会在系统中的特定位置创建和存储。系统中的块设备位于
+    `/dev` 目录下。表示磁盘驱动器的文件名以 `sd` 开头，后面跟着一个字母表示发现顺序。第一个驱动器命名为 `sda`，依此类推。类似地，`sda`
+    驱动器上的第一个分区表示为 `sda1`。如果我们查看 `/dev` 中的 `sd*` 设备，会注意到文件类型是 `b`，表示块设备。你也可以使用 `lsblk`
+    命令列出块设备，如下图所示：
 - en: '![Figure 4.2 – Major and minor numbers](img/B19430_04_02.jpg)'
+  id: totrans-52
   prefs: []
   type: TYPE_IMG
+  zh: '![图 4.2 – 主次设备号](img/B19430_04_02.jpg)'
 - en: Figure 4.2 – Major and minor numbers
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 4.2 – 主次设备号
 - en: Just before the modification timestamp, note the two numbers separated by a
     comma. The kernel represents block devices as a pair of numbers. These numbers
     are called major and minor numbers for a device. The *major number* identifies
     the driver associated with the device, whereas the *minor number* is used for
     differentiating between individual devices.
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 在修改时间戳之前，注意到两个数字之间用逗号分隔。内核将块设备表示为一对数字。这些数字被称为设备的主设备号和次设备号。*主设备号* 标识与设备关联的驱动程序，而
+    *次设备号* 用于区分不同的设备。
 - en: In the preceding figure, all three devices – `sda`, `sda1`, and `sda2` – use
     the same driver and hence have the same major number, `8`. The minor numbers –
     `0`, `1`, and `2` – are used to identify the driver instance for each device.
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前面的图中，所有三个设备——`sda`、`sda1` 和 `sda2`——使用相同的驱动程序，因此具有相同的主设备号 `8`。次设备号——`0`、`1`
+    和 `2`——用于标识每个设备的驱动程序实例。
 - en: '![Figure 4.3 – Device major and minor numbers](img/B19430_04_03.jpg)'
+  id: totrans-56
   prefs: []
   type: TYPE_IMG
+  zh: '![图 4.3 – 设备主次设备号](img/B19430_04_03.jpg)'
 - en: Figure 4.3 – Device major and minor numbers
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 4.3 – 设备主次设备号
 - en: The device files present in the `/dev` directory are hooked up to the corresponding
     device drivers to establish a communication link with the actual hardware. When
     a program interacts with the block device file, the kernel uses the major number
@@ -355,15 +490,21 @@
     a driver can be responsible for handling multiple devices, there has to be a way
     through which the kernel can distinguish devices using the same major number.
     For this purpose, minor numbers are used.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: '`/dev` 目录下的设备文件与相应的设备驱动程序连接，以建立与实际硬件的通信链接。当程序与块设备文件交互时，内核通过主设备号识别该设备的适当驱动程序，并发送请求。由于一个驱动程序可能负责处理多个设备，因此必须有一种方法，使内核能够区分使用相同主设备号的设备。为此，使用次设备号。'
 - en: We will now explore the primary data structures that are used in the block layer.
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们将探讨在块层中使用的主要数据结构。
 - en: Looking at data structures in the block layer
+  id: totrans-60
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 查看块层中的数据结构
 - en: Dealing with block devices is fairly complex as the kernel has to implement
     features such as queue management, scheduling, and the ability to access data
     randomly. The speed of block devices is much higher than character devices. This
@@ -372,8 +513,11 @@
     to handle the two devices differently. Because of this, there is an entire kernel
     subsystem dedicated to managing block devices. All this makes the block layer
     the most sophisticated piece of code in the Linux kernel.
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 处理块设备相对复杂，因为内核必须实现诸如队列管理、调度和随机数据访问等功能。块设备的速度远高于字符设备，这使得块设备对性能极为敏感，内核必须做出智能决策，以发挥其最大性能。因此，有必要将这两种设备区分开来处理。正因如此，内核有一个专门的子系统来管理块设备。所有这些使得块层成为
+    Linux 内核中最复杂的代码部分。
 - en: Throughout this book, we’ve referred to the relevant pieces of kernel code so
     that you can familiarize yourself with the implementations of certain concepts.
     If you’re interested in pursuing kernel development, this may seem like a good
@@ -384,100 +528,148 @@
     up its intricate design. Nevertheless, we must highlight some more important constructs
     that give us a fair understanding of the representation and organization of block
     devices in the kernel.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本书中，我们提到了一些内核代码的相关部分，以便你能熟悉某些概念的实现。如果你有兴趣从事内核开发，这可能是一个很好的起点。然而，如果你更关注理论理解，代码的使用可能会让人稍感困惑。但了解某些事物在内核中如何表示是非常必要的。具体来说，关于块层（block
+    layer），无法讨论所有构成其复杂设计的结构。然而，我们必须强调一些更为重要的构造，它们能帮助我们理解内核中块设备的表示和组织。
 - en: 'Some of the major data structures that are used to work with block devices
     are as follows:'
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 用于处理块设备的一些主要数据结构如下：
 - en: '`register_blkdev`'
+  id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`register_blkdev`'
 - en: '`block_device`'
+  id: totrans-65
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`block_device`'
 - en: '`gendisk`'
+  id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`gendisk`'
 - en: '`buffer_head`'
+  id: totrans-67
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`buffer_head`'
 - en: '`bio`'
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bio`'
 - en: '`bio_vec`'
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bio_vec`'
 - en: '`request`'
+  id: totrans-70
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`request`'
 - en: '`request_queue`'
+  id: totrans-71
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`request_queue`'
 - en: Let’s take a look at them one by one.
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们逐一看一下它们。
 - en: The register_blkdev function (block device registration)
+  id: totrans-73
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: '`register_blkdev` 函数（块设备注册）'
 - en: 'To make block devices available for use, they must first be registered with
     the kernel. The registration process is performed by the `register_blkdev()` function,
     which is defined in `include/linux/blkdev.h`:'
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了使块设备可供使用，它们必须首先在内核中注册。注册过程由 `register_blkdev()` 函数执行，该函数定义在 `include/linux/blkdev.h`
+    中：
 - en: '[PRE0]'
+  id: totrans-75
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: The `register_blkdev` function is used by block device drivers to register themselves
     and is a macro that’s directed to `__register_blkdev`. The `__register_blkdev`
     function performs the actual registration process. The purpose of having a separate
     internal function is to provide additional error handling and validation before
     modifying the kernel’s data structures.
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: '`register_blkdev` 函数由块设备驱动程序用于注册自己，它是一个宏，指向 `__register_blkdev`。`__register_blkdev`
+    函数执行实际的注册过程。设置一个单独的内部函数是为了在修改内核数据结构之前提供额外的错误处理和验证。'
 - en: 'The registration function performs the following tasks:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 注册函数执行以下任务：
 - en: It requests a major number from the kernel’s dynamic major number allocation
     pool. The major number uniquely identifies the block device driver within the
     system.
+  id: totrans-78
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它从内核的动态主设备号分配池请求一个主设备号。主设备号在系统中唯一标识块设备驱动程序。
 - en: Once a major number has been successfully obtained, the function creates a `block_device`
     struct, which represents the block device driver. This struct contains information
     such as the major number, the name of the driver, and function pointers to various
     driver operations.
+  id: totrans-79
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一旦成功获取主设备号，函数将创建一个 `block_device` 结构体，代表块设备驱动程序。该结构体包含诸如主设备号、驱动程序名称和指向各种驱动操作的函数指针等信息。
 - en: In summary, the `register_blkdev` function acts as a friendly interface through
     which block device drivers can initiate their registration processes with the
     kernel’s block layer. It handles the necessary steps for acquiring a major number,
     creating a `block_device` struct, and establishing the necessary connections with
     the block layer.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，`register_blkdev` 函数作为一个友好的接口，使得块设备驱动程序能够启动与内核块层的注册过程。它处理获取主设备号、创建 `block_device`
+    结构体以及与块层建立必要连接的步骤。
 - en: The block_device structure (representing block devices)
+  id: totrans-81
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: '`block_device` 结构体（表示块设备）'
 - en: 'The block device is defined in `include/linux/blk_types.h` by the `block_device`
     structure in the kernel:'
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 块设备在内核中通过 `include/linux/blk_types.h` 中的 `block_device` 结构体定义：
 - en: '[PRE1]'
+  id: totrans-83
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: The `block_device` structure instance is created when the device file is opened.
     A block device can be a whole disk or a single partition and the `block_device`
     structure can represent either. When using partitions, the individual partitions
@@ -486,32 +678,48 @@
     number. The inodes for block devices are virtual and are stored in the `bdev`
     virtual filesystem. The inode for a block device also contains information about
     its major and minor numbers.
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: '`block_device` 结构体实例在设备文件打开时创建。块设备可以是整个磁盘或单个分区，`block_device` 结构体可以表示这两者。当使用分区时，个别分区通过
+    `bd_partno` 字段进行标识。由于对块设备的访问是通过 VFS 层完成的，相应的设备文件也会被分配一个 inode 编号。块设备的 inode 是虚拟的，存储在
+    `bdev` 虚拟文件系统中。块设备的 inode 还包含其主设备号和次设备号的信息。'
 - en: The `block_device` structure also provides information about the device, such
     as its name, size, and block size. It also contains a pointer to the `gendisk`
     structure, which represents the disk, and a list of `request_queues` structures
     for handling I/O requests.
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: '`block_device` 结构体还提供了有关设备的信息，如名称、大小和块大小。它还包含指向 `gendisk` 结构体的指针，该结构体表示磁盘，并包含一个
+    `request_queues` 结构体列表，用于处理 I/O 请求。'
 - en: The gendisk structure (representing physical disks)
+  id: totrans-86
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: '`gendisk` 结构体（表示物理磁盘）'
 - en: An important field in the definition of the `block_device` structure is the
     `bd_disk` pointer, which points to the `gendisk` structure. The `gendisk` structure,
     which is defined in `include/linux/blkdev.h`, represents information about the
     disk and is used to implement the notion of a physical hard disk in the kernel.
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: '`block_device` 结构体定义中的一个重要字段是 `bd_disk` 指针，它指向 `gendisk` 结构体。`gendisk` 结构体定义在
+    `include/linux/blkdev.h` 中，表示关于磁盘的信息，并用于在内核中实现物理硬盘的概念。'
 - en: 'The `gendisk` structure represents the disk’s properties and the methods used
     to access it. It is used to register a block device and its associated I/O operations
     with the kernel, allowing it to communicate with the device:'
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: '`gendisk` 结构体表示磁盘的属性及用于访问磁盘的方法。它用于向内核注册一个块设备及其相关的 I/O 操作，使内核能够与设备进行通信：'
 - en: '[PRE2]'
+  id: totrans-89
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: '`gendisk` can be considered a link between the block and filesystem interfaces
     mentioned previously and the hardware interface. There will be a `block_device`
     structure for representing the entire physical disk defined in `gendisk`. Similarly,
@@ -520,39 +728,56 @@
     device driver and registered with the kernel using the `register_blkdev` function.
     Once registered, the block device driver can use the `gendisk` structure to perform
     I/O operations on the device.'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: '`gendisk` 可以被看作是前述块设备接口与文件系统接口以及硬件接口之间的一个桥梁。在 `gendisk` 中，会有一个 `block_device`
+    结构体来表示整个物理磁盘。同样，也会有单独的 `block_device` 结构体来描述 `gendisk` 中的各个分区。需要注意的是，`gendisk`
+    是由块设备驱动分配和控制的，并通过 `register_blkdev` 函数向内核注册。一旦注册，块设备驱动就可以使用 `gendisk` 结构体对设备进行
+    I/O 操作。'
 - en: 'Let’s look at some of the important fields of this structure:'
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看看这个结构体的一些重要字段：
 - en: '`major`: This field specifies the major number associated with the `gendisk`
     structure. As discussed earlier, the major number is used by the kernel to identify
     the driver responsible for handling the block device.'
+  id: totrans-92
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`major`：该字段指定与 `gendisk` 结构体关联的主设备号。如前所述，主设备号由内核用于标识负责处理块设备的驱动程序。'
 - en: '`first_minor`: This field refers to the smallest minor number that is allocated
     to a given block device. This can be thought of as an offset from which the minor
     numbers for the different partitions of the device are allocated.'
+  id: totrans-93
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`first_minor`：该字段表示分配给给定块设备的最小次设备号。可以将其视为一个偏移量，后续设备分区的次设备号会从这个偏移量开始分配。'
 - en: '`minors`: This field specifies the total number of minor numbers associated
     with the `gendisk` structure.'
+  id: totrans-94
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`minors`：该字段指定与 `gendisk` 结构体关联的次设备号总数。'
 - en: '`fops`: This field points to a structure of file operations that are associated
     with the `gendisk` structure. These file operations are used by the kernel to
     handle read, write, and other file operations on the device.'
+  id: totrans-95
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`fops`：该字段指向与 `gendisk` 结构体关联的文件操作结构体。这些文件操作由内核用于处理对设备的读、写及其他文件操作。'
 - en: '`private_data`: This field is used by the driver to store any private data
     associated with the `gendisk` structure, such as any driver-specific information.'
+  id: totrans-96
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`private_data`：该字段由驱动程序用于存储与`gendisk`结构相关的任何私有数据，例如任何特定于驱动程序的信息。'
 - en: '`queue`: This field points to the request queue associated with the `gendisk`
     structure. The request queue is responsible for managing the I/O requests that
     are issued to the device. This makes it a very important field as it enables the
@@ -561,108 +786,148 @@
     independently and handle their I/O operations more efficiently. This allows the
     kernel to optimize performance, apply appropriate scheduling policies, and prevent
     I/O bottlenecks.'
+  id: totrans-97
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`queue`：该字段指向与`gendisk`结构相关联的请求队列。请求队列负责管理发送到设备的I/O请求。因此，这是一个非常重要的字段，它使内核能够将特定的I/O队列与每个块设备关联起来。通过为每个块设备设置独立的I/O队列，内核可以独立管理多个块设备，并更高效地处理它们的I/O操作。这使得内核能够优化性能，应用适当的调度策略，并防止I/O瓶颈。'
 - en: '`disk_name`: This field is a string that specifies the name of the device.
     The name is used by the kernel to identify the device and is usually displayed
     in system logs.'
+  id: totrans-98
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`disk_name`：该字段是一个字符串，指定设备的名称。该名称由内核用来识别设备，通常会在系统日志中显示。'
 - en: Let us move on to the next structure.
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们继续查看下一个结构。
 - en: The buffer_head structure (representing blocks in memory)
+  id: totrans-100
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: '`buffer_head`结构（表示内存中的块）'
 - en: One of the defining features of a block device is its extensive use of the page
     cache. The read and write operations on a block device are performed in the cache.
     When an application reads from a block for the first time, the block is fetched
     from the physical disk into memory. Similarly, when a program wants to write some
     data, the write operation is first performed in the cache. It is written to the
     physical disk at a later stage.
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 块设备的一个显著特点是它广泛使用页面缓存。对块设备的读写操作是在缓存中进行的。当应用程序首次从块中读取时，数据块会从物理磁盘加载到内存中。同样，当程序想要写入数据时，写操作首先会在缓存中进行。稍后会将数据写入物理磁盘。
 - en: 'The block that’s read from the disk or to be written to the disk is stored
     in a buffer. This buffer is represented by the `buffer_head` structure, which
     is defined in `include/linux/buffer_head.h` in the kernel. We can say that this
     buffer is an in-memory representation of an individual block:'
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 从磁盘读取或要写入磁盘的块存储在一个缓冲区中。这个缓冲区由`buffer_head`结构表示，它在内核的`include/linux/buffer_head.h`中定义。我们可以说，这个缓冲区是一个内存中表示的单独块：
 - en: '[PRE3]'
+  id: totrans-103
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'The fields in the `buffer_head` structure contain the information required
     to uniquely identify a particular block in the block device. The fields in the
     `buffer_head` structure are described as follows:'
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: '`buffer_head`结构中的字段包含了唯一标识块设备中特定块所需的信息。`buffer_head`结构中的字段描述如下：'
 - en: '`b_data`: This field points to the start of the data buffer associated with
     `buffer_head`. The size of the buffer is determined by the block size of the filesystem.'
+  id: totrans-105
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_data`：该字段指向与`buffer_head`关联的数据缓冲区的起始位置。缓冲区的大小由文件系统的块大小决定。'
 - en: '`b_size`: This field specifies the size of the buffer in bytes.'
+  id: totrans-106
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_size`：该字段指定缓冲区的大小（以字节为单位）。'
 - en: '`b_page`: This is a pointer to the page in memory where the block is stored.
     This field is typically used in conjunction with fields such as `b_data` and `b_size`,
     to manipulate the buffer data.'
+  id: totrans-107
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_page`：这是一个指向内存中存储该块的页面的指针。该字段通常与`b_data`和`b_size`等字段一起使用，以操作缓冲区数据。'
 - en: '`b_blocknr`: This field specifies the logical block number of the buffer in
     the filesystem. Each block in the filesystem is assigned a unique number called
     a logical block number. This number represents the order of the block in the filesystem,
     starting from 0 for the first block.'
+  id: totrans-108
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_blocknr`：该字段指定文件系统中文件缓冲区的逻辑块号。文件系统中的每个块都分配一个唯一的编号，称为逻辑块号。这个编号表示块在文件系统中的顺序，从0开始为第一个块。'
 - en: '`b_state`: This field is a bitfield that represents the state of the buffer.
     It can have several values. For instance, a value of `BH_Uptodate` indicates that
     the buffer contains up-to-date data, while a value of `BH_Dirty` indicates that
     the buffer contains dirty (modified) data and needs to be written to disk.'
+  id: totrans-109
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_state`：该字段是一个位域，表示缓冲区的状态。它可以具有多个值。例如，值为`BH_Uptodate`表示缓冲区包含最新数据，而`BH_Dirty`表示缓冲区包含脏数据（已修改的数据），需要写入磁盘。'
 - en: '`b_count`: This field keeps track of the number of users of `buffer_head`.'
+  id: totrans-110
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_count`：该字段跟踪`buffer_head`的使用者数量。'
 - en: '`b_page`: This field points to the page in the page cache that contains the
     data associated with the `buffer_head` structure.'
+  id: totrans-111
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_page`：该字段指向页面缓存中包含与`buffer_head`结构相关数据的页面。'
 - en: '`b_assoc_map`: This field is used by some filesystems to track which blocks
     are currently associated with `buffer_head`.'
+  id: totrans-112
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_assoc_map`：该字段用于一些文件系统追踪当前与`buffer_head`关联的块。'
 - en: '`b_private`: This field is a pointer to private data associated with `buffer_head`.
     This can be used by the filesystem to store information related to the buffer.'
+  id: totrans-113
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_private`：该字段是指向与`buffer_head`关联的私有数据的指针。文件系统可以使用它来存储与缓冲区相关的信息。'
 - en: '`b_bdev`: This field is a pointer to the block device that the buffer belongs
     to.'
+  id: totrans-114
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_bdev`：该字段是指向缓冲区所属的块设备的指针。'
 - en: '`b_end_io`: This field is a function pointer that specifies the completion
     function for an I/O operation on a buffer, and is used to perform any necessary
     cleanup operations.'
+  id: totrans-115
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`b_end_io`：该字段是一个函数指针，指定对缓冲区进行I/O操作的完成函数，并用于执行任何必要的清理操作。'
 - en: By default, as the filesystem’s block size is equal to the page size, a single
     page in memory can hold a single block. If the block size is less than the page
     size, the page can hold more than one block.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，由于文件系统的块大小等于页面大小，因此内存中的单个页面可以容纳一个块。如果块大小小于页面大小，则页面可以容纳多个块。
 - en: The buffer head maintains a mapping between a page in memory and its corresponding
     on-disk version. Although it still holds important information, it was an even
     more integral component of the kernel before version 2.6\. Back then, in addition
@@ -671,12 +936,16 @@
     resulted in a significant amount of memory usage. When dealing with a large block
     of I/O requests, the kernel had to break it into smaller requests, each of which,
     in turn, had a `buffer_head` structure associated with them.
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: '`buffer_head`维持内存中页面与其对应的磁盘版本之间的映射。尽管它仍然保存重要信息，但在2.6版本之前，它是内核中的一个更加核心的组成部分。当时，除了维持页面与磁盘块的映射外，它还充当块层所有I/O操作的容器。将`buffer_head`作为I/O容器的使用导致了大量内存的占用。在处理大量I/O请求时，内核必须将其拆分为更小的请求，每个请求都与一个`buffer_head`结构相关联。'
 - en: The bio structure (representing active block I/Os)
+  id: totrans-118
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: '`bio`结构（表示活动块I/O）'
 - en: 'Due to the limitations in the `buffer_head` structure, the bio structure was
     created to represent an ongoing block I/O operation. The bio structure has been
     the fundamental unit of an I/O in the block layer since kernel 2.5\. When an application
@@ -684,59 +953,80 @@
     bio structures, which are sent down to the block layer. The block layer then uses
     these bio structures to issue I/O requests to the underlying block device. The
     bio structure is defined in `include/linux/blk_types.h`:'
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于`buffer_head`结构的限制，`bio`结构被创建来表示正在进行的块I/O操作。自内核2.5版本以来，`bio`结构一直是块层I/O的基本单元。当应用程序发出I/O请求时，底层文件系统将其转换为一个或多个`bio`结构，并将这些结构传递到块层。块层随后使用这些`bio`结构向底层块设备发出I/O请求。`bio`结构在`include/linux/blk_types.h`中定义：
 - en: '[PRE4]'
+  id: totrans-120
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'Some particularly interesting fields are as follows:'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是一些特别有趣的字段：
 - en: '`bi_next`: This is a pointer to the next `bio` structure in a list and is used
     to link multiple `bio` structures that represent a single I/O operation. This
     is important to understand because a single I/O operation may need to be split
     into multiple `bio` structures.'
+  id: totrans-122
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bi_next`：这是指向列表中下一个`bio`结构的指针，用于链接表示单个I/O操作的多个`bio`结构。理解这一点非常重要，因为一个I/O操作可能需要拆分成多个`bio`结构。'
 - en: '`bi_vcnt`: This field specifies the number of `bio_vec` structures that are
     being used to describe the I/O operation. Each `bio_vec` structure in the vector
     describes a contiguous block of memory that is transferred between the block device
     and the user space program.'
+  id: totrans-123
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bi_vcnt`：该字段指定用于描述I/O操作的`bio_vec`结构的数量。向量中的每个`bio_vec`结构描述一个在块设备和用户空间程序之间传输的连续内存块。'
 - en: '`bi_io_vec`: This is a pointer to an array of `bio_vec` structures that describes
     the location and length of the data buffers associated with the I/O operation.
     This lays the ground for performing `scatter-gather` I/O – that is, the data can
     be spread across multiple non-contiguous memory locations.'
+  id: totrans-124
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bi_io_vec`：这是一个指向`bio_vec`结构数组的指针，该数组描述了与I/O操作关联的数据缓冲区的位置和长度。这为执行`scatter-gather`
+    I/O奠定了基础——即，数据可以分布在多个不连续的内存位置。'
 - en: '`bi_vcnt`: This field specifies the number of data buffers associated with
     the I/O operation. Each data buffer is represented by a `bio_vec` structure, which
     contains a pointer to the memory buffer and the length of the buffer.'
+  id: totrans-125
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bi_vcnt`：此字段指定与I/O操作关联的数据缓冲区的数量。每个数据缓冲区由一个`bio_vec`结构表示，包含指向内存缓冲区的指针和缓冲区的长度。'
 - en: '`bi_end_io`: This is a pointer to a function that is called when the I/O operation
     completes. This function is responsible for cleaning up any resources associated
     with the I/O operation and waking up any processes that are waiting for the operation
     to complete.'
+  id: totrans-126
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bi_end_io`：这是一个指向函数的指针，当I/O操作完成时会调用该函数。该函数负责清理与I/O操作相关的任何资源，并唤醒任何等待操作完成的进程。'
 - en: '`bi_private`: This is a pointer to any private data associated with the I/O
     operation.'
+  id: totrans-127
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bi_private`：这是一个指向与I/O操作关联的任何私有数据的指针。'
 - en: '`bi_opf`: This is a bit mask that specifies any additional options or flags
     associated with the I/O operation. This can include options such as *force synchronous
     I/O* or *disable* *write caching*.'
+  id: totrans-128
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bi_opf`：这是一个位掩码，用于指定与I/O操作关联的任何附加选项或标志。这可能包括诸如*强制同步I/O*或*禁用* *写缓存*等选项。'
 - en: When an I/O request is initiated by a user-space application, the bio structure
     keeps track of all the active I/O transactions at the block layer. Once the bio
     structure has been constructed, it is handed over to the block I/O layer through
@@ -744,281 +1034,404 @@
     to block devices. Once the I/O has been submitted to the block device, it is added
     to a request queue. The `submit_bio()` function will not wait for the I/O to be
     completed.
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 当用户空间应用程序发起I/O请求时，bio结构跟踪块层中的所有活动I/O事务。一旦bio结构构建完成，它会通过`submit_bio`函数交给块I/O层。`submit_bio()`函数用于将I/O请求提交到块设备。一旦I/O被提交到块设备，它会被加入到请求队列中。`submit_bio()`函数不会等待I/O完成。
 - en: It can be said that the bio structure acts as a bridge between the filesystem
     and the block device layer, enabling the filesystem to perform I/O operations
     on the block device.
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以说，bio结构充当了文件系统与块设备层之间的桥梁，使文件系统能够对块设备执行I/O操作。
 - en: The bio_vec structure (representing vector I/O)
+  id: totrans-131
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: '`bio_vec`结构（表示向量I/O）'
 - en: The `bio_vec` structure defines vector or scatter-gather I/O operations in the
     block layer.
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bio_vec`结构定义了块层中的向量或散布-聚集I/O操作。'
 - en: 'The `bio_vec` structure is defined in `include/linux/bvec.h`:'
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bio_vec`结构定义在`include/linux/bvec.h`中：'
 - en: '[PRE5]'
+  id: totrans-134
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'The fields are described as follows:'
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 各字段描述如下：
 - en: '`bv_page`: This field holds a reference to the page structure (struct page)
     that contains the data to be transferred. As we explained in [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028),
     a page is a fixed-size block of memory.'
+  id: totrans-136
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bv_page`：此字段保存指向包含要传输数据的页结构（struct page）的引用。如我们在[*第二章*](B19430_02.xhtml#_idTextAnchor028)中所解释，页面是固定大小的内存块。'
 - en: '`bv_offset`: This field holds the offset within the page where the data to
     be transferred starts.'
+  id: totrans-137
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bv_offset`：此字段保存页面内数据传输起始位置的偏移量。'
 - en: '`bv_len`: This field holds the length of the data to be transferred.'
+  id: totrans-138
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bv_len`：此字段保存要传输数据的长度。'
 - en: '`bio_vec` structure is used to represent a scatter-gather I/O operation. The
     block layer may construct a single bio with multiple `bio_vec` structures, each
     representing a different physical page in memory and a different offset within
     that page.'
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bio_vec`结构用于表示一个散布-聚集I/O操作。块层可能会构建一个包含多个`bio_vec`结构的单一bio，每个结构表示内存中不同的物理页面和该页面内的不同偏移量。'
 - en: Requests and request queues (representing pending I/O requests)
+  id: totrans-140
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 请求和请求队列（表示挂起的I/O请求）
 - en: When an I/O request is submitted to the block layer, the block layer creates
     a `request` structure to represent the request.
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 当I/O请求提交到块层时，块层会创建一个`request`结构来表示该请求。
 - en: 'The `request` and `request_queue` structures are defined in `include/linux/blk-mq.h`
     and `include/linux/blkdev.h`, respectively:'
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: '`request`和`request_queue`结构分别定义在`include/linux/blk-mq.h`和`include/linux/blkdev.h`中：'
 - en: '[PRE6]'
+  id: totrans-143
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Some of the major fields are explained here:'
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里解释了一些主要字段：
 - en: '`struct request_queue *q`: Each I/O request is added to the request queue of
     a block device. The `q` field here points to this request queue.'
+  id: totrans-145
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct request_queue *q`：每个 I/O 请求都会添加到块设备的请求队列中。此处的`q`字段指向该请求队列。'
 - en: '`struct blk_mq_ctx *mq_ctx`: The `blk_mq_ctx *mq_ctx` field points to the software
     staging queues; this structure is allocated on a per-CPU core basis. Each CPU
     has a `blk_mq_ctx`, which is used to track the state of requests that are processed
     on that CPU.'
+  id: totrans-146
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct blk_mq_ctx *mq_ctx`：`blk_mq_ctx *mq_ctx`字段指向软件暂存队列；此结构是按每个 CPU 核心分配的。每个
+    CPU 都有一个`blk_mq_ctx`，它用于跟踪该 CPU 上处理的请求状态。'
 - en: '`struct blk_mq_hw_ctx *mq_hctx`: This field represents the hardware context
     with which a request queue is associated. This is used to keep track of which
     hardware queue the request belongs to.'
+  id: totrans-147
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct blk_mq_hw_ctx *mq_hctx`：此字段表示与请求队列关联的硬件上下文。它用于跟踪请求所属的硬件队列。'
 - en: '`struct list_head queuelist`: This is a linked list of requests that are waiting
     to be processed. When a request is submitted to the block layer, it is added to
     this list.'
+  id: totrans-148
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct list_head queuelist`：这是一个等待处理的请求的链表。当一个请求提交给块层时，它会被添加到此列表中。'
 - en: '`struct request *rq_next`: This is a pointer to the next request in the queue.
     It is used to link requests within the request queue.'
+  id: totrans-149
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct request *rq_next`：这是指向队列中下一个请求的指针，用于在请求队列内链接请求。'
 - en: '`sector_t sector`: This field specifies the starting sector number of the I/O
     operation.'
+  id: totrans-150
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`sector_t sector`：此字段指定 I/O 操作的起始扇区号。'
 - en: '`struct bio *bio`: This field points to a `bio` structure that contains information
     about the I/O operation, such as its type (read or write).'
+  id: totrans-151
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct bio *bio`：此字段指向一个包含 I/O 操作信息的`bio`结构，例如它的类型（读取或写入）。'
 - en: '`struct bio *biotail`: This field points to the last `bio` structure in the
     queue. When a new bio is added to the queue, it is linked to the end of the list
     pointed to by `biotail`.'
+  id: totrans-152
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct bio *biotail`：此字段指向队列中的最后一个`bio`结构。当一个新的 bio 被添加到队列时，它将被链接到 `biotail`
+    指向的列表末尾。'
 - en: 'The `request_queue` structure represents the request queue associated with
     a block device. The request queue is responsible for managing all I/O requests
     that are issued to the block device:'
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: '`request_queue`结构表示与块设备关联的请求队列。请求队列负责管理所有提交给块设备的 I/O 请求：'
 - en: '[PRE7]'
+  id: totrans-154
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'Let’s look at some of the important fields:'
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看一下其中一些重要的字段：
 - en: '`struct request *last_merge`: This field is used by the I/O scheduler to track
     the last request that was merged with another request.'
+  id: totrans-156
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct request *last_merge`：此字段由 I/O 调度器使用，用来跟踪与另一个请求合并的最后一个请求。'
 - en: '`struct elevator_queue *elevator`: This field points to the I/O scheduler for
     the request queue. The I/O scheduler determines the order in which requests are
     serviced.'
+  id: totrans-157
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct elevator_queue *elevator`：此字段指向请求队列的 I/O 调度器。I/O 调度器决定请求的服务顺序。'
 - en: '`struct percpu_ref q_usage_counter`: This field represents the usage counter
     for the request queue. The kernel uses a per-CPU counter to track the reference
     count of a resource on a per-CPU basis.'
+  id: totrans-158
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct percpu_ref q_usage_counter`：此字段表示请求队列的使用计数器。内核使用每个 CPU 的计数器来跟踪每个 CPU
+    上资源的引用计数。'
 - en: '`struct rq_qos *rq_qos`: This field points to a request queue of quality-of-service
     agreements that the request queue provides to the block device. These are used
     to prioritize I/O requests based on different criteria, such as the priority of
     the request.'
+  id: totrans-159
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct rq_qos *rq_qos`：此字段指向一个请求队列，该队列提供质量服务协议，用于块设备。它们用于根据不同的标准（例如请求的优先级）来优先处理
+    I/O 请求。'
 - en: '`const struct blk_mq_ops *mq_ops`: This structure contains function pointers
     that define the behavior of the request queue for multi-queue I/O schedulers.'
+  id: totrans-160
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`const struct blk_mq_ops *mq_ops`：此结构包含函数指针，定义了多队列 I/O 调度器请求队列的行为。'
 - en: '`struct gendisk *disk`: This field points to the `gendisk` structure associated
     with the request queue. `gendisk` represents a generic disk device.'
+  id: totrans-161
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`struct gendisk *disk`：此字段指向与请求队列关联的`gendisk`结构。`gendisk`表示一个通用的磁盘设备。'
 - en: Phew! There are too many of them. Let’s summarize the role of each structure
     and see how they all work together.
+  id: totrans-162
   prefs: []
   type: TYPE_NORMAL
+  zh: 哇！这些字段太多了。让我们总结一下每个结构的作用，看看它们是如何协同工作的。
 - en: The journey of an I/O request in the block layer
+  id: totrans-163
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: I/O 请求在块层的旅程
 - en: 'The following table provides a concise overview of the structures that were
     covered in the previous section:'
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下表格简明地概述了上一节中介绍的结构：
 - en: '| **Structure** | **Representation of** | **Description** |'
+  id: totrans-165
   prefs: []
   type: TYPE_TB
+  zh: '| **结构** | **表示的内容** | **描述** |'
 - en: '| `gendisk` | Physical disk | This is used to represent the physical device
     as a whole and contains information such as the disk’s capacity and geometry |'
+  id: totrans-166
   prefs: []
   type: TYPE_TB
+  zh: '| `gendisk` | 物理磁盘 | 用于表示物理设备的整体，包含诸如磁盘容量和几何结构等信息 |'
 - en: '| `block_device` | Block device | This represents a specific instance of a
     device and contains information such as the major and minor numbers, partitions,
     and the queue to handle I/O requests |'
+  id: totrans-167
   prefs: []
   type: TYPE_TB
+  zh: '| `block_device` | 块设备 | 表示设备的特定实例，包含诸如主次设备号、分区信息和处理 I/O 请求的队列等信息 |'
 - en: '| `buffer_head` | Block of data in memory | This is used to track the data
     that is read from or written to a block device in memory |'
+  id: totrans-168
   prefs: []
   type: TYPE_TB
+  zh: '| `buffer_head` | 内存中的数据块 | 用于跟踪从块设备读取或写入到内存的数据 |'
 - en: '| `request` | I/O request | This includes information such as the type of I/O
     operation and the starting block number |'
+  id: totrans-169
   prefs: []
   type: TYPE_TB
+  zh: '| `request` | I/O 请求 | 这包括诸如 I/O 操作类型和起始块号等信息 |'
 - en: '| `request_queue` | Queue of I/O requests | This contains information about
     the current state of the queue, such as the number of requests waiting to be processed
     |'
+  id: totrans-170
   prefs: []
   type: TYPE_TB
+  zh: '| `request_queue` | I/O 请求队列 | 该队列包含有关当前状态的信息，例如等待处理的请求数量 |'
 - en: '| `bio` | Block I/O | This is a higher-level I/O request and can include multiple
     request structures |'
+  id: totrans-171
   prefs: []
   type: TYPE_TB
+  zh: '| `bio` | 块 I/O | 这是一个更高层次的 I/O 请求，可以包含多个请求结构 |'
 - en: '| `bio_vec` | Scatter-gather list of memory buffers | This is used as a part
     of the bio structure and describes an individual data buffer |'
+  id: totrans-172
   prefs: []
   type: TYPE_TB
+  zh: '| `bio_vec` | 内存缓冲区的散布-聚集列表 | 作为 `bio` 结构的一部分，用于描述一个单独的数据缓冲区 |'
 - en: Table 4.1 – Summary of major block layer structures
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 表 4.1 – 主要块层结构总结
 - en: 'Let’s take a look at the relationship between these structures when a process
     issues an I/O request:'
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看看这些结构之间的关系，当一个进程发出 I/O 请求时：
 - en: When an application writes data in a buffer in its address space, the block
     layer creates a `buffer_head` structure to represent this data.
+  id: totrans-175
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 当应用程序在其地址空间的缓冲区中写入数据时，块层创建一个 `buffer_head` 结构来表示这些数据。
 - en: The block layer constructs a `bio` structure to represent the block I/O request
     and maps the `buffer_head` structure to the `bio_vec` structure. For each `bio`,
     the block layer creates one or more `bio_vec` structures to represent the data
     being read from or written to.
+  id: totrans-176
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 块层构建一个 `bio` 结构来表示块 I/O 请求，并将 `buffer_head` 结构映射到 `bio_vec` 结构。对于每个 `bio`，块层创建一个或多个
+    `bio_vec` 结构来表示读取或写入的数据。
 - en: The `bio` structure is then added to the `request_queue` structure for the intended
     block device through the `request` structure.
+  id: totrans-177
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，`bio` 结构通过 `request` 结构添加到目标块设备的 `request_queue` 结构中。
 - en: The device driver for that device, which is registered through `register_blkdev`,
     dequeues the `bio` structure and schedules it for processing.
+  id: totrans-178
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 该设备的设备驱动程序通过 `register_blkdev` 注册后，将从 `bio` 结构队列中取出，并安排进行处理。
 - en: '`bio` is then split into one or more `request` structures based on the block
     size of the device.'
+  id: totrans-179
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，`bio` 根据设备的块大小被拆分为一个或多个 `request` 结构。
 - en: Each `request` object is then added to the `request_queue` structure of the
     corresponding device driver for processing.
+  id: totrans-180
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 每个 `request` 对象随后被添加到相应设备驱动程序的 `request_queue` 结构中进行处理。
 - en: After processing the request, the device driver writes the data to the physical
     storage.
+  id: totrans-181
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在处理请求后，设备驱动程序将数据写入物理存储。
 - en: Once the I/O request has been completed, the device driver notifies the block
     layer.
+  id: totrans-182
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 一旦 I/O 请求完成，设备驱动程序会通知块层。
 - en: The block layer then updates the buffer cache and the associated data structures.
     It marks the request structure as completed and notifies any waiting processes
     that the I/O operation has been completed.
+  id: totrans-183
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，块层更新缓冲区缓存和相关的数据结构。它将请求结构标记为已完成，并通知任何等待的进程，I/O 操作已经完成。
 - en: The corresponding `buffer_head` structures are updated to reflect the current
     state of the data on the block device.
+  id: totrans-184
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 相应的 `buffer_head` 结构被更新，以反映块设备上数据的当前状态。
 - en: The block layer, with its intricate design, makes use of some complex structures
     to work with block devices. We covered some major structures to help you understand
     how things work under the hood. Each structure defines a ton of fields in its
     definition; we’ve tried to highlight some to get a gist of things.
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 块层通过其复杂的设计，使用一些复杂的结构来与块设备进行交互。我们介绍了一些主要结构，以帮助你理解系统内部如何运作。每个结构定义了大量的字段；我们尝试突出一些要点以帮助理解。
 - en: It's important to note that the request queues in older kernels were single-threaded
     and were not able to exploit the capabilities of modern hardware. The Linux kernel
     added multi-queue support in version `3.13`. The framework for implementing multi-queue
     support is known as `blk-mq`. We’re going to cover the multi-queue framework in
     the next chapter.
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
+  zh: 需要注意的是，旧版内核中的请求队列是单线程的，无法充分利用现代硬件的能力。Linux内核在版本`3.13`中增加了多队列支持。实现多队列支持的框架被称为`blk-mq`。我们将在下一章中详细讨论多队列框架。
 - en: Summary
+  id: totrans-187
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: The first part of this book, which included *Chapters 1*, *2*, and *3*, dealt
     with VFS and filesystems. The second part of this book, which constitutes *Chapters
     4*, *5*, and *6*, is all about the block layer. This chapter introduced the role
@@ -1030,10 +1443,14 @@
     performance is a major concern when working with block devices. The Linux kernel
     provides a complex ecosystem of structures in the block layer for working with
     block devices.
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 本书的第一部分，包括*第1章*、*第2章*和*第3章*，主要讲解了VFS和文件系统。第二部分，包括*第4章*、*第5章*和*第6章*，则全都关于块层。本章介绍了块层在Linux内核中的角色。`/dev`目录。与字符设备相比，操作块设备要复杂得多，因为字符设备只能按顺序工作。字符设备只有一个当前的位置。管理块设备对内核来说是一个更复杂的任务，因为块设备必须能够移动到任何位置，以提供对数据的随机访问。因此，性能在操作块设备时是一个主要的关注点。Linux内核在块层提供了一个复杂的结构生态系统，用于操作块设备。
 - en: In the next chapter, we will build on our understanding and see how an I/O request
     is served in the block layer. We’ll also cover the device mapper and multi-queue
     frameworks in the kernel.
+  id: totrans-189
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将基于我们的理解，看到I/O请求如何在块层中得到处理。我们还将讲解设备映射器和内核中的多队列框架。

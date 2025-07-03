@@ -1,18 +1,22 @@
 - en: '5'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
 - en: Understanding the Block Layer, Multi-Queue, and Device Mapper
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
 - en: “I feel the need... the need for speed.” – Maverick in Top Gun
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
 - en: '[*Chapter 4*](B19430_04.xhtml#_idTextAnchor072) introduced us to the role of
     the block layer in the kernel. We were able to see what constitutes a block device
     and explored the major data structures in the block layer. This chapter will build
     on that knowledge as we continue understanding the block layer.'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
 - en: 'This chapter will introduce you to two major concepts: the multi-queue block
@@ -28,6 +32,7 @@
     faced by the block layer when working with modern high-performing storage drives
     such as NVMe and SSDs. We’ll also explain how the single-request queue model impacts
     the performance of multicore systems.'
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
 - en: The second major topic of this chapter will be the mapping framework in the
@@ -37,28 +42,35 @@
     serves as the foundation for implementing various technologies, such as logical
     volume management, RAID, encryption, and thin provisioning. In the end, we’ll
     also briefly discuss caching mechanisms in the block layer.
+  id: totrans-5
   prefs: []
   type: TYPE_NORMAL
 - en: 'We will discuss the following main topics:'
+  id: totrans-6
   prefs: []
   type: TYPE_NORMAL
 - en: The problem with single-request queues
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The multi-queue block I/O mechanism
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The device mapper framework
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Multi-tier caching in the block layer
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Technical requirements
+  id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -66,6 +78,7 @@
     topics discussed in this chapter require a basic understanding of modern processors
     and storage technologies. Any practical experience in Linux storage administration
     will greatly enhance your understanding of certain aspects.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
 - en: The commands and examples presented in this chapter are distribution-agnostic
@@ -73,9 +86,11 @@
     Fedora, and others. There are quite a few references to the kernel source code.
     If you want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
     The code segments referred to in this chapter and book are from kernel `5.19.9`.
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
 - en: Looking at problems with single-request queues
+  id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -92,10 +107,12 @@
     and the advancement in drive technologies. With these changes, the bottleneck
     in the storage stack shifted from the physical hardware to the software layers
     in the kernel.'
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
 - en: 'In the legacy design, the kernel’s block layer handled I/O requests in one
     of the following ways:'
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
 - en: The block layer maintained a single-request queue, a linked list structure,
@@ -103,6 +120,7 @@
     The block layer implemented techniques such as merging and coalescing (which we’ll
     explain in the next chapter) on these requests before handing them over to the
     driver.
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -110,11 +128,13 @@
     on the device driver. This meant that all the processing done in the request queue
     would be performed by the driver. This usually resulted in a negative performance
     impact.
+  id: totrans-18
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'Even with the use of modern solid-state drives, this design suffered from major
     limitations. This approach further results in a three-fold problem:'
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
 - en: The request queue containing I/O requests didn’t scale to handle the needs of
@@ -127,6 +147,7 @@
     of time. All CPU cores remain in a state of contention for the request queue lock.
     It’s not too difficult to see that this design made the request queue the single
     point of contention on multi-core systems.
+  id: totrans-20
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -143,11 +164,13 @@
     the bottom line is that the single-queue design does not inherently provide mechanisms
     to synchronize the caches of different CPU cores. This increases the overall workload
     required to ensure cache coherency.
+  id: totrans-21
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: This frequent switching of request queue locks between cores results in an increased
     number of interrupts.
+  id: totrans-22
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -157,20 +180,25 @@
     A significant number of CPU cycles are wasted due to the spinning and contention
     involved in acquiring this lock. On multi-socket systems, this greatly reduces
     the number of IOPs.
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
 - en: '*Figure 5**.1* highlights the limitations of using the single queue model:'
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 5.1 – The single-request queue model](img/B19430_05_01.jpg)'
+  id: totrans-25
   prefs: []
   type: TYPE_IMG
 - en: Figure 5.1 – The single-request queue model
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
 - en: From *Figure 5**.1*, it becomes abundantly clear that regardless of the CPU
     core count and the type of underlying physical storage, the single queue block
     layer’s design could not scale up to match their performance requirements.
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
 - en: In the past decade or so, enterprise storage environments have shifted to solid-state
@@ -181,13 +209,16 @@
     traditional techniques that were used in the block layer for working with HDDs
     became obsolete. To fully leverage the enhanced capabilities of SSDs, the design
     of the block layer needed to mature accordingly.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
 - en: In the next section, we’ll see how the block layer has evolved to meet this
     challenge.
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
 - en: Understanding the multi-queue block I/O framework
+  id: totrans-30
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -199,37 +230,52 @@
     This approach was used for several years until the network hardware evolved to
     support multiple queues. Hence, for devices with multiple queues, this approach
     became obsolete.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux 中的存储层次结构与 Linux 中的网络堆栈有些相似。两者都是多层次的，并严格定义了堆栈中每一层的角色。设备驱动程序和物理接口的参与决定了整体性能。与块层的行为类似，当一个网络包准备好传输时，它被放入一个单一队列中。这种方法使用了好几年，直到网络硬件发展到支持多个队列。因此，对于支持多个队列的设备，这种方法变得过时。
 - en: This problem was pretty similar to the one that was later faced by the block
     layer in the kernel. The network stack in the Linux kernel solved this problem
     a lot earlier than the storage stack. Hence, the kernel’s storage stack took a
     cue from this, which led to the creation of a new framework for the Linux block
     layer, known as the **multi-queue block** I/O queuing mechanism, shortened to
     **blk-mq**.
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个问题与后来内核中的块层面临的问题非常相似。Linux 内核中的网络堆栈比存储堆栈更早解决了这个问题。因此，内核的存储堆栈借鉴了这一点，最终创建了一个新的框架，称为
+    **多队列块** I/O 排队机制，简称 **blk-mq**。
 - en: 'The multi-queue framework solved the limitations in the block layer by isolating
     request queues for every CPU core. *Figure 5**.2* illustrates how this approach
     fixes all three limitations in the single queue framework’s design:'
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 多队列框架通过为每个 CPU 核心隔离请求队列，解决了块层的局限性。*图 5.2* 展示了这种方法如何修复单队列框架设计中的三个局限：
 - en: '![Figure 5.2 – The multi-queue framework](img/B19430_05_02.jpg)'
+  id: totrans-34
   prefs: []
   type: TYPE_IMG
+  zh: '![图 5.2 – 多队列框架](img/B19430_05_02.jpg)'
 - en: Figure 5.2 – The multi-queue framework
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 5.2 – 多队列框架
 - en: By using this approach, a CPU core can focus on executing its threads without
     worrying about the threads running on other cores. This approach resolves the
     limitations caused by the shared global lock and also minimizes the usage of interrupts
     and the need for cache coherency.
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过使用这种方法，CPU 核心可以专注于执行其线程，而无需担心其他核心上的线程。这种方法解决了共享全局锁所带来的局限性，并且最小化了中断的使用以及对缓存一致性的需求。
 - en: 'The `blk-mq` framework implements the following two-level queue design for
     handling I/O requests:'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: '`blk-mq` 框架实现了以下两级队列设计，用于处理 I/O 请求：'
 - en: '`bio` structures. A block device will have multiple software I/O submission
     queues, usually one per CPU core, and each queue will have a lock. A system with
     *M* sockets and *N* cores can have a minimum of *M* and a maximum of *N* queues.
@@ -239,13 +285,19 @@
     them. However, this reordering doesn’t matter as SSDs and NVMe drives don’t care
     if an I/O request is random or sequential. This scheduling happens only between
     requests in the same queue, so no locking mechanism is required.'
+  id: totrans-38
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`bio` 结构。一个块设备将有多个软件 I/O 提交队列，通常每个 CPU 核心一个队列，每个队列会有一个锁。一个拥有 *M* 个插槽和 *N* 个核心的系统，可以至少有
+    *M* 个队列，最多有 *N* 个队列。每个核心在其队列中提交 I/O 请求，并且不会与其他核心交互。这些队列最终会汇聚成一个设备驱动程序的单一队列。I/O
+    调度程序可以在暂存队列中的请求上进行操作，以重新排序或合并它们。然而，这种重新排序并不重要，因为 SSD 和 NVMe 驱动并不在乎 I/O 请求是随机的还是顺序的。这个调度仅发生在同一队列中的请求之间，因此不需要锁机制。'
 - en: '`blk-mq` will send the request directly to the hardware queue.'
+  id: totrans-39
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`blk-mq` 会将请求直接发送到硬件队列。'
 - en: The multi-queue API makes use of tags to indicate which request has been completed.
     Every request is identified by a tag, which is an integer value ranging from zero
     to the size of the dispatch queue. The block layer generates a tag, which is subsequently
@@ -254,20 +306,24 @@
     block layer to signal the completion of the operation. The following section highlights
     some of the major data structures that play a vital role in the implementation
     of the multi-queue block layer.
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
 - en: Looking at data structures
+  id: totrans-41
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: 'Here are some of the primary data structures that are essential to implement
     the multi-queue block layer:'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
 - en: The first relevant data structure that’s used by the multi-queue framework is
     the `blk_mq_register_dev` structure, which contains all the necessary information
     required when registering a new block device to the block layer. It contains various
     fields that provide details about the driver’s capabilities and requirements.
+  id: totrans-43
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -275,36 +331,44 @@
     layer to access the device driver’s specific routines. This structure serves as
     an interface for communication between the driver and the `blk-mq` layer, enabling
     the driver to integrate seamlessly into the multi-queue processing framework.
+  id: totrans-44
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The software staging queues are represented by the `blk_mq_ctx` structure. This
     structure is allocated on a per-CPU core basis.
+  id: totrans-45
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The corresponding structure for hardware dispatch queues is defined by the `blk_mq_hw_ctx`
     struct. This represents the hardware context with which a request queue is associated.
+  id: totrans-46
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The task of mapping software staging queues to hardware dispatch queues is performed
     by the `blk_mq_queue_map` structure.
+  id: totrans-47
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: The requests are created and sent to the block device through the `blk_mq_submit_bio`
     function.
+  id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'The following figure paints a picture of how these functions are interconnected:'
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 5.3 – Interplay of major structures in the multi-queue framework](img/B19430_05_03.jpg)'
+  id: totrans-50
   prefs: []
   type: TYPE_IMG
 - en: Figure 5.3 – Interplay of major structures in the multi-queue framework
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
 - en: To summarize, the multi-queue interface solves the limitations faced by the
@@ -319,13 +383,16 @@
     The multi-queue framework resolves the limitations of the block layer by segregating
     request queues for each CPU core. This framework leverages a dual queue design
     that is comprised of software staging queues and hardware dispatch queues.
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
 - en: With that, we have analyzed the multi-queue framework in the block layer. We
     will now shift our focus and explore the device mapper framework.
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
 - en: Looking at the device mapper framework
+  id: totrans-54
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -345,6 +412,7 @@
     provides a mechanism to modify bio structures in transit and map them to block
     devices. The use of the device mapper framework lays the foundation for implementing
     features such as logical volume management.
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
 - en: The device mapper provides a generic way to create virtual layers of block devices
@@ -354,6 +422,7 @@
     work, such as defining physical-to-logical mappings, is contained in the user
     space, while the functions that implement the policies to establish these mappings
     lie in the kernel space.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
 - en: 'The device mapper’s application interface is the `ioctl` system call. This
@@ -361,49 +430,62 @@
     devices that employ the device mapper framework are managed via the `dmsetup`
     command and the `libdevmapper` library, which implement the respective user interface,
     as depicted in the following figure:'
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 5.4 – Major components of the device mapper framework](img/B19430_05_04.jpg)'
+  id: totrans-58
   prefs: []
   type: TYPE_IMG
 - en: Figure 5.4 – Major components of the device mapper framework
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
 - en: 'If we run `strace` on the `dmsetup` command, we will see that it makes use
     of the `libdevmapper` library and the `ioctl` interface:'
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE0]'
+  id: totrans-61
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Applications that establish mapped devices, such as LVM, communicate with the
     device mapper framework via the `libdevmapper` library. The `libdevmapper` library
     utilizes `ioctl` commands to transmit data to the `/dev/mapper/control` device.
     The `/dev/mapper/control` device is a specialized device that functions as a control
     mechanism for the device mapper framework.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
 - en: 'From *Figure 5**.4*, we can see that the device mapper framework in kernel
     space implements a modular architecture for storage management. The device mapper
     framework’s functionality consists of the following three major components:'
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
 - en: Mapped device
+  id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Mapping table
+  id: totrans-65
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Target device
+  id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: Let’s briefly look at their respective roles.
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
 - en: Looking at the mapped device
+  id: totrans-68
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
@@ -412,16 +494,21 @@
     mapper driver and usually exists in the `/dev/mapper` directory. Logical volumes
     in LVM are examples of mapped devices. The mapped device is defined in `drivers/md/dm-core.h`.
     If we look at this definition, we will come across a familiar structure:'
+  id: totrans-69
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE1]'
+  id: totrans-70
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: The `gendisk` structure, as explained in [*Chapter 4*](B19430_04.xhtml#_idTextAnchor072),
     represents the notion of a physical hard disk in the kernel.
+  id: totrans-71
   prefs: []
   type: TYPE_NORMAL
 - en: Looking at the mapping table
+  id: totrans-72
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
@@ -431,17 +518,22 @@
     be mapped, using a device table mapping that is supported by the device mapper
     framework. The mapping table defined in `drivers/md/dm-core.h` contains a pointer
     to the mapped device:'
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE2]'
+  id: totrans-74
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: This structure allows mappings to be created, modified, and deleted in the device
     mapper stack. Details about the mapping table can be viewed by running the `dmsetup`
     command.
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
 - en: Looking at the target device
+  id: totrans-76
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
@@ -452,11 +544,14 @@
     Data is passed from the virtual block device to the physical block device through
     these mappings. The target device structure is defined in `include/linux/device-mapper.h`.
     The unit that’s used for mapping is a sector:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE3]'
+  id: totrans-78
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'The device mapper can be a bit confusing to understand, so let’s illustrate
     a simple use case of the building blocks that we explained previously. We’re going
     to use the *linear* target, which lays the foundation of logical volume management.
@@ -473,16 +568,21 @@
     as `8:48`. The rest of the input fields will be explained shortly. Once you’ve
     entered the required data, use *Ctrl* + *D* to exit. The following example will
     create a linear target of 5 GiB:'
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE4]'
+  id: totrans-80
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'Here’s what we’ve done:'
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
 - en: We have created a logical device called `dm_disk` by using specific portions
     or ranges from two physical disks, `sdc` and `sdd`.
+  id: totrans-82
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
@@ -490,6 +590,7 @@
     0`, means that the first `2048000 sectors (0-2047999)` of `dm_disk` will use the
     sectors of `/dev/sdc`, starting from sector 0\. Therefore, the first `2048000
     (0-2047999)` sectors of `sdc` will be used by `dm_disk`.'
+  id: totrans-83
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
@@ -499,15 +600,18 @@
     sector number `1024` onward. If the disks do not contain any data, we can use
     any sector number here. If existing data is present, then the sectors should be
     allocated from an unused range.'
+  id: totrans-84
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: The total number of sectors in `dm_disk` will be `8192000 + 2048000 =` `10240000`.
+  id: totrans-85
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
 - en: With a sector size of 512 bytes, the size of `dm_disk` will be `(8192000 x 512)
     + (2048000 x 512) ≈` `5 GiB`.
+  id: totrans-86
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
@@ -515,49 +619,60 @@
     `2048000-10239999` sector numbers are mapped from `sdd`. The example we’ve discussed
     is a simple one, but it should be evident that we can map a logical device to
     any number of drives and implement different concepts.
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
 - en: 'The following figure summarizes what we explained earlier:'
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
 - en: '![Figure 5.5 – Linear target mapping in the device mapper framework](img/B19430_05_05.jpg)'
+  id: totrans-89
   prefs: []
   type: TYPE_IMG
 - en: Figure 5.5 – Linear target mapping in the device mapper framework
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
 - en: 'The device mapper framework supports a wide variety of targets. Some of them
     are explained here:'
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
 - en: '**Linear**: As we saw earlier, a linear mapping target can map a continuous
     range of blocks to another block device. This is the basic building block of logical
     volume management.'
+  id: totrans-92
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Raid**: The raid target is used to implement the concept of software raid.
     It is capable of supporting different raid types.'
+  id: totrans-93
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Crypt**: The crypt target is used to encrypt data on block devices.'
+  id: totrans-94
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '`(raid 0)` across multiple underlying disks.'
+  id: totrans-95
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Multipath**: The multipath mapping target is utilized in storage environments
     where a host has multiple paths to a storage device. It allows a multipath device
     to be mapped.'
+  id: totrans-96
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Thin**: The thin target is used for thin provisioning – that is, creating
     devices larger than the size of the underlying physical device. The physical space
     is allocated only when written to.'
+  id: totrans-97
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -566,13 +681,16 @@
     and partitioning. To the common user, LVM is probably one of the more well-known
     features of Linux. It should not be too difficult to see how the previously mentioned
     example can be applied to LVM or any other target for that matter.
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
 - en: 'As most of you should be aware, LVM is divided into three basic entities:'
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
 - en: '**Physical volume**: The physical volume is at the lowest layer. The underlying
     physical disk or partition is a physical volume.'
+  id: totrans-100
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -580,6 +698,7 @@
     volume into a sequence of chunks, called physical extents. A physical extent represents
     a contiguous range of blocks. It is the smallest unit of disk space that can be
     individually managed by LVM. By default, an extent size of 4 MB is used.'
+  id: totrans-101
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -589,13 +708,16 @@
     is a direct correspondence between physical and logical extents. Consequently,
     a logical volume can be viewed as a mapping that’s established by LVM that associates
     logical extents with physical ones. This can be visualized in the following figure:'
+  id: totrans-102
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '![Figure 5.6 – LVM architecture](img/B19430_05_06.jpg)'
+  id: totrans-103
   prefs: []
   type: TYPE_IMG
 - en: Figure 5.6 – LVM architecture
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
 - en: The logical volumes, as we all know, can be treated like any regular block device,
@@ -606,6 +728,7 @@
     and logical extents. Let’s say we were to use the `dm-raid` target and configure
     `RAID-1` to do mirroring between multiple block devices. In that case, multiple
     physical extents will map to a single logical extent.
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let’s wrap up our discussion of the device mapper framework by mapping some
@@ -622,9 +745,11 @@
     easily resize filesystems based on their space requirements, providing them with
     a high level of flexibility. Before concluding this chapter, let’s briefly touch
     on the caching mechanisms that are employed by the block layer.'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
 - en: Looking at multi-tier caching mechanisms in the block layer
+  id: totrans-107
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -635,6 +760,7 @@
     is the default behavior of the kernel and it plays a central role in improving
     the performance of block devices. This also positively contributes toward improving
     the system’s overall performance.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
 - en: Although solid state and NVMe drives are now commonplace in most storage infrastructures,
@@ -648,6 +774,7 @@
     is to place *hot* or frequently used data on the fastest physical medium and move
     *cold* data to slower mechanical drives. Most enterprise storage arrays offer
     built-in storage tiering features that implement this caching functionality.
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
 - en: The Linux kernel is also capable of implementing such a cache solution. The
@@ -659,42 +786,51 @@
     some of its data to faster drives, such as SSDs. This approach is a bit contrary
     to the kernel’s default caching mechanism, but it can be of significant use in
     some cases.
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
 - en: 'Most cache mechanisms offer the following operational modes:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
 - en: '**Write-back**: This mode caches newly written data but does not write it immediately
     to the target device.'
+  id: totrans-112
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Write-through**: In this mode, new data is written to the target while still
     retaining it in the cache for subsequent reads.'
+  id: totrans-113
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Write-around**: This mode implements read-only caching. Data written to the
     device goes directly to the slower mechanical drive and is not written to the
     fast SSD.'
+  id: totrans-114
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Pass-through**: To enable pass-through mode, the cache needs to be clean.
     Reading is served from the origin device that bypasses the cache. Writing is forwarded
     to the origin device and *invalidates* the cache block.'
+  id: totrans-115
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: 'The `dm-cache` target supports all the previously mentioned modes, except write-around.
     The required functionality is implemented through the following three devices:'
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
 - en: '**Origin device**: This will always be the slow primary storage device'
+  id: totrans-117
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: '**Cache device**: This is a high-performing drive, usually an SSD'
+  id: totrans-118
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -702,6 +838,7 @@
     be saved on the fast cache device, this device is used for keeping track of all
     the metadata information, such as which disk blocks are in the cache, which blocks
     are dirty, and so on'
+  id: totrans-119
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -711,6 +848,7 @@
     or write-through caching. The thought process for not caching reads is that read
     data should already be in the page cache. The write operations are cached on the
     faster storage device and then migrated to the slower disk in the background.
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
 - en: Another notable solution that has gained widespread popularity is `bcache`.
@@ -721,9 +859,11 @@
     `bcache` detects sequential operations and skips them. The writers for `bcache`
     compare it to the L2 `bcache` project has also led to the development of the *Bcachefs*
     filesystem.
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
 - en: Summary
+  id: totrans-122
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -736,6 +876,7 @@
     how the multi-queue framework addresses the limitations of the single-request
     model and improves the performance of modern storage drives, which are capable
     of supporting multiple hardware queues.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
 - en: We also got a chance to look at the device mapper framework in the kernel. The
@@ -744,9 +885,11 @@
     encryption, and raid. The most well known of these is logical volume management.
     We saw how the device mapper can implement these powerful features through mapping
     techniques.
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
 - en: In the next chapter, we’ll conclude our discussion of the block layer after
     exploring the different I/O schedulers in the kernel.
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
