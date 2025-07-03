@@ -1,0 +1,1310 @@
+- en: Managing Users on Linux
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在 Linux 上管理用户
+- en: No Linux server is complete without a method for users to access it. Whether
+    administrators or end users, and whether using local or centralized credentials,
+    Linux servers need a mechanism for users (and even tools such as Ansible!) to
+    access them.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有用户访问方法的 Linux 服务器是不完整的。无论是管理员还是终端用户，使用本地凭据还是集中式凭据，Linux 服务器都需要一种机制来让用户（甚至像
+    Ansible 这样的工具！）访问它们。
+- en: User management is, like all good server configuration and maintenance activities,
+    an ongoing job. Credentials need rotating on a regular basis, to ensure the security
+    and integrity of systems. Employees come and go, meaning access details must be
+    updated accordingly. Indeed, access management can, in a busy organization, be
+    a full-time job in itself!
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户管理与所有良好的服务器配置和维护活动一样，是一项持续性的工作。为了确保系统的安全性和完整性，凭据需要定期更换。员工的进出意味着访问详情需要相应更新。实际上，在忙碌的组织中，访问管理可能本身就是一份全职工作！
+- en: In this chapter, we will explore, through hands-on examples, how to automate
+    your user and access management through Ansible, in a way that is consistent with
+    our **Standard Operating Environment** (**SOE**) model.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将通过实际示例探讨如何通过 Ansible 自动化用户和访问管理，并确保与我们的**标准操作环境**（**SOE**）模型一致。
+- en: 'The following topics will be covered in this chapter:'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章将涵盖以下主题：
+- en: Performing user account management tasks
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行用户账户管理任务
+- en: Centralizing user account management with **Lightweight Directory Access Protocol**
+    (**LDAP**)
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用**轻量级目录访问协议**（**LDAP**）集中管理用户账户
+- en: Enforcing and auditing configuration
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 强制执行和审计配置
+- en: Technical requirements
+  id: totrans-8
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 技术要求
+- en: 'This chapter includes examples, based on the following technologies:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章包含基于以下技术的示例：
+- en: Ubuntu Server 18.04 LTS
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Ubuntu Server 18.04 LTS
+- en: CentOS 7.6
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CentOS 7.6
+- en: Ansible 2.8
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Ansible 2.8
+- en: To run through these examples, you will need access to two servers or virtual
+    machines running one each of the operating systems just listed, and also, Ansible.
+    Note that the examples given in this chapter may be destructive in nature (for
+    example, they add and remove user accounts, and make changes to server configuration)
+    and, if run as is, are only intended to be run in an isolated test environment.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了完成这些示例，你需要访问两台服务器或虚拟机，分别运行上述列出的操作系统之一，并且需要安装 Ansible。请注意，本章中的示例可能会具有破坏性（例如，它们会添加或删除用户账户，并更改服务器配置），如果按照原样运行，建议仅在隔离的测试环境中执行。
+- en: Once you are satisfied that you have a safe environment in which to operate,
+    let's get started on looking at the installation of new software packages with
+    Ansible.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你确认自己有一个安全的环境来进行操作，我们就开始使用 Ansible 安装新软件包吧。
+- en: All example code discussed in this chapter is available from GitHub, at the
+    following URL: [https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter10](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter10).
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章讨论的所有示例代码都可以从 GitHub 上获取，网址为：[https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter10](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter10)。
+- en: Performing user account management tasks
+  id: totrans-16
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 执行用户账户管理任务
+- en: At the most fundamental level, every Linux server in your environment will require
+    some degree of access for users. In an enterprise setting where there could be
+    hundreds, if not thousands, of servers, a centralized user management system such
+    as LDAP or Active Directory would be an ideal solution as, taking the examples
+    of a user leaving or changing their password, they can do this in one place, and
+    it is applied across all servers. We will explore this aspect of Enterprise Linux
+    management and automation in the next section, *Centralizing user account management
+    with LDAP*.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从最基本的层面来说，你环境中的每一台 Linux 服务器都需要为用户提供某种程度的访问权限。在一个可能有数百台甚至数千台服务器的企业环境中，像 LDAP
+    或 Active Directory 这样的集中式用户管理系统将是理想的解决方案。举个例子，当用户离职或更改密码时，他们只需在一个地方进行操作，系统就会自动应用到所有服务器上。我们将在下一节*使用
+    LDAP 集中管理用户账户*中探讨企业 Linux 管理和自动化的这一方面。
+- en: For now, though, let us concern ourselves with local account management—that
+    is, accounts that are created on each and every Linux server where access is required.
+    Even when a centralized solution such as LDAP is present, local accounts are still
+    a requirement—if for no other purpose than to serve as an emergency access solution,
+    should the directory service fail.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，让我们专注于本地账户管理——也就是说，在每台需要访问的Linux服务器上创建的账户。即使存在像LDAP这样的集中式解决方案，本地账户依然是必要的——至少它们作为紧急访问解决方案，在目录服务故障时仍然有其存在的价值。
+- en: Note that, as with all Ansible examples in this book, they can be run equally
+    well on 1, 100, or even 1,000 servers. In fact, the use of Ansible reduces the
+    need for a centralized user management system, as user account changes can be
+    pushed out across the entire estate of servers with ease. However, there are good
+    reasons not to rely solely on this—for example, one server being down for maintenance
+    during an Ansible playbook run means it will not receive the account changes being
+    made. In the worst-case scenario, this server could then pose a security risk
+    once it is brought back into service.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，正如本书中的所有Ansible示例一样，它们可以在1台、100台甚至1000台服务器上同样运行。事实上，使用Ansible减少了对集中式用户管理系统的依赖，因为用户账户的更改可以轻松地推送到整个服务器集群。然而，也有充分的理由不完全依赖于此——例如，在Ansible
+    playbook运行时，如果一台服务器因维护而停机，那么它将无法接收到正在进行的账户更改。在最坏的情况下，这台服务器重新投入使用时，可能会带来安全风险。
+- en: Starting in the next section, we will explore the ways in which Ansible can
+    assist with your local account management.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从下一节开始，我们将探讨Ansible如何帮助你进行本地账户管理。
+- en: Adding and modifying users with Ansible
+  id: totrans-21
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用Ansible添加和修改用户
+- en: Whether you are configuring a brand new server for the first time after it has
+    been built or making changes when a new employee joins the company, adding user
+    accounts to a server is a commonly required task. Thankfully, Ansible has a module
+    called `user`, which is designed to perform user account management tasks, and
+    we shall proceed to use exactly this.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论你是在第一次配置新建的服务器，还是在新员工加入公司时进行更改，向服务器添加用户账户都是常见的任务。幸运的是，Ansible有一个名为`user`的模块，专门用于执行用户账户管理任务，我们将继续使用这个模块。
+- en: Throughout our previous examples, we have been very careful to highlight the
+    differences between platforms such as Ubuntu and CentOS, and user account management
+    requires a little consideration here too.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在之前的示例中，我们非常小心地强调了Ubuntu和CentOS等平台之间的差异，用户账户管理在这里也需要一些考虑。
+- en: 'Take, for example, the following shell command (which we will later automate
+    in Ansible):'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以以下Shell命令为例（我们稍后将在Ansible中进行自动化）：
+- en: '[PRE0]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'This command could be run on either CentOS 7 or Ubuntu Server 18.04, and would
+    yield the same results, namely:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该命令可以在CentOS 7或Ubuntu Server 18.04上运行，并且会产生相同的结果，即：
+- en: The user account `johndoe` would be added with the next free **user identification
+    number** (**UID**) for users.
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户账户`johndoe`将被分配下一个空闲的**用户标识号**（**UID**）。
+- en: The account comment would be set to `John Doe`.
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 账户注释将设置为`John Doe`。
+- en: The shell would be set to `/bin/bash` .
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Shell将被设置为`/bin/bash`。
+- en: Indeed, you could run this command on just about any Linux system, and it would
+    work. The differences start, however, when you consider groups, especially built-in
+    ones. For example, if you wanted this account to be able to use sudo for root
+    access (that is, `johndoe` is a system administrator), you would want to put this
+    account into the `wheel` group on CentOS 7\. On Ubuntu Server, however, there
+    is no wheel group, and attempting to put the user into such a group would result
+    in an error. Instead, on Ubuntu, this user would go into the `sudo` group.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实上，你几乎可以在任何Linux系统上运行这个命令，它都会正常工作。然而，当你考虑到组时，差异就开始显现了，尤其是内置组。例如，如果你希望该账户能够使用sudo进行root访问（即，`johndoe`是系统管理员），你会想要将该账户加入CentOS
+    7中的`wheel`组。然而，在Ubuntu Server中，并没有`wheel`组，尝试将用户加入这个组会导致错误。相反，在Ubuntu中，这个用户会加入`sudo`组。
+- en: It is subtle differences like this that could trip you up when it comes to automated
+    user account management across different Linux distributions—however, as long
+    as you remain mindful of such things, you can easily create Ansible playbooks
+    or roles, to manage your Linux users with ease.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正是这种细微的差别，可能会在自动化用户账户管理时，使你在不同的Linux发行版之间产生问题——然而，只要你注意到这些细节，就能轻松创建Ansible playbook或角色，轻松管理你的Linux用户。
+- en: 'Let''s build on this example, to instead create the `johndoe` user in an Ansible
+    role, such that access for them can be rolled out on all Linux servers. The code
+    for `roles/addusers/tasks/main.yml` to perform the same function as the shell
+    of the preceding command should look something like the following:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们基于这个示例，改为在Ansible角色中创建`johndoe`用户，以便在所有Linux服务器上进行访问控制。以下是`roles/addusers/tasks/main.yml`中的代码，它实现了与前述命令外壳相同的功能：
+- en: '[PRE1]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'If we run this role in the usual way, we can see that the user account gets
+    created on the first run, and that no action is taken if we run the playbook a
+    second time. This is denoted in the following screenshot, which shows the preceding
+    role being run twice—the `changed` and `ok` statuses show when a user account
+    is added, and when no action is taken because it already exists respectively:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们以常规方式运行这个角色，我们可以看到用户账户在第一次运行时被创建，如果第二次运行playbook则不会采取任何行动。以下截图演示了前述角色运行两次的情况——`changed`
+    和 `ok` 状态分别表示添加用户账户时的操作，以及因为账户已存在而没有执行任何操作时的状态：
+- en: '![](img/427e80b7-f5c6-4dbc-bd88-65995df713c9.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/427e80b7-f5c6-4dbc-bd88-65995df713c9.png)'
+- en: So far, so good—however, this example is rather skeletal in nature—our user
+    has no password set, no group membership, and no authorized SSH keys. We demonstrated
+    previously that we can run an Ansible role containing the user module more than
+    once and changes will only be made if required, and we can leverage this to our
+    advantage. Let's now expand our example role, to add these things.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，一切顺利——然而，这个示例有些简单——我们的用户没有设置密码、没有加入任何组，也没有授权的SSH密钥。我们之前演示过，可以多次运行包含用户模块的Ansible角色，并且只有在需要时才会进行更改，我们可以利用这一点来我们的优势。现在，让我们扩展我们的示例角色，加入这些内容。
+- en: 'Before we get into our next example, we will demonstrate how to generate a
+    password hash, using Ansible. Here, we will choose the word `secure123`. The `user`
+    module of Ansible is capable of setting and modifying user account passwords,
+    but it does not (for very good reasons) allow you to specify the password in plaintext.
+    Instead, you must create a password hash, to send to the machine being configured.
+    In [Chapter 6](0c3b40ef-5f31-4fd1-b05f-d549444db163.xhtml), *Custom Builds with
+    PXE Booting*, we looked at a way to do this with a small amount of Python code,
+    and you are welcome to reuse this method here. However, you can also make use
+    of Ansible''s vast array of filters, to generate a password hash from a string.
+    Run the following command from the shell:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在进入下一个示例之前，我们将演示如何使用Ansible生成一个密码哈希。在这里，我们将选择单词`secure123`。Ansible的`user`模块能够设置和修改用户账户密码，但由于非常好的原因，它不允许您指定明文密码。相反，您必须创建一个密码哈希，并将其发送到被配置的机器中。在[第六章](0c3b40ef-5f31-4fd1-b05f-d549444db163.xhtml)《使用PXE引导的自定义构建》中，我们介绍了如何通过少量Python代码来完成此操作，您可以在这里重新使用该方法。但是，您也可以利用Ansible丰富的过滤器，直接从字符串生成密码哈希。请在Shell中运行以下命令：
+- en: '[PRE2]'
+  id: totrans-38
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Running this produces a password hash that you can copy and paste into your
+    role, as shown in the following screenshot:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行此命令会生成一个密码哈希值，您可以将其复制并粘贴到您的角色中，如下图所示：
+- en: '![](img/e3ce49b6-a39d-4dac-aabc-1cd62186d762.png)'
+  id: totrans-40
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/e3ce49b6-a39d-4dac-aabc-1cd62186d762.png)'
+- en: 'This is very useful in itself—however, let''s bear something in mind: no password
+    hash is completely secure. Remember that once, MD5 hashes were considered secure,
+    but are now not. Ideally, you should not be storing the hash in plaintext either,
+    and should regenerate it on every system as it contains a unique salt. Luckily,
+    we can use the `password_hash` filter in a role directly to achieve this.'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这本身非常有用——但是，让我们记住一件事：没有任何密码哈希是完全安全的。记住，曾经MD5哈希被认为是安全的，但现在不再安全。理想情况下，您不应将哈希值以明文形式存储，应该在每个系统上重新生成它，因为它包含一个唯一的盐值。幸运的是，我们可以直接在角色中使用`password_hash`过滤器来实现这一点。
+- en: In the following example, we demonstrate how to store the password string in
+    a variable, and then, how to use the `password_hash` filter to generate the hash
+    for the remote system. In a real-world use case, you would replace the plaintext
+    variable file with an Ansible vault file so that at no point is either the original
+    password or hash stored unencrypted.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下示例中，我们演示了如何将密码字符串存储在一个变量中，然后如何使用`password_hash`过滤器为远程系统生成哈希值。在实际使用中，您可以将明文变量文件替换为Ansible
+    vault文件，这样在任何时候都不会存储未加密的原始密码或哈希值。
+- en: 'First of all, let''s create `roles/addusers/vars/main.yml`, and store John
+    Doe''s password in a variable, as follows:'
+  id: totrans-43
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 首先，让我们创建`roles/addusers/vars/main.yml`文件，并将John Doe的密码存储在一个变量中，如下所示：
+- en: '[PRE3]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Next, let''s create an SSH key pair for this user, in the directory `roles/addusers/files/`,
+    by running the following command in that directory:'
+  id: totrans-45
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 接下来，我们在`roles/addusers/files/`目录下为此用户创建一对SSH密钥，方法是在该目录下运行以下命令：
+- en: '[PRE4]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Of course, it is likely in an enterprise setting that the user would generate
+    their own key pair and provide an administrator with the public key for distribution
+    to the systems they will use—however, for our example here, it is easier to demonstrate
+    with a newly generated key pair.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，在企业环境中，用户很可能会生成自己的密钥对，并将公钥提供给管理员以便分发到他们将使用的系统中——然而，在我们的例子中，使用新生成的密钥对更方便进行演示。
+- en: 'Finally, let''s say that `johndoe` is going to administer Ubuntu systems, and
+    so, should be in the `sudo` group. Our resulting role should now look like this:'
+  id: totrans-48
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，假设`johndoe`将负责管理Ubuntu系统，因此，他应该属于`sudo`组。我们最终的角色现在应该是这样的：
+- en: '[PRE5]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Running the code yields `changed` results, as we would expect, and the following
+    screenshot shows the successful addition of the user and their corresponding SSH
+    public key:'
+  id: totrans-50
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行代码后，我们得到了`changed`的结果，正如我们预期的那样，以下截图显示了成功添加用户及其相应的SSH公钥：
+- en: '![](img/bcaecbf1-eaf7-4cbd-a592-6d20aab28cc3.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/bcaecbf1-eaf7-4cbd-a592-6d20aab28cc3.png)'
+- en: Note that we have successfully modified the `johndoe` account here, as we created
+    it earlier in this section—however, we could also have run this most recent role
+    before the account creation, and the end result would have been the same. That
+    is the beauty of Ansible—you don't need to write different code for modifications
+    and additions. There are many other modifications possible with the `user` module,
+    and it should serve most of your needs.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们已经成功修改了`johndoe`账户，因为我们之前在本节中创建了它——然而，我们也可以在账户创建之前运行最近的角色，最终结果将是一样的。这就是Ansible的魅力——你不需要为修改和添加编写不同的代码。`user`模块还有许多其他修改功能，它应该能够满足你大部分的需求。
+- en: 'Returning briefly to the `vars/main.yml` file we created earlier, we left this
+    in plaintext for simplicity in this example. However, we can very easily encrypt
+    our existing file, using the following command:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简单回顾一下我们之前创建的`vars/main.yml`文件，为了简化本例，我们将其保留为明文文件。然而，我们可以非常轻松地加密现有文件，使用以下命令：
+- en: '[PRE6]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'The following screenshot shows this encryption process in action:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下截图展示了这个加密过程的实际操作：
+- en: '![](img/75836cdd-818f-404d-9391-c9b353ec1667.png)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/75836cdd-818f-404d-9391-c9b353ec1667.png)'
+- en: The data is now encrypted at rest! We can still run the playbook without decrypting
+    it—simply add the `--ask-vault-pass` parameter to the `ansible-playbook` command,
+    and enter your chosen vault password when prompted.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据现在已经加密存储！我们仍然可以在不解密的情况下运行剧本——只需在`ansible-playbook`命令中添加`--ask-vault-pass`参数，并在提示时输入你选择的vault密码。
+- en: 'Before concluding this section, it is worth noting that we can also leverage
+    `loops`, to create multiple accounts at once. The following example creates two
+    new users with differing group membership, and with distinct username and matching
+    comments on their accounts. Expanding this example to address initial passwords
+    and/or SSH keys is left as an exercise for you, but you should have enough information
+    to build upon to achieve this. The code can be seen below:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在结束这一节之前，值得一提的是，我们还可以利用`loops`一次性创建多个账户。以下示例创建了两个新用户，它们具有不同的组成员身份，并且账户的用户名和备注不同。扩展此示例以处理初始密码和/或SSH密钥作为练习留给你，但你应该已经有足够的信息来扩展这个例子。代码如下所示：
+- en: '[PRE7]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Noting that we created `johndoe` earlier in this chapter, we can see that if
+    we run this role, the `janedoe` user is the only account created as they did not
+    already exist—the following screenshot shows exactly this. `janedoe` shows a `changed`
+    status, informing us that a change was made—in this case, the account was created.
+    The `ok` status against the `johndoe` user account tells us that no action was
+    performed, as can be seen in the following screenshot:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意到我们在本章早些时候创建了`johndoe`账户，我们可以看到，如果我们运行这个角色，只有`janedoe`账户会被创建，因为它之前并不存在——以下截图准确地展示了这一点。`janedoe`显示为`changed`状态，告知我们做出了更改——在这种情况下，账户被创建了。`johndoe`账户显示为`ok`状态，告诉我们没有执行任何操作，以下截图也展示了这一点：
+- en: '![](img/e45a3d06-0bf6-4cfc-8e1a-83d531829a8b.png)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/e45a3d06-0bf6-4cfc-8e1a-83d531829a8b.png)'
+- en: In this way, user accounts can be created and managed at scale, across a wide
+    number of Linux servers. As we can see in the preceding screenshot, in the usual
+    Ansible manner, only the required changes are made, with existing accounts left
+    unchanged. While adding accounts is straightforward, we must also consider that
+    employees also leave enterprises from time to time, and so, account cleanup is
+    also required in this instance.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这种方式，用户账户可以在大量 Linux 服务器上进行创建和管理。如前面的截图所示，Ansible 的工作方式是只对所需的更改进行修改，而不影响现有账户。虽然添加账户相对简单，但我们还必须考虑到员工会不时离开企业，因此在这种情况下，账户清理也是必需的。
+- en: We will explore the ways in which Ansible can assist with removing user accounts
+    and tidying up after them, in the next section.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一节中，我们将探讨 Ansible 如何帮助删除用户账户并清理相关内容。
+- en: Removing users with Ansible
+  id: totrans-64
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 Ansible 删除用户
+- en: Although we have shown that it is easy to add and modify user accounts with
+    Ansible, we must consider removal as a separate case. The reason for this is simple—Ansible
+    assumes that, if we use the `user` module in conjunction with a `loop` to add
+    both `johndoe` and `janedoe`, it will add them if they do not exist; otherwise,
+    it will modify them. If, of course, they match the state described by the role
+    or playbook, then it will do nothing at all.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管我们已经展示了如何通过 Ansible 添加和修改用户账户，但我们必须将删除操作视为一个独立的案例。原因很简单——Ansible 假设，如果我们将
+    `user` 模块与 `loop` 一起使用，添加 `johndoe` 和 `janedoe`，它会在账户不存在时添加它们；否则，它将修改现有账户。当然，如果它们与角色或
+    playbook 描述的状态相匹配，那么它将什么都不做。
+- en: However, Ansible assumes nothing about the state prior to it being run. Thus,
+    if we delete `johndoe` from the loop described previously and run the playbook
+    again, this account is not removed. As a direct result of this, we must handle
+    account removal separately.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，Ansible 在运行之前并不假设任何状态。因此，如果我们从之前描述的循环中删除 `johndoe` 并重新运行 playbook，那么该账户将不会被删除。由于这个原因，我们必须单独处理账户删除的操作。
+- en: 'The following code will remove this user account:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码将删除该用户账户：
+- en: '[PRE8]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Now, if we run this command, the output should look something like the following
+    screenshot:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，如果我们运行这个命令，输出应类似于以下屏幕截图：
+- en: '![](img/b4f2b703-028d-4ed1-bb20-4dca89fe2d5c.png)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/b4f2b703-028d-4ed1-bb20-4dca89fe2d5c.png)'
+- en: 'Running this role is the equivalent of using the `userdel` command in the shell—the
+    user account is removed, along with all group memberships. However, the `home`
+    directory is left intact. This is normally the safest route, as users might have
+    stored important code or other data in their `home` directory, and often, it is
+    best for someone to sanity-check that the directory is safe to remove, before
+    it is actually removed. If you are sure that you want to remove the directory
+    (which is best practice, for both security reasons and to free up disk space),
+    then add the following code to the role we just created:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行此角色相当于在 shell 中使用 `userdel` 命令——用户账户将被删除，所有组成员关系也会被移除。然而，`home` 目录将被保留。这通常是最安全的做法，因为用户可能在
+    `home` 目录中存储了重要的代码或其他数据，通常情况下，在删除该目录之前，由某人检查确认目录是否安全是最好的做法。如果你确定要删除该目录（这是最佳实践，出于安全原因以及释放磁盘空间的考虑），那么可以将以下代码添加到我们刚刚创建的角色中：
+- en: '[PRE9]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: This performs a recursive delete of the `path` specified, so use this with care!
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将递归删除指定的 `path`，请小心使用！
+- en: With these practical examples and a little additional detail from the documentation,
+    you should be in a good position to automate your local account tasks with Ansible.
+    In the next section, we will explore the use of centralized user account management
+    with LDAP.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这些实际示例和一些文档中的附加细节，你应该能够很好地利用 Ansible 自动化本地账户任务。在下一节中，我们将探讨如何使用 LDAP 来集中管理用户账户。
+- en: Centralizing user account management with LDAP
+  id: totrans-75
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 LDAP 集中管理用户账户
+- en: Although Ansible performs a fine job when it comes to managing user accounts
+    across an estate of servers, the best practice in an enterprise is to make use
+    of a centralized directory system. A centralized directory is able to perform
+    a number of tasks that Ansible can not—for example, enforcing password security
+    criteria, such as length and character types, password expiry, and account lockout
+    when too many incorrect passwords are tried. As such, it is highly recommended
+    that such a system be used in the enterprise.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管 Ansible 在管理整个服务器群体的用户账户方面表现良好，但企业中最好的做法是使用集中式目录系统。集中式目录可以执行一些 Ansible 无法做到的任务——例如，强制执行密码安全标准，如密码长度和字符类型、密码过期以及在尝试多次错误密码时锁定账户。因此，强烈建议在企业中使用这样的系统。
+- en: Indeed, many enterprises already have such a system in place, two common ones
+    being FreeIPA and Microsoft **Active Directory** (**AD**). In the following sections,
+    we will explore the integration of these two systems with your Linux servers.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实上，许多企业已经有了这样的系统，其中两种常见的系统是 FreeIPA 和 Microsoft **Active Directory** (**AD**)
+    。在接下来的章节中，我们将探讨这两个系统与 Linux 服务器的集成。
+- en: Microsoft AD
+  id: totrans-78
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Microsoft AD
+- en: As this is a book on Linux automation, an in-depth discussion of Microsoft AD and
+    its setup and configuration is well beyond its scope. Suffice to say that in the
+    context of Linux, AD is best suited to centralized user account management, although,
+    of course, its capabilities are far greater than this. Most organizations that
+    need an AD server will already have one set up, and so, our concern is not with
+    this aspect, but with getting our Linux servers to authenticate against it.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这是一本关于 Linux 自动化的书，关于 Microsoft AD 及其设置和配置的深入讨论超出了本书的范围。可以简要地说，在 Linux 环境下，AD
+    最适合用于集中式用户账户管理，尽管它的功能远不止如此。大多数需要 AD 服务器的组织已经设置了 AD，因此，我们的关注点不在于这一方面，而是如何使我们的 Linux
+    服务器与 AD 进行身份验证。
+- en: On most modern Linux distributions, the `realmd` tool is used to join the Linux
+    server in question to AD. Next, we consider a hypothetical example of joining
+    a CentOS 7 server to AD—however, every organization, their AD setup, organizational
+    units, and so on will be different, and so, there is no one-size-fits-all solution
+    here.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数现代 Linux 发行版中，`realmd` 工具用于将目标 Linux 服务器加入到 AD 中。接下来，我们考虑一个将 CentOS 7 服务器加入
+    AD 的假设例子——然而，每个组织、他们的 AD 设置、组织单位等都会有所不同，因此，这里并没有一种通用的解决方案。
+- en: As you will no doubt be aware by now, performing this process on Ubuntu will
+    be very similar, except that you will use the `apt` module in place of `yum`,
+    and the package names could differ. Once `realmd` and its required packages are
+    installed, the process is identical.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你现在无疑已经意识到的，在 Ubuntu 上执行此过程将非常相似，唯一不同的是你将使用 `apt` 模块来代替 `yum`，并且包的名称可能有所不同。一旦安装了
+    `realmd` 及其所需的包，整个过程就是相同的。
+- en: It is hoped, though, that the following code given provides you with a good
+    basis on which to develop your own Ansible role to join AD.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，希望下面提供的代码能为你提供一个良好的基础，帮助你开发自己的 Ansible 角色来加入 AD。
+- en: Before beginning the process of joining the directory, it is vital that the
+    Linux server is using the correct DNS servers that contain the appropriate **Service**
+    (**SRV**) records for the domain. Often, these DNS servers will be the AD servers
+    themselves, but that again will vary from organization to organization.
+  id: totrans-83
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在开始加入目录的过程之前，确保 Linux 服务器使用的是包含适当 **服务** (**SRV**) 记录的正确 DNS 服务器至关重要。这些 DNS
+    服务器通常是 AD 服务器本身，但这同样会因组织而异。
+- en: 'The `realmd` tool must be installed, along with a number of supporting packages.
+    Let''s create a role called `realmd`, using our familiar `roles` directory structure.
+    The `roles/realmd/tasks/main.yml` should begin with the following code, to install
+    the required packages:'
+  id: totrans-84
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 必须安装 `realmd` 工具以及若干支持包。让我们创建一个名为 `realmd` 的角色，使用我们熟悉的 `roles` 目录结构。`roles/realmd/tasks/main.yml`
+    应以以下代码开始，以安装所需的包：
+- en: '[PRE10]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Some of these packages offer supporting functions—for example, `openldap-clients`
+    is not directly required, but can be very useful in debugging directory issues.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中一些包提供了支持功能——例如，`openldap-clients` 不是直接必须的，但在调试目录问题时非常有用。
+- en: 'Once our prerequisite packages are installed, our next task is to join the
+    Active Directory itself. Here, we are assuming the presence of `roles/realmd/vars/main.yml`
+    with the `realm_join_password`, `realm_join_user`, and `realm_domain` variables
+    set. As this file might well contain a password with sufficient privileges to
+    join the AD domain, it is recommended that this variables file be encrypted with
+    `ansible-vault`. Run the following code:'
+  id: totrans-87
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一旦安装了我们的前提软件包，接下来的任务是加入Active Directory。在这里，我们假设`roles/realmd/vars/main.yml`文件中设置了`realm_join_password`、`realm_join_user`和`realm_domain`等变量。由于此文件可能包含具有足够权限的密码以加入AD域，建议使用`ansible-vault`加密此变量文件。运行以下代码：
+- en: '[PRE11]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'The use of the `shell` module to perform the `realm join` requires special
+    consideration, as running this task twice will not yield the normal clean behavior
+    of Ansible. Indeed, performing a second `realm join` when the server is already
+    a domain member results in an error. As a result, we set `ignore_errors: True`,
+    and `register` the result of the command so that we can later evaluate if it ran
+    successfully. We also notify a handler that we will define later, to restart the
+    `sssd` service. The aforementioned `vars` file should look something like this:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '使用`shell`模块执行`realm join`时需要特别注意，因为运行此任务两次不会得到Ansible的正常清洁行为。实际上，当服务器已经是域成员时，再执行第二次`realm
+    join`会导致错误。因此，我们设置`ignore_errors: True`，并`register`命令的结果，以便稍后评估它是否成功运行。我们还会通知一个稍后定义的处理程序，重新启动`sssd`服务。前述的`vars`文件应该类似如下：'
+- en: '[PRE12]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Be sure to substitute the variable values with ones appropriate to your own
+    environment.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保将变量值替换为适合你自己环境的值。
+- en: 'We immediately follow this task with a check, to see if the `realm join` was
+    successful. If it was successful, we should either get a return code of `0` or
+    an error, informing us that the server is `Already joined to this domain`. If
+    we don''t get these expected results, then we will fail the entire play to ensure
+    that the issue can be rectified, as follows:'
+  id: totrans-92
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们紧接着这项任务进行检查，看看`realm join`是否成功。如果成功，我们应该得到`0`的返回码，或者一个错误，告知我们服务器已经`已加入此域`。如果没有得到这些预期的结果，我们将失败整个剧本，以确保问题能够得到解决，具体如下：
+- en: '[PRE13]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Finally, we create the handler, to restart `sssd` in `roles/realmd/handlers/main.yml`,
+    as follows:'
+  id: totrans-94
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，我们在`roles/realmd/handlers/main.yml`中创建处理程序，重新启动`sssd`，如以下所示：
+- en: '[PRE14]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: These steps are all sufficient to perform the basic addition of a Linux server
+    to an AD domain. Although the example is given for CentOS 7, the process should
+    be broadly similar for operating systems like Ubuntu, as long as you take account
+    of the different package manager and package names.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些步骤足以完成将Linux服务器添加到AD域的基本操作。虽然示例以CentOS 7为例，但对于像Ubuntu这样的操作系统，过程应该大致相似，只要你考虑到不同的包管理器和包名即可。
+- en: There are, of course, a vast number of enhancements that can be made to the
+    preceding procedure, most of which will be performed with the `realm` command.
+    Sadly, at the time of writing, there is no `realm` module for Ansible, so, all
+    `realm` commands must be issued with the `shell` module—though this still enables
+    automated rollouts of AD membership to Linux servers using Ansible.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，前述过程有大量可以改进的地方，大多数改进都可以通过`realm`命令来执行。遗憾的是，在写这篇文档时，Ansible并没有`realm`模块，因此所有`realm`命令都必须通过`shell`模块执行——不过，这依然可以通过Ansible实现Linux服务器加入AD域的自动化部署。
+- en: 'Possible enhancements for you to consider to the preceding process (all of
+    which can easily be automated by extending the example playbook we have previously
+    suggested) are as follows:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以考虑对前述过程进行的可能改进（所有这些都可以通过扩展我们之前建议的示例剧本轻松自动化），具体如下：
+- en: Specify the **organizational unit** (**OU**) that the Linux server is to go
+    into when the join is complete. Without specifying this, it will go into the default
+    `Computers` OU. You can change this, by specifying something like `--computer-ou=OU=Linux,OU=Servers,OU=example,DC=example,DC=com`
+    within your `realm join` command. Be sure the OU has been created first, and adjust
+    the preceding parameter to match your environment.
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 指定当加入完成后，Linux 服务器应该进入的**组织单位**（**OU**）。如果未指定，它将进入默认的`Computers` OU。你可以通过在`realm
+    join`命令中指定类似`--computer-ou=OU=Linux,OU=Servers,OU=example,DC=example,DC=com`的内容来更改此设置。确保OU已先行创建，并根据你的环境调整前面的参数。
+- en: 'By default, all valid domain user accounts will be able to log in to the Linux
+    server. This may not be desirable and, if not, you will need to first of all deny
+    all access, using the command `realm deny --all`. Then, to say you wish to allow
+    all users in the `LinuxAdmins` AD group, you would then issue the following command:
+    `realm permit -g LinuxAdmins`.'
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 默认情况下，所有有效的域用户帐户将能够登录Linux服务器。这可能并不理想，如果不希望如此，您需要首先拒绝所有访问，使用命令`realm deny --all`。然后，如果您希望允许`LinuxAdmins`
+    AD组中的所有用户，则需发出以下命令：`realm permit -g LinuxAdmins`。
+- en: 'It is unlikely you will have a group in your AD called `wheel` or `sudo`, and
+    as a result, AD users may find themselves unable to execute privileged commands.
+    This can be rectified by adding the appropriate users or groups into `/etc/sudoers` or,
+    better still, a unique file under `/etc/sudoers.d` that Ansible can manage. For
+    example, creating `/etc/sudoers.d/LinuxAdmins` with the following content would
+    enable all members of the `LinuxAdmins` AD group to perform sudo commands without
+    re-entering their passwords:'
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在您的AD中不太可能有名为`wheel`或`sudo`的组，因此AD用户可能会发现自己无法执行特权命令。可以通过将适当的用户或组添加到`/etc/sudoers`或更好地说，添加到`/etc/sudoers.d`下Ansible可以管理的一个独立文件中来纠正这一问题。例如，创建以下内容的`/etc/sudoers.d/LinuxAdmins`文件将允许`LinuxAdmins`
+    AD组的所有成员在不重新输入密码的情况下执行sudo命令：
+- en: '[PRE15]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: All of these tasks are left as an exercise for you, though it is expected that
+    the information given in this chapter is sufficient for you to build up your own
+    playbook suited to your AD infrastructure.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些任务留给您自己去完成，尽管预期本章中提供的信息足以帮助您构建适合您的AD基础设施的Playbook。
+- en: In the next section, we will look at the use of the FreeIPA directory service
+    that is native to Linux, and how to integrate this into your environment with
+    Ansible.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一节中，我们将介绍FreeIPA目录服务在Linux上的使用，以及如何通过Ansible将其集成到您的环境中。
+- en: FreeIPA
+  id: totrans-105
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: FreeIPA
+- en: FreeIPA is a freely available open source directory service that is simple to
+    install and manage. It runs on Linux and runs primarily on CentOS or **Red Hat
+    Enterprise Linux** (**RHEL**), though client support is readily available on Ubuntu
+    and other Linux platforms. Integration with Windows AD is even possible, though
+    is in no way required.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: FreeIPA是一个免费的开源目录服务，安装和管理都很简单。它运行在Linux上，主要在CentOS或**Red Hat Enterprise Linux**（**RHEL**）上运行，尽管客户端支持也readily
+    available on Ubuntu和其他Linux平台。甚至可以与Windows AD集成，尽管这并非必须。
+- en: If you are building a purely Linux environment, it makes sense to look at FreeIPA,
+    as opposed to putting in a proprietary solution such as Microsoft AD.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在构建纯粹的Linux环境，那么看看FreeIPA是有意义的，而不是采用专有解决方案如Microsoft AD。
+- en: FreeIPA and Microsoft AD are by no means the only two options on the market
+    for directory services, and a number of cloud-based alternatives are now available,
+    including JumpCloud, AWS Directory Service, and many others. Always make your
+    own independent decisions regarding the best option for you as the field is fast
+    evolving, especially when it comes to cloud-based directory services.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: FreeIPA和Microsoft AD绝不是市场上目录服务的唯一两个选项，现在还有许多基于云的替代方案，包括JumpCloud、AWS Directory
+    Service等。始终根据自己的独立判断做出关于最佳选择的决定，特别是在涉及基于云的目录服务时，领域正在快速发展。
+- en: As with the previous section on Microsoft AD, the design and deployment of a
+    FreeIPA infrastructure are beyond the scope of this book. Directory services are
+    core services on your network—imagine if you only built a single directory server,
+    and then had to shut it down for maintenance. Even a simple reboot would leave
+    users unable to log in to all machines joined to it for the duration the services
+    were down. For these reasons, it is vitally important that you design your directory
+    service infrastructure to take account of redundancy and disaster recovery. It
+    is also important that you have well-secured local accounts in case your directory
+    infrastructure does fail, as discussed earlier in this chapter, in the section
+    entitled *Performing user account management tasks*.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与前文关于Microsoft AD的部分类似，设计和部署FreeIPA基础设施超出了本书的范围。目录服务是网络核心服务——想象一下如果您只建立了一个目录服务器，然后不得不将其关闭进行维护。即使是简单的重新启动也会导致用户在服务停止期间无法登录到所有连接到该服务器的计算机上。因此，设计目录服务基础设施以考虑冗余和灾难恢复是非常重要的。此外，在您的目录基础设施出现故障的情况下，正如本章前面讨论的，在*执行用户帐户管理任务*一节中，拥有良好安全的本地帐户也非常重要。
+- en: Once you have designed a suitably redundant infrastructure for your FreeIPA
+    installation, there are a series of playbooks and roles available on GitHub, created
+    by the FreeIPA team, to install your server and clients, and you can explore these
+    further here: [https://github.com/freeipa/ansible-freeipa](https://github.com/freeipa/ansible-freeipa)
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦为您的 FreeIPA 安装设计了适当的冗余基础设施，FreeIPA 团队在 GitHub 上提供了一系列 playbooks 和角色，用于安装您的服务器和客户端，您可以在此进一步探索：[https://github.com/freeipa/ansible-freeipa](https://github.com/freeipa/ansible-freeipa)
+- en: This book leaves the task of installing your FreeIPA infrastructure to you—however,
+    let's take a look at the use of the freely available FreeIPA roles, to install
+    clients on your infrastructure. After all, this is one of the key benefits of
+    open source software—the sharing of knowledge, information, and code.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本书将 FreeIPA 基础设施的安装任务留给您——然而，让我们来看一下如何使用自由提供的 FreeIPA 角色，在您的基础设施上安装客户端。毕竟，这是开源软件的一个关键优势——共享知识、信息和代码。
+- en: 'First of all, we clone the `ansible-freeipa` repository to our local machine,
+    and change into the directory to make use of it, as follows:'
+  id: totrans-112
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 首先，我们将 `ansible-freeipa` 仓库克隆到本地机器，并进入该目录以便使用，如下所示：
+- en: '[PRE16]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'Next, create symbolic links to `roles` and `modules` we just cloned into our
+    local Ansible environment, as follows:'
+  id: totrans-114
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 接下来，创建指向我们刚刚克隆到本地 Ansible 环境中的 `roles` 和 `modules` 的符号链接，如下所示：
+- en: '[PRE17]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Once that is done, we must create a simple inventory file that includes appropriate
+    variables, to define the FreeIPA realm and domain, and also, the password of the
+    `admin` user (which is required to join a new server to the IPA realm). The following
+    example is shown, but be sure to customize it to your requirements:'
+  id: totrans-116
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 完成上述操作后，我们必须创建一个简单的清单文件，包含适当的变量，定义 FreeIPA 域和域名，以及 `admin` 用户的密码（这是将新服务器加入 IPA
+    域所必需的）。以下示例已展示，但请确保根据您的需求进行自定义：
+- en: '[PRE18]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'With the appropriate variables set and the inventory compiled, we can then
+    run the playbooks provided, with the code downloaded from GitHub. An example of
+    this FreeIPA client installation playbook running is shown, as follows:'
+  id: totrans-118
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 设置了适当的变量并编译了清单文件后，我们可以运行提供的 playbooks，并使用从 GitHub 下载的代码。以下展示了运行的 FreeIPA 客户端安装
+    playbook 示例：
+- en: '![](img/1c9292a6-e540-45ff-8b5f-3a30be99d98b.png)'
+  id: totrans-119
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/1c9292a6-e540-45ff-8b5f-3a30be99d98b.png)'
+- en: The preceding output shown is truncated but shows the FreeIPA client installation
+    in process. As usual for examples in this book, we have kept it simple, but this
+    could just as easily be run against 100, or even 1,000, servers.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述输出是截断的，但展示了 FreeIPA 客户端安装的过程。与本书中的示例一贯简洁不同，这个过程也可以同样运行在 100 或甚至 1,000 台服务器上。
+- en: As these playbooks and roles are provided by the official FreeIPA project, they
+    are a trustworthy source for installing both servers and clients, and although
+    it is highly recommended to test and review any code you download, these should
+    serve well for building up your FreeIPA-based infrastructure.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这些 playbooks 和角色是由官方 FreeIPA 项目提供的，它们是安装服务器和客户端的可靠来源，尽管强烈建议测试和审查任何下载的代码，但这些应该足以构建基于
+    FreeIPA 的基础设施。
+- en: In the next section, we will take a look at the ways in which Ansible can help
+    with enforcing and auditing user accounts and configuration.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一节中，我们将探讨 Ansible 如何帮助强制执行和审计用户账户和配置。
+- en: Enforcing and auditing configuration
+  id: totrans-123
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 强制执行和审计配置
+- en: When it comes to user account management, security is important. As we discussed
+    in the section entitled *Centralizing user account management with LDAP*, Ansible
+    is not designed specifically for enforcement or auditing— however, it can help
+    us greatly. Let's consider a few of the security risks around user management
+    that Ansible can help to mitigate, starting with the `sudoers` file.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在用户账户管理方面，安全性至关重要。正如我们在《*通过 LDAP 中央化用户账户管理*》一节中讨论的那样，Ansible 并不是专门为执行或审计设计的——然而，它可以大大帮助我们。让我们考虑一些
+    Ansible 可以帮助缓解的用户管理相关的安全风险，从 `sudoers` 文件开始。
+- en: Managing sudoers with Ansible
+  id: totrans-125
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 Ansible 管理 sudoers
+- en: The `/etc/sudoers` file is one of the most sensitive on most Linux systems,
+    as it defines which user accounts can run commands as the superuser. Needless
+    to say, this file being compromised or modified in an unauthorized way could pose
+    a huge security risk to not just the Linux server in question, but to the network
+    at large.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`/etc/sudoers` 文件是大多数 Linux 系统中最敏感的文件之一，因为它定义了哪些用户账户可以作为超级用户执行命令。无需多说，这个文件被篡改或未经授权的修改可能会对不仅仅是相关的
+    Linux 服务器，甚至整个网络带来巨大的安全风险。'
+- en: 'Thankfully, Ansible templates can help us to manage this file effectively.
+    Like other modern Linux configurations, the `sudoers` configuration is broken
+    up into several files, to make it more manageable. The files are, typically, as
+    follows:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，Ansible模板可以帮助我们有效地管理这个文件。像其他现代Linux配置一样，`sudoers`配置被分割成几个文件，以便更易于管理。这些文件通常如下所示：
+- en: '`/etc/sudoers`: This is the master file, and references all other files that
+    might be considered.'
+  id: totrans-128
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`/etc/sudoers`：这是主文件，引用所有可能被考虑的其他文件。'
+- en: '`/etc/sudoers.d/*`: These files are normally included by a reference in the
+    `/etc/sudoers` file.'
+  id: totrans-129
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`/etc/sudoers.d/*`：这些文件通常通过在`/etc/sudoers`文件中的引用被包含。'
+- en: As we discussed in the chapter entitled *Configuration Management with Ansible*,
+    someone could potentially edit `/etc/sudoers` and tell it to include a completely
+    different path in addition to, or instead of, `/etc/sudoers.d/*`, meaning that
+    it is vital we deploy this file through a template. This ensures we maintain control
+    of which files provide `sudo` configuration.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在标题为*使用Ansible进行配置管理*的章节中讨论的那样，某人可能会编辑`/etc/sudoers`并指示它包含一个完全不同的路径，除`/etc/sudoers.d/*`外，意味着我们必须通过模板部署这个文件。这可以确保我们控制哪些文件提供`sudo`配置。
+- en: We will not repeat our discussion on templates and their deployment with Ansible,
+    as the techniques discussed in [Chapter 7](200bea26-7066-4feb-a571-481a5f047ae4.xhtml),
+    *Configuration Management with Ansible* apply equally well here. However, we will
+    add an important caveat. If you break the `sudo` configuration by deploying a
+    file with (for example) a syntax error in it, you risk locking all users out of
+    privileged access. This would mean the only way to fix the problem would be to
+    log in to the server using the root account, and if this is disabled (as it is
+    by default on Ubuntu, and is recommended in many environments), then your path
+    to recovery becomes quite tricky.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会重复关于模板及其在Ansible中的部署的讨论，因为在[第7章](200bea26-7066-4feb-a571-481a5f047ae4.xhtml)中讨论的*使用Ansible进行配置管理*技术在这里同样适用。然而，我们会加一个重要的警告。如果你通过部署一个（例如）语法错误的文件来破坏`sudo`配置，你将有可能把所有用户从特权访问中锁定出去。这意味着解决问题的唯一方法是使用root账户登录到服务器，而如果此账户被禁用（像Ubuntu默认禁用一样，并且在许多环境中建议禁用），那么恢复路径将变得相当棘手。
+- en: 'As with so many scenarios, prevention is better than cure, and the `template`
+    module we used earlier has a trick up its sleeve, to help us out here. When you
+    edit the `sudoers` file using `visudo` on a Linux system, the file you have created
+    is checked automatically before it is written to disk. If there is an error, you
+    are warned and given the option to rectify it. Ansible can make use of this utility
+    through the addition of the `validate` parameter to the `template` module. Thus,
+    a very simple role, to deploy a new version of the `sudoers` file with Ansible,
+    might look like this:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像许多情况一样，预防胜于治疗，而我们之前使用的`template`模块有一个窍门可以帮助我们解决这个问题。当你在Linux系统上使用`visudo`编辑`sudoers`文件时，所创建的文件在写入磁盘之前会自动进行检查。如果存在错误，你会收到警告，并有机会进行修复。Ansible可以通过在`template`模块中添加`validate`参数来利用这个工具。因此，通过Ansible部署`sudoers`文件的新版本的一个非常简单的角色可能看起来像这样：
+- en: '[PRE19]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: In the preceding example, the `template` module passes the name of the file
+    specified by `dest` to the command in the `validate` parameter—this is the significance
+    of the `%s`. If the validation is passed, the new file is written into place.
+    If the validation fails, then the new file is not written and the old one remains.
+    In addition, when validation fails, the task results in a `failed` status, thus
+    ending the play and alerting the user to rectify the condition.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的示例中，`template`模块通过`validate`参数中的命令传递`dest`指定的文件名——这就是`%s`的意义。如果验证通过，新的文件将被写入。如果验证失败，则新的文件不会被写入，旧的文件将保留。此外，当验证失败时，任务的状态为`failed`，因此该任务会结束并提醒用户修复问题。
+- en: This isn't the only task that the `validate` parameter can be used to complete—it
+    can be used to check the results of any template operation, provided you can define
+    a shell command that will perform a suitable check on the template operation.
+    This might be as simple as using `grep` to check for a line in a file, or a check
+    to see that a service restarts.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这并不是`validate`参数可以完成的唯一任务——它可以用于检查任何模板操作的结果，只要你能定义一个能够对模板操作进行适当检查的Shell命令。这可能像使用`grep`检查文件中的一行，或者检查某个服务是否重新启动那样简单。
+- en: In the next section, we will take a look at how Ansible can assist with enforcing
+    and auditing user accounts across a large number of servers.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一节中，我们将看看Ansible如何帮助在大量服务器上强制执行和审计用户账户。
+- en: Auditing user accounts with Ansible
+  id: totrans-137
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用Ansible审计用户账户
+- en: Say your enterprise has 1,000 Linux servers, all using directory services for
+    authentication, as we have discussed so far. Now, suppose an errant user, wishing
+    to bypass this privilege management, manages to create a local account called
+    `john` on a single server. This might happen when privileges are temporarily granted
+    for a change request but then revoked—unscrupulous individuals can easily create
+    their own access methods, to bypass the security provided by your directory service.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你的企业有1,000台Linux服务器，所有的服务器都使用目录服务进行身份验证，正如我们之前讨论过的那样。现在，假设有一个不当用户，想要绕过这个权限管理，并在单个服务器上创建了一个名为`john`的本地账户。这种情况可能发生在临时授予权限用于变更请求，然后再撤销权限时——不道德的个人可以轻松创建自己的访问方式，从而绕过目录服务提供的安全性。
+- en: How would you find this had happened? Although Ansible is not technically a
+    tool for auditing, it has the benefit of being able to run a command (or set of
+    commands) on 1,000 servers at once and returning the results to you for processing.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，如何发现这种情况呢？尽管Ansible本身并不是审计工具，但它有一个好处，就是可以在1,000台服务器上同时运行一个命令（或一组命令），并将结果返回给你进行处理。
+- en: As all your server builds should be to a given standard (see [Chapter 1](c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml),
+    *Building a Standard Operating Environment on Linux*), then you should know which
+    accounts are supposed to be on each Linux server. It is possible that there will
+    be some variance—for example, if you install the PostgreSQL database server, this
+    normally creates a local user account called `postgres`. However, these cases
+    are well understood, and can quickly and easily be filtered out.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为所有的服务器构建都应该达到一定的标准（参见[第1章](c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml)，*在Linux上构建标准操作环境*），所以你应该知道每个Linux服务器上应该有哪些账户。可能会有一些差异——例如，如果你安装了PostgreSQL数据库服务器，这通常会创建一个名为`postgres`的本地用户账户。不过，这些情况是可以理解的，并且可以很快且轻松地过滤掉。
+- en: We don't even need to write a complete playbook for Ansible to help us out here—once
+    you have an inventory file with your Linux server (or servers) in, you can run
+    what is called an ad hoc command. This is simply a single-line command that can
+    run any single Ansible module with a set of arguments—much like a playbook with
+    just one task in it.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们甚至不需要为Ansible写一个完整的剧本来帮助我们——一旦你有了包含Linux服务器的清单文件，你就可以运行所谓的临时命令。这只是一个单行命令，可以用来运行任何单个Ansible模块并带上一组参数——就像一个只有一个任务的剧本。
+- en: 'Thus, to obtain a list of all user accounts on all my servers, I could run
+    the following command:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，要获取我所有服务器上的所有用户账户列表，我可以运行以下命令：
+- en: '[PRE20]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: That's all there is to it—Ansible will faithfully connect to all servers in
+    the inventory file specified by the `-i` parameter, and dump the `/etc/passwd`
+    file contents to the screen. You could pipe this output to a file for further
+    processing and analysis, rather than having to log on to each box. Although Ansible
+    is not actually doing any analysis, it makes for a very powerful and easy tool
+    to perform the data gathering for the purposes of auditing, and, as is the beauty
+    of Ansible, no agent is required on the remote machines.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就是这么简单——Ansible会忠实地连接到由`-i`参数指定的所有服务器清单，并将`/etc/passwd`文件的内容显示在屏幕上。你可以将输出通过管道保存到文件中，进行进一步处理和分析，而不必登录到每一台机器上。尽管Ansible本身并没有进行任何分析，但它为审计提供了一个非常强大且易于使用的数据收集工具，而且正如Ansible的魅力所在，远程机器上不需要安装任何代理。
+- en: 'The following screenshot shows an example of Ansible obtaining the local user
+    accounts from one of our test systems, using a simple `grep` command to filter
+    out two commonly present accounts. Naturally, you can expand this example as you
+    wish, to improve the data processing and hence make your task easier:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下截图展示了Ansible如何从我们的一个测试系统中获取本地用户账户，使用简单的`grep`命令过滤掉两个常见的账户。当然，你可以根据需要扩展这个示例，以改善数据处理，从而使任务变得更加轻松：
+- en: '![](img/489357b7-290b-414f-98ce-e73458b19955.png)'
+  id: totrans-146
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/489357b7-290b-414f-98ce-e73458b19955.png)'
+- en: In this manner, you can make good use of Ansible, to gather useful information
+    from a large number of systems for further processing—as the results are returned
+    directly to the Terminal, it is easy to pipe them to a file and then process them
+    with your favorite tools (for example, AWK) to establish whether there are any
+    systems queried that violate enterprise policies. While this example has been
+    performed with the local user account list, it could just as effectively be performed
+    on any given text file on the remote systems.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这种方式，你可以充分利用 Ansible 从大量系统中收集有用的信息，供进一步处理——由于结果直接返回到终端，便于将其管道传输到文件中，并用你喜欢的工具（例如
+    AWK）处理，检查是否有任何系统违反企业政策。虽然此示例是通过本地用户帐户列表执行的，但同样可以在远程系统的任何文本文件上有效执行。
+- en: 'This, as you can see, is a very simple example, but it is a fundamental building
+    block, on top of which you can build other playbooks. Here are some ideas for
+    you to explore further by yourself:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所看到的，这是一个非常简单的示例，但它是一个基础构件，你可以在此基础上构建其他剧本。以下是一些供你进一步探索的想法：
+- en: Change the ad hoc command we ran previously, and run it as a playbook instead.
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 修改我们之前运行的临时命令，将其作为剧本运行。
+- en: Schedule the preceding playbook to run on a regular basis in AWX.
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 AWX 中定期调度运行上述剧本。
+- en: Modify the playbook to check for certain key user accounts.
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 修改剧本以检查特定的关键用户帐户。
+- en: 'Your ability to audit users doesn''t stop there, though—although centralized
+    logging should (and probably will) be part of your infrastructure, you can also
+    interrogate log files with Ansible. Using the ad hoc command structure previously
+    shown, you could run the following command against a group of Ubuntu servers:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，你对用户的审计能力并不仅限于此——尽管集中式日志记录应该（并且可能会）是你基础设施的一部分，你也可以使用 Ansible 查询日志文件。通过之前展示的临时命令结构，你可以在一组
+    Ubuntu 服务器上运行以下命令：
+- en: '[PRE21]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: On CentOS, these log messages would appear in `/var/log/secure` instead, so
+    you would alter the path accordingly for these systems.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 CentOS 上，这些日志消息将出现在 `/var/log/secure` 中，因此你需要根据这些系统修改路径。
+- en: The `grep` command returns code `1` if the string you specify is not found,
+    and Ansible, in turn, interprets this as a failure, reporting the task as failed.
+    As a result, we pipe the output of `grep` into the `cat` command, which always
+    returns zero, and hence, the task does not fail, even if the string we are searching
+    for is not found.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`grep` 命令在找不到你指定的字符串时返回代码 `1`，Ansible 进而将其解读为失败，并报告任务失败。因此，我们将 `grep` 的输出传递给
+    `cat` 命令，`cat` 始终返回零，因此任务不会失败，即使我们搜索的字符串没有找到。'
+- en: As I'm sure you have realized by now, these commands would be far better run
+    as a playbook, with some detection for the operating system and the appropriate
+    paths used in each case—however, the goal of this section is not to provide you
+    with an exhaustive set of solutions, but rather, to inspire you to go and build
+    your own code based on these examples, to help you audit your infrastructure with
+    Ansible.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你现在可能已经意识到的，这些命令作为剧本运行会更好，且可以根据操作系统进行一些检测，并使用适当的路径——然而，本节的目标不是给你提供一个详尽的解决方案集合，而是激发你根据这些示例自行编写代码，帮助你使用
+    Ansible 审计你的基础设施。
+- en: The fact that Ansible can perform such a wide variety of commands, and that
+    it has agentless access across your infrastructure, means that it can be an effective
+    solution in your toolbox, both for configuring your Linux servers and for maintaining
+    the integrity of the configuration, and, even, auditing them.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 Ansible 可以执行多种命令，并且在你的基础设施中具有无代理访问权限，这意味着它可以成为你工具箱中的有效解决方案，用于配置 Linux 服务器、维护配置的完整性，甚至对其进行审计。
+- en: Summary
+  id: totrans-158
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: User account and access management is an integral part of any Enterprise Linux
+    environment, and Ansible can be a key component in both configuring this and rolling
+    it out across a wide number of servers. Indeed, in the case of FreeIPA, there
+    are already freely available Ansible roles and playbooks that can set up not only
+    the Linux clients, but even your server architecture as well. Thus, automation
+    of all key components within your Linux infrastructure can be achieved.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户帐户和访问管理是任何企业 Linux 环境中不可或缺的一部分，Ansible 可以作为配置和推广这一管理方法的关键组件，覆盖大量服务器。事实上，针对
+    FreeIPA，已经有免费提供的 Ansible 角色和剧本，不仅可以设置 Linux 客户端，甚至可以配置你的服务器架构。因此，自动化管理 Linux 基础设施中的所有关键组件是完全可以实现的。
+- en: In this chapter, you learned how to effectively manage user accounts with Ansible
+    across a large number of Linux servers. You then learned how to integrate logins
+    with common directory servers such as FreeIPA and Microsoft AD using Ansible,
+    and finally, you learned how Ansible can be used to enforce configuration and
+    audit its state.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你学习了如何有效地通过 Ansible 管理大量 Linux 服务器上的用户帐户。接着，你学习了如何通过 Ansible 将登录集成到常见的目录服务器中，如
+    FreeIPA 和 Microsoft AD，最后，你学习了如何使用 Ansible 强制实施配置并审计其状态。
+- en: In the next chapter, we will explore the use of Ansible in database management.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将探讨 Ansible 在数据库管理中的应用。
+- en: Questions
+  id: totrans-162
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 问题
+- en: What are the benefits of local user accounts, even when a directory service
+    is employed?
+  id: totrans-163
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 即使使用了目录服务，本地用户帐户的好处是什么？
+- en: Which module is used to create and manipulate user accounts in Ansible?
+  id: totrans-164
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在 Ansible 中，哪个模块用于创建和操作用户帐户？
+- en: How would you generate an encrypted password hash, using just Ansible?
+  id: totrans-165
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如何仅使用 Ansible 生成加密的密码哈希？
+- en: Which package is used to integrate Linux servers with AD?
+  id: totrans-166
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 哪个软件包用于将 Linux 服务器与 AD 集成？
+- en: How can you use Ansible to audit configuration from a group of servers?
+  id: totrans-167
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如何使用 Ansible 对一组服务器的配置进行审计？
+- en: What is the purpose of validating the `sudoers` file when deploying it from
+    a template?
+  id: totrans-168
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从模板部署 `sudoers` 文件时，验证该文件的目的是什么？
+- en: What additional benefits does a directory service bring that Ansible could not
+    provide, even though it can deploy user accounts across all your servers?
+  id: totrans-169
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 目录服务提供了哪些 Ansible 无法提供的额外好处，尽管 Ansible 可以在所有服务器上部署用户帐户？
+- en: How would you make the choice between FreeIPA and AD?
+  id: totrans-170
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 你会如何在 FreeIPA 和 AD 之间做出选择？
+- en: Further reading
+  id: totrans-171
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 进一步阅读
+- en: For an in-depth understanding of Ansible, please refer to *Mastering Ansible,
+    Third Edition—James Freeman* and *Jesse Keating* ([https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition](https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition)[).](https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition)
+  id: totrans-172
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要深入了解 Ansible，请参考 *Mastering Ansible, Third Edition—James Freeman* 和 *Jesse
+    Keating* ([https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition](https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition))。
+- en: To explore the setup and use of AD in greater depth, readers may refer to *Mastering
+    Active Directory, Second Edition—Dishan Francis* ([https://www.packtpub.com/cloud-networking/mastering-active-directory-second-edition](https://www.packtpub.com/cloud-networking/mastering-active-directory-second-edition)).
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要更深入地了解 AD 的设置和使用，读者可以参考 *Mastering Active Directory, Second Edition—Dishan
+    Francis* ([https://www.packtpub.com/cloud-networking/mastering-active-directory-second-edition](https://www.packtpub.com/cloud-networking/mastering-active-directory-second-edition))。
