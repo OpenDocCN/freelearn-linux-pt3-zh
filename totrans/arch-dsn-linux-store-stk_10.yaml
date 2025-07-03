@@ -1,11 +1,15 @@
 - en: '10'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '10'
 - en: Analyzing Filesystems and the Block Layer
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 分析文件系统和块层
 - en: Read or write access to storage devices usually happens after passing through
     several intermediary layers, such as filesystems and the block layer. There is
     also the page cache, where requested data is preserved before being lazily committed
@@ -13,8 +17,11 @@
     that can affect disk performance and examined the important metrics associated
     with physical disks, but, as Sherlock Holmes would say, “*Perfectly sound analysis,
     but I was hoping you’d* *go deeper.”*
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 对存储设备的读写访问通常会经过几个中间层，如文件系统和块层。还有页面缓存，在数据被延迟写入底层存储之前，所请求的数据会被保留在其中。到目前为止，我们已经尝试理解可能影响磁盘性能的不同因素，并检查与物理磁盘相关的重要指标，但是，正如福尔摩斯所说：“*完全合理的分析，但我希望你能*
+    *深入一点*。”
 - en: Applications tend to interact with the filesystem, not with the physical storage.
     It is the job of a filesystem to translate the application’s request and send
     it down to the lower layers for further processing. The request will go through
@@ -22,86 +29,124 @@
     to the storage device. Each stage in this hierarchy will add its own processing
     overhead. Therefore, it is extremely important to examine the behavior of the
     filesystem and block layer to perform any performance analysis.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 应用程序通常与文件系统进行交互，而不是与物理存储进行交互。文件系统的工作就是将应用程序的请求转换并发送到下层进行进一步处理。请求将在块层进行进一步处理，最终被调度并发送到存储设备。这个层次结构中的每个阶段都会增加处理开销。因此，检查文件系统和块层的行为对于进行任何性能分析至关重要。
 - en: In this chapter, we will focus on the techniques that can be used to investigate
     the filesystem and block layer. At this stage, I would like to think that the
     first six chapters helped us to build a decent understanding of these layers (*I
     certainly hope so*). Becoming acquainted with the relevant analysis methodologies
     should not be a problem.
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将重点介绍可以用于调查文件系统和块层的技术。在这一阶段，我想认为前六章帮助我们建立了对这些层的相当理解（*我当然希望如此*）。熟悉相关的分析方法应该不成问题。
 - en: 'Here’s a summary of what we’ll be covering:'
+  id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里是我们将要涵盖的内容摘要：
 - en: Investigating filesystems and the block layer
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 调查文件系统和块层
 - en: The different types of filesystem I/O
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 不同类型的文件系统 I/O
 - en: What causes filesystem latency?
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 什么导致文件系统延迟？
 - en: Identifying the target layers
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 确定目标层
 - en: Finding the right tools
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 寻找合适的工具
 - en: Technical requirements
+  id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: This chapter will focus on the `root` or `sudo`) to run these tools.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将重点介绍如何使用 `root` 或 `sudo` 来运行这些工具。
 - en: 'The operating system packages relevant to this chapter can be installed as
     follows:'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章相关的操作系统软件包可以通过以下方式安装：
 - en: 'For Ubuntu/Debian:'
+  id: totrans-14
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 对于 Ubuntu/Debian：
 - en: '`sudo apt` `install strace`'
+  id: totrans-15
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`sudo apt` `install strace`'
 - en: '`sudo apt` `install bpfcc-tools`'
+  id: totrans-16
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`sudo apt` `install bpfcc-tools`'
 - en: 'For Fedora/CentOS/Red Hat-based systems:'
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 对于 Fedora/CentOS/基于 Red Hat 的系统：
 - en: '`sudo yum` `install strace`'
+  id: totrans-18
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`sudo yum` `install strace`'
 - en: '`sudo yum` `install bcc-tools`'
+  id: totrans-19
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`sudo yum` `install bcc-tools`'
 - en: Investigating filesystems and the block layer
+  id: totrans-20
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 调查文件系统和块层
 - en: Given that storage is a lot more sluggish than other components in a system,
     it is no surprise that, very often, performance issues are related to I/O. However,
     simply categorizing a performance issue as I/O-based is an oversimplification.
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 鉴于存储比系统中的其他组件更慢，性能问题通常与 I/O 相关也就不足为奇了。然而，简单地将性能问题归类为基于 I/O 的问题是一种过度简化。
 - en: Filesystems are the first point of contact for an application and are considered
     to be sandwiched between the application and physical storage. Traditionally,
     physical storage has always been the center of attention while doing any performance
@@ -109,49 +154,74 @@
     physical drives, while leaving out the other aspects of an I/O request. Scrutinizing
     storage usually begins and ends with physical disks, making filesystems analysis
     an oversight.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 文件系统是应用程序的第一个接触点，并且被认为夹在应用程序和物理存储之间。传统上，在进行任何性能分析时，物理存储总是受到关注的中心。大多数工具关注的是物理驱动器的利用率、吞吐量和延迟，而忽略了
+    I/O 请求的其他方面。对存储的检查通常以物理磁盘为起点并结束，从而忽略了对文件系统的分析。
 - en: 'Similarly, the events happening in the block layer also tend to slip under
     the radar when it comes to performance analysis. The tools that we discussed in
     [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160) usually provide averaged-out values
     over a specific interval, which can often be misleading. For instance, let’s say
     an application generates the following number of I/O requests in a 10-second interval:'
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 类似地，块层发生的事件在性能分析中也往往容易被忽视。我们在[*第9章*](B19430_09.xhtml#_idTextAnchor160)中讨论的工具通常提供特定时间间隔内的平均值，这可能会导致误导。例如，假设一个应用程序在10秒的时间间隔内生成了以下数量的
+    I/O 请求：
 - en: '| **Second** | **Number** **of requests** | **Second** | **Number** **of requests**
     |'
+  id: totrans-24
   prefs: []
   type: TYPE_TB
+  zh: '| **秒数** | **请求数** | **秒数** | **请求数** |'
 - en: '| 1 | 10 | 6 | 20 |'
+  id: totrans-25
   prefs: []
   type: TYPE_TB
+  zh: '| 1 | 10 | 6 | 20 |'
 - en: '| 2 | 15 | 7 | 5 |'
+  id: totrans-26
   prefs: []
   type: TYPE_TB
+  zh: '| 2 | 15 | 7 | 5 |'
 - en: '| 3 | 500 | 8 | 15 |'
+  id: totrans-27
   prefs: []
   type: TYPE_TB
+  zh: '| 3 | 500 | 8 | 15 |'
 - en: '| 4 | 20 | 9 | 8 |'
+  id: totrans-28
   prefs: []
   type: TYPE_TB
+  zh: '| 4 | 20 | 9 | 8 |'
 - en: '| 5 | 5 | 10 | 2 |'
+  id: totrans-29
   prefs: []
   type: TYPE_TB
+  zh: '| 5 | 5 | 10 | 2 |'
 - en: Table 10.1 – The averaged out stats for I/O requests
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 表 10.1 – I/O 请求的平均统计数据
 - en: If I collect I/O statistics after every 10 seconds, then the number of average
     I/O requests issued per second will be 60 – that is, the total number of requests
     divided by the interval. The mean value might be considered normal, but it completely
     ignores the burst of I/O requests issued around the three-second mark. The tools
     that provide disk-level statistics do not provide any insight on a per-I/O basis.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我每10秒收集一次 I/O 统计信息，那么每秒发出的平均 I/O 请求数将是 60——也就是总请求数除以时间间隔。平均值可能被认为是正常的，但它完全忽略了大约在三秒钟时发出的
+    I/O 请求爆发。提供磁盘级统计的工具无法提供每个 I/O 请求的详细信息。
 - en: 'The conventional approach has always been to gather information from the bottom
     end of the filesystem – that is, physical disks. However, this a multifaceted
     problem and involves analyzing the following layers:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 传统方法一直是从文件系统的底层收集信息——也就是物理磁盘。然而，这是一个多方面的问题，涉及到分析以下几个层次：
 - en: '**System and library calls**: Applications use the generic system call interface
     to request resources from the kernel space. When an application calls a function
     that is provided by the kernel, then the execution time is spent inside the kernel
@@ -163,9 +233,12 @@
     possible to gain valuable insights into how the application behaves and identify
     any potential issues, such as resource contention or locking that may cause a
     process to become stuck.'
+  id: totrans-33
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**系统和库调用**：应用程序使用通用系统调用接口从内核空间请求资源。当应用程序调用内核提供的函数时，执行时间将在内核空间内度过。这个函数被称为**系统调用**。相反，库调用是在用户空间中执行的。当应用程序希望使用编程库中定义的函数（例如
+    GNU C 库）时，它会发送一个请求，称为**库调用**。为了准确评估性能，必须衡量在内核空间和用户空间中花费的时间。通过追踪这些调用，可以获得有关应用程序行为的宝贵洞察，并识别可能导致进程卡住的潜在问题，例如资源争用或锁定。'
 - en: '**VFS**: As we explained throughout this book, VFS acts as the interface between
     the user and the backing filesystem. It decouples the application’s file operations
     from the specific filesystem, masking the implementation details behind generic
@@ -173,9 +246,12 @@
     speed up disk access. Analyzing VFS can prove helpful for general workload characterization,
     to identify an application’s operational patterns over time, and to pinpoint how
     the application uses the different types of available cache.'
+  id: totrans-34
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**VFS**：正如本书中一直所解释的，VFS 充当用户和底层文件系统之间的接口。它将应用程序的文件操作与特定文件系统解耦，通过通用系统调用隐藏了实现细节。VFS
+    还包括页缓存、inode 和 dentry 缓存，以加速磁盘访问。分析 VFS 对于一般工作负载特征化很有帮助，可以识别应用程序随时间变化的操作模式，并找出应用程序如何使用不同类型的可用缓存。'
 - en: '**Filesystems**: Every filesystem uses a different approach to organizing data
     on disk. As we explained in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160), it
     is important to characterize the type of workload that the filesystem will be
@@ -184,18 +260,23 @@
     and the size of I/O requests. Internally, filesystems perform operations such
     as read-ahead, pre-fetching, locking, and journaling, which can affect overall
     I/O performance in one way or another.'
+  id: totrans-35
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**文件系统**：每个文件系统在磁盘上组织数据时都使用不同的方法。正如我们在[*第9章*](B19430_09.xhtml#_idTextAnchor160)中解释的那样，重要的是要表征文件系统将管理的工作负载类型
+    - 例如，应用程序的访问模式、同步和异步操作、读写请求的比例、缓存命中和失误比率以及I/O请求的大小。在内部，文件系统执行诸如预读、预取、锁定和日志记录等操作，这些操作可能以某种方式影响整体I/O性能。'
 - en: '**Block layer**: When an I/O request enters a block layer, it can be mapped
     onto another device, such as LVM, software **Redundant Array of Independent Disks**
     (**RAID**), or a multi-pathed device. It is commonplace to have a filesystem created
     on top of these logical devices. In such cases, with any filesystem I/O, the corresponding
     tasks for these techniques require resources that may be the source of an I/O
     contention, such as RAID striping or multi-pathing I/O drivers.'
+  id: totrans-36
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**块层**：当I/O请求进入块层时，它可以映射到另一个设备，如LVM、软件**独立磁盘冗余阵列**（**RAID**）或多路径设备。通常在这些逻辑设备上创建文件系统。在这种情况下，对于任何文件系统I/O，这些技术的相应任务需要资源，可能是I/O争用的来源，如RAID条带化或多路径I/O驱动程序。'
 - en: '**Scheduler**: The choice of a disk scheduler can also impact the I/O performance
     of an application. A scheduler can use techniques such as merging and sorting,
     which can change the eventual order in which a request lands on the disk. As we
@@ -204,15 +285,19 @@
     high-end storage devices, while others work well with slower drives. As each environment
     is different, multiple factors need to be taken into account before deciding the
     appropriate disk scheduler.'
+  id: totrans-37
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**调度程序**：磁盘调度程序的选择也会影响应用程序的I/O性能。调度程序可以使用合并和排序等技术，这可以改变请求最终落在磁盘上的顺序。正如我们在[*第6章*](B19430_06.xhtml#_idTextAnchor101)中所学到的，Linux内核提供了不同类型的磁盘调度程序。一些I/O调度程序适合高端存储设备，而另一些则适用于较慢的驱动器。由于每个环境都不同，在决定适当的磁盘调度程序之前，需要考虑多种因素。'
 - en: '**Physical storage**: The physical layer is usually the point of focus in any
     troubleshooting scenario. We covered the part about analyzing the different physical
     disk metrics in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160).'
+  id: totrans-38
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**物理存储**：在任何故障排除场景中，物理层通常是关注的焦点。我们在[*第9章*](B19430_09.xhtml#_idTextAnchor160)中讨论了分析不同物理磁盘指标的部分。'
 - en: Although not covered here, it’s important to know that it is possible to bypass
     the filesystem and write data directly to the physical storage. This is known
     as **raw access**, and a device accessed through such methods is known as a **raw
@@ -225,28 +310,40 @@
     manage their own cache. This approach provides more granular control over device
     I/O and may aid in testing the raw speed of storage devices, as it bypasses any
     additional processing overhead.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然这里没有详细涵盖，但重要的是要知道，可以绕过文件系统，直接将数据写入物理存储设备。这被称为**原始访问**，通过这种方法访问的设备称为**原始设备**。一些应用程序，如数据库，能够写入原始设备。采用这种方法的主要原因是，任何抽象层，比如文件系统或卷管理器，都会增加处理开销。文件系统利用缓冲区缓存读写操作，延迟将它们提交到磁盘，直到稍后。在没有文件系统的情况下，像数据库这样的大型应用程序能够绕过文件系统缓存，从而管理自己的缓存。这种方法可以更精细地控制设备I/O，并可能有助于测试存储设备的原始速度，因为它绕过了任何额外的处理开销。
 - en: '*Figure 10**.1* highlights some factors that can affect the I/O performance
     of an application:'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: '*图10**.1* 强调了影响应用程序I/O性能的一些因素：'
 - en: '![Figure 10.1 – The factors affecting an application’s I/O performance](img/B19430_10_01.jpg)'
+  id: totrans-41
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.1 – 影响应用程序 I/O 性能的因素](img/B19430_10_01.jpg)'
 - en: Figure 10.1 – The factors affecting an application’s I/O performance
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.1 – 影响应用程序 I/O 性能的因素
 - en: In summary, the different layers in the I/O stack can influence an application’s
     I/O performance in various ways. Therefore, when troubleshooting any performance
     problem, breaking it down into smaller pieces is the first step; simplify the
     problem by removing as many layers as possible.
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，I/O 栈中的不同层级可以通过多种方式影响应用程序的 I/O 性能。因此，在排查性能问题时，第一步是将问题分解成更小的部分；通过去除尽可能多的层级来简化问题。
 - en: The different types of filesystem I/O
+  id: totrans-44
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 不同类型的文件系统 I/O
 - en: There are too many different types of I/O requests that can be issued to a filesystem.
     For the sake of clarity, we’ll consider an I/O request issued by a process as
     logical I/O, while the actual operation that was performed on the disk will be
@@ -256,31 +353,42 @@
     the transfer of data between the storage device and memory. It is during this
     stage that the data is moved at the hardware level and managed by a hardware device
     such as a disk controller.
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 文件系统可以发出许多不同类型的 I/O 请求。为了便于理解，我们将由进程发出的 I/O 请求称为逻辑 I/O，而实际在磁盘上执行的操作则称为物理 I/O。正如你可能猜到的那样，这两者并不相等。**逻辑
+    I/O** 指的是在逻辑层面上读取或写入数据，也就是说在文件系统或应用程序层面。相反，**物理 I/O** 涉及在存储设备和内存之间传输数据。在这个阶段，数据在硬件层面进行移动，并由磁盘控制器等硬件设备进行管理。
 - en: Disk I/O can be inflated or deflated. A single logical I/O request may result
     in multiple physical disk operations. Conversely, a logical request from a process
     may not require any physical I/O from the disk.
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 磁盘 I/O 可能会膨胀或收缩。一次逻辑 I/O 请求可能会导致多次物理磁盘操作。相反，来自进程的逻辑请求可能不需要任何物理 I/O 操作。
 - en: 'To elaborate on the concept, let’s take a look at some of the factors that
     make the two types of requests disproportionate:'
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了详细说明这个概念，下面我们来看一些导致这两种请求不成比例的因素：
 - en: '**Caching**: The Linux kernel heavily uses available memory to cache data.
     If data is loaded from the disk, it is kept in the cache so that any subsequent
     access to the same data can be readily served. If a read request by an application
     is served from the cache, it will not result in a physical operation.'
+  id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**缓存**：Linux 内核大量利用可用内存来缓存数据。如果数据是从磁盘加载的，它会保存在缓存中，以便对同一数据的后续访问能够快速响应。如果应用程序的读取请求是从缓存中提供的，它将不会导致物理操作。'
 - en: '**Writeback**: As filesystem writes are cached by default, this also contributes
     to the difference in the number of physical and logical operations. The writeback
     caching mechanism defers and coalesces write operations before eventually flushing
     them to disks.'
+  id: totrans-49
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**写回**：由于文件系统写操作默认会被缓存，这也导致了物理操作和逻辑操作数量的差异。写回缓存机制将延迟并合并写操作，然后最终将其刷新到磁盘。'
 - en: '**Prefetching**: Most filesystems have a pre-fetching mechanism through which
     they can prefetch sequentially adjacent blocks in the cache while a block is read
     from the disk. The filesystem anticipates the data that an application will need
@@ -288,81 +396,106 @@
     operations make sequential reads very fast. If the data has already been pre-fetched
     in the cache, the filesystem can avoid future trips to the physical storage, thereby
     reducing the number of physical operations.'
+  id: totrans-50
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**预取**：大多数文件系统都有预取机制，在从磁盘读取一个数据块时，它们可以预先将相邻的顺序数据块加载到缓存中。文件系统预测应用程序将需要的数据，并在应用程序实际请求之前将其读取到内存中。预取操作使得顺序读取非常快速。如果数据已经被预取到缓存中，文件系统可以避免未来访问物理存储，从而减少物理操作的次数。'
 - en: '**Journaling**: Depending upon the type of journaling technique being employed
     by the filesystem, the number of write operations can be doubled. At first, they
     will be written to the filesystem journal, and then flushed to disk.'
+  id: totrans-51
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**日志记录**：根据文件系统采用的日志记录技术不同，写操作的数量可能会翻倍。最初，它们会被写入文件系统的日志中，然后再刷新到磁盘。'
 - en: '**Metadata**: Every time a file is accessed or modified, the filesystem will
     need to update its timestamps. Similarly, when writing any new data, the filesystem
     will also need to update its internal metadata, such as the number of used and
     free blocks. All these changes require physical operations to be performed on
     disk.'
+  id: totrans-52
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**元数据**：每当访问或修改文件时，文件系统需要更新其时间戳。同样，在写入新数据时，文件系统也需要更新其内部元数据，例如已使用和空闲块的数量。所有这些更改都需要在磁盘上执行物理操作。'
 - en: '**RAID**: This can be often overlooked, but the type of RAID configuration
     on the underlying storage can have a huge say in determining whether additional
     writes are necessary. For instance, operations such as striping data across multiple
     disks, writing parity information, creating mirrored copies, and rebuilding data
     will incur additional writes.'
+  id: totrans-53
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**RAID**：这一点常常被忽视，但底层存储的 RAID 配置类型对是否需要额外写入有着重要影响。例如，像数据条带化到多个磁盘、写入奇偶校验信息、创建镜像副本以及重建数据等操作都会产生额外的写入。'
 - en: '**Scheduling**: I/O schedulers usually employ techniques such as merging and
     reordering to minimize disk seeks and improve disk performance. Hence, multiple
     requests can be consolidated into a single request in the scheduling layer.'
+  id: totrans-54
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**调度**：I/O 调度器通常采用合并和重排序等技术，以最小化磁盘寻道时间并提高磁盘性能。因此，多个请求可以在调度层合并为一个请求。'
 - en: '**Data reduction**: If any compression or deduplication is performed, the amount
     of physical I/O requests performed on disks will be lower than the logical requests
     initiated by an application.'
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**数据减少**：如果进行任何压缩或去重操作，磁盘上执行的物理 I/O 请求数量将低于应用程序发起的逻辑请求数量。'
 - en: What causes filesystem latency?
+  id: totrans-56
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 什么导致了文件系统延迟？
 - en: Latency, as we discussed in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160),
     is the single most important metric in any performance measurement and analysis.
     From the filesystem’s perspective, latency is measured as the time from which
     a logical request was initiated to the time it was completed on the physical disk.
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 如我们在[*第9章*](B19430_09.xhtml#_idTextAnchor160)中讨论的那样，延迟是任何性能测量和分析中最重要的指标。从文件系统的角度来看，延迟是指从逻辑请求发起到物理磁盘上完成该请求所花费的时间。
 - en: 'The latency endured because of the bottlenecks in physical storage is one factor
     that adds to overall filesystem response time. However, to reiterate our discussion
     from the previous section, as filesystems do not simply hand over an I/O request
     to the physical disk, latency can be experienced in more than one way, such as
     the following:'
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于物理存储瓶颈导致的延迟是影响整体文件系统响应时间的一个因素。然而，正如我们在上一节中讨论的那样，由于文件系统不仅仅是将 I/O 请求交给物理磁盘处理，延迟可以通过多种方式表现出来，例如以下几种：
 - en: '**Resource contention**: If multiple processes concurrently write to a single
     file, then this can impact filesystem performance. File locking can be a significant
     performance issue for large applications, such as databases. The purpose of locking
     is to serialize access to files. Filesystems in Linux use the generic VFS methods
     for locking.'
+  id: totrans-59
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**资源争用**：如果多个进程同时写入同一个文件，可能会影响文件系统性能。文件锁定对于大型应用程序（如数据库）来说可能是一个重大性能问题。锁定的目的是串行化文件访问。Linux
+    中的文件系统使用通用 VFS 方法进行锁定。'
 - en: '**Cache misses**: The purpose of caching data in memory is to avoid frequent
     trips to disks. If an application is configured to avoid using the page cache,
     then it can experience some delays.'
+  id: totrans-60
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**缓存未命中**：将数据缓存到内存中的目的是避免频繁访问磁盘。如果应用程序配置为避免使用页缓存，则可能会经历一些延迟。'
 - en: '**Block size**: Most storage systems are designed to work with a specific block
     size, such as 8 K, 32 K, or 64 K. If the issued I/O requests are of large sizes,
     they will first need to be broken down into suitable sizes, which will involve
     extra processing.'
+  id: totrans-61
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**块大小**：大多数存储系统设计时会使用特定的块大小，如 8K、32K 或 64K。如果发出的 I/O 请求较大，它们首先需要被拆分成合适的大小，这会涉及额外的处理。'
 - en: '**Metadata updates**: Filesystem metadata updates can be a major source of
     latency. Updating filesystem metadata involves performing several disk operations,
     including seeking the appropriate disk location, writing the updated data, and
@@ -371,23 +504,29 @@
     time, especially if the filesystem is heavily used and the disk is busy with other
     operations. This may result in a backlog of requests and an overall slowdown in
     filesystem performance.'
+  id: totrans-62
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**元数据更新**：文件系统的元数据更新可能是延迟的主要来源。更新文件系统元数据涉及执行多个磁盘操作，包括定位适当的磁盘位置、写入更新的数据，然后将磁盘缓存与磁盘同步。根据更新的元数据的大小和位置，这一过程可能会消耗相当长的时间，尤其是当文件系统被频繁使用，且磁盘正忙于其他操作时。这可能导致请求积压，并整体降低文件系统的性能。'
 - en: '**Breakdown of logical I/O**: As explained earlier in the previous section,
     a logical I/O operation may need to be broken down into multiple physical I/O
     operations. This may increase the filesystem latency, as each physical I/O operation
     requires additional disk access time, which will result in additional processing
     overhead.'
+  id: totrans-63
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**逻辑I/O的拆分**：如前节所述，逻辑I/O操作可能需要拆分为多个物理I/O操作。这可能增加文件系统的延迟，因为每个物理I/O操作都需要额外的磁盘访问时间，从而导致额外的处理开销。'
 - en: '**Data alignment**: File system partitions must be correctly aligned with the
     physical disk geometry. Incorrect partition alignment will cause reduced performance,
     especially with regard to RAID volumes.'
+  id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**数据对齐**：文件系统分区必须正确对齐物理磁盘几何结构。分区对齐不正确会导致性能下降，特别是在RAID卷方面。'
 - en: Given the plethora of things that can affect the I/O performance of an application,
     it is no surprise that most people are reluctant to explore this avenue and merely
     focus on disk-level statistics, which are far easier to understand. We’ve so far
@@ -397,52 +536,74 @@
     be used for performance analysis. Even though we’re only focusing on the storage
     side of things here, it is impossible to cover the long list of tools that can
     help us in our goal in one way or another.
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 鉴于可能影响应用程序I/O性能的因素众多，毫不奇怪，大多数人不愿意探索这个方向，而只是专注于磁盘级的统计数据，因为这些数据更易理解。到目前为止，我们仅讨论了一些可能影响I/O请求生命周期的常见问题。故障排除是一项复杂的技能，确定一个良好的起点可能是一个困难的决策。令人困惑的是，有大量的工具可以用于性能分析。尽管我们这里只关注存储方面的内容，但要一一涵盖所有能够在某种程度上帮助我们实现目标的工具，几乎是不可能的。
 - en: Identifying the target layers
+  id: totrans-66
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 确定目标层
 - en: 'The following table summarizes the different target layers for performance
     analysis and presents the pros and cons of each approach:'
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: 下表总结了性能分析的不同目标层，并展示了每种方法的优缺点：
 - en: '| **Layer** | **Pros** | **Cons** |'
+  id: totrans-68
   prefs: []
   type: TYPE_TB
+  zh: '| **层** | **优点** | **缺点** |'
 - en: '| Application | Application logs, specific tools, or debugging techniques can
     determine the scope of the problem, which can aid in subsequent steps. | Debugging
     techniques are not common and vary for each application. |'
+  id: totrans-69
   prefs: []
   type: TYPE_TB
+  zh: '| 应用程序 | 应用程序日志、特定工具或调试技术可以确定问题的范围，帮助后续步骤。 | 调试技术不常见，并且因应用程序而异。 |'
 - en: '| System call interface | It’s easy to trace the calls generated by a process.
     | It’s difficult to filter, as there are multiple system calls for the same function.
     |'
+  id: totrans-70
   prefs: []
   type: TYPE_TB
+  zh: '| 系统调用接口 | 跟踪进程生成的调用很容易。 | 难以过滤，因为同一功能有多个系统调用。 |'
 - en: '| VFS | Generic calls are used for all filesystems. | There is a need to isolate
     the filesystem in question, as tracing may include data for all filesystems, including
     pseudo filesystems. |'
+  id: totrans-71
   prefs: []
   type: TYPE_TB
+  zh: '| VFS | 所有文件系统使用通用调用。 | 需要隔离目标文件系统，因为追踪可能包含所有文件系统的数据，包括伪文件系统。 |'
 - en: '| Filesystems | Filesystems are the first point of contact for an application,
     which makes them an ideal candidate for analysis. | There are very few filesystem-specific
     tracing mechanisms available. |'
+  id: totrans-72
   prefs: []
   type: TYPE_TB
+  zh: '| 文件系统 | 文件系统是应用程序的第一个接触点，这使它们成为分析的理想对象。 | 可用的特定于文件系统的追踪机制非常少。 |'
 - en: '| Block layer | Multiple tracing mechanisms are available, which can be used
     to identify how requests are handled. | Some components, such as schedulers, do
     not offer a lot of tunables. |'
+  id: totrans-73
   prefs: []
   type: TYPE_TB
+  zh: '| 块层 | 提供多种追踪机制，可以用于识别请求的处理方式。 | 一些组件（如调度器）没有太多可调参数。 |'
 - en: '| Disk | This is easier to analyze, as this does not require a deep understanding
     of higher layers. | This does not paint a clear picture of an application’s behavior.
     |'
+  id: totrans-74
   prefs: []
   type: TYPE_TB
+  zh: '| 磁盘 | 这更容易分析，因为它不需要对更高层次有深入的理解。 | 这无法清晰地描绘应用程序的行为。 |'
 - en: Table 10.2 – Comparing the pros and cons of analyzing each layer
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 表 10.2 – 比较分析每一层的优缺点
 - en: The general consensus (and it definitely has some merit) is that investigating
     each layer is way too laborious! Enterprises that have dedicated performance analysis
     engineers make it a habit to go through every tiny detail and identify the potential
@@ -451,12 +612,16 @@
     hardware resources to an application, as it becomes resource-hungry, is the new
     normal. Troubleshooting performance issues is often skipped in favor of migrating
     applications to better hardware platforms.
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 一般共识（并且确实有一定道理）是，调查每一层次的工作量太大！有专门的性能分析工程师的企业习惯性地检查每一个细节，并识别系统中的潜在瓶颈。然而，近年来更常见的方法是增加更多的计算能力，特别是对于基于云的工作负载。当应用程序变得资源密集时，增加更多硬件资源成为了新常态。故障排除性能问题往往被忽视，而更倾向于将应用程序迁移到更好的硬件平台。
 - en: Finding the right tools
+  id: totrans-77
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 寻找合适的工具
 - en: Trying to dig deep into an application’s behavior can be a daunting task. The
     abstraction layers in the I/O stack do not make our job easier in this regard.
     To analyze each layer in the I/O hierarchy, you must have a decent grasp of the
@@ -465,8 +630,11 @@
     understand the patterns generated by an application, it is not possible for everyone
     to have the same level of visibility about the design and implementation details
     of the application.
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 试图深入挖掘应用程序的行为可能是一个艰巨的任务。I/O 堆栈中的抽象层在这方面并没有让我们的工作变得更容易。要分析 I/O 层次结构中的每一层，你必须对每一层所使用的概念有一定的掌握。当你把应用程序包括在内时，这项工作变得更加困难。虽然
+    Linux 中的跟踪机制有助于理解应用程序产生的模式，但并不是每个人都能对应用程序的设计和实现细节有相同程度的可视化。
 - en: If you’re running a critical application, such as an **Online Transaction Processing**
     (**OLTP**) database that processes millions of transactions every day, it can
     be helpful to know where CPU cycles are wasted. For instance, there are several
@@ -476,61 +644,93 @@
     then clearly your storage is not a bottleneck, as only 10 percent of the total
     time is being spent in the I/O stack. If the application was blocked at the filesystem
     level for five seconds, then clearly some tweaking is required.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你正在运行一个关键应用程序，例如一个**在线事务处理**（**OLTP**）数据库，每天处理数百万次事务，那么了解 CPU 周期的浪费位置可能会有所帮助。例如，事务与几个服务级别协议（SLA）相关，并且必须在几秒钟内完成。如果一个事务需要在
+    10 秒内完成，而仅花费 1 秒钟处理文件系统和磁盘 I/O，那么显然你的存储并不是瓶颈，因为总时间的 10% 仅用于 I/O 堆栈。如果应用程序在文件系统级别被阻塞了
+    5 秒钟，那么显然需要进行调整。
 - en: Let’s take a look at the available options that we have to analyze the I/O stack.
     Note that this is not a complete list of tools by any means. The BCC itself contains
     an abundance of such tools. The tools presented as follows have just been cherry-picked
     based on personal experience.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看一下可用的工具选项来分析 I/O 堆栈。请注意，这绝不是工具的完整列表。BCC 本身包含了大量此类工具。以下介绍的工具仅根据个人经验挑选出来。
 - en: Tracing application calls
+  id: totrans-81
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 跟踪应用程序调用
 - en: 'The `strace` command helps identify the kernel function on which a program
     spends its time. For instance, the following command provides a summarized report
     and shows the frequency and time spent on each system call. The `-c` switch displays
     the count. Here, `myapp` is just a simple user space program:'
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: '`strace` 命令有助于识别程序所花费时间的内核函数。例如，以下命令提供了一个总结报告，并显示每个系统调用的频率和所花费的时间。`-c` 开关显示计数。这里，`myapp`
+    只是一个简单的用户空间程序：'
 - en: '![Figure 10.2 – Tracing system calls using strace](img/B19430_10_02.jpg)'
+  id: totrans-83
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.2 – 使用 strace 跟踪系统调用](img/B19430_10_02.jpg)'
 - en: Figure 10.2 – Tracing system calls using strace
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.2 – 使用 strace 跟踪系统调用
 - en: 'This command can prove useful to pinpoint some types of process performance
     bottlenecks. To filter the output and only show stats for a specific system call,
     use the `-``e` flag:'
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个命令对于找出某些类型的进程性能瓶颈非常有用。要过滤输出并只显示特定系统调用的统计信息，请使用`-``e`标志：
 - en: '![Figure 10.3 – Filtering specific calls](img/B19430_10_03.jpg)'
+  id: totrans-86
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.3 – 过滤特定的调用](img/B19430_10_03.jpg)'
 - en: Figure 10.3 – Filtering specific calls
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.3 – 过滤特定的调用
 - en: 'Let’s take it up a notch and see whether we can make something out of the actual
     trace output. You can also print the timestamps and the time spent on each system
     call. The trace output can be saved to a file using the `-``o` flag:'
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们再深入一些，看看能否从实际的跟踪输出中获取一些有用信息。你还可以打印每个系统调用的时间戳以及花费的时间。跟踪输出可以使用`-``o`标志保存到文件中：
 - en: '[PRE0]'
+  id: totrans-89
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'Focusing only on the subset that corresponds to the I/O portion of the application,
     note the number after the equal sign in the first write call. We can see that
     the write call was able to buffer all data into a single write function call.
     The application wrote 319,488 bytes in 156 microseconds:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 只关注应用程序 I/O 部分的子集，注意第一个写调用中等号后的数字。我们可以看到，写调用能够将所有数据缓冲到一个单独的写函数调用中。应用程序在 156
+    微秒内写入了 319,488 字节：
 - en: '![Figure 10.4 – Analyzing the strace output](img/B19430_10_04.jpg)'
+  id: totrans-91
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.4 – 分析 strace 输出](img/B19430_10_04.jpg)'
 - en: Figure 10.4 – Analyzing the strace output
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.4 – 分析 strace 输出
 - en: The `strace` command can also be attached to a running process. The strace output
     is quite substantial, and you often have to laboriously look through a great deal
     of information before you get somewhere. This is why it is a good idea to know
@@ -539,169 +739,253 @@
     in understanding the I/O pattern of an application from the application’s perspective.
     Although `strace` doesn’t tell you what the operating system did with the I/O
     requests afterward, it does tell you what the application generates.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: '`strace` 命令也可以附加到正在运行的进程上。strace 输出相当庞大，你通常需要费力地浏览大量信息才能得到有用的结果。这就是为什么了解应用程序最常生成的调用非常重要的原因。对于
+    I/O 分析，专注于常见的系统调用，如`open`、`read`和`write`。这有助于从应用程序的角度理解应用程序的 I/O 模式。尽管`strace`不会告诉你操作系统在之后如何处理
+    I/O 请求，但它告诉你应用程序生成了什么。'
 - en: 'To summarize, for a quick analysis, do the following:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结一下，进行快速分析时，执行以下操作：
 - en: Generate a summary of the system calls being generated by the application.
+  id: totrans-95
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 生成应用程序生成的系统调用的摘要。
 - en: Check the execution times of each call.
+  id: totrans-96
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 检查每个调用的执行时间。
 - en: Isolate the calls you want information about. For I/O analysis, focus on read
     and write calls.
+  id: totrans-97
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 隔离你想获取信息的调用。对于 I/O 分析，关注读写调用。
 - en: Tracing VFS calls
+  id: totrans-98
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 跟踪 VFS 调用
 - en: At the very beginning of your investigation, analyzing VFS can be beneficial
     for general workload characterization. It can also be helpful to identify how
     efficiently an application makes use of the different types of available caches
     in VFS. The BCC program contains tools such as `vfsstat` and `vfscount`, which
     can help to understand the events in VFS.
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 在你开始调查的最初阶段，分析 VFS 对于一般的工作负载特征化是非常有益的。它也有助于识别应用程序如何高效地利用 VFS 中可用的不同类型缓存。BCC
+    程序包含一些工具，如`vfsstat`和`vfscount`，可以帮助理解 VFS 中的事件。
 - en: 'The `vfsstat` tool shows a statistics summary for some common VFS calls, such
     as `read`, `write`, `open`, `create`, and `fsync`:'
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: '`vfsstat`工具显示一些常见 VFS 调用的统计摘要，如`read`、`write`、`open`、`create`和`fsync`：'
 - en: '![Figure 10.5 – The vfsstat output](img/B19430_10_05.jpg)'
+  id: totrans-101
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.5 – vfsstat 输出](img/B19430_10_05.jpg)'
 - en: Figure 10.5 – The vfsstat output
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.5 – vfsstat 输出
 - en: In addition to the **READ** and **WRITE** calls, keep an eye out for the **OPEN**
     column. This shows the number of files opened per second. A sudden increase in
     the number of open files can greatly increase the number of I/O requests, especially
     for metadata operations.
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了 **READ** 和 **WRITE** 调用外，留意 **OPEN** 列。它显示了每秒打开的文件数量。打开文件数量的突然增加可能会显著增加 I/O
+    请求的数量，尤其是对于元数据操作。
 - en: Running these tools alone might not offer much insight. A good use of these
     is to run them in conjunction with some disk analysis tools, such as `iostat`.
     This will allow you to compare logical I/O requests with physical I/O requests.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 单独运行这些工具可能不会提供太多见解。一个好的使用方法是将它们与一些磁盘分析工具结合使用，如`iostat`。这将使你能够比较逻辑 I/O 请求与物理
+    I/O 请求。
 - en: 'One limitation with `vfsstat` is that it doesn’t segregate the I/O activity
     at the filesystem level. Another program, `fsrwstat`, traces the read and write
     functions and breaks them down for the different available filesystems. The following
     figure shows the breakdown of the number of read and write calls for the different
     filesystems:'
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: '`vfsstat` 的一个限制是它没有在文件系统层面上区分 I/O 活动。另一个程序 `fsrwstat` 跟踪读取和写入功能，并按不同文件系统进行分类。下图展示了不同文件系统的读取和写入调用的数量：'
 - en: '![Figure 10.6 – The fsrwstat output](img/B19430_10_06.jpg)'
+  id: totrans-106
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.6 – fsrwstat 输出](img/B19430_10_06.jpg)'
 - en: Figure 10.6 – The fsrwstat output
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.6 – fsrwstat 输出
 - en: 'Continuing with the output of `vfsstat`, if you notice a large number of files
     are open, consider using `filetop`. This shows the most frequently accessed files
     on your system and displays their read and write activity:'
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 继续分析 `vfsstat` 的输出，如果发现大量文件被打开，考虑使用 `filetop`。该工具显示系统中访问频率最高的文件，并显示它们的读取和写入活动：
 - en: '![Figure 10.7 – The filetop output](img/B19430_10_07.jpg)'
+  id: totrans-109
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.7 – filetop 输出](img/B19430_10_07.jpg)'
 - en: Figure 10.7 – The filetop output
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.7 – filetop 输出
 - en: 'The requests issued to VFS constitute logical I/O requests. When analyzing
     VFS, do the following:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 发往 VFS 的请求构成了逻辑 I/O 请求。分析 VFS 时，执行以下操作：
 - en: Try to get a picture of the general workload on the system
+  id: totrans-112
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 尝试了解系统的一般工作负载
 - en: Check the frequency of common VFS calls
+  id: totrans-113
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 检查常见 VFS 调用的频率
 - en: Compare the obtained figures with the requests at the physical layer
+  id: totrans-114
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将获得的数字与物理层面的请求进行比较
 - en: Analyzing cache usage
+  id: totrans-115
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 分析缓存使用情况
 - en: The VFS includes multiple caches to speed up access to frequently used objects.
     The default behavior in Linux is to complete all write operations in the cache
     and flush the written data to disk later. Similarly, the kernel also tries to
     serve the read operations from the cache and shows the page cache hit-and-miss
     statistics.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: VFS 包含多个缓存，以加速对常用对象的访问。在 Linux 中，默认行为是将所有写操作完成后先存入缓存，稍后再将已写入的数据刷新到磁盘。同样，内核也会尝试从缓存中提供读取操作，并显示页面缓存的命中与未命中统计信息。
 - en: 'The `cachestat` tool can be used to display statistics for the page cache hit-and-miss
     ratios:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: '`cachestat` 工具可用于显示页面缓存命中与未命中比率的统计信息：'
 - en: '![Figure 10.8 – Using cachestat](img/B19430_10_08.jpg)'
+  id: totrans-118
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.8 – 使用 cachestat](img/B19430_10_08.jpg)'
 - en: Figure 10.8 – Using cachestat
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.8 – 使用 cachestat
 - en: From the preceding figure, we can see an excellent cache hit ratio, sometimes
     even close to 100 percent. This indicates that the kernel is able to satisfy the
     application’s I/O requests from the memory. The higher the percentage of cache
     hits, the better the performance gains for the application.
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 从上图可以看出，缓存命中率非常高，有时接近 100%。这表明内核能够从内存中满足应用程序的 I/O 请求。缓存命中率越高，应用程序的性能提升越好。
 - en: 'Similarly, the `cachetop` tool provides process-wise statistics for the cache
     hits and misses. The output is displayed on an interactive interface like the
     `top` command:'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 同样，`cachetop` 工具提供按进程划分的缓存命中与未命中统计数据。输出结果通过类似于 `top` 命令的交互式界面显示：
 - en: '![Figure 10.9 – Using cachetop](img/B19430_10_09.jpg)'
+  id: totrans-122
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.9 – 使用 cachetop](img/B19430_10_09.jpg)'
 - en: Figure 10.9 – Using cachetop
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.9 – 使用 cachetop
 - en: 'When using these tools to analyze cache usage, do the following:'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用这些工具分析缓存使用情况时，执行以下操作：
 - en: Look for the hits-and-misses ratio to understand what percentage of requests
     are being served from memory
+  id: totrans-125
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 查看命中与未命中比率，以了解有多少请求是从内存中服务的
 - en: If the ratio is on the lower side, the application or operating system parameters
     might need to be tuned
+  id: totrans-126
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果比率较低，可能需要调整应用程序或操作系统参数
 - en: Analyzing filesystems
+  id: totrans-127
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 分析文件系统
 - en: Although there aren’t many tools that can trace filesystem-level operations,
     BCC offers a few excellent scripts to observe filesystems. Two scripts, `ext4slower`
     and `xfsslower`, are used to analyze the slow operations on the two most frequently
     used filesystems, Ext4 and XFS.
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管没有很多工具可以跟踪文件系统级操作，但 BCC 提供了一些优秀的脚本来观察文件系统。两个脚本 `ext4slower` 和 `xfsslower`
+    用于分析两个最常用文件系统 Ext4 和 XFS 上的慢操作。
 - en: 'The output for both tools, `ext4slower` and `xfsslower`, is identical. By default,
     both tools print operations that take more than 10 ms to complete, but you can
     change that by passing the duration value as a parameter. Both tools can also
     be attached to a specific process:'
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: '`ext4slower` 和 `xfsslower` 两个工具的输出是相同的。默认情况下，这两个工具会打印出完成时间超过 10 毫秒的操作，但你可以通过传递持续时间值作为参数来更改该设置。两个工具也可以附加到特定进程：'
 - en: '![Figure 10.10 – Tracing the slow Ext4 operations](img/B19430_10_10.jpg)'
+  id: totrans-130
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.10 – 跟踪慢速的 Ext4 操作](img/B19430_10_10.jpg)'
 - en: Figure 10.10 – Tracing the slow Ext4 operations
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.10 – 跟踪慢速的 Ext4 操作
 - en: The **T** column shows the type of operation, which can be **R** for read, **W**
     for write, and **O** for open. The **BYTES** column shows the size of the I/O
     in bytes, while the **OFF_KB** column shows the file offset for the I/O, in KB.
@@ -709,49 +993,70 @@
     of an I/O request, measured from when it was issued by VFS to the filesystem to
     when it was completed. This is a fairly accurate measure of the latency endured
     by an application while performing filesystem I/O.
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: '**T** 列显示操作类型，可能为 **R**（读取）、**W**（写入）和 **O**（打开）。**BYTES** 列显示 I/O 的字节数，**OFF_KB**
+    列显示 I/O 的文件偏移量（以 KB 为单位）。最重要的值来自 **LAT(ms)** 列，它显示 I/O 请求的持续时间，从 VFS 向文件系统发出请求到完成的时间。这是一个相当准确的度量，反映了应用程序在执行文件系统
+    I/O 时所承受的延迟。'
 - en: 'Another couple of tools included in this set are `xfsdist` and `ext4dist`.
     Both tools show the same information, just for different filesystems – that is,
     XFS and Ext4, respectively. These tools summarize the time spent while performing
     common filesystem operations and provide a breakdown of the distribution of the
     experienced latencies as histograms. Both these tools can be attached to specific
     processes:'
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 该工具集中的另两个工具是 `xfsdist` 和 `ext4dist`。这两个工具显示相同的信息，只是针对不同的文件系统——即 XFS 和 Ext4。它们总结了执行常见文件系统操作时所花费的时间，并提供了经验延迟的分布情况，形式为直方图。这些工具可以附加到特定的进程上：
 - en: '![Figure 10.11 – Using xfsdist](img/B19430_10_11.jpg)'
+  id: totrans-134
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.11 – 使用 xfsdist](img/B19430_10_11.jpg)'
 - en: Figure 10.11 – Using xfsdist
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.11 – 使用 xfsdist
 - en: 'When using filesystem-specific tools, remember the following:'
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用文件系统专用工具时，请记住以下几点：
 - en: The `ext4dist`/`xfsdist` tools can help to establish a baseline – that is, whether
     a workload is read- or write-oriented.
+  id: totrans-137
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`ext4dist`/`xfsdist` 工具可以帮助建立基线——也就是说，区分工作负载是以读操作为主还是写操作为主。'
 - en: The two `ext4slower`/`xfsslower` scripts are extremely effective in determining
     the actual latency experienced by a process when performing filesystem I/O. When
     running these, check the latency column to determine the amount of delay being
     endured by the application.
+  id: totrans-138
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 两个 `ext4slower`/`xfsslower` 脚本在确定进程执行文件系统 I/O 时实际经历的延迟方面非常有效。运行这些脚本时，请检查延迟列以确定应用程序所承受的延迟量。
 - en: Analyzing block I/O
+  id: totrans-139
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 分析块 I/O
 - en: As we saw in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160), the standard disk
     analysis tools such as `iostat` provide information pertaining to the number of
     bytes read and written per second, disk utilization, and request queues associated
     with specific devices. These metrics are averaged out over a period of time and
     do not offer insights on a per-I/O basis. Extracting information about what happened
     at a specific interval is not possible.
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在 [*第 9 章*](B19430_09.xhtml#_idTextAnchor160) 中看到的那样，标准磁盘分析工具如 `iostat`
+    提供了每秒读取和写入的字节数、磁盘利用率以及与特定设备相关的请求队列等信息。这些指标是按时间段平均得出的，无法提供每次 I/O 的详细信息。无法提取某个特定间隔内发生的事件。
 - en: 'Similar to VFS and filesystems, the BCC also includes several tools that can
     help to analyze the events happening in the block layer. One of these tools is
     `biotop`, which is like a `top` command for disks. By default, the `biotop` tool
@@ -760,139 +1065,211 @@
     terms of throughput, measured in KB. The process ID and name displayed in the
     summary represent the time when an I/O operation was initially created, which
     helps to identify the responsible process:'
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 与 VFS 和文件系统类似，BCC 还包括一些工具，可以帮助分析块层中发生的事件。其中一个工具是 `biotop`，它类似于磁盘的 `top` 命令。默认情况下，`biotop`
+    工具跟踪块设备上的 I/O 操作，并每秒显示每个进程活动的汇总信息。汇总信息按吞吐量排序，以 KB 为单位，表示每个进程对磁盘的消耗。汇总中显示的进程 ID
+    和名称表示 I/O 操作最初创建的时间，这有助于识别负责的进程：
 - en: '![Figure 10.12 – Using biotop](img/B19430_10_12.jpg)'
+  id: totrans-142
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.12 – 使用 biotop](img/B19430_10_12.jpg)'
 - en: Figure 10.12 – Using biotop
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.12 – 使用 biotop
 - en: 'Another BCC tool to analyze the block layer is `biolatency`. As the name suggests,
     `biolatency` traces block device I/O and prints a histogram that shows the distribution
     of I/O latency:'
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个用于分析块层的 BCC 工具是 `biolatency`。顾名思义，`biolatency` 跟踪块设备 I/O，并打印出显示 I/O 延迟分布的直方图：
 - en: '![Figure 10.13 – Using biolatency](img/B19430_10_13.jpg)'
+  id: totrans-145
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.13 – 使用 biolatency](img/B19430_10_13.jpg)'
 - en: Figure 10.13 – Using biolatency
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.13 – 使用biolatency
 - en: As evident from the preceding output, the bulk of I/O requests took 128–255
     microseconds to complete. Depending on the workload, these figures can be much
     higher.
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 从前面的输出可以看出，大部分I/O请求的完成时间为128-255微秒。根据工作负载的不同，这些数字可能会高得多。
 - en: 'The `biosnoop` tool from the BCC traces block device I/O and prints the details,
     including the process that initiated the request:'
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 来自BCC的`biosnoop`工具可以跟踪块设备I/O并打印详细信息，包括发起请求的进程：
 - en: '![Figure 10.14 – Using biosnoop](img/B19430_10_14.jpg)'
+  id: totrans-149
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.14 – 使用biosnoop](img/B19430_10_14.jpg)'
 - en: Figure 10.14 – Using biosnoop
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.14 – 使用biosnoop
 - en: The output from `biosnoop` includes the latency from the time the request was
     issued to the device to its completion. The `biosnoop` output can be used to identify
     the process responsible for excessive writes to a disk.
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: '`biosnoop`的输出包括从请求发出到设备的时间，直到完成的延迟。`biosnoop`的输出可用于识别导致磁盘过度写入的进程。'
 - en: 'One final tool that I want to mention is `bitesize`, which is used to characterize
     the distribution of block device I/O sizes:'
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: 我想提到的最后一个工具是`bitesize`，它用于描述块设备I/O大小的分布：
 - en: '![Figure 10.15 – Using bitesize](img/B19430_10_15.jpg)'
+  id: totrans-153
   prefs: []
   type: TYPE_IMG
+  zh: '![图 10.15 – 使用bitesize](img/B19430_10_15.jpg)'
 - en: Figure 10.15 – Using bitesize
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 10.15 – 使用bitesize
 - en: As shown in the preceding output, the **javaMyApp** process (a simple Java-based
     application) generates requests between 16–32 KB, whereas **mysql** uses the 4–8
     KB range.
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前面的输出所示，**javaMyApp**进程（一个简单的基于Java的应用程序）生成介于16-32 KB之间的请求，而**mysql**则使用4-8
+    KB范围。
 - en: 'When analyzing the block layer, remember the following:'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 在分析块层时，请记住以下内容：
 - en: To get a top-end view of disk activity in your system, use `biotop`.
+  id: totrans-157
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要获取系统中磁盘活动的顶端视图，请使用`biotop`。
 - en: To trace application I/O sizes, use `bitesize`. If the application workload
     is sequential, then using larger block sizes might result in better performance.
+  id: totrans-158
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要跟踪应用程序的I/O大小，使用`bitesize`。如果应用程序的工作负载是顺序的，那么使用更大的块大小可能会带来更好的性能。
 - en: To observe block device latencies, use `biolatency`. This will summarize the
     time ranges for the block I/O requests. If you see higher values, then further
     digging is required.
+  id: totrans-159
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要观察块设备的延迟，请使用`biolatency`。该工具将总结块I/O请求的时间范围。如果看到较高的值，可能需要进一步挖掘。
 - en: To check further, use `biosnoop`. To find out the time spent between the creation
     of an I/O request and being issued to a device, use the `-Q` flag with `biosnoop`.
+  id: totrans-160
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要进一步检查，请使用`biosnoop`。要找出从创建I/O请求到发出请求给设备的时间，请使用`-Q`标志与`biosnoop`。
 - en: Summarizing the tools
+  id: totrans-161
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 工具总结
 - en: 'The following table shows a summary of the tools that can be used to analyze
     the events in different layers:'
+  id: totrans-162
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下表格总结了可用于分析不同层次事件的工具：
 - en: '| **Layer** | **Analysis tools** |'
+  id: totrans-163
   prefs: []
   type: TYPE_TB
+  zh: '| **层** | **分析工具** |'
 - en: '| Application | Application-specific tools |'
+  id: totrans-164
   prefs: []
   type: TYPE_TB
+  zh: '| 应用程序 | 特定应用程序工具 |'
 - en: '| System call interface | `strace` and `syscount` (BCC) |'
+  id: totrans-165
   prefs: []
   type: TYPE_TB
+  zh: '| 系统调用接口 | `strace` 和 `syscount`（BCC） |'
 - en: '| VFS | `vfsstat`, `vfscount`, and `funccount` |'
+  id: totrans-166
   prefs: []
   type: TYPE_TB
+  zh: '| VFS | `vfsstat`、`vfscount` 和 `funccount` |'
 - en: '| Cache | `slabtop`, `cachestat`, `cachetop`, and `dcstat`, `dcsnoop` |'
+  id: totrans-167
   prefs: []
   type: TYPE_TB
+  zh: '| 缓存 | `slabtop`、`cachestat`、`cachetop`、`dcstat` 和 `dcsnoop` |'
 - en: '| Filesystems | `ext4slower`, `xfsslower`, `ext4dist`, `xfsdist`, `filetop`,
     `fileslower`, `stackcount`, `funccount`, `nfsslower`, and `nfsdist` |'
+  id: totrans-168
   prefs: []
   type: TYPE_TB
+  zh: '| 文件系统 | `ext4slower`、`xfsslower`、`ext4dist`、`xfsdist`、`filetop`、`fileslower`、`stackcount`、`funccount`、`nfsslower`
+    和 `nfsdist` |'
 - en: '| Block layer | `biolatency`, `biosnoop`, `biotop`, `bitesize`, and `blktrace`
     |'
+  id: totrans-169
   prefs: []
   type: TYPE_TB
+  zh: '| 块层 | `biolatency`、`biosnoop`、`biotop`、`bitesize` 和 `blktrace` |'
 - en: '| Disk | `iostat`, `iotop`, `systemtap`, `vmstat`, and `PCP` |'
+  id: totrans-170
   prefs: []
   type: TYPE_TB
+  zh: '| 磁盘 | `iostat`、`iotop`、`systemtap`、`vmstat` 和 `PCP` |'
 - en: Table 10.3 – A summary of tools
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 表 10.3 – 工具总结
 - en: Note that the tools are not limited to the ones mentioned in the table. The
     BCC toolset alone includes several other tools that can be used for performance
     analysis. Further, there are multiple arguments that can be passed to each tool
     to get a more meaningful output. Considering the multiple layers involved in the
     hierarchy, diagnosing I/O performance issues is a complex task, and as with any
     other troubleshooting scenario, it will require the involvement of multiple teams.
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，工具不仅限于表格中提到的那些。BCC工具集本身就包含了其他多个可用于性能分析的工具。此外，还可以向每个工具传递多个参数，以获得更有意义的输出。考虑到层次结构中涉及的多个层次，诊断I/O性能问题是一项复杂的任务，就像其他任何故障排除场景一样，这将需要多个团队的参与。
 - en: Summary
+  id: totrans-173
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 总结
 - en: In this chapter, we resumed our performance analysis and extended it to the
     higher layers in the I/O stack. Most of the time, analyzing higher layers is skipped,
     and focus is solely kept on the physical layer. However, for time-sensitive applications,
     we need to broaden our approach and look for the potential source of delays in
     application response times.
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们恢复了性能分析，并将其扩展到I/O栈中的更高层次。大多数时候，分析更高层次的工作会被跳过，焦点仅仅放在物理层。然而，对于时间敏感型应用程序，我们需要拓宽我们的分析视野，寻找可能的延迟源，进而优化应用响应时间。
 - en: We started this chapter by explaining the different sources of delays that can
     be observed by an application when reading from or writing to a filesystem. Filesystems
     operations go beyond the I/O requests initiated by an application. In addition
@@ -903,9 +1280,13 @@
     and didn’t offer much visibility into the events happening in the VFS and the
     block layer. The BCC offers a rich set of scripts that can trace the events in
     the kernel and give us insight into individual I/O requests.
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们在本章开始时解释了当应用程序从文件系统读取或写入数据时，可能观察到的不同延迟来源。文件系统操作超出了由应用程序发起的I/O请求。除了应用程序的I/O请求，文件系统还可能在执行诸如元数据更新、日志记录或将现有缓存数据刷新到磁盘等任务上花费时间。所有这些都导致额外的操作，从而引发额外的I/O操作。在[*第9章*](B19430_09.xhtml#_idTextAnchor160)中讨论的工具主要集中在磁盘上，未能提供关于VFS和块层中发生事件的可视化。BCC提供了一套丰富的脚本，可以追踪内核中的事件，并为我们提供对单个I/O请求的洞察。
 - en: In the next chapter, we’ll take our analysis further and learn the different
     tweaks that we can apply at different levels in the I/O hierarchy, improving performance.
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章，我们将进一步分析，并学习可以在I/O层级的不同层次应用的各种优化方法，从而提高性能。
