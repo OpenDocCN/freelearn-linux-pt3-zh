@@ -1,662 +1,1033 @@
 - en: 27\. Creating an Ubuntu 23.04 KVM Networked Bridge Interface
+  id: totrans-0
   prefs: []
   type: TYPE_NORMAL
+  zh: 27\. 创建 Ubuntu 23.04 KVM 网络桥接接口
 - en: By default, the KVM virtualization environment on Ubuntu creates a virtual network
     to which virtual machines may connect. It is also possible to configure a direct
     connection using a MacVTap driver. However, as outlined in the chapter entitled
     [“An Overview of Virtualization Techniques”](Virtualization_Overview.xhtml#_idTextAnchor361),
     this approach does not allow the host and guest systems to communicate.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，Ubuntu 上的 KVM 虚拟化环境创建了一个虚拟网络，虚拟机可以连接到该网络。也可以使用 MacVTap 驱动程序配置直接连接。然而，正如在名为[“虚拟化技术概述”](Virtualization_Overview.xhtml#_idTextAnchor361)的章节中所述，这种方法不允许主机和客户系统之间进行通信。
 - en: This chapter will cover the steps involved in creating a network bridge on Ubuntu,
     enabling guest systems to share one or more of the host system’s physical network
     connections while still allowing the guest and host systems to communicate.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将介绍在 Ubuntu 上创建网络桥接的步骤，使得客户系统能够共享主机系统的一个或多个物理网络连接，同时仍然允许客户和主机系统之间进行通信。
 - en: In the remainder of this chapter, we will explain how to configure an Ubuntu
     network bridge for KVM-based guest operating systems.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章的其余部分，我们将解释如何为基于 KVM 的客户操作系统配置 Ubuntu 网络桥接。
 - en: 27.1 Getting the Current Network Manager Settings
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 27.1 获取当前网络管理器设置
 - en: A network bridge can be created using the NetworkManager command-line interface
     tool (nmcli). The NetworkManager is installed and enabled by default on Ubuntu
     systems and is responsible for detecting and connecting to network devices and
     providing an interface for managing networking configurations.
+  id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以使用 NetworkManager 命令行工具（nmcli）创建网络桥接。NetworkManager 默认安装并启用在 Ubuntu 系统中，负责检测并连接网络设备，并提供一个管理网络配置的接口。
 - en: 'A list of current network connections on the host system can be displayed as
     follows:'
+  id: totrans-6
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以通过以下命令显示当前主机系统上的网络连接列表：
 - en: nmcli con show
+  id: totrans-7
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con show
 - en: NAME UUID TYPE DEVICE
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: NAME UUID TYPE DEVICE
 - en: Wired connection 1 daae7adc-2a52-3fa0-9085-25748531e1b6 ethernet eno1
+  id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: Wired connection 1 daae7adc-2a52-3fa0-9085-25748531e1b6 ethernet eno1
 - en: virbr0 299e0d95-4f39-4e65-aace-c7abbd8b018d bridge virbr0
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: virbr0 299e0d95-4f39-4e65-aace-c7abbd8b018d bridge virbr0
 - en: vnet2 bcb3cd6e-dae4-4545-b98b-e8f90c86dadb tun vnet2
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: vnet2 bcb3cd6e-dae4-4545-b98b-e8f90c86dadb tun vnet2
 - en: The above output shows that the host has an Ethernet network connection established
     via a device named eno1 and the default bridge interface named virbr0, which provides
     access to the NAT-based virtual network to which KVM guest systems are connected
     by default.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 上面的输出显示，主机通过名为 eno1 的设备和名为 virbr0 的默认桥接接口建立了以太网网络连接，该桥接接口提供对 KVM 客户系统默认连接的基于
+    NAT 的虚拟网络的访问。
 - en: 'Similarly, the following command can be used to identify the devices (both
     virtual and physical) that are currently configured on the system:'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 同样，以下命令可用于识别当前在系统上配置的设备（包括虚拟和物理设备）：
 - en: nmcli device show
+  id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli device show
 - en: 'GENERAL.DEVICE: eno1'
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.DEVICE: eno1'
 - en: 'GENERAL.TYPE: ethernet'
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.TYPE: ethernet'
 - en: 'GENERAL.HWADDR: 00:23:24:52:52:57'
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.HWADDR: 00:23:24:52:52:57'
 - en: 'GENERAL.MTU: 1500'
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.MTU: 1500'
 - en: 'GENERAL.STATE: 100 (connected)'
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.STATE: 100 (connected)'
 - en: 'GENERAL.CONNECTION: Wired connection 1'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.CONNECTION: Wired connection 1'
 - en: 'GENERAL.CON-PATH: /org/freedesktop/NetworkManager/ActiveC>'
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.CON-PATH: /org/freedesktop/NetworkManager/ActiveC>'
 - en: 'WIRED-PROPERTIES.CARRIER: on'
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 'WIRED-PROPERTIES.CARRIER: on'
 - en: 'IP4.ADDRESS[1]: 192.168.86.39/24'
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.ADDRESS[1]: 192.168.86.39/24'
 - en: 'IP4.GATEWAY: 192.168.86.1'
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.GATEWAY: 192.168.86.1'
 - en: 'IP4.ROUTE[1]: dst = 169.254.0.0/16, nh = 0.0.0.0, mt >'
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.ROUTE[1]: dst = 169.254.0.0/16, nh = 0.0.0.0, mt >'
 - en: 'IP4.ROUTE[2]: dst = 192.168.86.0/24, nh = 0.0.0.0, mt>'
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.ROUTE[2]: dst = 192.168.86.0/24, nh = 0.0.0.0, mt>'
 - en: 'IP4.ROUTE[3]: dst = 0.0.0.0/0, nh = 192.168.86.1, mt >'
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.ROUTE[3]: dst = 0.0.0.0/0, nh = 192.168.86.1, mt >'
 - en: 'IP4.DNS[1]: 192.168.86.1'
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.DNS[1]: 192.168.86.1'
 - en: 'IP4.DOMAIN[1]: lan'
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.DOMAIN[1]: lan'
 - en: 'IP6.ADDRESS[1]: fda8:b48c:1079:0:5f:670e:a693:9ae2/64'
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.ADDRESS[1]: fda8:b48c:1079:0:5f:670e:a693:9ae2/64'
 - en: 'IP6.ADDRESS[2]: fda8:b48c:1079:0:c734:89bd:8384:992d/64'
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.ADDRESS[2]: fda8:b48c:1079:0:c734:89bd:8384:992d/64'
 - en: 'IP6.ADDRESS[3]: fda8:b48c:1079:0:ec7b:35d8:8253:3739/64'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.ADDRESS[3]: fda8:b48c:1079:0:ec7b:35d8:8253:3739/64'
 - en: 'IP6.ADDRESS[4]: fe80::1e40:b04c:3de4:5fe0/64'
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.ADDRESS[4]: fe80::1e40:b04c:3de4:5fe0/64'
 - en: 'IP6.GATEWAY: --'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.GATEWAY: --'
 - en: 'IP6.ROUTE[1]: dst = fda8:b48c:1079::/64, nh = ::, mt >'
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.ROUTE[1]: dst = fda8:b48c:1079::/64, nh = ::, mt >'
 - en: 'IP6.ROUTE[2]: dst = fe80::/64, nh = ::, mt = 1024'
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.ROUTE[2]: dst = fe80::/64, nh = ::, mt = 1024'
 - en: 'IP6.ROUTE[3]: dst = fd56:6a14:af59:1::/64, nh = fe80:>'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.ROUTE[3]: dst = fd56:6a14:af59:1::/64, nh = fe80:>'
 - en: 'GENERAL.DEVICE: virbr0'
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.DEVICE: virbr0'
 - en: 'GENERAL.TYPE: bridge'
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.TYPE: bridge'
 - en: 'GENERAL.HWADDR: 52:54:00:00:A8:CA'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.HWADDR: 52:54:00:00:A8:CA'
 - en: 'GENERAL.MTU: 1500'
+  id: totrans-41
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.MTU: 1500'
 - en: 'GENERAL.STATE: 100 (connected (externally))'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.STATE: 100 (connected (externally))'
 - en: 'GENERAL.CONNECTION: virbr0'
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.CONNECTION: virbr0'
 - en: 'GENERAL.CON-PATH: /org/freedesktop/NetworkManager/ActiveC>'
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 'GENERAL.CON-PATH: /org/freedesktop/NetworkManager/ActiveC>'
 - en: 'IP4.ADDRESS[1]: 192.168.122.1/24'
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.ADDRESS[1]: 192.168.122.1/24'
 - en: 'IP4.GATEWAY: --'
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.GATEWAY: --'
 - en: 'IP4.ROUTE[1]: dst = 192.168.122.0/24, nh = 0.0.0.0, m>'
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP4.ROUTE[1]: dst = 192.168.122.0/24, nh = 0.0.0.0, m>'
 - en: 'IP6.GATEWAY: --'
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 'IP6.GATEWAY: --'
 - en: .
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: .
 - en: .
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: .
 - en: The above partial output indicates that the host system on which the command
     was executed contains a physical Ethernet device (eno1) and a virtual bridge (virbr0).
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 上面的部分输出表示执行命令的主机系统包含一个物理以太网设备（eno1）和一个虚拟桥接（virbr0）。
 - en: 'The virsh command may also be used to list the virtual networks currently configured
     on the system:'
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: virsh 命令还可以用于列出当前系统上配置的虚拟网络：
 - en: virsh net-list --all
+  id: totrans-53
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virsh net-list --all
 - en: Name State Autostart Persistent
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 名称 状态 自动启动 持久化
 - en: '----------------------------------------------------------'
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: '----------------------------------------------------------'
 - en: default active yes yes
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认 激活 是 是
 - en: Currently, the only virtual network present is the default network provided
     by virbr0\. Now that some basic information about the current network configuration
     has been obtained, the next step is to create a network bridge connected to the
     physical network device (in this case, eno1).
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 当前，唯一存在的虚拟网络是 virbr0 提供的默认网络。现在已经获得了一些当前网络配置的基本信息，接下来的步骤是创建一个连接到物理网络设备的网络桥接（此例中为
+    eno1）。
 - en: 27.2 Creating a Network Manager Bridge from the Command-Line
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 27.2 从命令行创建网络管理桥接
 - en: 'The first step in creating the network bridge is adding a new connection to
     the configuration. This can be achieved using the nmcli tool, specifying that
     the connection is to be a bridge and providing names for both the connection and
     the interface:'
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建网络桥接的第一步是将新连接添加到配置中。这可以通过使用 nmcli 工具来完成，指定该连接为桥接，并为连接和接口提供名称：
 - en: nmcli con add ifname br0 type bridge con-name br0
+  id: totrans-60
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con add ifname br0 type bridge con-name br0
 - en: 'Once the connection has been added, a bridge slave interface needs to be established
     between physical device eno1 (the slave) and the bridge connection br0 (the master)
     as follows:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦连接已添加，需在物理设备 eno1（从设备）和桥接连接 br0（主设备）之间建立一个桥接从接口，命令如下：
 - en: nmcli con add type bridge-slave ifname eno1 master br0
+  id: totrans-62
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con add type bridge-slave ifname eno1 master br0
 - en: 'At this point, the NetworkManager connection list should read as follows:'
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 此时，NetworkManager 连接列表应如下所示：
 - en: nmcli con show
+  id: totrans-64
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con show
 - en: br0 8680c281-6d49-4f76-93b1-902c42514ca5 bridge br0
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: br0 8680c281-6d49-4f76-93b1-902c42514ca5 桥接 br0
 - en: Wired connection 1 126ab0e8-d4d3-3326-bd5e-1fea169c5635 ethernet eno1
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 有线连接 1 126ab0e8-d4d3-3326-bd5e-1fea169c5635 以太网 eno1
 - en: virbr0 556042d4-2e5d-45fe-9c78-a24259e07265 bridge virbr0
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: virbr0 556042d4-2e5d-45fe-9c78-a24259e07265 桥接 virbr0
 - en: bridge-slave-eno1 e6ba8ead-8fa9-4434-a884-d39225ecda20 ethernet --
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: bridge-slave-eno1 e6ba8ead-8fa9-4434-a884-d39225ecda20 以太网 --
 - en: The next step is to start up the bridge interface. If the steps to configure
     the bridge are being performed over a network connection (i.e., via SSH) this
     step can be problematic because the current "Wired connection 1" connection must
     be closed down before the bridge connection can be brought up. This means the
     current connection will be lost before the bridge connection can be enabled to
     replace it, potentially leaving the remote host unreachable.
+  id: totrans-69
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来的步骤是启动桥接接口。如果通过网络连接（即通过 SSH）进行桥接配置，这一步可能会有问题，因为必须先关闭当前的“有线连接 1”连接，才能启动桥接连接。这意味着在桥接连接启用并替代当前连接之前，现有连接将会丢失，可能导致无法访问远程主机。
 - en: 'If you are accessing the host system remotely, this problem can be avoided
     by creating a shell script to perform the network changes. This will ensure that
     the bridge interface is enabled after the ”Wired connection 1” interface is brought
     down, allowing you to reconnect to the host after the changes are complete. Begin
     by creating a shell script file named bridge.sh containing the following commands:'
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你是远程访问主机系统，可以通过创建一个 shell 脚本来执行网络更改，从而避免此问题。这样可以确保在“有线连接 1”接口被关闭后，桥接接口会启用，允许你在更改完成后重新连接到主机。首先创建一个名为
+    bridge.sh 的 shell 脚本文件，包含以下命令：
 - en: '#!/bin/bash'
+  id: totrans-71
   prefs: []
   type: TYPE_NORMAL
+  zh: '#!/bin/bash'
 - en: nmcli con down "Wired connection 1"
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: nmcli con down "Wired connection 1"
 - en: nmcli con up br0
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: nmcli con up br0
 - en: 'Once the script has been created, execute it as follows:'
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 脚本创建完成后，可以按如下方式执行：
 - en: sh ./bridge.sh
+  id: totrans-75
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: sh ./bridge.sh
 - en: When the script executes, the connection will be lost when the ”Wired connection
     1” connection is brought down. After waiting a few seconds, however, it should
     be possible to reconnect to the host once the br0 connection has been activated.
     Note that in some cases, the bridge interface may be assigned a different IP address
     than the one previously assigned to the system. Keep this in mind while attempting
     to reconnect via ssh.
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 当脚本执行时，当"有线连接 1"连接被断开时，连接将会丢失。然而，等待几秒钟后，一旦br0连接被激活，就应该能够重新连接到主机。请注意，在某些情况下，桥接接口可能会分配与系统先前分配的不同IP地址。尝试通过ssh重新连接时请牢记这一点。
 - en: 'If you are working locally on the host, the two nmcli commands can be run within
     a terminal window without any risk of losing connectivity:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你在本地主机上工作，这两个`nmcli`命令可以在终端窗口中运行，而不必担心失去连接：
 - en: nmcli con down "Wired connection 1"
+  id: totrans-78
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con down "有线连接 1"
 - en: nmcli con up br0
+  id: totrans-79
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con up br0
 - en: 'Once the bridge is up and running, the connection list should now include both
     the bridge and the bridge-slave connections:'
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦桥接启动并运行，连接列表现在应该包括桥接连接和桥接从属连接：
 - en: nmcli con show
+  id: totrans-81
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con show
 - en: NAME UUID TYPE DEVICE
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: NAME UUID TYPE DEVICE
 - en: br0 8680c281-6d49-4f76-93b1-902c42514ca5 bridge br0
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: br0 8680c281-6d49-4f76-93b1-902c42514ca5 bridge br0
 - en: virbr0 556042d4-2e5d-45fe-9c78-a24259e07265 bridge virbr0
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: virbr0 556042d4-2e5d-45fe-9c78-a24259e07265 bridge virbr0
 - en: bridge-slave-eno1 e6ba8ead-8fa9-4434-a884-d39225ecda20 ethernet eno1
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: bridge-slave-eno1 e6ba8ead-8fa9-4434-a884-d39225ecda20 ethernet eno1
 - en: Wired connection 1 126ab0e8-d4d3-3326-bd5e-1fea169c5635 ethernet --
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 有线连接 1 126ab0e8-d4d3-3326-bd5e-1fea169c5635 ethernet --
 - en: 'Note that the ”Wired connection 1” connection is still listed but is no longer
     active. To exclude inactive connections from the list, use the --active flag when
     requesting the list:'
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，"有线连接 1" 连接仍然列出，但不再处于活动状态。要在请求列表时排除非活动连接，请使用`--active`标志：
 - en: nmcli con show --active
+  id: totrans-88
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con show --active
 - en: NAME UUID TYPE DEVICE
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: NAME UUID TYPE DEVICE
 - en: br0 8680c281-6d49-4f76-93b1-902c42514ca5 bridge br0
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: br0 8680c281-6d49-4f76-93b1-902c42514ca5 bridge br0
 - en: virbr0 556042d4-2e5d-45fe-9c78-a24259e07265 bridge virbr0
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: virbr0 556042d4-2e5d-45fe-9c78-a24259e07265 bridge virbr0
 - en: bridge-slave-eno1 e6ba8ead-8fa9-4434-a884-d39225ecda20 ethernet eno1
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: bridge-slave-eno1 e6ba8ead-8fa9-4434-a884-d39225ecda20 ethernet eno1
 - en: 27.3 Declaring the KVM Bridged Network
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 27.3 声明KVM桥接网络
 - en: 'At this point, the bridge connection is on the system but is not visible to
     the KVM environment. Running the virsh command should still list the default network
     as being the only available network option:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 目前，桥接连接已在系统中，但在KVM环境中不可见。运行`virsh`命令时，仍然会将默认网络列为唯一可用的网络选项：
 - en: virsh net-list --all
+  id: totrans-95
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virsh net-list --all
 - en: Name State Autostart Persistent
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: Name State Autostart Persistent
 - en: '----------------------------------------------------------'
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: '----------------------------------------------------------'
 - en: default active yes yes
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: default active yes yes
 - en: Before a virtual machine can use the bridge, it must be declared and added to
     the KVM network configuration. This involves the creation of a definition file
     and, once again, using the virsh command-line tool.
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 在虚拟机可以使用桥接之前，必须声明并将其添加到KVM网络配置中。这涉及创建一个定义文件，并再次使用`virsh`命令行工具。
 - en: 'Begin by creating a definition file for the bridge network named bridge.xml
     that reads as follows:'
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先创建一个名为`bridge.xml`的桥接网络定义文件，其内容如下：
 - en: <network>
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: <network>
 - en: <name>br0</name>
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: <name>br0</name>
 - en: <forward mode="bridge"/>
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: <forward mode="bridge"/>
 - en: <bridge name="br0" />
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: <bridge name="br0" />
 - en: </network>
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: </network>
 - en: 'Next, use the file to define the new network:'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，使用该文件来定义新网络：
 - en: virsh net-define ./bridge.xml
+  id: totrans-107
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virsh net-define ./bridge.xml
 - en: 'Once the network has been defined, start it and, if required, configure it
     to autostart each time the system reboots:'
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 定义网络后，启动它，并在需要时配置其在每次系统重启时自动启动：
 - en: virsh net-start br0
+  id: totrans-109
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virsh net-start br0
 - en: virsh net-autostart br0
+  id: totrans-110
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virsh net-autostart br0
 - en: 'Once again, list the networks to verify that the bridge network is now accessible
     within the KVM environment:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 再次列出网络，验证桥接网络现在在KVM环境中可访问：
 - en: virsh net-list --all
+  id: totrans-112
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virsh net-list --all
 - en: Name State Autostart Persistent
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: Name State Autostart Persistent
 - en: '----------------------------------------------------------'
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: '----------------------------------------------------------'
 - en: br0 active yes yes
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: br0 active yes yes
 - en: default active yes yes
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: default active yes yes
 - en: 27.4 Using a Bridge Network in a Virtual Machine
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 27.4 在虚拟机中使用桥接网络
 - en: 'To create a virtual machine that uses the bridge network, use the virt-install
     --network option and specify the br0 bridge name. For example:'
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个使用桥接网络的虚拟机，可以使用`virt-install --network`选项并指定br0桥接名称。例如：
 - en: virt-install --name demo_vm_guest --memory 1024 --disk path=/tmp/demo_vm_guest.img,size=10
     --network network=br0 --cdrom /home/demo/ubuntu-23.04-desktop-amd64.iso
+  id: totrans-119
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virt-install --name demo_vm_guest --memory 1024 --disk path=/tmp/demo_vm_guest.img,size=10
+    --network network=br0 --cdrom /home/demo/ubuntu-23.04-desktop-amd64.iso
 - en: When the guest operating system runs, it will appear on the same physical network
     as the host system and will no longer be on the NAT-based virtual network.
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 当客户操作系统运行时，它将出现在与主机系统相同的物理网络中，而不再处于基于 NAT 的虚拟网络中。
 - en: 'The bridge may also be selected for virtual machines within the Cockpit interface
     by editing the virtual machine, locating the Network interfaces section, and clicking
     the Edit button as highlighted in [Figure 27-1](KVM_Network_Bridge.xhtml#_idTextAnchor412)
     below:'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 也可以通过编辑虚拟机，在 Cockpit 界面内选择桥接网络，找到网络接口部分，点击如[图 27-1](KVM_Network_Bridge.xhtml#_idTextAnchor412)所示的编辑按钮：
 - en: '![](img/ubuntu_cockpit_edit_network.jpg)'
+  id: totrans-122
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_cockpit_edit_network.jpg)'
 - en: Figure 27-1
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-1
 - en: 'Within the resulting interface settings dialog, change the Interface type menu
     to Bridge to LAN and set the Source to br0 as shown in [Figure 27-2](KVM_Network_Bridge.xhtml#_idTextAnchor413):'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 在结果界面的设置对话框中，将接口类型菜单更改为“桥接到 LAN”，并将源设置为 br0，如[图 27-2](KVM_Network_Bridge.xhtml#_idTextAnchor413)所示：
 - en: '![](img/cockpit_kvm_bridge.jpg)'
+  id: totrans-125
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/cockpit_kvm_bridge.jpg)'
 - en: Figure 27-2
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-2
 - en: 'Similarly, when creating a new virtual machine using the virt-manager tool,
     the bridge will be available within the Network selection menu:'
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 类似地，使用 virt-manager 工具创建新的虚拟机时，桥接网络将出现在网络选择菜单中：
 - en: '![](img/ubuntu_virt-manager_bridge.jpg)'
+  id: totrans-128
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_virt-manager_bridge.jpg)'
 - en: Figure 27-3
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-3
 - en: 'To modify an existing virtual machine so that it uses the bridge, use the virsh
     edit command. This command loads the XML definition file into an editor where
     changes can be made and saved:'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 要修改现有虚拟机以使用桥接网络，使用 virsh edit 命令。该命令将加载 XML 定义文件到编辑器中，在那里可以进行更改并保存：
 - en: virsh edit GuestName
+  id: totrans-131
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: virsh edit GuestName
 - en: 'By default, the file will be loaded into the vi editor. To use a different
     editor, change the $EDITOR environment variable, for example:'
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，文件将加载到 vi 编辑器中。要使用其他编辑器，可以更改 $EDITOR 环境变量，例如：
 - en: export EDITOR=gedit
+  id: totrans-133
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: export EDITOR=gedit
 - en: 'To change from the default virtual network, locate the <interface> section
     of the file, which will read as follows for a NAT-based configuration:'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 要从默认虚拟网络更改，找到文件中的 <interface> 部分，对于基于 NAT 的配置，它将如下所示：
 - en: <interface type='network'>
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: <interface type='network'>
 - en: <mac address='<your mac address here>'/>
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: <mac address='<your mac address here>'/>
 - en: <source network='default'/>
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: <source network='default'/>
 - en: <model type='virtio'/>
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: <model type='virtio'/>
 - en: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
 - en: </interface>
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: </interface>
 - en: 'Alternatively, if the virtual machine was using a direct connection, the entry
     may read as follows:'
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 或者，如果虚拟机使用的是直接连接，条目可能如下所示：
 - en: <interface type='direct'>
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: <interface type='direct'>
 - en: <mac address='<your mac address here>'/>
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: <mac address='<your mac address here>'/>
 - en: <source dev='eno1' mode='vepa'/>
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: <source dev='eno1' mode='vepa'/>
 - en: <model type='virtio'/>
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: <model type='virtio'/>
 - en: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
 - en: 'To use the bridge, change the source network property to read as follows before
     saving the file:'
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 要使用桥接网络，在保存文件之前，将源网络属性更改为如下所示：
 - en: <interface type='network'>
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: <interface type='network'>
 - en: <mac address='<your mac address here>'/>
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: <mac address='<your mac address here>'/>
 - en: <source network='br0'/>
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: <source network='br0'/>
 - en: <model type='virtio'/>
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: <model type='virtio'/>
 - en: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
 - en: </interface>
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: </interface>
 - en: If the virtual machine is already running, the change will not take effect until
     it is restarted.
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果虚拟机已经在运行，变更将在重启后生效。
 - en: 27.5 Creating a Bridge Network using nm-connection-editor
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 27.5 使用 nm-connection-editor 创建桥接网络
 - en: 'If either local or remote desktop access is available on the host system, much
     of the bridge configuration process can be performed using the nm-connection-editor
     graphical tool. To use this tool, open a Terminal window within the desktop and
     enter the following command:'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果主机系统上可以进行本地或远程桌面访问，那么大部分桥接配置过程可以使用 nm-connection-editor 图形工具来完成。要使用此工具，可以在桌面中打开终端窗口并输入以下命令：
 - en: nm-connection-editor
+  id: totrans-157
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nm-connection-editor
 - en: 'When the tool has loaded, the window shown in [Figure 27-4](KVM_Network_Bridge.xhtml#_idTextAnchor415)
     will appear, listing the currently configured network connections (essentially
     the same output as that generated by the nmcli con show command):'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 当工具加载完成后，将出现[图 27-4](KVM_Network_Bridge.xhtml#_idTextAnchor415)中所示的窗口，列出当前配置的网络连接（实际上与执行
+    `nmcli con show` 命令的输出相同）：
 - en: '![](img/ubuntu_nm-connection_editor_home.jpg)'
+  id: totrans-159
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_nm-connection_editor_home.jpg)'
 - en: Figure 27-4
+  id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-4
 - en: 'To create a new connection, click on the ‘+’ button in the window’s bottom
     left-hand corner. Then, from the resulting dialog ([Figure 27-5](KVM_Network_Bridge.xhtml#_idTextAnchor416)),
     select the Bridge option from the menu:'
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个新的连接，请点击窗口左下角的‘+’按钮。然后，在弹出的对话框中（[图 27-5](KVM_Network_Bridge.xhtml#_idTextAnchor416)），从菜单中选择
+    Bridge 选项：
 - en: '![](img/ubuntu_new_bridge.jpg)'
+  id: totrans-162
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_new_bridge.jpg)'
 - en: Figure 27-5
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-5
 - en: 'With the bridge option selected, click the Create button to proceed to the
     bridge configuration screen. Begin by changing both the connection and interface
     name fields to br0 before clicking on the Add button located to the right of the
     Bridge connections list, as highlighted in [Figure 27-6](KVM_Network_Bridge.xhtml#_idTextAnchor417):'
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 选择 Bridge 选项后，点击创建按钮以进入桥接配置界面。首先将连接和接口名称字段都更改为 br0，然后点击位于桥接连接列表右侧的添加按钮，如[图 27-6](KVM_Network_Bridge.xhtml#_idTextAnchor417)所示：
 - en: '![](img/ubuntu_edit_bridge.jpg)'
+  id: totrans-165
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_edit_bridge.jpg)'
 - en: Figure 27-6
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-6
 - en: 'From the connection type dialog ([Figure 27-7](KVM_Network_Bridge.xhtml#_idTextAnchor418)),
     change the menu setting to Ethernet before clicking on the Create button:'
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 在连接类型对话框中（[图 27-7](KVM_Network_Bridge.xhtml#_idTextAnchor418)），将菜单设置更改为 Ethernet，然后点击创建按钮：
 - en: '![](img/ubuntu_new_ethernet.jpg)'
+  id: totrans-168
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_new_ethernet.jpg)'
 - en: Figure 27-7
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-7
 - en: 'Another dialog will now appear in which the bridge slave connection needs to
     be configured. Within this dialog, select the physical network to which the bridge
     is to connect (for example, eno1) from the Device menu:'
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在会弹出另一个对话框，需在此对话框中配置桥接从属连接。在此对话框中，从设备菜单中选择桥接要连接的物理网络（例如 eno1）：
 - en: '![](img/ubuntu_edit_ethernet.jpg)'
+  id: totrans-171
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_edit_ethernet.jpg)'
 - en: Figure 27-8
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-8
 - en: 'Click on the Save button to apply the changes and return to the Editing br0
     dialog (as illustrated in [Figure 27-6](KVM_Network_Bridge.xhtml#_idTextAnchor417)
     above). Within this dialog, click on the Save button to create the bridge. On
     returning to the main window, the new bridge and slave connections should now
     be listed:'
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 点击保存按钮以应用更改，并返回到编辑 br0 对话框（如上所示[图 27-6](KVM_Network_Bridge.xhtml#_idTextAnchor417)）。在此对话框中，点击保存按钮以创建桥接。返回主窗口后，新创建的桥接和从属连接应列出在其中：
 - en: '![](img/ubuntu_br0_ready.jpg)'
+  id: totrans-174
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/ubuntu_br0_ready.jpg)'
 - en: Figure 27-9
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 27-9
 - en: 'All that remains is to bring down the original ”Wired connection 1” connection
     and bring up the br0 connection using the steps outlined in the previous chapter
     (remembering to perform these steps in a shell script if the host is being accessed
     remotely):'
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: 只需关闭原来的“Wired connection 1”连接，然后按照前一章节中描述的步骤启动 br0 连接（如果主机是远程访问的，记得在 shell 脚本中执行这些步骤）：
 - en: nmcli con down "Wired connection 1"
+  id: totrans-177
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con down "Wired connection 1"
 - en: nmcli con up br0
+  id: totrans-178
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: nmcli con up br0
 - en: It will also be necessary, as it was when creating the bridge using the command-line
     tool, to add this bridge to the KVM network configuration. To do so, repeat the
     steps outlined in the [“Declaring the KVM Bridged Network”](KVM_Network_Bridge.xhtml#_idTextAnchor410)
     section above. Once this step has been taken, the bridge is ready to be used by
     guest virtual machines.
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 同时，如同使用命令行工具创建桥接时所做的那样，还需要将该桥接添加到 KVM 网络配置中。为此，请重复上述[“声明 KVM 桥接网络”](KVM_Network_Bridge.xhtml#_idTextAnchor410)部分中的步骤。完成此步骤后，桥接已准备好供来宾虚拟机使用。
 - en: 27.6 Summary
+  id: totrans-180
   prefs: []
   type: TYPE_NORMAL
+  zh: 27.6 小结
 - en: By default, KVM virtual machines are connected to a virtual network that uses
     NAT to provide access to the network to which the host system is connected. If
     the guests are required to appear on the network with their own IP addresses,
     they need to be configured to share the physical network interface of the host
     system. This chapter outlines that this can be achieved using the nmcli or nm-connection-editor
     tools to create a networked bridge interface.
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认情况下，KVM 虚拟机连接到一个虚拟网络，该网络使用 NAT 提供对主机系统所连接网络的访问。如果要求来宾使用自己的 IP 地址出现在网络中，则需要将其配置为共享主机系统的物理网络接口。本章介绍了如何使用
+    nmcli 或 nm-connection-editor 工具创建网络桥接接口来实现这一点。
