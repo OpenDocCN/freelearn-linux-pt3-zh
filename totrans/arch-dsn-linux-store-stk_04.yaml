@@ -1,0 +1,1039 @@
+- en: '4'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Understanding the Block Layer, Block Devices, and Data Structures
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first three chapters of this book were centered around the first component
+    of the kernel’s I/O hierarchy, which is the VFS layer. We explained the functions
+    and purpose of VFS, as well as how it serves as an intermediary layer between
+    the generic system call interface and filesystems, along with its primary data
+    structures. In addition, we discussed the filesystems that can be found under
+    the VFS layer and introduced some of the essential concepts associated with them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We’ll now turn our focus to the second major section in the kernel’s storage
+    hierarchy: the block layer. The block layer deals with block devices and is responsible
+    for handling I/O operations performed on block devices. All the user-space programs
+    use the block layer interfaces to address and access the underlying storage devices.
+    Over the last decade or so, physical storage media has undergone a significant
+    transformation, shifting from slower mechanical drives to faster flash drives.
+    Consequently, the block layer within the kernel has undergone substantial modifications.
+    As performance is a critical factor when it comes to storage hardware, several
+    enhancements have been made to the kernel code to enable disk drives to realize
+    their full potential. In this chapter, we’re going to introduce the block layer,
+    define block devices, and then dive into the major data structures in the block
+    layer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here’s a summary of what follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the role of the block layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Defining block devices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The defining characteristics of a block device
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Representation of block devices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Looking at the major data structures in the block layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The journey of an I/O request in the block layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Linux kernel’s block layer is a slightly complex topic. A good understanding
+    of the material presented in the first three chapters will help you comprehend
+    the interaction between the block layer and various filesystems. Having experience
+    with the C programming language will help you understand the code presented in
+    this chapter. Additionally, any practical experience with a Linux system will
+    enhance your understanding of the concepts discussed herein.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
+    The code segments referred to in this chapter and book are from kernel `5.19.9`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the role of the block layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The block layer is tasked with implementing the kernel interfaces that enable
+    filesystems to interact with storage devices. In the context of accessing physical
+    storage, applications use block devices, and any requests to access data on these
+    devices are managed by the block layer. The kernel also contains a mapping layer
+    just above the block layer. This layer provides a flexible and powerful way to
+    map one block device to another, allowing for operations such as creating snapshots,
+    encrypting data, and creating logical volumes that span multiple physical devices.
+    The interfaces that are implemented in the block layer are central to managing
+    physical storage in Linux. The device files for block devices are created in the
+    `/``dev` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Like VFS, abstraction is the core function of the block layer. The VFS layer
+    allows applications to make generic requests for interacting with files without
+    having to worry about the underlying filesystem. In a similar vein, the block
+    layer allows applications to access storage devices uniformly. The choice of backend
+    storage medium is not a point of concern for the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To highlight the major functions of the block layer, let’s build on the storage
+    hierarchy we defined when describing VFS. The following figure outlines the major
+    components of the block layer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.1 – I/O hierarchy from VFS to the block layer](img/B19430_04_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.1 – I/O hierarchy from VFS to the block layer
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take a brief look at these functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The block layer provides an upstream interface to filesystems and allows them
+    to access a diverse range of storage devices uniformly. Likewise, it implements
+    a downstream interface for drivers and storage devices by providing them with
+    a single point of entry from all applications.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As we’ll see in this chapter, the block layer incorporates several tricky structures
+    to provide its services generically. Probably the most important of them is the
+    `bio` structure. The filesystem layer creates a bio structure to represent the
+    I/O request and passes it down to the block layer. The bio structure is responsible
+    for transporting all I/O requests to the driver. The mapping layer is in charge
+    of providing an infrastructure to map physical block devices to logical devices.
+    The mapping layer can achieve this by using the device mapper framework in the
+    kernel. The device mapper lays the groundwork for several technologies in the
+    kernel. These include volume management, multipathing, thin provisioning, encryption,
+    and software RAID. The most well known of these is **logical volume management**
+    (**LVM**). The device mapper creates every logical volume as a mapped device.
+    LVM provides a great deal of flexibility to storage administrators and simplifies
+    storage management.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `blk-mq` framework has become an important part of the block layer as it
+    solved its performance limitations by isolating request queues for every CPU core.
+    This framework is responsible for shepherding block I/O requests to multiple dispatch
+    queues. We’ll cover the `blk-mq` framework in more detail in [*Chapter 5*](B19430_05.xhtml#_idTextAnchor090).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The block layer also includes several schedulers for handling I/O requests.
+    These schedulers are pluggable and can be set for individual block devices. Non-multi-queue
+    schedulers have been deprecated and are no longer supported in modern kernels.
+    As we’ll see in [*Chapter 6*](B19430_06.xhtml#_idTextAnchor101), these schedulers
+    make use of several techniques to make intelligent decisions regarding I/O scheduling.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Additionally, the block layer implements functions such as error handling and
+    collecting I/O statistics for block devices.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At the heart of the block layer are block devices. Apart from devices that stream
+    data, such as tape drives, most storage devices, such as mechanical drives, and
+    solid-state drives flashcards, are considered block-based devices. Let’s take
+    a look at the defining traits of a block device and how they’re represented in
+    Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining block devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are two major ways that the kernel exchanges data with external devices.
+    One method is to exchange one character at a time with the device. Devices addressed
+    through such methods are known as character devices. Character devices are addressed
+    using a stream of sequential data. They can be accessed by programs to perform
+    input and output operations one character at a time. Due to the absence of random
+    access methods, managing character devices is simpler for the kernel. Devices
+    such as keyboards, text-based consoles, and serial ports are all examples of character
+    devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Communicating through one character at a time is acceptable when the volume
+    of data is low, such as when using serial ports or keyboards. A keyboard can only
+    accept one character at a time, so the use of a character interface makes sense.
+    But this approach becomes untenable when transferring large volumes of data. When
+    writing to physical disks, we expect them to be able to address more than one
+    character at a time and allow for data to be accessed randomly. The kernel addresses
+    physical drives in fixed-size chunks, known as blocks. In addition to traditional
+    disks, devices such as CD-ROMs and flash drives also use this approach. Such devices
+    are known as block devices. Block devices are more complex to manage compared
+    to character devices and require more careful considerations from the kernel.
+    The kernel has to make critical decisions regarding the addressing and organization
+    of block devices as these can significantly impact not only the block device but
+    also the overall system performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Block devices can exist in memory. This can be achieved by creating a *ramdisk*.
+    One of the most notable use cases of ramdisks is during the boot-up sequence in
+    Linux systems. An **initial ramdisk** (**initrd**) is responsible for loading
+    a temporary root filesystem in memory to aid in the boot process. A filesystem
+    can be created on a ramdisk and mounted like any regular filesystem. The speed
+    of RAM makes ramdisks incredibly fast. But due to the volatile nature of RAM,
+    any data written to a ramdisk is maintained only until the device is powered on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although ramdisks are also block-based, they’re rarely used. As you’ll see,
+    throughout this book, a block device is typically regarded as a persistent data
+    storage medium with a filesystem layer on top.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All operations on block devices are performed by the kernel in fixed-size chunks
+    of *N* bytes, known as *blocks*, which is the currency of exchange when dealing
+    with block devices. The actual value of *N* varies across the stack since different
+    layers in the kernel’s I/O hierarchy use chunks of different sizes to address
+    block devices. Because of this, the term block is defined in several ways, depending
+    on its presence in the stack:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**User-space applications**: As applications interact with the kernel space
+    through standard system calls, the term **block** in this context refers to the
+    amount of data read from and written to via system calls. Depending on the application,
+    this can vary in size.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Page cache**: The kernel makes extensive use of the VFS page cache to improve
+    the performance of read and write operations. Here, the fundamental unit of data
+    transfer is a *page*, which is 4 KB in size.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Disk-based filesystems**: As explained in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053),
+    a block represents the fixed number of bytes in which I/O operations are performed
+    by the filesystem. Although filesystems allow for higher block sizes, often up
+    to 64 KB, the block size for a filesystem is usually between 512 bytes and 4 KB
+    because of the page size.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Physical storage**: On physical disks, the smallest addressable unit is known
+    as a sector, which is usually 512 bytes. This sector is often further classified
+    as logical or physical.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We discussed filesystem blocks in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053).
+    Don’t get confused; the filesystem block’s size is not the fundamental unit of
+    block I/O. The basic unit of block I/O is a sector. The data structures in the
+    block layer define a variable of the `sector_t` type in the kernel code that represents
+    an offset or size that is a multiple of 512\. The `sector_t` variable is defined
+    as an unsigned integer type that is large enough to represent the maximum number
+    of sectors that can be addressed by the block device. It is used extensively throughout
+    the block layer in structures such as “bio” to represent disk addresses and offsets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To summarize, devices that are organized and addressed in terms of blocks are
+    known as block devices. They allow for random access and offer superior performance
+    compared to character devices. To take full advantage of block devices, the kernel
+    has to make informed decisions regarding their addressing and organization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s briefly go over some key features that define a block device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The defining characteristics of a block device
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As discussed earlier, block devices allow far more advanced ways to handle
+    I/O requests. Some of the defining characteristics of block devices are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Random access**: Block devices allow for random access. This means that the
+    device can *seek* from one position to another.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Block size**: Block devices address and transfer data in fixed-sized blocks.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Stackability**: Block devices can be stacked through the use of the device
+    mapper framework. This extends the basic functionalities of physical disks and
+    allows for scaling logical volumes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Buffered I/O**: Block devices use buffered I/O, which means that data is
+    written to a buffer in memory before being written to the device. Read and write
+    operations on block devices make extensive use of the page cache. Data that’s
+    read from the block device is loaded and kept in memory for a certain period.
+    Similarly, any data to be written to a block device is written to the cache first.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Filesystems/partitioning**: Block devices can be partitioned into smaller
+    logical units, with separate filesystems created on top of them.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Request queues**: Block devices implement the concept of request queues,
+    which are responsible for managing the I/O requests that are submitted to a block
+    device.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s see how block devices are represented in Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at the representation of block devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When discussing VFS, we saw that abstractions are at the heart of the kernel’s
+    I/O stack. The block layer is no exception to this rule. Regardless of the differences
+    in the physical make and model, the kernel should be able to work with storage
+    devices uniformly. To implement a standard interface for all devices, the operations
+    should be independent of the properties of the underlying storage device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As explained in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015), almost everything
+    is represented in the form of a file, including hardware devices. A block device
+    is a special file and is named as such because the kernel interacts with it using
+    a fixed number of bytes. Depending on the nature of the devices, the files representing
+    them are created and stored at specific locations in the system. The block devices
+    in the system are present in the `/dev` directory. Filenames representing disk
+    drives in the system start with `sd`, followed by a letter representing the order
+    of discovery. The first drive is named `sda` and so on. Similarly, the first partition
+    on the `sda` drive is represented as `sda1`. If we look at the `sd*` devices in
+    `/dev`, notice that the file type is `b`, for block devices. You can also list
+    block devices using the `lsblk` command, as shown in the following figure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.2 – Major and minor numbers](img/B19430_04_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.2 – Major and minor numbers
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just before the modification timestamp, note the two numbers separated by a
+    comma. The kernel represents block devices as a pair of numbers. These numbers
+    are called major and minor numbers for a device. The *major number* identifies
+    the driver associated with the device, whereas the *minor number* is used for
+    differentiating between individual devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding figure, all three devices – `sda`, `sda1`, and `sda2` – use
+    the same driver and hence have the same major number, `8`. The minor numbers –
+    `0`, `1`, and `2` – are used to identify the driver instance for each device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.3 – Device major and minor numbers](img/B19430_04_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.3 – Device major and minor numbers
+  prefs: []
+  type: TYPE_NORMAL
+- en: The device files present in the `/dev` directory are hooked up to the corresponding
+    device drivers to establish a communication link with the actual hardware. When
+    a program interacts with the block device file, the kernel uses the major number
+    to identify the appropriate driver for that device and sends the request. Since
+    a driver can be responsible for handling multiple devices, there has to be a way
+    through which the kernel can distinguish devices using the same major number.
+    For this purpose, minor numbers are used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will now explore the primary data structures that are used in the block layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at data structures in the block layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Dealing with block devices is fairly complex as the kernel has to implement
+    features such as queue management, scheduling, and the ability to access data
+    randomly. The speed of block devices is much higher than character devices. This
+    makes block devices extremely performance-sensitive and the kernel has to make
+    intelligent decisions to extract their maximum performance. Thus, it makes sense
+    to handle the two devices differently. Because of this, there is an entire kernel
+    subsystem dedicated to managing block devices. All this makes the block layer
+    the most sophisticated piece of code in the Linux kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout this book, we’ve referred to the relevant pieces of kernel code so
+    that you can familiarize yourself with the implementations of certain concepts.
+    If you’re interested in pursuing kernel development, this may seem like a good
+    starting point. However, if you are more focused on theoretical understanding,
+    the use of code might be mildly confusing. But it is essential to get a basic
+    idea of how certain things are represented in the kernel. Talking specifically
+    about the block layer, it is not possible to discuss all the structures that make
+    up its intricate design. Nevertheless, we must highlight some more important constructs
+    that give us a fair understanding of the representation and organization of block
+    devices in the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Some of the major data structures that are used to work with block devices
+    are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`register_blkdev`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`block_device`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`gendisk`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`buffer_head`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bio`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bio_vec`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`request`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`request_queue`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s take a look at them one by one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The register_blkdev function (block device registration)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To make block devices available for use, they must first be registered with
+    the kernel. The registration process is performed by the `register_blkdev()` function,
+    which is defined in `include/linux/blkdev.h`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `register_blkdev` function is used by block device drivers to register themselves
+    and is a macro that’s directed to `__register_blkdev`. The `__register_blkdev`
+    function performs the actual registration process. The purpose of having a separate
+    internal function is to provide additional error handling and validation before
+    modifying the kernel’s data structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The registration function performs the following tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It requests a major number from the kernel’s dynamic major number allocation
+    pool. The major number uniquely identifies the block device driver within the
+    system.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Once a major number has been successfully obtained, the function creates a `block_device`
+    struct, which represents the block device driver. This struct contains information
+    such as the major number, the name of the driver, and function pointers to various
+    driver operations.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In summary, the `register_blkdev` function acts as a friendly interface through
+    which block device drivers can initiate their registration processes with the
+    kernel’s block layer. It handles the necessary steps for acquiring a major number,
+    creating a `block_device` struct, and establishing the necessary connections with
+    the block layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The block_device structure (representing block devices)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The block device is defined in `include/linux/blk_types.h` by the `block_device`
+    structure in the kernel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `block_device` structure instance is created when the device file is opened.
+    A block device can be a whole disk or a single partition and the `block_device`
+    structure can represent either. When using partitions, the individual partitions
+    are identified through the `bd_partno` field. Since access to block devices happens
+    through the VFS layer, the corresponding device files are also assigned an inode
+    number. The inodes for block devices are virtual and are stored in the `bdev`
+    virtual filesystem. The inode for a block device also contains information about
+    its major and minor numbers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `block_device` structure also provides information about the device, such
+    as its name, size, and block size. It also contains a pointer to the `gendisk`
+    structure, which represents the disk, and a list of `request_queues` structures
+    for handling I/O requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The gendisk structure (representing physical disks)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An important field in the definition of the `block_device` structure is the
+    `bd_disk` pointer, which points to the `gendisk` structure. The `gendisk` structure,
+    which is defined in `include/linux/blkdev.h`, represents information about the
+    disk and is used to implement the notion of a physical hard disk in the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `gendisk` structure represents the disk’s properties and the methods used
+    to access it. It is used to register a block device and its associated I/O operations
+    with the kernel, allowing it to communicate with the device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`gendisk` can be considered a link between the block and filesystem interfaces
+    mentioned previously and the hardware interface. There will be a `block_device`
+    structure for representing the entire physical disk defined in `gendisk`. Similarly,
+    there will be separate `block_device` structures that describe individual partitions
+    within `gendisk`. Note that `gendisk` is allocated and controlled by the block
+    device driver and registered with the kernel using the `register_blkdev` function.
+    Once registered, the block device driver can use the `gendisk` structure to perform
+    I/O operations on the device.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s look at some of the important fields of this structure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`major`: This field specifies the major number associated with the `gendisk`
+    structure. As discussed earlier, the major number is used by the kernel to identify
+    the driver responsible for handling the block device.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`first_minor`: This field refers to the smallest minor number that is allocated
+    to a given block device. This can be thought of as an offset from which the minor
+    numbers for the different partitions of the device are allocated.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`minors`: This field specifies the total number of minor numbers associated
+    with the `gendisk` structure.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`fops`: This field points to a structure of file operations that are associated
+    with the `gendisk` structure. These file operations are used by the kernel to
+    handle read, write, and other file operations on the device.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`private_data`: This field is used by the driver to store any private data
+    associated with the `gendisk` structure, such as any driver-specific information.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`queue`: This field points to the request queue associated with the `gendisk`
+    structure. The request queue is responsible for managing the I/O requests that
+    are issued to the device. This makes it a very important field as it enables the
+    kernel to associate a specific I/O queue with each block device. By having separate
+    I/O queues for each block device, the kernel can manage multiple block devices
+    independently and handle their I/O operations more efficiently. This allows the
+    kernel to optimize performance, apply appropriate scheduling policies, and prevent
+    I/O bottlenecks.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`disk_name`: This field is a string that specifies the name of the device.
+    The name is used by the kernel to identify the device and is usually displayed
+    in system logs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let us move on to the next structure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The buffer_head structure (representing blocks in memory)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One of the defining features of a block device is its extensive use of the page
+    cache. The read and write operations on a block device are performed in the cache.
+    When an application reads from a block for the first time, the block is fetched
+    from the physical disk into memory. Similarly, when a program wants to write some
+    data, the write operation is first performed in the cache. It is written to the
+    physical disk at a later stage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The block that’s read from the disk or to be written to the disk is stored
+    in a buffer. This buffer is represented by the `buffer_head` structure, which
+    is defined in `include/linux/buffer_head.h` in the kernel. We can say that this
+    buffer is an in-memory representation of an individual block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The fields in the `buffer_head` structure contain the information required
+    to uniquely identify a particular block in the block device. The fields in the
+    `buffer_head` structure are described as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`b_data`: This field points to the start of the data buffer associated with
+    `buffer_head`. The size of the buffer is determined by the block size of the filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_size`: This field specifies the size of the buffer in bytes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_page`: This is a pointer to the page in memory where the block is stored.
+    This field is typically used in conjunction with fields such as `b_data` and `b_size`,
+    to manipulate the buffer data.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_blocknr`: This field specifies the logical block number of the buffer in
+    the filesystem. Each block in the filesystem is assigned a unique number called
+    a logical block number. This number represents the order of the block in the filesystem,
+    starting from 0 for the first block.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_state`: This field is a bitfield that represents the state of the buffer.
+    It can have several values. For instance, a value of `BH_Uptodate` indicates that
+    the buffer contains up-to-date data, while a value of `BH_Dirty` indicates that
+    the buffer contains dirty (modified) data and needs to be written to disk.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_count`: This field keeps track of the number of users of `buffer_head`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_page`: This field points to the page in the page cache that contains the
+    data associated with the `buffer_head` structure.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_assoc_map`: This field is used by some filesystems to track which blocks
+    are currently associated with `buffer_head`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_private`: This field is a pointer to private data associated with `buffer_head`.
+    This can be used by the filesystem to store information related to the buffer.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_bdev`: This field is a pointer to the block device that the buffer belongs
+    to.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`b_end_io`: This field is a function pointer that specifies the completion
+    function for an I/O operation on a buffer, and is used to perform any necessary
+    cleanup operations.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By default, as the filesystem’s block size is equal to the page size, a single
+    page in memory can hold a single block. If the block size is less than the page
+    size, the page can hold more than one block.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The buffer head maintains a mapping between a page in memory and its corresponding
+    on-disk version. Although it still holds important information, it was an even
+    more integral component of the kernel before version 2.6\. Back then, in addition
+    to maintaining page-to-disk block mapping, it also served as a container for all
+    I/O operations in the block layer. The use of buffer heads as an I/O container
+    resulted in a significant amount of memory usage. When dealing with a large block
+    of I/O requests, the kernel had to break it into smaller requests, each of which,
+    in turn, had a `buffer_head` structure associated with them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The bio structure (representing active block I/Os)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Due to the limitations in the `buffer_head` structure, the bio structure was
+    created to represent an ongoing block I/O operation. The bio structure has been
+    the fundamental unit of an I/O in the block layer since kernel 2.5\. When an application
+    issues an I/O request, the underlying filesystem translates it into one or more
+    bio structures, which are sent down to the block layer. The block layer then uses
+    these bio structures to issue I/O requests to the underlying block device. The
+    bio structure is defined in `include/linux/blk_types.h`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some particularly interesting fields are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bi_next`: This is a pointer to the next `bio` structure in a list and is used
+    to link multiple `bio` structures that represent a single I/O operation. This
+    is important to understand because a single I/O operation may need to be split
+    into multiple `bio` structures.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bi_vcnt`: This field specifies the number of `bio_vec` structures that are
+    being used to describe the I/O operation. Each `bio_vec` structure in the vector
+    describes a contiguous block of memory that is transferred between the block device
+    and the user space program.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bi_io_vec`: This is a pointer to an array of `bio_vec` structures that describes
+    the location and length of the data buffers associated with the I/O operation.
+    This lays the ground for performing `scatter-gather` I/O – that is, the data can
+    be spread across multiple non-contiguous memory locations.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bi_vcnt`: This field specifies the number of data buffers associated with
+    the I/O operation. Each data buffer is represented by a `bio_vec` structure, which
+    contains a pointer to the memory buffer and the length of the buffer.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bi_end_io`: This is a pointer to a function that is called when the I/O operation
+    completes. This function is responsible for cleaning up any resources associated
+    with the I/O operation and waking up any processes that are waiting for the operation
+    to complete.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bi_private`: This is a pointer to any private data associated with the I/O
+    operation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bi_opf`: This is a bit mask that specifies any additional options or flags
+    associated with the I/O operation. This can include options such as *force synchronous
+    I/O* or *disable* *write caching*.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When an I/O request is initiated by a user-space application, the bio structure
+    keeps track of all the active I/O transactions at the block layer. Once the bio
+    structure has been constructed, it is handed over to the block I/O layer through
+    the `submit_bio` function. The `submit_bio()` function is used to submit I/O requests
+    to block devices. Once the I/O has been submitted to the block device, it is added
+    to a request queue. The `submit_bio()` function will not wait for the I/O to be
+    completed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It can be said that the bio structure acts as a bridge between the filesystem
+    and the block device layer, enabling the filesystem to perform I/O operations
+    on the block device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The bio_vec structure (representing vector I/O)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `bio_vec` structure defines vector or scatter-gather I/O operations in the
+    block layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `bio_vec` structure is defined in `include/linux/bvec.h`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The fields are described as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bv_page`: This field holds a reference to the page structure (struct page)
+    that contains the data to be transferred. As we explained in [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028),
+    a page is a fixed-size block of memory.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bv_offset`: This field holds the offset within the page where the data to
+    be transferred starts.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bv_len`: This field holds the length of the data to be transferred.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bio_vec` structure is used to represent a scatter-gather I/O operation. The
+    block layer may construct a single bio with multiple `bio_vec` structures, each
+    representing a different physical page in memory and a different offset within
+    that page.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Requests and request queues (representing pending I/O requests)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When an I/O request is submitted to the block layer, the block layer creates
+    a `request` structure to represent the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `request` and `request_queue` structures are defined in `include/linux/blk-mq.h`
+    and `include/linux/blkdev.h`, respectively:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some of the major fields are explained here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`struct request_queue *q`: Each I/O request is added to the request queue of
+    a block device. The `q` field here points to this request queue.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct blk_mq_ctx *mq_ctx`: The `blk_mq_ctx *mq_ctx` field points to the software
+    staging queues; this structure is allocated on a per-CPU core basis. Each CPU
+    has a `blk_mq_ctx`, which is used to track the state of requests that are processed
+    on that CPU.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct blk_mq_hw_ctx *mq_hctx`: This field represents the hardware context
+    with which a request queue is associated. This is used to keep track of which
+    hardware queue the request belongs to.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct list_head queuelist`: This is a linked list of requests that are waiting
+    to be processed. When a request is submitted to the block layer, it is added to
+    this list.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct request *rq_next`: This is a pointer to the next request in the queue.
+    It is used to link requests within the request queue.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sector_t sector`: This field specifies the starting sector number of the I/O
+    operation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct bio *bio`: This field points to a `bio` structure that contains information
+    about the I/O operation, such as its type (read or write).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct bio *biotail`: This field points to the last `bio` structure in the
+    queue. When a new bio is added to the queue, it is linked to the end of the list
+    pointed to by `biotail`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `request_queue` structure represents the request queue associated with
+    a block device. The request queue is responsible for managing all I/O requests
+    that are issued to the block device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s look at some of the important fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`struct request *last_merge`: This field is used by the I/O scheduler to track
+    the last request that was merged with another request.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct elevator_queue *elevator`: This field points to the I/O scheduler for
+    the request queue. The I/O scheduler determines the order in which requests are
+    serviced.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct percpu_ref q_usage_counter`: This field represents the usage counter
+    for the request queue. The kernel uses a per-CPU counter to track the reference
+    count of a resource on a per-CPU basis.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct rq_qos *rq_qos`: This field points to a request queue of quality-of-service
+    agreements that the request queue provides to the block device. These are used
+    to prioritize I/O requests based on different criteria, such as the priority of
+    the request.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`const struct blk_mq_ops *mq_ops`: This structure contains function pointers
+    that define the behavior of the request queue for multi-queue I/O schedulers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct gendisk *disk`: This field points to the `gendisk` structure associated
+    with the request queue. `gendisk` represents a generic disk device.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Phew! There are too many of them. Let’s summarize the role of each structure
+    and see how they all work together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The journey of an I/O request in the block layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following table provides a concise overview of the structures that were
+    covered in the previous section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Structure** | **Representation of** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `gendisk` | Physical disk | This is used to represent the physical device
+    as a whole and contains information such as the disk’s capacity and geometry |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `block_device` | Block device | This represents a specific instance of a
+    device and contains information such as the major and minor numbers, partitions,
+    and the queue to handle I/O requests |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `buffer_head` | Block of data in memory | This is used to track the data
+    that is read from or written to a block device in memory |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `request` | I/O request | This includes information such as the type of I/O
+    operation and the starting block number |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `request_queue` | Queue of I/O requests | This contains information about
+    the current state of the queue, such as the number of requests waiting to be processed
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `bio` | Block I/O | This is a higher-level I/O request and can include multiple
+    request structures |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `bio_vec` | Scatter-gather list of memory buffers | This is used as a part
+    of the bio structure and describes an individual data buffer |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 4.1 – Summary of major block layer structures
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take a look at the relationship between these structures when a process
+    issues an I/O request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When an application writes data in a buffer in its address space, the block
+    layer creates a `buffer_head` structure to represent this data.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The block layer constructs a `bio` structure to represent the block I/O request
+    and maps the `buffer_head` structure to the `bio_vec` structure. For each `bio`,
+    the block layer creates one or more `bio_vec` structures to represent the data
+    being read from or written to.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `bio` structure is then added to the `request_queue` structure for the intended
+    block device through the `request` structure.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The device driver for that device, which is registered through `register_blkdev`,
+    dequeues the `bio` structure and schedules it for processing.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`bio` is then split into one or more `request` structures based on the block
+    size of the device.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Each `request` object is then added to the `request_queue` structure of the
+    corresponding device driver for processing.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: After processing the request, the device driver writes the data to the physical
+    storage.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the I/O request has been completed, the device driver notifies the block
+    layer.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The block layer then updates the buffer cache and the associated data structures.
+    It marks the request structure as completed and notifies any waiting processes
+    that the I/O operation has been completed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The corresponding `buffer_head` structures are updated to reflect the current
+    state of the data on the block device.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The block layer, with its intricate design, makes use of some complex structures
+    to work with block devices. We covered some major structures to help you understand
+    how things work under the hood. Each structure defines a ton of fields in its
+    definition; we’ve tried to highlight some to get a gist of things.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It's important to note that the request queues in older kernels were single-threaded
+    and were not able to exploit the capabilities of modern hardware. The Linux kernel
+    added multi-queue support in version `3.13`. The framework for implementing multi-queue
+    support is known as `blk-mq`. We’re going to cover the multi-queue framework in
+    the next chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first part of this book, which included *Chapters 1*, *2*, and *3*, dealt
+    with VFS and filesystems. The second part of this book, which constitutes *Chapters
+    4*, *5*, and *6*, is all about the block layer. This chapter introduced the role
+    of the block layer in the Linux kernel. The `/dev` directory. Working with block
+    devices is far more complicated than working with character devices, which can
+    only work sequentially. Character devices have a single current position. Managing
+    block devices is a far more complex task for the kernel as block devices must
+    be able to move to any position to provide random access to data. Because of this,
+    performance is a major concern when working with block devices. The Linux kernel
+    provides a complex ecosystem of structures in the block layer for working with
+    block devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will build on our understanding and see how an I/O request
+    is served in the block layer. We’ll also cover the device mapper and multi-queue
+    frameworks in the kernel.
+  prefs: []
+  type: TYPE_NORMAL

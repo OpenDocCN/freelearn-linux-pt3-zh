@@ -1,0 +1,1104 @@
+- en: '*Chapter 12*: Controlling Resource Usage with cgroups Version 1'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now that we''ve seen what `cgroups` are and how they''re structured, it''s
+    time to look at how to actually use them. In this chapter, we''ll cover these
+    specific topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding resource controllers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Controlling CPU usage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Controlling memory usage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Controlling `blkio` usage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `pam_limits` and `ulimit`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Learning how to control resource usage with `cgroups` can help you make your
+    data center run more securely and efficiently. So, buckle your seat belts and
+    let's get going.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To get the most out of this chapter, you'll want to use a somewhat new host
+    computer with a multi-core CPU and plenty of memory. In my case, I'm using a fairly
+    late-model Dell workstation with a hexacore Xeon CPU and 32 GB of RAM. Hyperthreading
+    is enabled, which gives me a total of 12 CPU cores to play with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Set your virtual machines to run with at least two CPU cores and a decent amount
+    of RAM. I''m setting mine to use four cores, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.1_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.1 – Setting the CPU cores in VirtualBox
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I''m also setting my virtual machines to run with eight GB of RAM, as you see
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.2_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.2 – Setting the RAM in VirtualBox
+  prefs: []
+  type: TYPE_NORMAL
+- en: As usual, I'll be using my Ubuntu Server 20.04 and AlmaLinux 8 virtual machines
+    for the demos.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3xJ61qi](https://bit.ly/3xJ61qi)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have everything set up, let's dig in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding resource controllers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are a few different names for this cgroups feature. I prefer to use the
+    term *resource controllers*. In other documentation, you may see these resource
+    controllers referred to as either *subsystems* or just as *controllers*. All of
+    these terms refer to the same thing, which is the cgroups technology that allows
+    us to control the resource usage of the various running processes. Before we start
+    getting our hands too dirty, let's see what resource controllers we have.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Examining the resource controllers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The best way to see what resource controllers we have is to install some cgroup
+    tools. On the Ubuntu machine, do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the Alma machine, do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On either machine, we can now use `lssubsys` to view our active resource controllers,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here''s a brief description of each of them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`cpuset`: If you''re running a system with multiple CPU cores, this allows
+    you to assign a process to one specific CPU core or a set of CPU cores. This enhances
+    performance by forcing a process to use a portion of the CPU cache that''s already
+    been filled with the data and the instructions that the process needs. By default,
+    the Linux kernel scheduler can move processes around from one CPU core to another,
+    or from one set of CPU cores to another. Every time this happens, the running
+    process must access the main system memory to refill the CPU cache. This costs
+    extra CPU cycles, which can hurt performance.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cpu,cpuacct`: There used to be two separate controllers for `cpu` and `cpuacct`.
+    Now, they''ve been combined into one single controller. This controller lets you
+    control CPU usage for either processes or users. On a multi-tenant system, it
+    allows you to monitor users'' CPU usage, which is handy for billing purposes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`blkio`: This is short for **Block Input/Output**. This controller allows you
+    to set limits on how fast processes and users can read from or write to block
+    devices. (A block device is something such as a hard drive or a hard drive partition.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`memory`: As you might have guessed, this one allows you to set limits on the
+    amount of system memory that a process or user can use.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`devices`: This allows you to control access to system devices.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`freezer`: This one has a strange name, but its purpose is simple. It allows
+    you to suspend running processes in a cgroup. This can be handy for when you need
+    to move processes from one cgroup to another. When you''re ready, just resume
+    the processes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`net_cls,net_prio`: This allows you to place class identifier (`classid`) tags
+    on network packets. The Linux traffic controller and the Linux firewall can use
+    these tags to control and prioritize network traffic for the various cgroups.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`perf_event`: This allows you to monitor cgroups with the `perf` tool.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`hugetlb`: This one allows your cgroups to use huge virtual memory pages, and
+    to place limits upon their use. (This is a bit beyond the scope of this book,
+    so we won''t say anything more about it.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`pids`: This allows you to place a limit on the number of processes that can
+    run in a cgroup.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`rdma`: **Remote direct memory access** allows one computer to directly access
+    the memory of another computer without having to involve either computer''s operating
+    system. This is mainly used for parallel computing clusters, which is also beyond
+    the scope of this book.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'On the `cgroups` man page, you''ll see a brief mention of these controllers
+    under the *Cgroups version 1 controllers* section. To see a detailed description
+    of them, you''ll need to look at the documentation that comes packaged with the
+    Linux kernel source code. On the Alma machine, you can install that documentation
+    as a separate package by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the `/usr/share/doc/kernel-doc-4.18.0/Documentation/cgroup-v1/` directory,
+    you'll now find text files that contain more detailed explanations about the resource
+    controllers. (I also looked for that documentation package on the Ubuntu machine,
+    but couldn't find it.) Of course, it's only fair to warn you that these documentation
+    pages are mainly written for Linux kernel programmers, so you might not get much
+    out of them. But then, who knows? Go ahead and give them a quick glance to see
+    whether there's anything there that can help you. (You might also find that they're
+    a great sleeping aid, for those nights when you have a severe case of insomnia.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you look in the `/sys/fs/cgroup/` directory, you''ll see that each of
+    these resource controllers has its own directory. Here''s what that looks like
+    on the Ubuntu machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.3_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.3 – Resource controllers on Ubuntu
+  prefs: []
+  type: TYPE_NORMAL
+- en: For now, we'll ignore the two directories at the bottom of the screen. (The
+    `systemd` directory is for the root cgroup, and the `unified` directory is for
+    Version 2 controllers.) Even though we're running cgroups Version 1 here, it's
+    still possible to use Version 2 controllers. (You won't see the `unified` directory
+    on the Alma machine, because the RHEL 8-type distros don't have Version 2 controllers
+    enabled by default.) Note that we'll only talk about Version 1 controllers in
+    this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, note that we have four symbolic links that point to two different directories.
+    That's because the `cpu` and `cpuacct` controllers used to be two separate controllers,
+    but they're now combined into just one controller. The same is true of the `net_cls`
+    and `net_prio` controllers. The symbolic links provide us with some backward compatibility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Space doesn't permit me to cover all of these resource controllers in detail.
+    So, we'll just focus on the *big three* that you'll be most likely to use. These
+    are the `cpu`, `memory`, and `blkio` controllers. That's just as well, because
+    with cgroups Version 1, these are the only three resource controllers that you
+    can directly configure via `systemd`. (To use any of the other Version 1 resource
+    controllers, you'll have to jump through some hoops and use some non-systemd management
+    utilities.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, enough theory for now. Let's start getting our hands dirty.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Preparing for the demos
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'For the first few demos, we''ll use the `stress-ng` tool to simulate some real-world
+    problems. On the Ubuntu machine, install it by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To install it on the Alma machine, you''ll first need to have the EPEL repository
+    installed. If you haven''t already, install it by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, install the `stress-ng` package by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, create a new, non-privileged user account. (I've created an account for
+    Vicky, who is my teenage solid gray kitty.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, open a terminal on your host machine and have your new user log in to
+    a remote session on the virtual machine. Open a second terminal on the host machine,
+    and log in to your own account on the virtual machine. Keep the virtual machine's
+    local terminal off to the side, because you'll be using it, too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we're all set up, let's talk about the `cpu` resource controller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling CPU usage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can control resource usage either by using the `systemctl set-property`
+    command or by editing systemd unit files. For the first demo, we'll have Vicky
+    put some stress on the virtual machine's CPUs. We'll deal with it by using `systemctl
+    set-property` to configure the `cpu` resource controller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling Vicky's CPU usage
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: By default, all users on a Linux system have unlimited use of the system resources.
+    That could be problematic on a system with multiple users. Any user could decide
+    to hog all the resources, which could effectively cause a Denial-of-Service situation
+    for all the other users. In real life, a user could cause trouble by doing something
+    completely innocent, such as rendering a large video file. An authorized user
+    could also cause a Denial-of-Service by doing something they aren't supposed to
+    do, such as using server resources to do some cryptocurrency mining. In any case,
+    we want to limit the resources that a user can use. We'll do that by assigning
+    limits to the user's slice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, let''s say that Vicky is logged in remotely and is hogging all the CPU
+    time from the other users. Simulate that by having Vicky do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `-c 4` option in this command indicates that Vicky is doing a stress test
+    on four cores of the CPU. Change that number to however many cores you've assigned
+    to your own virtual machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the remote terminal where you''re logged in to your own account, open the
+    `top` utility. It should look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.4_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.4 – The top display with Vicky's stress test
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the top of the `top` display, we see that Vicky is hogging nearly 100% of
+    all four CPU cores. Do I have to tell you that that isn't good?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Keep `top` going on your own remote terminal, and go to the virtual machine''s
+    local terminal. To get proper results, make sure that you''re not anywhere within
+    the `/sys/fs/cgroup/` filesystem. Use `systemd-cgls` to find Vicky''s user slice,
+    which should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.5_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.5 – Vicky's user slice
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We see that she''s user number `1001`, and we want to show her who''s the boss
+    around here. We''re just not going to let her get away with hogging the CPU like
+    this. So, on the local terminal, reduce her `CPUQuota` to `10%` by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This command creates some new files in the `/etc/systemd/` directory, which
+    means that you''ll need to do `sudo systemctl daemon-reload`, just as you''d do
+    when creating a new unit file. You should now see Vicky''s CPU usage go down to
+    practically nothing, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.6_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.6 – After reducing Vicky's CPUQuota
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, maybe reducing Vicky's `CPUQuota` down to only `10%` is a bit too radical.
+    In real life, you could adjust `CPUQuota` to whatever you need it to be. On a
+    machine with multiple cores, there's a trick to this that you should know about.
+    It's that whatever quota you give to Vicky is spread across all available CPU
+    cores. So, in this case, we're not giving Vicky 10% of each core. Instead, we're
+    spreading that 10% across four cores, which allows her to consume only about 2.5%
+    of the CPU cycles from each core, as you can see in *Figure 12.6*. Also, setting
+    Vicky's `CPUQuota` to `100%` doesn't give her 100% usage of each core. Instead,
+    she would have only about 25% usage of each core. To allow her to have 50% usage
+    of each core, set `CPUQuota` to `200%`. The maximum setting that we can have on
+    this machine with four cores is `400%`, which would give her 100% usage of each
+    core.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep in mind that the figures I've just given you are based on having four cores
+    assigned to the virtual machine. These figures will differ if you've assigned
+    a different number of cores to your own virtual machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first time you execute a `systemctl set-property` command, you''ll create
+    the `system.control/` directory under the `/etc/systemd/` directory, which looks
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Under that directory, you''ll see a directory for Vicky''s user slice. Under
+    her user slice directory, you''ll see the configuration file for Vicky''s `CPUQuota`,
+    as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here you see that I''ve just set Vicky''s quota up to `200%`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, be aware that you'll only need to do a `daemon-reload` when you first create
+    this file. Any subsequent changes you make to this file with the `systemctl set-property`
+    command will take effect immediately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the cgroup filesystem, under Vicky''s user slice directory, you''ll see
+    her current `CPUQuota` setting in the `cpu.cfs_quota_us` file. Here''s what it
+    looks like when set to `200%`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: To get the actual 200% figure, just chop the last three zeros off from the `200000`
+    that you see.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, we're through with this demo. In Vicky's window, do a *Ctrl* + *C* to
+    stop the stress test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's see how to limit CPU usage for a service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling CPU usage for a service
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: For this demo, perform the commands at the virtual machine's local terminal,
+    and keep `top` going on your own remote terminal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step of this demo is to create `cputest.service` at the virtual machine''s
+    local terminal, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The contents of the file will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You see that there''s nothing fancy here. It''s just enough to get the job
+    done. As you did before, change the `-c` option to reflect the number of cores
+    that you''ve assigned to your own virtual machine. Next, do a `daemon-reload`
+    and then start the service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the top display, you should see `cputest.service` hogging 100% of the CPU:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.7_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.7 – cputest.service with no limits
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's set the `CPUQuota` for this service from the command line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting CPUQuota from the command line
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Setting the `CPUQuota` for a service is no different from setting it for a
+    user. Let''s say that we only want to allow a 90% `CPUQuota` for this service.
+    Let''s set that from the command line, just as we did when we set this for Vicky:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Doing this creates another directory in the `/etc/systemd/system.control/`
+    directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Inside the `/etc/systemd/system.control/cputest.service.d/` directory, you''ll
+    see the `50-CPUQuota.conf` file, which is set up the same as the one that we created
+    for Vicky:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This allows `cputest.service` to use only about 22.5% of each CPU core, as
+    we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.8_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.8 – cputest with 90% CPUQuota
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here, in the cgroup filesystem, we see that `CPUQuota` is indeed set to `90%`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that this limit is only placed on the *service*, and not on the root user
+    who owns the service. The root user can still run other programs and services
+    without any limits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's set `CPUQuota` in the `cputest.service` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting CPUQuota in the service file
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'First, stop `cputest.service`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, delete the `cputest.service.d/` directory that you created with the `systemctl
+    set-property` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Do `systemctl daemon-reload` and then start `cputest.service`. You should see
+    that the service now hogs the CPU, as it did at first. Stop the service, and then
+    edit the unit file by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Add the `CPUQuota=90%` line, so that the file now looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Save the file and start the service. You should see in the `top` display that
+    the new setting has taken effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That's all there is to it. Easy, right?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `systemd.resource-control` man page explains the various directives you
+    can use to control resource usage. When you read through it, take note of which
+    ones are for cgroups Version 1 and which ones are for cgroups Version 2\. Also,
+    take note of the directives that are marked as *deprecated*. For example, many
+    cgroups tutorials that you'll find on the web tell you to use the `CPUShares`
+    directive, which is listed on this man page as deprecated. (In Linux-speak, something
+    that has been deprecated still works for now, but it will quit working at some
+    point in the future. In this case, these deprecated directives work for Version
+    1, but they won't work for Version 2.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: We won't need `cputest.service` anymore, so go ahead and stop it. Let's move
+    on to see how to control Vicky's memory usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling memory usage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s start by having Vicky do something that will hog all of the system memory.
+    As before, we''ll use the `stress-ng` utility to simulate that, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Wait a few moments, and you''ll see some fairly ugly things in the `top` display:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.9_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.9 – The top display for Vicky's memory usage
+  prefs: []
+  type: TYPE_NORMAL
+- en: Yeah, only 98.9 bytes of free memory, and super-high load averages. In fact,
+    after about 2 minutes or so, this virtual machine is completely unresponsive to
+    any commands. Ouch!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, understand that I still have the 200% `CPUQuota` set for Vicky. So, CPU
+    usage isn't the problem here. The load average is a representation of how many
+    tasks are waiting to be serviced by the CPU. In the top part of the `top` display,
+    as shown in *Figure 12.9*, the `53.51` that you see is the 1-minute average, `46.38`
+    is the 5-minute average, and `25.00` is the 15-minute average. These load averages
+    are spread across all available CPU cores. This means that the more cores you
+    have, the higher the load averages can go without hurting system performance.
+    With only four cores, my virtual machine can't even begin to handle load averages
+    like these. By hogging all of the system memory, Vicky is preventing the CPU from
+    servicing tasks in a timely manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In order to shut down Vicky's program on this unresponsive virtual machine,
+    I had to close down her remote terminal window by clicking on the `stress-ng`
+    session. I mean, there was just no other way to do it. If this were to happen
+    in real life on the local terminal of a physical server, you'd likely have to
+    take the drastic step of either hitting the power switch or pulling the power
+    cord. Even doing a `kill` command on this `stress-ng` process won't work, because
+    the system won't be able to execute it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To prevent this from happening again, let''s set a 1GB memory limit for Vicky,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`MemoryMax`, eh? That could be the name of a memory-enhancing nutritional supplement
+    for us senior citizens.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Seriously though, you see that I''m using the `--runtime` option, which I didn''t
+    use before. This option makes the setting temporary, so that it will disappear
+    when I reboot this machine. Instead of creating a permanent configuration file
+    in the `/etc/systemd/system.control/user-1001.slice.d/` directory, this handy-dandy
+    `--runtime` option created a temporary configuration file in the `/run/systemd/system.control/user-1001.slice.d/`
+    directory, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: To make the setting permanent, just run the command again without the `--runtime`
+    option, and then do `daemon-reload`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, when Vicky runs her evil memory-hogging program, she won't be able to lock
+    up the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling blkio usage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this scenario, Vicky is once again trying to hog system resources for herself.
+    This time, she''s reading so much from the system hard drive that nobody else
+    can use it. Before we get to that, you''ll need to install `iotop` on your virtual
+    machines, so that you can measure the amount of bandwidth that Vicky is using.
+    On the Ubuntu machine, do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the Alma machine, do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the remote login window where you''re running `top`, quit `top` and then
+    do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that we have things set up, let's see about setting a `blkio` limit for
+    Vicky.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting a blkio limit for Vicky
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In Vicky''s remote login window, have her use our good friend `dd` to create
+    a dummy file, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Cool. Vicky has created a 10 GB file full of nothing but zeros. Next, let''s
+    have Vicky use `dd` to copy the contents of the file over to the `/dev/null` device,
+    while watching the `iotop -o` display in our own remote login window. The command
+    looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, it appears that she read this file at an average rate of 151 MB per second.
+    The `iotop` display looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.10_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.10 – Vicky's read bandwidth with no restrictions
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To limit her read bandwidth, we first need to know where she is reading the
+    file from. We can use the `lsblk` utility to get a clue, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We know that Vicky''s file is in her own home directory. We see here that the
+    `/home/` directory isn''t mounted separately. So, it must be in the root partition,
+    which is mounted as a logical volume on the `/dev/sda` drive. Let''s now say that
+    we want to limit Vicky''s read bandwidth to only one MB per second for this logical
+    volume. The command would look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note how the device name and the rate limit setting both have to be surrounded
+    by a pair of double quotes. Also, note that we set bandwidth limits for the entire
+    drive, not just for a specific partition or logical volume. Of course, we've created
+    a new set file in the `/etc/systemd/system.control/` directory, so be sure to
+    do a `daemon-reload`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, have Vicky repeat her `dd if=afile of=/dev/null` command. Be aware that
+    with her reduced bandwidth, this will take a while to complete. While it''s running,
+    note Vicky''s reduced speed in the `iotop` window:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.11_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.11 – Vicky's reduced bandwidth
+  prefs: []
+  type: TYPE_NORMAL
+- en: Yeah, she's just under one MB per second, just where we want her to be. By the
+    way, don't feel bad if you want to abort this operation before it finishes. At
+    this one MB per second rate, it will be a long time before it finishes on its
+    own.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, while Vicky is still logged in, look at the attribute file that this
+    command modified in the cgroup filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this `blkio.throttle.read_bps_device` file, the `8:0` represents the major
+    and minor numbers of the `/dev/sda` device, as you can see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Setting a blkio limit for a service
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Of course, you can also set the `BlockIOReadBandwidth` parameter for a service.
+    For example, let''s use the `set-property` option to set it for the Apache web
+    server. On the Ubuntu machine, the command is:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the AlmaLinux machine, the command is:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you want to set this `BlockIOReadBandwidth` parameter in a service file,
+    there''s a bit of a trick that you need to know about. When you set this on the
+    command line, you had to surround the `/dev/sda 1M` part with a pair of double
+    quotes. When you set this in a service file, you do *not* surround the `/dev/sda
+    1M` within double quotes. To demonstrate, let''s set up an FTP server and set
+    a `blkio` limit on it. On the Ubuntu machine, install the FTP server by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the AlmaLinux machine, do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On either machine, edit the service file by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `[Service]` section, add the new parameter, but without the double quotes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Do a `daemon-reload` and restart the `vsftpd` service. You should see the new
+    setting show up in the cgroup filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are a lot more resource management directives than what we can cover here.
+    To see more, just consult the `systemd.resource-management` man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we close this chapter, let's commit a bit of sacrilege by talking about
+    `pam_limits` and `ulimit`, which have nothing at all to do with either systemd
+    or cgroups.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding pam_limits and ulimit
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before the cgroup and systemd technologies were invented, we had other methods
+    for controlling resource usage. These methods are still with us, and we can do
+    some things with them that we can't do with cgroups. To demonstrate, let's briefly
+    look at two of these older methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ulimit command
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `ulimit` command allows us to dynamically control resource usage for a
+    shell session and for any processes that get started by the shell session. Let''s
+    use the `-a` option to see what the default settings are for my current shell
+    session:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_12.12_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.12 – The default ulimit settings
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As you can see, doing `ulimit -a` also shows us the option switches that we''d
+    use to set the various limits. The trick is that you can either set or lower limits
+    as a normal user, but you need `sudo` privileges to increase any limits. For example,
+    let''s say that we want to limit the size of any new files to only ten MB. We''ll
+    use the `-f` option, and specify the file size in terms of the number of 1,024-byte
+    blocks. Ten MB works out to be 10,240 blocks, so our command looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The new limit shows up in the `ulimit -a` output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, watch what happens when I try to increase this limit:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, a normal user can set a limit that hasn't been set before, but `sudo` privileges
+    are needed to increase an existing limit. But you can reset everything back to
+    the default settings by either closing the terminal window and opening a new one
+    or by logging out and logging back in. Then, just set a new limit to whatever
+    you want it to be.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, when I try to create a ten MB size file, things work fine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'But things don''t work so fine when I try to create an eleven MB file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `ulimit` command can come in handy for developers who need to test new software,
+    or for anyone who needs to set resource limits from within a shell script. To
+    read more about `ulimit`, open the `bash-builtins` man page and search for `ulimit`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's talk about using a configuration file to set limits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The pam_limits module
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `pam_limits` module is part of the `/etc/security/limits.conf` file or by
+    creating new drop-in files in the `/etc/security/limits.d/` directory. To get
+    an idea of how this works, open the `/etc/security/limits.conf` file and look
+    at the commented-out examples. For a more detailed explanation of things, look
+    at the `limits.conf` man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s say that we want to prevent Pogo from creating any files that are larger
+    than 20 MB. We''ll do that by adding a line to the bottom of the `/etc/security/limits.conf`
+    file, which will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Log in as Pogo, and let him try to create a file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: Keep repeating this command with a larger `count=` number until you get an error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, I think that this about covers things for this chapter. Let's wrap
+    this baby up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we looked at the basics of using cgroups Version 1 to control
+    resources. A lot of information you've likely seen in your web searches is out
+    of date and somewhat confusing. My goal for this chapter has been to bring you
+    up-to-date information and present it in an understandable manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We started by looking at the cgroups Version 1 controllers and giving a brief
+    explanation of each one. After that, we saw how to control CPU usage, memory usage,
+    and block device bandwidth usage for both users and services. We wrapped up by
+    showing you the old, non-cgroup way of setting limits, which is still useful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we'll look at cgroups Version 2\. I'll see you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Your computer has six CPU cores. What would Vicky's `CPUQuota` setting be if
+    you want to limit her to only 16.66% for each CPU core?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. 16.66%
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. 33.00%
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. 100%
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. 200%
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: According to the `systemd.resource-control` man page, which of the following
+    directives represents the most modern way of limiting someone's memory usage?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `MemoryLimit`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. `MemoryMax`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. `LimitMemory`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. `MaxMemory`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What does the `--runtime` option for `systemctl set-property` do?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. It makes the new setting permanent.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. Nothing, because it's already the default behavior.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. It makes the new setting temporary.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. It makes the command run faster.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following is true about CPU load averages?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. Machines with more CPU cores can handle higher CPU load averages.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. CPU load averages have nothing to do with how many CPU cores a machine has.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. Excessive memory usage won't cause CPU load averages to go too high.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. High CPU load averages have no effect on any machine.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Using control groups Version 1 with `systemd`:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/managing_monitoring_and_updating_the_kernel/using-control-groups-version-1-with-systemd_managing-monitoring-and-updating-the-kernel](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/managing_monitoring_and_updating_the_kernel/using-control-groups-version-1-with-systemd_managing-monitoring-and-updating-the-kernel)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'The Linux kernel Completely Fair Scheduler:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.kernel.org/doc/html/latest/scheduler/sched-design-CFS.html](https://www.kernel.org/doc/html/latest/scheduler/sched-design-CFS.html)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'For anyone who still needs to work with RHEL 7 or RHEL 7 clones on machines
+    with multiple CPUs, here''s a procedure for using the `cpuset` controller:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.redhat.com/en/blog/world-domination-cgroups-part-6-cpuset](https://www.redhat.com/en/blog/world-domination-cgroups-part-6-cpuset)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'How to set a `ulimit` value permanently:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://linuxhint.com/permanently_set_ulimit_value/](https://linuxhint.com/permanently_set_ulimit_value/)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL

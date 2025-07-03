@@ -1,0 +1,1039 @@
+- en: '*Chapter 16*: Understanding Timekeeping with systemd'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: On modern computer systems, it's vitally important to maintain accurate time.
+    To do that, our computers obtain the current time from a time server while using
+    some implementation of the **Network Time Protocol** (**NTP**). In this chapter,
+    we'll look at these various implementations and discuss the pros and cons of each.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the importance of accurate time
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Comparing NTP implementations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding chrony
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `systemd-timesyncd`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding the **Precision Time Protocol** (**PTP**)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All right, it's time to get started!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Timekeeping is done differently in the Ubuntu and RHEL worlds. So, we'll be
+    using both Ubuntu Server and *two* AlmaLinux virtual machines to look at both
+    of these.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3Dh4byf](https://bit.ly/3Dh4byf)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the importance of accurate time
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Accurate timekeeping on computers wasn't always real important. My very first
+    computer job involved working with a pair of transistorized computers that were
+    each the size of a refrigerator, and that had orders of magnitude less processing
+    power than a modern smartphone. There was no hardware clock, and there was no
+    NTP. Every time we rebooted these beasts, we just looked at our notoriously inaccurate
+    wall clock and manually entered the time from it. Things didn't change much with
+    the early personal computers. I mean, you still had to set the time manually,
+    but they did eventually come with battery-powered hardware clocks that would still
+    keep time when you shut the computers down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Nowadays, it's critically important for computers to maintain accurate time.
+    Scientific computing, log keeping, database updating, and financial transactions
+    all require it. Certain security protocols, such as Kerberos, DNSSEC, and **Transport
+    Layer Security** (**TLS**) also require it. Modern stock exchanges use automated
+    trading bots that require it. For these reasons and others besides, mankind invented
+    the NTP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The basic concept of NTP is easy to understand. Every modern operating system
+    includes an NTP client. Every time you boot your computer, the NTP client obtains
+    the correct time from a highly accurate NTP server that's someplace on the internet.
+    To ensure even greater time accuracy, some organizations might use a local time
+    source, which could be either a local server or something such as a GPS clock.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are several software implementations of NTP. Let's do a quick comparison
+    of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing NTP implementations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `ntpd`. It was created way back in the 1980s and served us well for a long
+    time. You can use it on client machines to keep their time synchronized, or you
+    can set it up as a time server. However, it does have several shortcomings, including
+    numerous security problems that were found during a code audit in 2017.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `chrony` implementation, which can also be used as either a client or a
+    server, was created from scratch to fix the shortcomings of `ntpd`. Unlike `ntpd`,
+    `chrony` has the following features:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It works well on computers that have unstable network connections or that get
+    turned off for long periods.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It works better with virtual machines.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It can adjust itself better when the speed of the hardware clock oscillator
+    fluctuates due to a temperature change.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It can achieve sub-microsecond accuracy by using hardware timestamping and a
+    hardware reference clock.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: RHEL 7 and its clones were the first Linux distros to ship with `chrony` instead
+    of `ntpd`. The RHEL 8 and SUSE distros also use `chrony` by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another alternative is `systemd-timesyncd`, which is part of the systemd ecosystem.
+    Unlike `ntpd` and `chrony`, `systemd-timesyncd` is an implementation of the lighter-weight
+    `systemd-timesyncd` lack some of the bells and whistles that NTP has. For example,
+    you can't use them to set up a time server, and you can't use them with either
+    hardware timestamping or hardware reference clocks. So, you can forget about getting
+    that good sub-microsecond accuracy with `systemd-timesyncd`. On the other hand,
+    SNTP and `systemd-timesyncd` might be all you need for most situations. Ubuntu
+    uses `systemd-timesyncd` by default, and it will work fine for you most of the
+    time. If it doesn't, it's easy to switch your machine over to `chrony`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **Precision Time Protocol** (**PTP**) isn't an implementation of NTP. Rather,
+    it's an entirely different protocol that's designed for extreme – and I do mean
+    extreme – timekeeping accuracy. To use it, you must have a precision time source
+    on the local network, and you must have switches and routers that can work with
+    it. It uses hardware timestamping and hardware reference clocks to achieve picosecond
+    accuracy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, that does it for our overview. Now, let's talk a bit about `chrony`. We'll
+    look at it on the AlmaLinux machine since Alma uses it by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding chrony on the AlmaLinux machine
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are two components in the `chrony` system. We have `chronyd` as the daemon
+    and `chronyc` as the user interface. The `chronyd` component can run in either
+    client or server mode. First, let's look at the unit file for `chonyd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The chronyd.service file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'There are a few interesting things to look at in the `/lib/systemd/system/chronyd.service`
+    file. In the `[Unit]` section, we have this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Conflicts=` line indicates that we can''t run multiple NTP implementations
+    together on the same machine. If systemd detects that either `ntpd` or `systemd-timesyncd`
+    is running, then `chronyd` will fail to start. The `ConditionCapability=` line
+    indicates that this service runs under a non-privileged account, even though no
+    non-privileged user account is configured in either this unit file or in the `/etc/chrony.conf`
+    file. Instead, `chronyd` is hardcoded to run under the non-privileged `chrony`
+    account. We can confirm this with a simple `ps aux` command, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because `chronyd` does run under a non-privileged user account, we need to set
+    the `CAP_SYS_TIME` capability for that non-privileged user account so that it
+    can set the system time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let''s look at the `[Service]` section of the `chronyd.service` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `ExecStart=` line starts `chronyd` with options that it obtained from the
+    file that''s referenced in the `EnvironmentFile=` line. If we go there, we''ll
+    see that no options have been configured:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `chrony-helper` program that''s referenced in the `ExecStartPost=` line
+    is a shell script that obtains the addresses of NTP servers from either a DHCP
+    or a DNS server. At the moment, this line doesn''t do anything for us. This is
+    because `chronyd` is currently configured to contact a pool of NTP servers that
+    is listed in the `/etc/chrony.conf` file, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: At the bottom of the `[Service]` section, we can see the `PrivateTmp=yes`, `ProtectHome=yes`,
+    and `ProtectSystem=full` lines, which add a measure of security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, there''s the `[Install]` section of the `chronyd.service` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, there's nothing exciting here. It's just the standard `WantedBy=` line
+    that makes this service run in multi-user mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's look at the `chrony.conf` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The chrony.conf file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Most `chronyd` configuration is done in the `/etc/chrony.conf` file. (The only
+    exception would be on those rare occasions where you might want to configure some
+    options in the `/etc/sysconfig/chronyd` file.) I'm not going to cover every option
+    in the file because you can read about them by going to the `chrony.conf` man
+    page. However, I will point out a couple of things that you might need to reconfigure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By default, `chrony.conf` is configured to obtain the current time from a pool
+    of time servers that are out on the internet, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `iburst` option at the end allows `chronyd` to update the clock a bit faster
+    when you first boot up the machine. Large organizations might have local timeservers
+    to prevent all machines on their network from going out to the internet to obtain
+    the time. In those cases, you would need to configure this line with the IP address
+    of the local timeserver. (We'll look at this a bit later when we set up a time
+    server.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For increased timekeeping accuracy, you can enable hardware timestamping by
+    removing the `#` symbol from the beginning of the following line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The only catch is that the network interface adapters in your computer must
+    support hardware timestamping. To verify that, use the `ethtool -T` command, followed
+    by the name of your network interface adapter. Here''s what that looks like on
+    one of my old 2009-model Hewlett-Packard machines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Well, that''s not good. There''s no PTP hardware clock, and there''s no hardware
+    timestamping. Let''s see if things look any better on my Dell Precision workstation,
+    which is several years newer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_16.1_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 16.1 – Hardware timestamping on my Dell Precision T3610 workstation
+  prefs: []
+  type: TYPE_NORMAL
+- en: Yes, this does look better. We see a PTP hardware clock and hardware timestamping.
+    The bad part is that at the moment, I can't take advantage of this, because this
+    machine is running Lubuntu Linux. Lubuntu, just like Ubuntu, runs `systemd-timesyncd`,
+    which can't take advantage of hardware timestamping. But that's okay for now.
+    If I were to ever feel the need to, I could easily switch this machine over to
+    `chrony`. (I'll show you how to do that in just a bit.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s skip to the bottom of the `chrony.conf` file, where we see these
+    lines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we can see that it''s configured to store `chronyd` logs in the `/var/log/chrony/`
+    directory. But if we were to go there now, we''d see nothing but an empty directory.
+    That''s because the line at the bottom, which tells `chronyd` what information
+    to log, is commented out. To change that, just remove the `#` symbol from the
+    beginning of the line so that it now looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, restart `chronyd`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should now see log files in the `/var/log/chrony/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: This pretty much covers the basics. Let's get a bit fancier by setting up a
+    `chronyd` time server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up a chronyd time server
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: For this demo, you'll need two Alma virtual machines. We'll set up one as the
+    time server and the other to use the time server. (Ideally, we'd want the time
+    server to have a static IP address, but we won't worry about that for now.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the time server machine, edit the `/etc/chrony.conf` file. Here''s the line
+    that you''ll change:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Remove `#` from the beginning of the line and change the network address so
+    that it matches your own. For me, the network address is correct, but the netmask
+    is wrong. So, I''ll change the line so that it looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, restart `chronyd`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The final step for setting up the time server is to open the appropriate firewall
+    ports:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, switch over to the other Alma virtual machine and edit the `/etc/chrony.conf`
+    file on it. Comment out the `pool` line and add a line that points to the IP address
+    of the time server virtual machine. The two lines should now look something like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Save the file and restart the `chronyd` service. When you look at the status
+    of `chronyd`, you should see that this machine now obtains its time from your
+    time server. It should look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sometimes need to preface this command with sudo in order to see information
+    about the network time sources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That's all there is to it. Let's change gears now and look at the `chronyc`
+    client utility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using chronyc
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can use the `chronyc` utility to either look at information about the `chronyd`
+    service or to dynamically configure certain aspects of the `chronyd` service.
+    Let''s start by looking at tracking information on our time server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Rather than go over everything here, I'm going to let you read about it by going
+    to the `chronyc` man page. However, I do want to talk about the `Reference ID`
+    line at the top.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `Reference ID` line just tells us the hostname or the IP address of the
+    remote time server that this local timeserver is synchronized to. We see that
+    this local time server is synchronized to a remote time server that's operated
+    either by Comcast or by an organization that uses Comcast hosting. Note that this
+    remote time server is a member of the pool that's configured in the `chrony.conf`
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s look at the Alma machine that we set up as a client of this local
+    time server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: As expected, we see the IP address of the local time server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `sources` command will show you all of the time servers that our machine
+    can access. Here are the time servers that are in the default pool for the Alma
+    machines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: As before, I'll let you look at the `chronyc` man page to see what all the fields
+    are.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So far, we''ve been able to look at everything with normal user privileges.
+    Looking at other types of information might require `sudo` privileges, as we see
+    here on the time server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Very cool. We see the IP address of the virtual machine that we set up as a
+    client of this local time server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Just for fun, let''s see how much work our local time server has been doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: This shows the number of NTP packets and command packets that were received
+    from the clients.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's a whole lot more to this command than what I can show you here. Your
+    best bet is to read all about it by going to the `chronyc` man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That's about it for `chronyd` and `chronyc`. So, let's shift over to the Ubuntu
+    machine and look at `systemd-timesyncd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding systemd-timesyncd
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Ubuntu uses `systemd-timesyncd` by default. It's a simple, lightweight system
+    that's easy to configure. Before we get to that, let's take a quick look at the
+    `systemd-timesyncd.service` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The systemd-timesyncd.service file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `[Unit]` section of the `/lib/systemd/system/systemd-timesyncd.service`
+    file looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note the `ConditionVirtualization=!container` line. The `ConditionVirtualization=`
+    part checks to see if the operating system is running in a virtualized environment.
+    In this case, it wants to see whether it's running in a container. The `!` in
+    front of `container` denotes a negation. In other words, if systemd detects that
+    this operating system is running in a container, then the `systemd-timesyncd`
+    service won't start.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the `[Service]` section, you''ll see a lot more security-related parameters
+    than you saw in the `chronyd.service` file on the Alma machine. There are so many
+    that I can only show you some of them here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: This makes sense, considering that Ubuntu uses AppArmor as its mandatory access
+    control system instead of SELinux, which is what the Alma machine uses. A default
+    configuration of AppArmor doesn't provide near as much protection as a default
+    configuration of SELinux, so it makes sense to include more security directives
+    in this service file. Also, note the `User=systemd-timesync` line, which configures
+    the non-privileged user account for this service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `[Install]` section is a bit different from what we''re used to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Instead of getting started as part of `multi-user.target`, `systemd-timesyncd`
+    gets started as part of `sysinit.target`. So, it gets started much earlier in
+    the boot process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's briefly look at how to configure `systemd-timesyncd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The timesyncd.conf file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'When I said that we''ll *briefly* cover this, I really did mean *briefly*.
+    That''s because there''s not a whole lot to configure. Here''s the entirety of
+    the `/etc/systemd/timesyncd.conf` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Everything is commented out, which means that everything is set with its default
+    values. The first thing to notice is that there's nothing set for the `NTP=` line
+    and that the `FallbackNTP=` line points to a pool of time servers at [ntp.ubuntu.com](http://ntp.ubuntu.com).
+    So, this machine will only obtain its time from one of the time servers that's
+    in that pool. The remaining three parameters are set with sane values that you'll
+    likely never have to change. (I'll let you read about them in the `timesyncd.conf`
+    man page.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: That's enough about this file for now. Now, let's look at a couple of `timedatectl`
+    options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using timedatectl
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Two `timedatectl` viewing options are specific to `systemd-timesyncd`. The
+    `timesync-status` option looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: At the top, we see the remote time server that this machine accesses, and we
+    see that it's a member of the [ntp.ubunutu.com](http://ntp.ubunutu.com) pool.
+    Further down, we see that `Rootdistance` from the time servers comes in at 45.07
+    milliseconds, which is well within the five seconds that's set in the `timesyncd.conf`
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The other `timedatectl` option is `show-timesync`, which looks something like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: This shows the same information that's in the `timesync-status` option, except
+    that it's now in a machine-readable format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let''s edit the `/etc/systemd/timesyncd.conf` file so that this machine
+    will obtain its time from our local AlmaLinux time server. We''ll just uncomment
+    the `#NTP=` line and add the IP address of the Alma machine. It should now look
+    something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After restarting the `systemd-timesyncd` service, we should see that this machine
+    now obtains its time from our local time server, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: There's an excellent chance that `systemd-timedatectl` is all you'll ever need.
+    But what if you really need the extra features and precision that come with `chrony`?
+    Well, let's see if we can switch our Ubuntu machine over to `chrony`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Ubuntu to use chrony
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first step is to stop and disable `systemd-timesyncd`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, install the `chrony` package, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since this is Ubuntu, the `chronyd` service will be enabled and started automatically
+    when the installation completes. The only difference from what you saw on the
+    Alma machine is that the `chrony.conf` file on Ubuntu is in the `/etc/chrony/`
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sometimes, you just need to be precise. So, let's talk a bit about PTP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the Precision Time Protocol
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For many financial, scientific, and enterprise applications, you've just got
+    to have the most accurate time possible. In these instances, getting the time
+    from a remote time server on the Internet just doesn't meet your needs. So, you
+    need something better. With proper hardware, **PTP** can keep your network time
+    synchronized to picosecond accuracy. The whole explanation of PTP is rather complex,
+    so allow me to simplify things a bit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An overview of PTP
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Unlike NTP, PTP cannot obtain its time from a remote time server that's out
+    on the internet. Instead, PTP can only be used within a `sync` messages out to
+    the network. The client devices will respond by sending back `delay request` messages,
+    and the Grandmaster Clock will respond with `delay response` messages. The network
+    packets that carry these messages all have timestamps that will be used in the
+    calculations for figuring out how to adjust the time on the network devices. To
+    make this all work, your network must be set up with switches and routers that
+    can transfer these messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In addition to the Grandmaster Clock, there are three other types of clocks
+    that can be found on a PTP network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Ordinary clocks**: These clocks are on the end user devices such as servers,
+    desktop clients, IoT devices, and so forth.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Transparent clocks**: These are the network switches that transfer the messages
+    between the Grandmaster Clock and the ordinary clocks. Transparent clocks can''t
+    send messages beyond their VLAN boundaries.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`delay request` messages.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It is possible to set up a Linux server as a boundary clock, but you probably
+    won't. Most likely, your organization will obtain its transparent clocks and boundary
+    clocks from its preferred network equipment vendor, such as Cisco or Juniper.
+    So, how would you use PTP with Linux? Mostly, you'd just set up PTP on your servers,
+    desktop machines, and IoT devices so that they would obtain their time from a
+    PTP server rather than from an NTP server. Let's check it out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing PTP
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To set up either a Linux server, a Linux desktop, or a Linux IoT device to
+    obtain its time from a PTP source, you''ll have to install the `linuxptp` package.
+    On the Alma machine, you''d do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the Ubuntu machine, you''d do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, stop and disable whichever timekeeping service your machine is running.
+    If your machine is running `chroynd`, the command would be:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If your machine is running `systemd-timesyncd`, the command would be:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Installing the `linuxptp` package installs two different services, which are
+    the `ptp4l` service and the `phc2sys` service. Before we can enable or start the
+    PTP services, we'll need to configure them. Let's look at how to do this on the
+    Alma machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring PTP with software timestamping on AlmaLinux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first step is to edit the `/etc/sysconfig/ptp4l` file. When you first open
+    the file, you''ll see this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This default configuration is for a master server, and it has the wrong network
+    adapter name. We''ll add the `-s` option to make this run in client mode and change
+    the network adapter''s name. You won''t have hardware timestamping available on
+    your virtual machines, even if it is available on the network adapter of your
+    host computer. To deal with that, we''ll also add the `-S` option to make it use
+    software timestamping. The edited line should look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: (Of course, use your own network adapter's name in place of mine.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, enable and start the `ptp4l` service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The service does run, even though there''s no PTP time source on my network.
+    Regardless, the last line of the `systemctl status` output shows that the `ptp4l`
+    service has selected the best master clock. I have no idea where that clock is,
+    but it doesn''t matter. In a real-life scenario, you would know because you''d
+    be dealing with a real clock:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, we're good with the software timestamping. Now, let's look at hardware
+    timestamping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring PTP with hardware timestamping on AlmaLinux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Using hardware timestamping gives you the most precise timekeeping that you
+    can get. The only catch is that the network interface adapters on your machine
+    have to be capable of doing hardware timestamping. Fortunately, that shouldn't
+    be a problem with newer computers. (In the *Understanding chrony* section, I showed
+    you how to verify whether your network adapter does support hardware timestamping.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step is to edit the `/etc/sysconfig/ptp4l` file, as you did previously.
+    This time, leave out the `-S` option so that the edited line looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, you''ll need to configure and enable the `phc2sys` service so that the
+    computer clock can synchronize with the PTP hardware clock that''s in the network
+    adapter. The first step is to configure the `/etc/sysconfig/phc2sys` file. By
+    default, the file looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Change that line so that it looks something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here''s the breakdown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`-c CLOCK_REALTIME`: The `-c` option specifies the clock that is to be synchronized.
+    `CLOCK_REALTIME` is the normal computer clock.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`-s enp0s3`: In this file, `-s` specifies the device that will be used for
+    synchronization. In this case, we''re using the PTP hardware clock that''s in
+    the `enp0s3` network adapter to synchronize the normal system clock.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`-w`: This tells the `phc2sys` service to wait until the `ptp4l` service is
+    in a synchronized state before attempting to synchronize the system clock.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The final step is to restart the `ptp4l` service and to enable and start the
+    `phc2sys` service. Note that this will fail on your virtual machine because the
+    VirtualBox network adapter doesn't have a PTP hardware clock. When you've seen
+    what you need to see, disable the `ptp4l` and `phc2sys` services and re-enable
+    the `chronyd` service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's look at how to do all of this on Ubuntu.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring PTP with software timestamping on Ubuntu
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'There are no supplementary PTP configuration files on Ubuntu, so you''ll need
+    to edit the `ptp4l.service` file. Start by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `[Service]` section, you''ll need to change the `ExecStart` line, which
+    looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Change it so that it looks something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, enable and start the `ptp4l` service, as you did previously on the
+    Alma machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let's wrap this up by configuring hardware timestamping on Ubuntu.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring PTP with hardware timestamping on Ubuntu
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Again, start by editing the `ptp4l.service` file. This time, enable hardware
+    timestamping by leaving out the `-S` option so that the `ExecStart` line will
+    look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, edit the `phc2sys.service` file by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `[Service]` section, make the `ExecStart` line look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: The final step is to restart the `ptp4l` service and to enable and start the
+    `phc2sys` service. Alas, that will also fail this time, due to not having the
+    PTP hardware clock in the VirtualBox network adapter. When you've seen what you
+    want to see, change the virtual machine back to whichever timekeeping service
+    that you were using before.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, that's it for timekeeping. I think it's time to wrap this baby up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As always, we've covered a lot of ground and had a bit of fun in the process.
+    We started by discussing why accurate timekeeping is so important and then did
+    a quick overview of the various implementations of timekeeping software. We then
+    took a detailed look at `chrony` and `systemd-timesyncd`. We wrapped up with a
+    quick look at PTP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we'll look at systemd's relationship with boot managers
+    and bootloaders. I'll see you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Answer the following questions to test your knowledge of this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the `chrony.conf` file, which of the following lines will allow `chronyd`
+    to function as a time server?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `network 192.168.0.0/24`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. `allow 192.168.0.0/24`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. `permit 192.168.0.0/24`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. `listen 192.168.0.0/24`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: How would you set up `systemd-timesyncd` to function as a time server? (We will
+    assume that we're on the `192.168.0.0/24` network.)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. Add a `network 192.168.0.0/24` line to the `timesyncd.conf` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. Add a `permit` `192.168.0.0/24` line to the `timesyncd.conf` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. Add an `allow` `192.168.0.0/24` line to the `timesyncd.conf` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. You can't.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: For dealing with PTP, which of the following clock types allows messages to
+    flow between the PTP master clock and the client machines on the same VLAN?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. Boundary clocks
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. Grandmaster clocks
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. Router clocks
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. Transparent clocks
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: When dealing with PTP, which service causes a machine's system clock to synchronize
+    with the PTP hardware clock in the network adapter?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. phc2sys
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. ptp4l
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. ptp
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. clock
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: D
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: D
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To learn more about the topics covered in this chapter, take a look at the
+    following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GPS clocks: [https://timetoolsltd.com/category/gps-clocks/](https://timetoolsltd.com/category/gps-clocks/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`chrony` versus `systemd-timesyncd`: [https://unix.stackexchange.com/questions/504381/chrony-vs-systemd-timesyncd-what-are-the-differences-and-use-cases-as-ntp-cli](https://unix.stackexchange.com/questions/504381/chrony-vs-systemd-timesyncd-what-are-the-differences-and-use-cases-as-ntp-cli)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`chrony` versus `ntp`: [https://chrony.tuxfamily.org/comparison.html](https://chrony.tuxfamily.org/comparison.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'PTP versus NTP: [https://www.masterclock.com/support/library/network-timing-ntp-vs-ptp](https://www.masterclock.com/support/library/network-timing-ntp-vs-ptp)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Red Hat''s official `chrony` documentation: [https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_basic_system_settings/using-chrony-to-configure-ntp](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_basic_system_settings/using-chrony-to-configure-ntp)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Introduction to the Precision Time Protocol: [https://youtu.be/ovzt3IUFbyo](https://youtu.be/ovzt3IUFbyo)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Precision Time Protocol Clock Types: [https://youtu.be/rbb9DcIGLKY](https://youtu.be/rbb9DcIGLKY)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

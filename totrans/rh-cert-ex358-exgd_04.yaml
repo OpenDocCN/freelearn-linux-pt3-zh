@@ -1,0 +1,597 @@
+- en: '4'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Link Aggregation Creation – Creating Your Own Link and Mastering the Networking
+    Domain
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Network teaming is essential to **High Availability** (**HA**) and increasing
+    throughput. HA is accomplished through normal teaming with nothing special needed
+    from the switch. For more throughput, you need **Link Aggregation Control Protocol**
+    (**LACP**) set up on the switch. Without the ability to have multiple network
+    connectivity paths out of your systems to the internet, you are likely to get
+    into an outage situation easily. Having multiple connectivity paths, such as with
+    power being split between two providers, provides a better chance that you will
+    not succumb to losing access to your application, thus alleviating some worry
+    that the application that is presented to the world using what we learned earlier,
+    in [*Chapter 3*](B18607_03.xhtml#_idTextAnchor039), *Network Services with Automation
+    – Introduction to Red Hat Linux Networking*, will drop off the face of the planet
+    and lose you money.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By utilizing network teaming in an HA function, if one connection goes down
+    then the connectivity is not lost. When properly set up, such as having the two
+    **Network Interface Cards** (**NICs**) going to different switches, it allows
+    for fault tolerance. This is also a must when you are working on upgrades for
+    the switches. If you don’t have any redundancy, you will be down if the switch
+    is going through maintenance. The same can be said about having your application
+    on a single server, but we are here to talk about networks for now.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting to know link aggregation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating different types of link aggregation profiles
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Taking the headache out of setting up your link aggregation by using Ansible
+    Automation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The technical requirements for this chapter are covered in the following two
+    sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up GitHub access
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Please refer to [*Chapter 1*](B18607_01.xhtml#_idTextAnchor016), *Block Storage
+    – Learning How to Provision Block Storage on Red Hat Enterprise Linux*, to gain
+    access to GitHub instructions and you will find the Ansible Automation playbooks
+    for this chapter at the following link: [https://github.com/PacktPublishing/Red-Hat-Certified-Specialist-in-Services-Management-and-Automation-EX358-Exam-Guide/tree/main/Chapter04](https://github.com/PacktPublishing/Red-Hat-Certified-Specialist-in-Services-Management-and-Automation-EX358-Exam-Guide/tree/main/Chapter04).
+    Remember these are suggested playbooks and are not the only way you can write
+    them to make the playbooks work for you.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can always change them up using raw, shell, or cmd to achieve the same results
+    but we are demonstrating the best way to accomplish the goals. Also keep in mind
+    we are not using the FCQN that is needed in future versions of Ansible as that
+    will not be supported in the exam as it tests against Ansible 2.9.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up your lab environment for Network Interface Card (NIC) teaming
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: This has to be done for at least two of your systems so that you can test the
+    different scenarios. I have opted to use Rhel1 and Rhel2 as Rhel3 is more like
+    my workstation and Ansible control station. This will become apparent in the testing
+    section and the exam tips section of the book. Find the instructions on setting
+    up interfaces in VirtualBox as shown in the following screenshot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Please ensure you turn off your virtual machines first, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.1 – Shutting down your VirtualBox VM](img/Figure_4.01_B18607.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.1 – Shutting down your VirtualBox VM
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, choose **Settings**, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.2 – Altering the settings of the VirtualBox VM](img/Figure_4.02_B18607.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.2 – Altering the settings of the VirtualBox VM
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, we are going to choose **Network** and add adapter number 2, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.3 – Adding a second network adapter](img/Figure_4.03_B18607.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.3 – Adding a second network adapter
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are going to ensure that the settings are as follows for the new adapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.4 – The settings for the second network adapter](img/Figure_4.04_B18607.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.4 – The settings for the second network adapter
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we are going to add a third adapter as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.5 – The third and last network adapter added with the correct configuration](img/Figure_4.05_B18607.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.5 – The third and last network adapter added with the correct configuration
+  prefs: []
+  type: TYPE_NORMAL
+- en: The reason for the two additional adapters is to maintain SSH connectivity if
+    you are not using the normal start of the VM, which opens a GUI, but instead headless
+    VM startup, which does not open a GUI in VirtualBox.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting to know link aggregation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Teamd handles the control of network teaming. It uses runners for this purpose.
+    The list of teamd runners can be found here: [https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_and_managing_networking/configuring-network-teaming_configuring-and-managing-networking](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/configuring_and_managing_networking/configuring-network-teaming_configuring-and-managing-networking).
+    However, the ones we are going to concentrate on are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Runner Type** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lacp` | The runner uses 802.3ad LACP. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `loadbalance` | The ports use a hash function to attempt to reach a balance
+    between the ports. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `activebackup` | One port is set to active and the other is a backup for
+    failover. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `roundrobin` | In this state, the ports are utilized in a round-robin state.
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 4.1 – Some link aggregation profile types
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this task and to create network teams, we will be using the `nmcli` tool
+    again, as we did in [*Chapter 3*](B18607_03.xhtml#_idTextAnchor039), *Network
+    Services with Automation – Introduction to Red Hat* *Linux Networking*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are many reasons to use the teaming of network interfaces – for redundancy,
+    additional throughput, and so on. Depending on what your company needs and the
+    switching it has set up, you can even go deeper into multiple teams. This would
+    be, for instance, two LACP pairs put into a round-robin scenario in order to increase
+    bandwidth while also introducing fault tolerance. Many large companies need to
+    ensure that their applications are always up in order to reap the benefits from
+    them, and by learning how to build a network team, your chances of success are
+    increased.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating different types of link aggregation profiles
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Keep in mind that the interfaces may differ in your lab setup than in mine
+    – they are enp0s8 and enp0s9\. We need to ensure that the interfaces are down
+    when we set up the teams. This will be based on your lab and you should not choose
+    to connect on startup for these two interfaces. We are going to start off by showing
+    the connectivity of the interfaces that are up and the device status using the
+    following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output can be seen in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.6 – Network interface connectivity, both virtual and physical'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.06_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.6 – Network interface connectivity, both virtual and physical
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we are going to start creating a team with the name `bond1`. We will
+    use the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is illustrated in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.7 – Full team command to create a team with name bond1 and runner
+    of activebackup'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.07_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.7 – Full team command to create a team with name bond1 and runner of
+    activebackup
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s break down the screenshot we just looked at further. First, `nmcli` is
+    the tool used to create the team. The code snippet of `connection add` is showing
+    we are adding a new connection or interface `type` is showing that we are making
+    a `team` in this case. The connection name (`con-name`) is the name you give it,
+    which can be of your choosing. The interface name (`ifname`) – `bond1`, in this
+    use case – is the name you give the interface. `team.runner` is the type of team
+    you are creating; in our case, we are using `activebackup`, which means that one
+    interface is passing traffic and the other is standing by in case of a failover.
+    This can be due to manual intervention or if the interface loses connectivity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The physical interfaces are then needed to bring the team up. We are using
+    additional commands and modifying the team after it has been created. This allows
+    us to add the interfaces as slaves to the team. We will use the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following screenshot illustrates those commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.8 – Adding physical interfaces to the virtual team'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.08_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.8 – Adding physical interfaces to the virtual team
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Additional items are needed to allow connectivity out to the world, as we learned
+    in previous chapters. We will use the following commands to accomplish this change:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is illustrated in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.9 – Adding the additional configuration needed to the team'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.09_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.9 – Adding the additional configuration needed to the team
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we want to ensure that after a reboot, the interface comes back up
+    automatically so that you do not lose points in the exam. We will use this command
+    to accomplish the task of ensuring the interface comes up after a reboot automatically:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.10 – Ensure that connectivity persists through reboots'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.10_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.10 – Ensure that connectivity persists through reboots
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can run the following command to turn up the connection and ensure that
+    your team is up and functioning correctly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the following screen shot we can see the device status:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.11 – Showing the device status of the team and team interfaces'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.11_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.11 – Showing the device status of the team and team interfaces
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following command shows you what your team looks like, the connectivity,
+    and which interface is currently active:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output of that command is shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.12 – Team information and which port is currently active'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.12_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.12 – Team information and which port is currently active
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Keep in mind if you are not able to access a server GUI, in most cases, you
+    can install a GUI, but that will be discussed in later chapters. During your exam,
+    you can use the `nm-connection-editor` command to launch a configurator. This
+    can be seen as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.13 – Launching the command'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.13_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.13 – Launching the command
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After launching the command, you are then presented with a GUI that you can
+    control. This allows you to choose a team and create all of the items you need
+    for it without remembering the steps. First, choose a team, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.14 – Choose Team from the dropdown'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.14_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.14 – Choose Team from the dropdown
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, you will start to set the normal information for a team. As shown in
+    the following screenshot, you are going to set the team name:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.15 – Name the team and the interface of the team'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.15_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.15 – Name the team and the interface of the team
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After you set the team name, you are going to choose which physical interfaces
+    or virtual interfaces will be a part of the new team. This is illustrated as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.16 – Choose the interfaces to be a part of the team'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.16_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.16 – Choose the interfaces to be a part of the team
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can even set different options for the interface you are adding to the
+    team. For our purposes, we will not change anything and simply add it. This is
+    illustrated in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.17 – The setting of interface settings at the slave interface level'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.17_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.17 – The setting of interface settings at the slave interface level
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can see the outcome of adding both interfaces, or however many you would
+    like to add to the team. This is shown as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.18 – Both interfaces after being added to the team'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.18_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.18 – Both interfaces after being added to the team
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we can set the IP of the interface, the gateway, the DNS, and so on.
+    This allows us to ensure that the team is now able to connect to the world. This
+    is illustrated in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.19 – Setting the information needed to talk to the world'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.19_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.19 – Setting the information needed to talk to the world
+  prefs: []
+  type: TYPE_NORMAL
+- en: That wraps up the manually configured way of doing things. Next up, we will
+    make things easier by using Ansible Automation. Through Automation, we will be
+    able to achieve the same results time and time again while lowering the possible
+    human error factor. This will help when doing this type of task over and over
+    again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Taking the headache out of setting up your link aggregation by using Ansible
+    Automation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now, we all know having something automated allows us to save time and effort.
+    It also allows us to be consistent and that is necessary, especially when you
+    are working on networking. We can build multiple different playbooks to set up
+    different things or we can use variables. In this case, we are going to use variables
+    as they are easiest to change around. With a variable, you can change the different
+    settings easily while still only needing one playbook. An example of that would
+    be when you have to choose between using round-robin and load balancing. This
+    one variable can make sure that everything is set correctly. Along with other
+    variables, such as the IP address and gateways, you can get away with only writing
+    one playbook and then filling out the rest with variables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s start writing our playbook for network teaming using variables. These
+    are a series of items that answer questions posed by the playbook needed to get
+    the job done in the end.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will then add our normal code that starts every Ansible playbook. This includes
+    the hosts that we will be using from inventory that will be in the playbook. It
+    also includes how we will escalate privileges to allow us to make the changes.
+    This is a personal preference and you can leave it on if you like. Here is what
+    the initial start of the playbook looks like, just like in previous chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After we have the initial setup, we are going to add the next items to start
+    the network teaming functions. This will include choosing a variable for different
+    interfaces to use. Also, the variables IPs should use, along with gateway and
+    DNS information. It will also include a variable so you can set the type of teaming
+    we are going to do. This will include using a role, as we did in [*Chapter 3*](B18607_03.xhtml#_idTextAnchor039),
+    *Network Services with Automation – Introduction to Red Hat* *Linux Networking*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can see a man page about this role and how it works by going to `/usr/share/doc/rhel-system-roles/network/example-team_simple-playbook.yml`
+    after you install the `rhel-system-roles.y`ml file using `dnf install rhel-system-roles
+    -y`. This shows you the variables you will need to fill out in the playbook to
+    make the system role run correctly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.20 – Rhel system role network teaming example'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.20_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.20 – Rhel system role network teaming example
+  prefs: []
+  type: TYPE_NORMAL
+- en: From here, we can use the information we gathered from the example to build
+    the rest of our playbook. We will be inputting additional variables to be called
+    by a variable file in the playbook directory instead of the raw values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the remaining code for the playbook to run successfully, and then we
+    will see the variable file and hierarchy structure after the playbook code to
+    ensure that the playbook can read the variables. This is shown in the following
+    code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This playbook will now create the build of the network team automatically.
+    We will then create the variable file to answer the variables we created, such
+    as `team_name`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This allows us to answer the variables but keep the playbook ambiguous to be
+    used for multiple different uses instead of a one-and-done mentality. We will
+    put this file in the directory with the playbook in the `vars` folder and name
+    it `rhel1_team_vars.yml`. We will need to add this to the `vars list` in the playbook
+    as well, so the playbook will know where to grab the information from:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can look at the layout of the playbook folder, which includes the inventory,
+    `vars` file, and playbook:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.21 – This shows the hierarchy of the playbook directory'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.21_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.21 – This shows the hierarchy of the playbook directory
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this playbook, the inventory will simply be `rhel1.example.com` under `defaults`,
+    but it may differ in your lab setup. After that is set up, we will take a look
+    at the interfaces before we set them up and then after the playbook has run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here, you can see that before we run the playbook, there are no teams in place:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.22 – The connections of the interfaces currently configured'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.22_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.22 – The connections of the interfaces currently configured
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Having seen the preceding connections, we are going to next run the playbook
+    with the `ansible-playbook –i inventory team_network_interface.yml -u emcleroy
+    -k --ask-become –v` command and view the team that was created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.22 – Here, you can see the team was created'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_4.23_B18607.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 4.22 – Here, you can see the team was created
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you have learned in this section, Ansible Automation can make setting up
+    a network team a breeze. Along with the ability to save time for other more important
+    projects, Ansible Automation lowers the human error factor. This allows users
+    to be confident that the configuration on each server will match. This allows
+    faster troubleshooting and ease of deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we have learned about network teaming. We covered how it can
+    be used for HA and for throughput advantages. We worked on ensuring that you understand
+    the value behind using a network team and the importance it has in a production
+    environment. When you have multiple paths, for instance, you have the ability
+    to take down a switch for maintenance without causing an issue to your running
+    applications. These are just some of the advantages of network teaming and there
+    are many more. In the next chapter, we will be digging further into the networking
+    space for Rhel 8, in which we will discuss DNS, DHCP, and IPs in further detail.
+    We will learn how to set them up and enable servers to provide functions such
+    as DNS and DHCP. Take a breather, and then let’s get ready to leap into more networking
+    fun.
+  prefs: []
+  type: TYPE_NORMAL

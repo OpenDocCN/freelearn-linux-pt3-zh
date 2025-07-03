@@ -1,0 +1,951 @@
+- en: '*Chapter 13*: Analyzing Policy Behavior'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Although SELinux policies enforce the mandatory access controls and application
+    behavior on a system, knowing how a policy will act upfront is useful for administrators
+    to perform assessments and root cause analysis activities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout this chapter, we will learn how to query the SELinux policy in depth,
+    using a multitude of tools to query process transitions, analyze information flows,
+    and compare policies. We will consider the `apol` tool, a graphical interface
+    with which we can perform several analyses on a policy, as well as command-line
+    tools such as `sesearch`, `sedta`, `seinfoflow`, and `sepolicy`. Finally, we will
+    use `sediff` to compare policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing single-step analysis
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Investigating domain transitions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Analyzing information flow
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Comparing policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/3lY56LB](https://bit.ly/3lY56LB)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing single-step analysis
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Until now, we''ve covered a few methods of analyzing SELinux policies through
+    command-line utilities such as `seinfo` and `sesearch`. These utilities can assist
+    users in performing single-step analyses: they either provide immediate information
+    about an SELinux object (which is mainly what `seinfo` is about) or are capable
+    of querying direct SELinux rules (which is the scope of `sesearch`).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Not all capabilities of the `seinfo` and `sesearch` utilities have been discussed
+    yet though, so let's see what other tricks these commands have up their sleeves.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using different SELinux policy files
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Many SELinux analysis tools, including `seinfo` and `sesearch`, can access both
+    the currently loaded SELinux policy and a specified SELinux policy file. The latter
+    allows developers to query SELinux policies of systems they do not have direct
+    access to, for which direct access is cumbersome (such as mobile devices), or
+    that have been used in previous situations (backups) and are no longer active.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to analyze a policy file called `policy.sepolicy-2`, the following
+    `seinfo` command can be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: When the command is not explicitly told to parse a given policy file, it will
+    try to query the current active policy through the `/sys/fs/selinux/policy` pseudo-file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Displaying policy object information
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The main purpose of the `seinfo` application is to display SELinux object information.
+    This information is presented on a per-object basis. Various SELinux object types
+    are supported, ranging from the well-known types, attributes, roles, and users,
+    to the more specialized `fs_use_*` declarations or `genfscon` statements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A complete list of supported object types (and their resulting `seinfo` options)
+    can be found on the `seinfo` manual page, or through the direct help:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Regardless of the object type that the user is interested in, `seinfo` has
+    three main modus operandi:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the first mode, it lists the objects of a given type. For this, only the
+    option has to be passed on, without additional information. For instance, to list
+    all object classes available in the policy, use the following command:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'In the second mode, it can confirm (or deny) the presence of an object instance.
+    To accomplish this, add the instance name to the command. For instance, to validate
+    if the `memprotect` class is available in the policy, use the following command:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Sadly, regardless of whether the instance is available or not, the return code
+    of the application is the same, so scripts cannot use this without additional
+    statements to verify whether the instance exists. Instead, they will need to check
+    the output of the command (which will state that zero instances exist that match
+    the name).
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'The third mode displays expanded information about a selected instance. Although
+    not all information objects support an expanded set, most of the common ones do.
+    The expanded information generally shows a list of (different) instances related
+    to the initial query:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The supported types that `seinfo` can query are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With `--attribute` (`-a`), `seinfo` shows all currently known SELinux attributes
+    in the policy. When expanded, it shows the types associated with a given attribute.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--bool` (`-b`), `seinfo` shows all currently known SELinux booleans in
+    the policy. When expanded, it shows the current value of the boolean.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--class` (`-c`), `seinfo` shows the supported SELinux classes. When expanded,
+    it shows the permissions supported by that class.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--role` (`-r`), `seinfo` shows the SELinux roles supported in the policy.
+    When expanded, it shows the domains allowed for that role.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--type` (`-t`), `seinfo` shows the SELinux types in the policy. When expanded,
+    it shows the aliases that the type has, as well as the attributes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--user` (`-u`), `seinfo` shows the SELinux users (not the Linux users
+    or logins) known by the policy. When expanded, it shows the roles and sensitivity
+    range associated with the SELinux user.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--category`, `seinfo` shows the currently supported categories. When expanded,
+    it shows the sensitivities for which the category is associated (only in MLS policies).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--common`, `seinfo` shows the common permission sets. These are sets inherited
+    by different classes. When expanded, it shows the permissions part of that set.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--constrain`, `seinfo` shows the current constraints. There is no expanded
+    information for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--default`, `seinfo` shows the `default_*` rules within the policy. One
+    of these rules, for instance, is the default sensitivity range for a class (`default_range`).
+    There is no expanded information for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--fs_use`, `seinfo` shows the `fs_use_*` rules within the SELinux policy.
+    One of these rules is to allocate a security context for filesystems that support
+    extended attributes (`fs_use_xattr`). There is no expanded information for this
+    query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--genfscon`, `seinfo` shows the context allocations for filesystems that
+    do not support extended attributes. There is no expanded information for this
+    query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--initialsid`, `seinfo` shows all the initial **Security Identifiers**
+    (**SID**). These are all the classes that have predefined contexts set. When expanded,
+    it shows the context associated with the SID.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--netifcon`, `seinfo` shows the contexts currently associated with the
+    network interfaces. This is only applicable when labeled networking is active.
+    There is no expanded information for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--nodecon`, `seinfo` shows the contexts currently associated with the
+    node definitions (hosts). This is only applicable when labeled networking is active.
+    There is no expanded information for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--permissive`, `seinfo` shows which types are currently marked as permissive
+    domains. There is no expanded information for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--polcap`, `seinfo` shows the policy capabilities (that is, in-policy
+    settings that define the SELinux subsystem behavior, such as support for SCTP
+    through the `extended_socket_class` policy capability that we saw in [*Chapter
+    5*](B16276_05_Final_VK.xhtml#_idTextAnchor138), *Controlling Network Communications*).
+    When expanded, it shows the actual policy capability statements in the policy.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--portcon`, `seinfo` shows the current port mappings and their associated
+    contexts (which is also interpreted by `semanage port -l`). There is no expanded
+    information for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--sensitivity`, `seinfo` shows the currently supported sensitivity levels.
+    When expanded, it shows the actual policy statements to declare the sensitivities.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--typebounds`, `seinfo` shows the type bounds (SELinux types or domains
+    bounded by a parent domain). There is no expanded information for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `--validatetrans`, `seinfo` shows the transition constraints active in
+    the policy (these are constraints that limit when a file transition is allowed).
+    This is not used in most Linux distributions. There is no expanded information
+    for this query.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `seinfo` command also has an `--all` option that shows all possible information
+    it can get from a policy file. However, this does not include the expanded information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding sesearch
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Where `seinfo` displays information about SELinux objects, `sesearch` is used
+    to query SELinux rules and behavior information between a source and a target
+    resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have been using `sesearch` to query standard `allow` rules (type enforcement-related
+    access controls) as well as the impact of SELinux booleans on these `allow` rules.
+    The `sesearch` application allows us to not just query rules based on the rule
+    type, but also filter based on additional parameters. Let''s see which parameters
+    can be used for `sesearch` filters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The most common queries are to filter out the rules that match a given source
+    expression using `--source` (`-s`) and/or target expression using `--target` (`-t`):'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'With the `--class` (`-c`) argument, we can search for only those rules affecting
+    a specified resource class (such as `file`, `dir`, `tcp_socket`, and so forth—the
+    list of all possible classes can be obtained using `seinfo --class`):'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'If we are interested in only a particular action (or permission), we can use
+    the `--perm` (`-p`) argument. This is particularly useful when we encounter a
+    denial for a certain action (say, `write`) and want to see which domains are allowed
+    to perform this action, as it might indicate that we are examining the wrong source
+    domain. We can list multiple permissions, in which case `sesearch` will display
+    the rules that have at least one permission in them:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We can also query only those rules influenced by an SELinux boolean using the
+    `--bool` (`-b`) argument, as we saw in [*Chapter 12*](B16276_12_Final_VK.xhtml#_idTextAnchor312),
+    *Tuning SELinux Policies*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If we use the `-eb` option, then all booleans listed on the command line must
+    be matched, rather than at least one.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'The `sesearch` application can also use regular expressions rather than actual
+    values. This is not the default behavior, but can be activated with `-rs` (for
+    the source type or role), `-rt` (for the target type or role), `-rc` (for the
+    class), `-rd` (for the default type or role), and `-rb` (for the boolean):'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: As this provides insights into the most common SELinux behavior and access controls,
+    let's go through the various rules and the impact they have on the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Querying allow rules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first set of rules are the `allow` rules, of which many subtypes exist.
+    The standard `allow` rule defines which actions a source domain can successfully
+    trigger toward or against a target type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are a few similar rules that SELinux policies can define, and these can
+    be queried similarly with `sesearch` as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using `--auditallow`, we can query which actions are allowed by SELinux but
+    will still result in an audit event.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using `--dontaudit`, we can query which actions will not trigger an audit event,
+    even when the action is denied.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using `--neverallow`, we can query which actions are forbidden from being declared
+    within the policy. Such actions, when defined, will cause the system to refuse
+    to load new SELinux policies if they violate the rule. It cannot be used to negate
+    existing rules though, and `neverallow` rules that you attempt to add to the policy
+    afterward will fail if the current policy already has deviations against this
+    rule.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: SELinux also supports `allow` rules but take an additional (number) parameter
+    that further limits the applicability of the rule, and are used to provide fine-grained
+    access control for device queries. These queries are generally handled by the
+    `ioctl()` system call, but until its support for extended permissions, SELinux
+    could only control whether a domain was allowed to use the `ioctl()` system call
+    or not, rather than filtering on the explicit query through `ioctl()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With extended permission rules, SELinux policy developers can specify which
+    `ioctl()` queries are allowed and which ones aren''t. For instance, we can grant
+    a domain the ability to get a hardware address (known as `SIOCGIFHWADDR`, which
+    is defined with number `0x8927`) as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Within `sesearch`, we can query these rules using `--allowxperm`. Like regular
+    `allow` rules, we also have the `--auditallowxperm`, `--dontauditxperm`, and `--neverallowxperm`
+    options to cover the extended-permission-equivalent rules. These have the same
+    impact on the query and also on the extended permission rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Querying type transition rules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'A second set of rules are the type transition rules. Rather than informing
+    the system which actions are allowed or not, **type transitions** influence the
+    SELinux context of objects and resources through actions taken by the processes
+    on the system. Type transition rules, for instance, define what context a newly
+    written file receives when it is written by a particular domain within a directory
+    that has a given SELinux type, or what domain a newly created process receives
+    when it is executed from a given source domain:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this output, we can see that when the guest domain successfully executes
+    a binary labeled with `abrt_helper_exec_t`, its resulting process will be assigned
+    the `abrt_helper_t` context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These rules are queried and interpreted by various tools in the *Investigating
+    domain transitions* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Querying other type rules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Alongside the `allow` rules and type transition rules, `sesearch` can also
+    query two other type-related rules: `type_change` and `type_member`. These rules
+    are meant for SELinux-aware applications and are not enforced by the in-kernel
+    SELinux subsystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With `type_change` statements (which can be filtered in `sesearch` using the
+    `--type_change` option), developers inform the SELinux-aware application that
+    a target resource should be relabeled with a given type on behalf of the source
+    domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: As the device file itself already exists and is only reassigned to a user, no
+    type transition itself is done. Instead, the `type_change` rule is interpreted
+    by the SELinux-aware application that relabels the device file accordingly.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'The `type_member` rule (which can be filtered in `sesearch` using the `--type_member`
+    option) informs SELinux-aware applications that participate in setting up polyinstantiated
+    locations (as we saw in [*Chapter 3*](B16276_03_Final_VK.xhtml#_idTextAnchor071),
+    *Managing User Logins*) about the target SELinux type of such directories. For
+    instance, when the `/tmp` location (which is labeled with `tmp_t`) is polyinstantiated
+    for a user, then the following rule is used to understand that the `/tmp` view
+    for this user is to be labeled with `user_tmp_t`:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The PAM module responsible for addressing the polyinstantiation is SELinux-aware,
+    and will use these rules to deduce what the target types must be for the created
+    locations.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Alongside the type-related statements, `sesearch` can also handle role-related
+    queries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Querying role-related rules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'SELinux also has rules related to role activities and transitions. With the
+    `sesearch` application, we can query which SELinux roles are allowed to be accessed
+    from other roles, and when a role transition (such as switching from a user role
+    to the system role) is performed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The distinction between the two is that the allowed access (using `--role_allow`)
+    shows which roles can be accessed from a given role, but they do not dictate when
+    the change is done. The role transitions (using `--role_trans`) show when the
+    system attempts to automatically change a role (and to what role it would be changed)
+    when executing a script or binary. Hence, they can be compared with the `allow`
+    rules (which specify what is allowed) and type transitions (defining SELinux behavior).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Analyzing role transitions and role `allow` rules helps administrators deduce
+    which roles are too powerful or could result in potential security issues. For
+    instance, allowing the `dbadm_r` role to switch to the `system_r` role through
+    the `postgresql_initrc_exec_t` type might allow that role to invoke actions outside
+    its scope if it also has the rights to modify `postgresql_initrc_exec_t` resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: While directly modifying `postgresql_initrc_exec_t` files is thus not allowed,
+    it is not enough to only look at the main user type. A decent analysis needs to
+    include all types reachable by the `dbadm_r` role, which we will cover in the
+    *Investigating domain transitions* and *Analyzing information flow* sections.
+    These sections will use `apol`, so let's first see what this application is all
+    about.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Browsing with apol
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An advanced tool to perform policy analysis is `apol`, which can be launched
+    by just executing the command without any arguments. The tool is graphical in
+    nature and allows analysts and administrators to perform a wide range of analytical
+    actions against the SELinux policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once started, the first action to take with `apol` is to load a target policy
+    (either the currently active policy or a file copied over from a different system).
+    This can be accomplished through the **Open Policy** button, or by navigating
+    to **File** | **Open Policy**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The tool will then display a generic overview of the loaded policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.1 – The apol application after loading a policy file ](img/B16276_13_001.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.1 – The apol application after loading a policy file
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once it has been loaded, select **New Analysis** to initiate the policy analysis
+    functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.2 – apol''s overview of supported analysis methods ](img/B16276_13_002.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.2 – apol's overview of supported analysis methods
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A decent number of analysis methods are provided. Let''s select **Types** to
+    browse through the available types, or select an attribute to find out which SELinux
+    types are assigned to that attribute:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.3 – Type browsing with apol ](img/B16276_13_003.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.3 – Type browsing with apol
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, with the `sesearch` application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.4 – Querying type enforcement rules with apol ](img/B16276_13_004.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.4 – Querying type enforcement rules with apol
+  prefs: []
+  type: TYPE_NORMAL
+- en: The more advanced analysis methods are covered in the *Investigating domain
+    transitions* and *Analyzing information flow* sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using apol workspaces
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Analyzing SELinux policies can take a while, especially when this involves
+    multiple phases of analysis and fine-tuning. The `apol` tool allows you to save
+    your current workspace to disk, so that you can later get back to the analysis
+    from the point at which you saved it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.5 – Workspace management in apol ](img/B16276_13_005.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.5 – Workspace management in apol
+  prefs: []
+  type: TYPE_NORMAL
+- en: Workspaces not only retain the settings of the queries so far, but also the
+    notes you might add. Notes are an important feature within `apol` where you can
+    write down thoughts and observations from the queries you've made. The notes are
+    associated with the tabs you have open, allowing you to switch between different
+    queries as needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know how the `apol` application works, let's see how we can use
+    it (and other tools) for more in-depth analyses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Investigating domain transitions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: An important analytical approach when dealing with SELinux policies is to perform
+    a **domain transition analysis**. Domains are bounded by the access controls in
+    place for a given domain, but users or processes can transition to other domains
+    by executing the right set of applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Analyzing whether and how a transition can occur between two SELinux domains
+    allows administrators to validate the secure state of the policy. Given the mandatory
+    nature of SELinux, adversaries will find it difficult to be able to execute target
+    applications if a domain transition analysis shows that the source domain cannot
+    execute said application, either directly or indirectly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Administrators should use domain transition analysis to confirm a domain is
+    correctly confined, and that vulnerabilities within the applications running inside
+    a domain cannot lead to privilege escalations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using apol for domain transition analysis
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'After starting `apol`, select **New Analysis** followed by **Domain Transition
+    Analysis**. The analysis screen itself will show several possible analytical approaches:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.6 – Querying possible transition paths between staff_t and unconfined_t
+    ](img/B16276_13_006.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.6 – Querying possible transition paths between staff_t and unconfined_t
+  prefs: []
+  type: TYPE_NORMAL
+- en: This analysis will attempt to find a path between a given source domain and
+    target domain, and display the execution trail that could lead to the transition.
+    Administrators can then verify whether the applications associated with these
+    domain transitions can be trusted or not. Such analysis is sensible when we need
+    to assert that certain domains cannot break out of their confinement, or when
+    we are developing new policies and want to ensure that the confinement is within
+    the boundaries we want.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The transition analysis can be fine-tuned through the following settings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With `apol` will show domain transitions between the source domain and the target
+    domain, seeking the shortest transitions possible. For instance, a transition
+    from `staff_t` to `staff_sudo_t` to `unconfined_t` is a two-step path. When a
+    path is found, `apol` will not search for longer paths.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When we select `apol` will perform the analysis up to a certain number of steps.
+    When we use up to one step, then this is similar to doing direct queries with
+    `seinfo` or `sesearch`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using **Transitions out of the source domain** and **Transitions into the target
+    domain** will show all transitions that can occur from a given source domain or
+    to the target domain. This is used for a more interactive session, where users
+    can click through the domains to see the next set of domains that can be transitioned
+    to.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To further fine-tune the analysis, a few options can be selected. For instance,
+    we can exclude certain types from being used in the domain transition analysis.
+    This allows us to mark certain domains as trusted (such as the `*_sudo_t` domains),
+    which will make `apol` ignore those domains to find more appropriate transition
+    chains to analyze.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using sedta for domain transition analysis
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The path analysis done by `apol` can also be executed from a command-line application
+    called `sedta`. It has the same capabilities as the domain transition analysis
+    functionality within `apol`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The type of analysis is selected through command-line arguments: `-S` is used
+    for shortest path analysis, whereas `-A` (followed by a number) runs the equivalent
+    of **All paths up to**.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to check for a domain transition path between the `staff_t` domain
+    and the `unconfined_t` domain, excluding the `staff_sudo_t`, `newrole_t,` and
+    `init_t` domains, use the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can analyze a different policy than the current system policy using the `-p`
+    option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using sepolicy for domain transition analysis
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `sepolicy` tool has a built-in domain transition analysis capability using
+    the `transition` argument. It is, however, not as flexible as `sedta` or `apol`,
+    as no tuning can be done to the command. It also does not seem to cover all possible
+    paths, often displaying extensive and elaborate routes that could be much simpler:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s compare this with `sedta`, which we use against the same policy and
+    for the same domain transition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: When comparing the transition paths with the ones generated by `sedta`, you
+    will notice that `sedta` often finds shorter domain transitions, which `sepolicy
+    transition` does not. Hence it is not recommended to rely solely on `sepolicy
+    transition` for domain transition analysis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Analyzing information flow
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Another analytical investigation that can be carried out on SELinux policies
+    is information flow analysis. Unlike domain transitions, which look at how one
+    domain can gain a certain set of permissions through transitions to another domain,
+    **information flow analysis** looks at how a domain could leak (purposefully or
+    not) information to another domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Information flow analysis is performed by looking at all operations that occur
+    between two types. A source type can be read by a domain, which subsequently can
+    write information to another type that can then be accessed by another domain.
+    While this can still be analyzed in a step-wise fashion, it quickly becomes very
+    challenging because we cannot limit ourselves to the read and write operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Information can be leaked through filenames, file descriptors, and more. Information
+    flow analysis must take all these methods into account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using apol for information flow analysis
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'After loading an SELinux policy, select **Information Flow Analysis**. The
+    interface we receive is similar to the domain transition analysis, but now has
+    a few toggles to fine-tune the path analysis specific to information flows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.7 – Analyzing information flow between two domains ](img/B16276_13_007.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.7 – Analyzing information flow between two domains
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Unlike domain transitions, the number of paths through which information can
+    flow is exponentially bigger. To perform a decent information flow analysis, we
+    need to fine-tune the search criteria:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `lock` operation, which has weight `1`) to a high priority one (such as
+    the `write` operation, which has weight `10`). The purpose of these weights is
+    to define which actions are plausible for information flow and which ones are
+    much harder (but not impossible) to use for deliberate information exchange.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With **Excluded Permissions**, we can selectively enable or disable certain
+    permissions from the analysis.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The other options are similar to those in domain transition analysis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most important area for information flow analysis is the permission map,
+    which we can fine-tune partially while enabling or disabling permissions in the
+    analysis. However, we might not be happy with the weights that the current permission
+    map uses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To edit the permission map, select `apol` menu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.8 – Editing the permission map and permission weights ](img/B16276_13_008.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.8 – Editing the permission map and permission weights
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Within this editor, we can fine-tune the weights of the permissions to our
+    liking, as well as the *directionality* of the action:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`None` (no information flow)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Write` (information flows to the resource)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Read` (information is retrieved from the resource)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Both` (information can both flow to and from the resource)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Once we are satisfied with the results, we can (and probably should) save the
+    permission map for later reuse (if not, the changes are only applicable to the
+    current session and will be forgotten when `apol` is closed).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using seinfoflow for information flow analysis
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Like the `sedta` application for domain transition analysis, there is also a
+    command-line application that offers information flow analysis capabilities similar
+    to `apol`, that is, `seinfoflow`. Every invocation of the `seinfoflow` command
+    requires the permission map to be passed on for its analysis. If you don't have
+    a permission map created and saved yourself, you can use the default one available
+    at `/var/lib/sepolgen/perm_map`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s analyze the information flow possibilities between the `staff_t` and
+    `guest_t` domains, using the default permission map, and only considering the
+    permissions of weight `10`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: The more elaborate a permission map is, the more time it takes for the analysis
+    to complete.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using sepolicy communicate for simple information flow analysis
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `sepolicy` command can perform a simple flow analysis using the `communicate`
+    option. Given a source and target domain, `sepolicy` will check through which
+    intermediate types information can flow between the domains:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding flow analysis is basically checking what types can be written
+    to by the source domain, and read by the target domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Until now, we've analyzed a single policy set, finding the domain transitions
+    and information flow paths. The commands and applications we've used all focus
+    on this single-policy analysis. Another important analysis is to compare two policies.
+    Policy developers can use this to compare a new policy with an old one, or to
+    compare two system policies to see what additional rules have been added by the
+    administrator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using sediff to compare policies
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `sediff` tool looks at the differences between two policy files and reports
+    those to the user. It is often not sensible to use this against completely different
+    policies, but is powerful for finding slight differences between policies, which
+    can assist in troubleshooting issues across different systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A common use case for `sediff` is to validate that a source-built policy file
+    is the same as the distribution-provided binary policy file. Administrators can
+    then be certain that the source code they''ve used to build a policy file is the
+    same as that used by the distribution, even when the binary files themselves (the
+    `policy.##` file) have different checksums:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is possible to direct `sediff` to only show differences for a specified area
+    or part of the SELinux policy (such as the available types, roles, booleans, or
+    type enforcement rules).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: SELinux has quite a few analysis tools that we can use to analyze policies.
+    We've seen how to use `sesearch` to do in-depth assessments of the current policy,
+    but noticed that it fails to validate the more dynamic analysis requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With `apol`, we have seen a graphical application that is able to do more dynamic
+    analysis, including the domain transitions (examining which domains can be reached
+    from a current point) and information flow analysis (investigating how information
+    can flow from one domain to another). From this experience, we've learned that
+    such analysis is intensive and requires lots of interpretation to be done correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next to `apol`, we also learned that command-line utilities exist with similar
+    capabilities: `sedta` for domain transition analysis, `seinfoflow` for information
+    flow analysis, and `sepolicy`, which has a few out-of-the-box functionalities,
+    but not as extensive or flexible as the other options we looked at.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the end, we learned how to compare policies using `sediff`. This is useful
+    for when new policies are being developed, which is something we'll do in the
+    remaining chapters. We first start with aligning and extending existing policies
+    for new applications in the next chapter, and move on to full application policy
+    development in the last two.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the difference between `seinfo` and `sesearch`?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How do you check whether you can reach a domain?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why does analyzing information flows take so long?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Can we generate a delta between policies and load it?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

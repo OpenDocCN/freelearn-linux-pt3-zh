@@ -1,0 +1,1728 @@
+- en: '6'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Selecting a Build System
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The preceding chapters covered the first four elements of embedded Linux. You
+    built a bootloader, kernel, and root filesystem step by step before combining
+    them into a basic embedded Linux system. That’s a lot of steps! Now it is time
+    to simplify the process by automating as much of it as possible. Embedded Linux
+    build systems can help, and we will look at two in particular: Buildroot and The
+    Yocto Project. Both are complex tools that require an entire book to explain how
+    they work.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter I will only present the general ideas behind build systems,
+    laying the groundwork for *Chapters 7* and *8*. First, I will show you how to
+    build a simple image to get an overall feel for the system. Then, I will show
+    you how to make some useful modifications to the Nova board and Raspberry Pi 4
+    examples from the previous chapters. In subsequent chapters, we will dive deeper
+    into The Yocto Project, now the preeminent build system for embedded Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing build systems
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Distributing binaries
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introducing Buildroot
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introducing The Yocto Project
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To follow along with the examples, make sure you have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An Ubuntu 24.04 or later LTS host system with at least 90 GB of free disk space
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A microSD card reader and card
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: balenaEtcher for Linux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An Ethernet cable and router with an available port for network connectivity
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A USB-to-TTL serial cable with a 3.3 V logic level
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Raspberry Pi 4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: BeaglePlay
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A 5 V USB-C power supply capable of delivering 3A
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The code used in this chapter can be found in the chapter folder in this book’s
+    GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter06](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter06).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing build systems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [*Chapter 5*](Chapter_05.xhtml#_idTextAnchor138), I described the process
+    of creating an image manually as the **Roll Your Own** (**RYO**) process. This
+    approach gives you complete control over the software so that you can tailor it
+    to do anything you like. If you want to do something truly odd but innovative,
+    or if you want to reduce the memory footprint to the smallest size possible, then
+    RYO is the way to go. But in most situations, building manually is a waste of
+    time and produces inferior, unmaintainable systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The idea behind a build system is to automate all the steps described up to
+    this point. A build system should be able to build some or all of the following
+    from upstream source code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: toolchain
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: bootloader
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: kernel
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: root filesystem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building from upstream source code is important for several reasons. It gives
+    you the peace of mind that you can rebuild at any time without external dependencies.
+    It also means you can debug at the source level and meet your license requirements
+    to distribute the code to users where necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To do its job, a build system must be able to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Download the source code from upstream, either directly from the version control
+    system or as an archive, and cache it locally.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Apply patches to enable cross-compilation, fix architecture-dependent bugs,
+    apply local configuration policies, and so on.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Build the various components along with their compile-time and runtime dependencies.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create a staging area and assemble a root filesystem.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create image files in various formats ready to be loaded onto the target.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Some other useful things are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Add your own packages containing applications or kernel changes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Select various root filesystem profiles: large or small, with or without graphics,
+    and other features.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create a standalone SDK that you can distribute to other developers so they
+    don’t have to install the complete build system.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Track which open source licenses are used by the various packages you selected.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Have a friendly user interface.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In all cases, build systems encapsulate the components of a system into packages,
+    some for the host and some for the target. Each package defines a set of rules
+    to get the source, build it, and install the results in the correct location.
+    There are dependencies between packages and a mechanism to resolve the dependencies
+    and build the set of packages required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open source build systems have matured over the past few years. There are many
+    around, including:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Buildroot**: Is an easy-to-use system using GNU Make and Kconfig ([https://buildroot.org/](https://buildroot.org/)).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**OpenEmbedded**: Is a powerful system and a core component of Yocto ([https://openembedded.org](https://openembedded.org)).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**OpenWrt**: Is a build tool oriented toward building firmware for wireless
+    routers ([https://openwrt.org/](https://openwrt.org/)) that supports runtime package
+    management out of the box. It is a derivative of Buildroot.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**PTXdist**: Is an open source build system sponsored by Pengutronix ([https://www.ptxdist.org/](https://www.ptxdist.org/)).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Yocto**: Extends the OpenEmbedded core with metadata, tools, and documentation.
+    It is the most popular embedded Linux build system today ([https://www.yoctoproject.org/](https://www.yoctoproject.org/)).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'I will concentrate on two of them: Buildroot and Yocto. They approach the problem
+    in different ways and with different objectives.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Buildroot has the primary aim of building root filesystem images, hence the
+    name. But it can build bootloaders, kernels, and even toolchains as well. It is
+    easy to install and configure. Most importantly, Buildroot generates target images
+    quickly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Yocto is more general in how it defines the target system, so it can build more
+    complex embedded devices. Every component is generated as a binary package by
+    default using the RPM format. Packages are then combined to make the filesystem
+    image. You can install a package manager in the filesystem image that allows you
+    to update packages at runtime. In other words, when you build with Yocto, you
+    are creating your own custom Linux distribution. Bear in mind that enabling runtime
+    package management also means provisioning and running your own corresponding
+    package feed repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distributing binaries
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Mainstream Linux distributions are in most cases constructed from collections
+    of binary (precompiled) packages in either RPM or DEB format. **RPM** stands for
+    **Red Hat Package Manager** and is used in Red Hat, SUSE, Fedora, and other RPM-based
+    distributions. Debian and Debian-derived distributions, including Ubuntu and Mint,
+    use the **Debian package manager** (**DEB**) format. There is also a lightweight
+    format for embedded devices known as the **Itsy package** (**IPK**) format, which
+    is based on DEB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ability to include a package manager on the device is one of the big differentiators
+    between build systems. Once you have a package manager on the target device, you
+    have an easy path to deploy new packages and to update the existing ones. I will
+    talk about the implications of this in [*Chapter 10*](Chapter_10.xhtml#_idTextAnchor341).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now for the main event. We will start with Buildroot. As the simpler of the
+    two build systems, Buildroot is easier to get started with than Yocto and the
+    quickest way of generating a bootable image for all three of our targets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing Buildroot
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The current versions of Buildroot can build a toolchain, a bootloader, a kernel,
+    and a root filesystem. Buildroot uses GNU Make as its principal build tool. There
+    is good online documentation at [https://buildroot.org/docs.html](https://buildroot.org/docs.html)
+    along with *The Buildroot user manual* at [https://buildroot.org/downloads/manual/manual.html](https://buildroot.org/downloads/manual/manual.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Background
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Buildroot was one of the first build systems. It began when the uClinux and
+    uClibc projects needed a way to generate a small root filesystem for testing.
+    Buildroot became a separate project in late 2001 and continued to evolve through
+    2006, after which it went into a dormant phase.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, since Peter Korsgaard took over stewardship in 2009, it has been developing
+    rapidly, adding support for glibc-based toolchains and a greatly increased number
+    of packages and target boards. Peter is still the lead maintainer of Buildroot
+    and has had a long and illustrious career as a software engineer at Barco in Belgium.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Buildroot is the ancestor of OpenWrt, another popular build system that forked
+    from Buildroot around 2004\. The primary focus of OpenWrt is to produce software
+    for wireless routers so the package mix is oriented toward networking infrastructure.
+    It also has a runtime IPK package manager so that a device can be updated or upgraded
+    without a complete reflash of the image. Buildroot and OpenWrt have diverged to
+    such an extent that they are now almost completely different build systems. Packages
+    built with one are not compatible with the other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stable releases and long-term support
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The Buildroot developers produce stable releases four times a year in February,
+    May, August, and November. They are marked by Git tags of the form `<year>.02`,
+    `<year>.05`, `<year>.08`, and `<year>.11`. Each `<year>.02` release is marked
+    for **Long-Term Support** (**LTS**), which means there will be point releases
+    to fix security and other important bugs for 12 months after the initial release.
+    The `2017.02` release is the first to receive the LTS label.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You install Buildroot either by cloning the repository or downloading an archive.
+    Here is an example of obtaining version `2024.02.6`, which was the latest stable
+    version at the time of writing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The equivalent TAR archive is available at [https://buildroot.org/downloads/](https://buildroot.org/downloads/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Read the section titled *System requirements* in *The Buildroot user manual*,
+    available at [https://buildroot.org/downloads/manual/manual.html,](https://buildroot.org/downloads/manual/manual.html,)
+    and make sure to install all the packages listed there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Buildroot uses the kernel Kconfig/Kbuild mechanism I described in the *Understanding
+    kernel configuration* section from [*Chapter 4*](Chapter_04.xhtml#_idTextAnchor096).
+    You can configure Buildroot from scratch directly using `make menuconfig` (`xconfig`
+    or `gconfig`). Or you can choose one of the 100+ configurations for various development
+    boards that you can find stored in the `configs` directory. Typing `make list-defconfigs`
+    lists all the default configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s begin by building a default configuration that you can run on the 64-bit
+    Arm QEMU emulator:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Do not tell GNU Make how many parallel jobs to run with the `-j` option. Buildroot
+    will make optimum use of your CPU cores all by itself. If you want to limit the
+    number of jobs, then run `make menuconfig` and look for **Number of jobs to run
+    simultaneously** under **Build options**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The build can take up to an hour depending on how many CPU cores your host
+    system has and the speed of your internet. It will download approximately 502
+    MB of code and consume about 12 GB of disk space. When it completes, you will
+    find two new directories have been created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`dl`: Contains archives of the upstream projects that Buildroot has built.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`output`: Contains all the intermediate and final compiled artifacts.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Inside `output` you will find the following subdirectories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`build`: Contains the build directory for each component.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`host`: Contains various tools required by Buildroot on the host, including
+    the executables of the toolchain (in `output/host/usr/bin`).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`images`: Contains the finished results of the build. Depending on what you
+    selected when configuring, you will find a bootloader, a kernel, and one or more
+    root filesystem images.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`staging`: Is a symbolic link to the `sysroot` of the toolchain. The name of
+    the link is a little confusing because it does not point to a staging area as
+    defined in [*Chapter 5*](Chapter_05.xhtml#_idTextAnchor138).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`target`: Is the staging area for the root directory. Note that you cannot
+    use it as a root filesystem because the file ownership and permissions are not
+    set correctly. Buildroot uses a device table as described in the previous chapter
+    to set ownership and permissions when the filesystem image is created in the `image`
+    directory.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Running
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Some of the sample targets have a subfolder in the `board` directory containing
+    custom configuration files and informationon how to install the results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the case of the system you just built, the relevant file is `board/qemu/aarch64-virt/readme.txt`.
+    This `readme.txt` file tells you how to start QEMU with this target. Assuming
+    you have already installed `qemu-system-aarch64` as described in [*Chapter 1*](Chapter_01.xhtml#_idTextAnchor016),
+    you can run QEMU with this command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is a script named `start-qemu.sh` in `output/images` that includes the
+    command. When QEMU boots up, you should see the kernel boot messages appear in
+    the same terminal window where you started QEMU followed by a login prompt:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Log in as `root` with no password.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To exit QEMU type *Ctrl + A* and then *x*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Targeting real hardware
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The steps for configuring and building a bootable image for Raspberry Pi 4
+    are almost the same as for 64-bit Arm QEMU:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The finished image is written to a file named `output/images/sdcard.img`. The
+    `post-image.sh` script and the `genimage.cfg.in` configuration file used to write
+    the image file are both located in the `board/raspberrypi4-64 directory`. To write
+    `sdcard.img` onto a microSD card and boot it on your Raspberry Pi 4:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Insert a microSD card into your Linux host machine.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Launch balenaEtcher.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Flash from file** from Etcher.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Locate the `sdcard.img` image that you built for Raspberry Pi 4 and open it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Select target** from Etcher.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select the microSD card that you inserted in *step 1*.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Flash** from Etcher to write the image.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Eject the microSD card when Etcher is done flashing.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Insert the microSD card into your Raspberry Pi 4.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Apply power to Raspberry Pi 4 by way of the USB-C port.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Confirm that your Raspberry Pi 4 booted successfully by plugging it into Ethernet
+    and observing that the network activity lights blink. This default image is very
+    minimal and includes little else besides BusyBox. To SSH into your Raspberry Pi
+    4, you will need to add an SSH server like `dropbear` or `openssh` to your Buildroot
+    image configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a custom BSP
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now let’s use Buildroot to create a **Board Support Package** (**BSP**) for
+    our Nova board using the same versions of U-Boot and Linux from earlier chapters.
+    You can see the changes I made to Buildroot during this section of the book under
+    `MELD/Chapter06/buildroot`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The recommended places to store your changes are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`board/<organization>/<device>`: Contains any patches, blobs, extra build steps,
+    and configuration files for Linux, U-Boot, and other components'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`configs/<device>_defconfig`: Contains the default configuration for the board'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`package/<organization>/<package_name>`: Is the place to put any additional
+    packages for this board'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Create a directory to store changes to the Nova board:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Copy `nova_defconfig` from `MELD/Chapter06/buildroot/configs` to `buildroot`/`configs`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Copy the contents of `MELD/Chapter06/buildroot/board/meld/nova` to `buildroot/board/meld/nova`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Clean the artifacts from any previous build (always do this when changing configurations):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Select the Nova configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `make nova_defconfig` command configures Buildroot to build an image targeting
+    the BeaglePlay. This configuration is a good starting point, but we still need
+    to customize it for our Nova board. Let’s start by selecting the custom U-Boot
+    patch we created for Nova.
+  prefs: []
+  type: TYPE_NORMAL
+- en: U-Boot
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In [*Chapter 3*](Chapter_03.xhtml#_idTextAnchor061)*,* we created a custom bootloader
+    for Nova based on the `f036fb` version of TI’s U-Boot fork and created a patch
+    file for it saved as `MELD/Chapter03/0001-BSP-for-Nova.patch`. We can configure
+    Buildroot to select the same version of U-Boot and apply our patch. Running `make
+    nova_defconfig` already set the U-Boot version to `f036fb`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Copy the patch file into `board/meld/nova`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now run `make menuconfig` and drill down into the **Bootloaders** page. From
+    that page, navigate down to **Custom U-Boot patches** and verify the path to our
+    patch as shown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.1 – Selecting custom U-Boot patches](img/B18466_06_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.1 – Selecting custom U-Boot patches
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we’ve patched U-Boot for our Nova board, the next step is patching
+    the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 4*](Chapter_04.xhtml#_idTextAnchor096)*,* we based the kernel
+    on Linux 6.6.46 and supplied a new device tree from `MELD/Chapter04/nova.dts`.
+    Running `make nova_defconfig` already set the kernel version to Linux 6.6.46 and
+    changed the kernel series used for kernel headers to match the kernel being built.
+    Back out of the **Bootloaders** page and drill down into the **Kernel** page.
+    Confirm that the value of **Out-of-tree Device Tree Source file paths** is set
+    to `board/meld/nova/nova.dts`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.2 – Selecting the device tree source](img/B18466_06_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.2 – Selecting the device tree source
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we’ve defined the device tree, let’s build the system image complete
+    with the kernel and root filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Build
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In the last stage of the build, Buildroot uses a tool named `genimage` to create
+    an image for the microSD that we can copy directly to the card. We need a configuration
+    file to lay out the image in the right way. Modify the existing `board/meld/nova/genimage.cfg`
+    file by replacing `"k3-am625-beagleplay.dtb"` with `"nova.dtb"` as shown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: This will create a file named `sdcard.img`, which contains two partitions named
+    `u-boot` and `rootfs`. The first contains the boot files listed in `boot.vfat`
+    and the second contains the root filesystem image named `rootfs.ext4`, which will
+    be generated by Buildroot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we need a `post-image.sh` script that will call `genimage` and create
+    the microSD card image. See `board/meld/nova/post-image.sh`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: This script copies the R5 firmware image into the `output/images` directory
+    and runs `genimage` with our configuration file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note that `post-image.sh` needs to be executable; otherwise the build will
+    fail at the end:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, run `make menuconfig` and drill down into the **System configuration**
+    page. From that page, navigate down to **Custom scripts to run before creating
+    filesystem images** and notice the path to our `post-image.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.3 – Selecting custom scripts to run after creating filesystem images](img/B18466_06_03.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.3 – Selecting custom scripts to run after creating filesystem images
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, you can build Linux for the Nova board just by typing `make`. When
+    the build is done, you will see these files in the `output/images` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: To test it, insert a microSD card into your card reader and use balenaEtcher
+    to write `output/images/sdcard.img` out to a microSD card like we did for the
+    Raspberry Pi 4\. There is no need to format the microSD beforehand like we did
+    in the previous chapter because `genimage` has created the exact disk layout required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Having shown that our custom configuration for the Nova board works, it would
+    be nice to save our changes back to the `nova_defconfig` file so that we and others
+    can use it again. You can do that with this command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now you have a custom Buildroot configuration for the Nova board. You can retrieve
+    this configuration by typing the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: With that, we have successfully configured Buildroot. In the next section, we
+    will learn how to add our own code to a Buildroot image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding your own code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Suppose you develop a program and you want to include it in the build. You have
+    two options. Firstly, build it separately using its own build system and then
+    roll the binary into the final build as an overlay. Secondly, create a Buildroot
+    package that can be selected from the menu and build it like any other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Overlays
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'An overlay is simply a directory structure that is copied over the top of the
+    Buildroot root filesystem at a later stage in the build process. It can contain
+    executables, libraries, and anything else you may want to include. Note that any
+    compiled code must be compatible with the libraries deployed at runtime, which
+    means that it must be compiled with the same toolchain that Buildroot uses. Using
+    the Buildroot toolchain is quite easy; just add it to `PATH`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The prefix for the toolchain is `<ARCH>-linux-`. So, to compile a simple program,
+    you would do something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once you have compiled your program with the correct toolchain, install the
+    executables and other supporting files into a staging area and mark it as an overlay
+    for Buildroot. For the `helloworld` example, you can put it in the `board/meld/nova`
+    directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, set `BR2_ROOTFS_OVERLAY` to the path pointing at the overlay. It can
+    be configured in `menuconfig` with the **System configuration | Root filesystem
+    overlay directories** option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding a package
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that a Buildroot package does not contain the code, just the instructions
+    to get the code by downloading a tarball, doing `git clone`, or whatever is necessary
+    to obtain the upstream source.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The makefile is written in a format expected by Buildroot and contains directives
+    that allow Buildroot to download, configure, compile, and install the program.
+    Writing a new package makefile is a complex operation which is covered in detail
+    in *The Buildroot user manual*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is an example that shows you how to create a package for a simple program
+    such as our `helloworld` program. Begin by creating a `package/helloworld` subdirectory
+    with a `Config.in` file that looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first line must be of the format `BR2_PACKAGE_<uppercase package name>`.
+    This is followed by `bool` and the package name as it will appear in the configuration
+    menu. The second line is what enables a user to select this package. The `help`
+    section is optional but usually a good idea because it acts as self-documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Link the new package into the **Target Packages** menu by editing `package/Config.in`
+    and sourcing the configuration file as shown below:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: You could append this new `helloworld` package to an existing submenu, but it’s
+    cleaner to create a new submenu with only our package and insert it before the
+    **Audio and video applications** menu.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After inserting the **My programs** menu into `package/Config.in`, create a
+    `package/helloworld/helloworld.mk` file to supply the data needed by Buildroot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can find my `helloworld` package in the book’s code archive at `MELD/Chapter06/buildroot/package/helloworld`
+    and the source code for the program in `MELD/Chapter06/helloworld`. The location
+    of the code is hardcoded to a local path name.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a more realistic case, you would get the code from a source code system or
+    from a central server of some kind. There are details on how to do this in *The
+    Buildroot user manual* and plenty of examples in other packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: License compliance
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Buildroot is based on open source software. So are the packages it compiles.
+    At some point during the project, you should check the licenses by running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The license information is gathered in the `output/legal-info` directory. There
+    are summaries of the licenses used to compile the host tools in `host-manifest.csv`
+    and on the target in `manifest.csv`. There is more information in the `README`
+    file and in *The Buildroot user manual*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now let’s switch build systems and start learning about The Yocto Project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing The Yocto Project
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Yocto Project is a more complex beast than Buildroot. Not only can it build
+    toolchains, bootloaders, kernels, and root filesystems, but it can generate an
+    entire Linux distribution for you with binary packages that can be installed at
+    runtime. The build process is structured around groups of recipes written using
+    a combination of Python and shell script. The Yocto Project includes a task scheduler
+    called **BitBake** that produces whatever you have configured from the recipes.
+    There is plenty of online documentation at [https://www.yoctoproject.org/](https://www.yoctoproject.org/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Background
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The structure of The Yocto Project makes more sense if you look at the background
+    first. Its roots are in **OpenEmbedded** ([https://openembedded.org](https://openembedded.org)),
+    which grew out of a number of projects to port Linux to various hand-held computers,
+    including the Sharp Zaurus and the Compaq iPAQ. OpenEmbedded came to life in 2003
+    as the build system for those hand-held computers. Soon after, other developers
+    began to use it as a general build system for devices running embedded Linux.
+    It was developed and continues to be developed by an enthusiastic community of
+    programmers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The OpenEmbedded project set out to create a set of binary packages using the
+    compact IPK format. These packages could then be installed on the target at runtime
+    to create a variety of systems. It did this by creating recipes for each package
+    and using BitBake as the task scheduler. OpenEmbedded is very flexible. By supplying
+    the right metadata, you can create an entire Linux distribution according to your
+    specifications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Back in 2005, Richard Purdie, then a developer at OpenedHand, created a fork
+    of OpenEmbedded that had a more conservative choice of packages and created releases
+    that were stable over a period of time. He named it **Poky** (rhymes with hockey)
+    after the Japanese snack. Although Poky was a fork, OpenEmbedded and Poky continued
+    to track each other, sharing updates and keeping architectures in step. Intel
+    bought OpenedHand in 2008 and transferred Poky to the Linux Foundation in 2010
+    when they formed The Yocto Project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since 2010, the common components of OpenEmbedded and Poky have been combined
+    into a separate project known as **OpenEmbedded Core**, or just **OE-Core**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Yocto Project collects together several components, the most important
+    of which are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**OE-Core**: Is the core metadata that is shared with OpenEmbedded.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**BitBake**: Is the task scheduler that is shared with OpenEmbedded and other
+    projects.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Poky**: Is the reference distribution. The Git repo for Poky also includes
+    a `meta-yocto-bsp` layer with reference hardware machines.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Documentation**: Is the user manuals and developer guides for each component.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Toaster**: is a web-based interface to BitBake and its metadata.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Yocto provides a stable base that can be used as-is or extended using **meta
+    layers** which I will discuss later in this chapter. Many SoC vendors provide
+    BSPs for their devices in this way. Meta layers can also be used to create extended
+    or different build systems. Some are open source like Poky and others are commercial
+    like Wind River Linux. Yocto has a branding and compatibility testing scheme to
+    ensure that there is interoperability between components. You will see statements
+    like “Yocto Project compatible” on various web pages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consequently, you should think of Yocto as the foundation for a whole sector
+    of embedded Linux in addition to being a complete build system in its own right.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may be wondering about the name. It turns out *yocto* is the SI prefix for
+    10^(-24) in the same way that *micro* is 10^(-6). Why name the project Yocto?
+    The name was chosen partly to indicate that it could build very small Linux systems
+    (although to be fair so can other build systems). It is also a dig at the now
+    defunct Ångström Distribution, which was based on OpenEmbedded. An Ångström is
+    10^(10). That’s huge compared to a *yocto*!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stable releases and supports
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Routinely, there is a release of Yocto every six months: in April and October.
+    They are principally known by their code names, but it is also useful to know
+    their Yocto and BitBake version numbers. Here is a table of the six most recent
+    releases at the time of writing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Code Name** | **Release Date** | **Yocto Version** | **BitBake Version**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Scarthgap | April 2024 | 5.0 | 2.8 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Nanbield | November 2023 | 4.3 | 2.6 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Mickledore | May 2023 | 4.2 | 2.4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Langdale | October 2022 | 4.1 | 2.2 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Kirkstone | May 2022 | 4.0 | 2.0 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Honister | October 2021 | 3.4 | 1.52 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 6.1 – Six most recent releases of Yocto
+  prefs: []
+  type: TYPE_NORMAL
+- en: The stable releases are supported with security and critical bug fixes for the
+    current release cycle and the next cycle. In other words, each stable version
+    is supported for approximately 12 months after release. In addition to stable
+    releases, Yocto also provides LTS releases. The 3.1 (dunfell) release of Yocto
+    back in April 2020 was the first LTS release. The LTS designation means that the
+    version of Yocto will receive defect fixes and updates for an extended period
+    of two years. Consequently, the plan going forward is to choose an LTS release
+    of Yocto every two years.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As with Buildroot, if you want continued support, you can update to the next
+    stable release or you can backport changes to your version. With Yocto, you also
+    have the option of commercial support for several years from operating system
+    vendors such as Siemens and Wind River.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing The Yocto Project
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To get a copy of The Yocto Project, clone the repo choosing the code name (`scarthgap`
+    in this case) as the branch:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Since we are building images for BeaglePlay, we also need to clone the `meta-ti`
+    repo:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And since the `meta-ti-bsp` layer depends on the `meta-arm` layer, we must
+    clone that repo well:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that both the `meta-ti` and `meta-arm` branch names must match the Yocto
+    code name to ensure these additional layers are compatible with the scarthgap
+    version of Yocto. It is also good practice to run `git pull` periodically to grab
+    the latest bug fixes and security patches from all the remote branches.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Read the *Compatible Linux Distribution* and *Build Host Packages* sections
+    in the *Yocto Project Quick Build* guide ([https://docs.yoctoproject.org/brief-yoctoprojectqs/](https://docs.yoctoproject.org/brief-yoctoprojectqs/)).
+    Make sure that the essential packages for your Ubuntu host distribution are installed
+    on your host computer. The next step is configuring.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ubuntu 24.04 LTS (Noble Numbat) was not officially supported by The Yocto Project
+    at the time of writing. Upon Noble Numbat’s release, users experienced numerous
+    BitBake errors related to permissions. These errors were a result of increased
+    security restrictions placed on the operating system by AppArmor. To temporarily
+    disable these AppArmor protections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`$ echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember to rerun this command every time you reboot your Ubuntu host before
+    using Yocto.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s begin by building the 64-bit Arm QEMU emulator. Start by sourcing a script
+    to set up the environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: This creates a working directory for you named `build` and makes it the current
+    directory. All the configuration, intermediate, and target image files will be
+    put in this directory. You must source this script each time you want to work
+    on this project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To choose a different working directory, add it as a parameter to `oe-init-build-env`
+    like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: This will put you into the `build-qemu-arm64` directory. This way, you can have
+    several build directories, each for a different project. You choose which one
+    you want to work with through the parameter passed to `oe-init-build-env`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Initially, the `build` directory contains only one subdirectory named `conf`
+    with the configuration files for this project:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`local.conf`: Contains a specification of the device you are going to build
+    and the build environment.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bblayers.conf`: Contains paths of the meta layers you are going to use. I
+    will describe layers later.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For now, we just need to set the `MACHINE` variable in `conf/local.conf` to
+    `qemuarm64` by removing the comment character (*#*) at the start of this line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now we are ready to build our first image with Yocto.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To perform the build, you need to run BitBake and tell it which root filesystem
+    image you want to create. Some common images are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`core-image-minimal`: Is a small console-based system that is useful for tests
+    and as the basis for custom images.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`core-image-minimal-initramfs`: Is similar to `core-image-minimal` but built
+    as a RAM disk.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`core-image-x11`: Is a basic image with support for graphics through an X11
+    server and the XTerminal terminal app.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`core-image-full-cmdline`: Is a console-based system that offers a standard
+    CLI experience and full support for the target hardware.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'By giving BitBake the final target, it will work backward and build all the
+    dependencies starting with the toolchain. For now, we just want to create a minimal
+    image to see how it works:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first build will take some time (likely more than an hour) even with several
+    CPU cores and lots of RAM. It will download about 4.9 GB of source code and consume
+    about 49 GB of disk space. When the build completes, you will find several new
+    directories in the `build` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These include `downloads`, which contains all the source downloaded for the
+    build, and `tmp`, which contains most of the build artifacts. Inside `tmp` you
+    will find the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`work`: Contains the build directory and the staging area for the root filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`deploy`: Contains the final binaries to be deployed on the target:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`deploy/images/<machine name>`: Contains the bootloader, kernel, and root filesystem
+    images for the target.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`deploy/rpm`: Contains the RPM packages that make up the images.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`deploy/licenses`: Contains the license files extracted from each package.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When the build is done, we can boot the finished image on QEMU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running the QEMU target
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When you build a QEMU target, an internal version of QEMU is generated. This
+    eliminates the need to install the QEMU package for your distribution. There is
+    a wrapper script named `runqemu` to run this internal version of QEMU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To run the QEMU emulation, make sure to first run `source oe-init-build-env
+    build-qemu-arm64` and then type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, QEMU has been configured with a graphic console so that the login
+    prompt appears in a black framebuffer. Log in as root without a password. Close
+    the framebuffer window to exit QEMU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To launch QEMU without the graphic window, add `nographic` to the command line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the `nographic` case, close QEMU using the key sequence *Ctrl + A* and then
+    *x*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `runqemu` script has many other options. Type `runqemu help` for more information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Layers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Yocto metadata is structured as layers. A layer is a directory containing a
+    collection of BitBake metadata in the form of recipe files. Each recipe file is
+    used to build an individual software package. The layers are stacked on top of
+    each other to build or “bake” all the software recipes into a finished Linux image
+    much like baking a cake. By convention, each layer has a name beginning with `meta`.
+    The core layers are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`meta`: Is the equivalent of an unmodified OpenEmbedded core.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`meta-poky`: Is the metadata specific to the Poky distribution.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`meta-yocto-bsp`: Contains the BSPs for the reference machines that Yocto regularly
+    tests.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The list of layers in which BitBake searches for recipes is stored in `<your
+    build directory>/conf/bblayers.conf` and by default includes all three layers
+    from the preceding list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Structuring the recipes and other configuration data in this way makes it very
+    easy to extend Yocto by adding new layers. Additional layers are available from
+    SoC manufacturers, The Yocto Project itself, and a wide range of people wishing
+    to add value to Yocto and OpenEmbedded. There is a useful list of layers at [https://layers.openembedded.org/layerindex/](https://layers.openembedded.org/layerindex/).
+    Here are some examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`meta-qt5`: Qt 5 libraries and utilities'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`meta-intel`: BSPs for Intel CPUs and SoCs'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`meta-raspberrypi`: BSPs for the Raspberry Pi boards'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`meta-ti`: BSPs for TI Arm-based SoCs'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Adding a layer is as simple as copying the meta directory to a suitable location
+    and adding it to `bblayers.conf`. Make sure that you read the `REAMDE` file that
+    should accompany each layer to see what dependencies it has on other layers and
+    which versions of Yocto it is compatible with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To illustrate how layers work, let’s create a layer for our Nova board that
+    we can use for the remainder of the chapter as we add features. You can see the
+    complete implementation of the layer under `MELD/Chapter06/meta-nova` in the code
+    archive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each meta layer must have at least one configuration file named `conf/layer.conf`
+    and should also have a `README` file and a license.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create our `meta-nova` layer, perform the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This will put you in a working directory named `build-nova` and create a layer
+    named `meta-nova` with a `conf/layer.conf`, an outline `README`, and a `COPYING.MIT`
+    license under `../meta-nova`. The `layer.conf` file looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: The layer adds itself to `BBPATH` and the recipes it contains to `BBFILES`.
+    From looking at the code, you can see that the recipes are found in the directories
+    with names beginning with `recipes-` and have filenames ending in `.bb` (for normal
+    BitBake recipes) or `.bbappend` (for recipes that extend existing recipes by overriding
+    or adding to the instructions). This layer has the name `nova` and is added to
+    the list of layers in `BBFILE_COLLECTIONS` with a priority of `6`. The layer priority
+    is used if the same recipe appears in several layers. The one in the layer with
+    the highest priority wins.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before adding the Nova layer, we must first add the `meta-arm-toolchain`, `meta-arm`,
+    and `meta-ti-bsp` layers in that precise order:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now add the Nova layer to your build configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Make sure to run all these `bitbake-layers add-layer` commands from your `build-nova`
+    working directory after sourcing that environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Confirm that your layer structure is set up correctly like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: There you can see the new layer. Because it has a priority of `6`, it can override
+    recipes in the other layers that all have a lower priority.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Run a build using this empty layer. The final target will be the Nova board,
+    but for now, build for the BeaglePlay by adding `MACHINE ?= "beagleplay-ti"` to
+    `conf/local.conf`. Then build a small image using `bitbake core-image-minimal`
+    like before.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to recipes, layers may contain BitBake classes, configuration files,
+    distributions, and more. I will look at recipes next and show you how to create
+    a customized image and a package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: BitBake and recipes
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'BitBake processes metadata of several different types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**recipes** (files ending in `.bb`): Contain information about building a unit
+    of software, including how to get a copy of the source code, the dependencies
+    on other components, and how to build and install it.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**append** (files ending in `.bbappend`): Override or extend some details of
+    a recipe. A `.bbappend` file appends its instructions to the end of a recipe (`.bb`)
+    file with the same root name.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**include** (files ending in `.inc`): Contain information that is common to
+    several recipes allowing information to be shared among them. The files may be
+    included using the **include** or **require** keyword. The difference is that
+    `require` produces an error if the file does not exist whereas `include` does
+    not.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**classes** (files ending in `.bbclass`): Contain common build information
+    like how to build a kernel or how to build an Autotools project. Classes are inherited
+    by recipes and by other classes using the `inherit` keyword. The class `classes/base.bbclass`
+    is implicitly inherited by every recipe.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**configuration** (files ending in `.conf`): Define various configuration variables
+    that govern a project’s build process.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A **recipe** is a collection of tasks written in a combination of Python and
+    shell script. The tasks have names such as `do_fetch`, `do_unpack`, `do_patch`,
+    `do_configure`, `do_compile`, and `do_install`. You use BitBake to execute these
+    tasks. The default task is `do_build`, which performs all the subtasks required
+    to build the recipe. You can list the tasks available in a recipe using `bitbake
+    -c listtasks <recipe>`. For example, to list the tasks in `core-image-minimal`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `-c` option tells BitBake to run a specific task from a recipe without having
+    to include the `do_` part at the beginning of the task name.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`do_listtasks` is a special task that lists all the tasks defined within a
+    recipe. Here is the `fetch` task, which downloads the source code for a recipe:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To get the code for a target and all its dependencies (which is useful when
+    you want to make sure you have downloaded all the code for the image you are about
+    to build), use the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: The recipe files are usually named `<package-name>_<version>.bb`. They may have
+    dependencies on other recipes, which would allow BitBake to work out all the subtasks
+    that need to be executed to complete the top-level job.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a recipe for our `helloworld` program in `meta-nova`, you would create
+    a directory structure like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The recipe is `helloworld_1.0.bb` and the source is kept local to the recipe
+    in the `files` subdirectory. The recipe contains these instructions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The location of the source code is set by `SRC_URI`. In this case, the `file://`
+    URI means that the code is local to the recipe directory. BitBake will search
+    the `files`, `helloworld`, and `helloworld-1.0` directories relative to the directory
+    that contains the recipe. The tasks that need to be defined are `do_compile` and
+    `do_install`, which compile the source file and install it into the target root
+    filesystem: `${D}` expands to the staging area of the recipe and `${bindir}` to
+    the default `/usr/bin` binary directory.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Every recipe has a license defined by `LICENSE`, which is set to `GPL-2.0-only`
+    here. The file containing the text of the license and a checksum is defined by
+    `LIC_FILES_CHKSUM`. BitBake will terminate the build if the checksum does not
+    match, indicating that the license has changed in some way. Note that the MD5
+    checksum value and `COMMON_LICENSE_DIR` are on the same line separated by a semicolon.
+    The license file may be part of the package, or it may point to one of the standard
+    license texts in `meta/files/common-licenses` as is the case here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Commercial licenses are disallowed by default, but it is easy to enable them.
+    You need to specify the license in the recipe as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, in your `conf/local.conf`, explicitly allow this license like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To make sure that our `helloworld` recipe compiles correctly, ask BitBake to
+    build it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: If all goes well, you should see that it has created a working directory for
+    it in `tmp/work/aarch64-poky-linux/helloworld`. You should also see that there
+    is an RPM package for it in `tmp/deploy/rpm/aarch64/helloworld-1.0-r0.aarch64.rpm`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The package is not part of the target image yet. The list of packages to be
+    installed is held in a variable named `IMAGE_INSTALL`. You can append to the end
+    of that list by adding this line to `conf/local.conf`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that there needs to be a space between the opening double quote and the
+    first package name. Now the package will be added to any image that you `bitbake`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you look in `deploy-ti/images/beagleplay-ti/core-image-minimal-beagleplay-ti.rootfs.tar.xz`,
+    you will see that `/usr/bin/helloworld` has indeed been installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Customizing images via local.conf
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You often may want to add a package to an image during development or tweak
+    it in other ways. As we’ve just seen, you can simply append to the list of packages
+    to be installed by adding a statement like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can make more sweeping changes via `EXTRA_IMAGE_FEATURES`. Here is a short
+    list, which should give you an idea of the features you can enable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`dbg-pkgs`: Installs debug symbol packages for all the packages installed in
+    the image.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`debug-tweaks`: Allows `root` logins without passwords and other changes that
+    make development easier. Never enable `debug-tweaks` in production images.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`package-management`: Installs package management tools and preserves the package
+    manager database.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`read-only-rootfs`: Makes the root filesystem read-only. We will cover this
+    in more detail in [*Chapter 9*](Chapter_09.xhtml#_idTextAnchor293).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`x11`: Installs the X server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`x11-base`: Installs the X server with a minimal environment.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There are many more features you can add in this way. I recommend you look at
+    the *Image Features* section of the *Yocto Project Reference Manual* at [https://docs.yoctoproject.org/ref-manual/](https://docs.yoctoproject.org/ref-manual/)
+    and read through the code in `meta/classes-recipe/core-image.bbclass`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing an image recipe
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The problem with making changes to `local.conf` is that they are, well, local.
+    If you want to create an image that is to be shared with other developers or to
+    be loaded onto a production system, then you should put the changes in an **image
+    recipe**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An image recipe contains instructions about how to create the image files for
+    a target, including the bootloader, kernel, and root filesystem images. By convention,
+    image recipes are put into a directory named `images`. You can get a list of all
+    the images that are available by scanning the `poky` directory and any additional
+    layers that you cloned:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: You will find that the recipe for `core-image-minimal` is in `poky`/`meta/recipes-core/images/core-image-minimal.bb`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A simple approach is to take an existing image recipe and modify it using statements
+    like the ones you used in `local.conf`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Imagine that you want an image that is the same as `core-image-minimal` but
+    includes your `helloworld` program and the `strace` utility. You can do that with
+    a two-line recipe file that includes (using the `require` keyword) the base image
+    and adds the packages you want. It is conventional to put the image in a directory
+    named `images`, so add the recipe `nova-image.bb` with this content in `meta-nova/recipes-local/images`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now remove the `IMAGE_INSTALL:append` line from your `local.conf` and build
+    the image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, the build should proceed much quicker because BitBake reuses the
+    intermediate build objects built during prior runs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Not only does BitBake build images for running on a target device, but it can
+    also build an SDK for doing cross-development on a host machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an SDK
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'It is very useful to be able to create a standalone toolchain that other developers
+    can install. This avoids the need for everyone on the team to have a full installation
+    of Yocto. Ideally, you want the toolchain to include development libraries and
+    header files for all the libraries installed on the target. You can do that for
+    any image using the `populate_sdk` task, as shown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The result is a self-installing shell script in `deploy-ti/sdk`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the SDK built with the `nova-image` recipe:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you only want a basic toolchain with just C and C++ cross-compilers, the
+    C library, and header files, then run this instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To install the SDK, just run the shell script. The default install directory
+    is `/opt/poky` but the install script allows you to change this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To make use of the toolchain, first source the environment and set up the script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: '**TIP**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `environment-setup-*` script that sets things up for the SDK is not compatible
+    with the `oe-init-build-env` script that you source when working in the Yocto
+    build directory. It is a good rule to always start a new terminal session before
+    you source either script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The toolchain generated by The Yocto Project does not have a valid `sysroot`
+    directory. We know this to be true because passing the `-print-sysroot` option
+    to the toolchain’s compiler returns `/not/exist`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Consequently, if you try to cross-compile, it will fail like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is because the compiler has been configured to work for a wide range of
+    Arm processors and the fine-tuning is done when you launch it using the right
+    set of flags. Instead, you should use the shell variables that are created when
+    you source the `environment-setup` script for cross-compiling. These include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`CC`: C compiler'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`CXX`: C++ compiler'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`CPP`: C preprocessor'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`AS`: Assembler'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`LD`: Linker'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This is what we find `CC` has been set to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As long as you use `$CC` to compile, everything should work fine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: The license audit
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The Yocto Project insists that each package has a license. A copy of the license
+    is placed in `tmp/deploy/licenses/<package name>` for each package as it is built.
+    In addition, a summary of the packages and licenses used in an image is put into
+    the directory: `<image name>-<machine name>.rootfs-<date stamp>`. For the `nova-image`
+    we just built, the directory would be named something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: This completes our survey of the two leading build systems for embedded Linux.
+    Buildroot is simple and quick, making it a good choice for simple single-purpose
+    devices. Yocto is more complex and flexible. Even though there is good support
+    throughout the community and industry for Yocto, the tool still has a very steep
+    learning curve. You can expect it will take several months for you to become proficient
+    with Yocto, and even then, it will sometimes do things that surprise you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, you learned how to use both Buildroot and The Yocto Project
+    to configure, customize, and build embedded Linux images. We used Buildroot to
+    create a BSP with a custom U-Boot patch and device tree specification for a hypothetical
+    board based on the BeaglePlay. We then learned how to add our own code to an image
+    in the form of a Buildroot package. You were introduced to The Yocto Project,
+    which we will cover in depth over the next two chapters. In particular, you learned
+    some basic BitBake terminology, how to write an image recipe, and how to create
+    an SDK.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Don’t forget that any devices you create using these tools will need to be maintained
+    in the field for a period of time, often over many years. Both Yocto and Buildroot
+    provide point releases for about one year after the initial release, and Yocto
+    now offers long-term support for at least four years. In either case, you will
+    find yourself having to maintain your own releases or paying for commercial support.
+    The third possibility, ignoring the problem, is not an option!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further study
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*The Buildroot user manual, Buildroot Association* –[https://buildroot.org/downloads/manual/manual.html](https://buildroot.org/downloads/manual/manual.html%0D%0A)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Yocto Project Documentation, Yocto Project* –[https://docs.yoctoproject.org/](https://docs.yoctoproject.org/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

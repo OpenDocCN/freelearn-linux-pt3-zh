@@ -1,0 +1,1564 @@
+- en: '11'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Interfacing with Device Drivers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Kernel device drivers are the mechanism by which the underlying hardware is
+    exposed to the rest of the system. As a developer of embedded systems, you need
+    to know how these device drivers fit into the overall architecture and how to
+    access them from user space programs. Your system will probably have some novel
+    pieces of hardware and you will have to work out a way of accessing them. In many
+    cases, you will find that there are device drivers provided for you and you can
+    achieve everything you want without writing any kernel code. For example, you
+    can manipulate GPIO pins and LEDs using files in `sysfs`, and there are libraries
+    you can use to access serial buses including **SPI** (**Serial Peripheral Interface**)
+    and **I2C** (**Inter-Integrated Circuit**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are many places to find out how to write a device driver, but few tell
+    you why you would want to and the choices you have in doing so. This is what I
+    want to cover here. However, remember that this is not a book dedicated to writing
+    kernel device drivers and that the information given here is to help you navigate
+    the territory but not necessarily set up home there. There are many good books
+    and blog posts that will help you write device drivers, some of which are listed
+    at the end of this chapter in the *Further study* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Role of device drivers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Character devices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Block devices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network devices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finding out about drivers at runtime
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finding the right device driver
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Device drivers in user space
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Writing a kernel device driver
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Discovering the hardware configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To follow along with the examples, make sure you have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Linux-based host system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A microSD card reader and card
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A BeaglePlay
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A 5V USB-C power supply capable of delivering 3A
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An Ethernet cable and router with an available port for network connectivity
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The code used in this chapter can be found in the chapter folder in this book’s
+    GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter11](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter11).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Role of device drivers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As I mentioned in [*Chapter 4*](Chapter_04.xhtml#_idTextAnchor096), one of the
+    functions of the kernel is to encapsulate the many hardware interfaces of a computer
+    system and present them in a consistent manner to user space programs. The kernel
+    has frameworks designed to make it easy to write a device driver, which is the
+    piece of code that mediates between the kernel above and the hardware below. A
+    device driver may be written to control physical devices such as a UART or an
+    MMC controller, or it may represent a virtual device such as the null device (`/dev/null`)
+    or a RAMdisk. One driver may control multiple devices of the same kind.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kernel device driver code runs at a high privilege level, as does the rest of
+    the kernel. It has full access to the processor address space and hardware registers.
+    It can handle interrupts and DMA transfers. It can also make use of the sophisticated
+    kernel infrastructure for synchronization and memory management. However, you
+    should be aware that there is a downside to this; if something goes wrong in a
+    buggy driver, it can go really wrong and bring the system down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consequently, there is a principle that device drivers should be as simple as
+    possible by just providing information to applications (where the real decisions
+    are made). You often hear this being expressed as *no policy in the kernel*. It
+    is the responsibility of user space to set the policy that governs the overall
+    behavior of the system. For example, loading kernel modules in response to external
+    events, such as plugging in a new USB device, is the responsibility of the `udev`
+    user space program, not the kernel. The kernel just supplies a means of loading
+    a kernel module.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In Linux, there are three main types of device drivers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Character**: This is for unbuffered I/O with a rich range of functions and
+    a thin layer between the application code and the driver. It is the first choice
+    when implementing custom device drivers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Block**: This has an interface tailored for block I/O to and from mass storage
+    devices. There is a thick layer of buffering designed to make disk reads and writes
+    as fast as possible, which makes it unsuitable for anything else.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Network**: This is similar to a block device but is used for transmitting
+    and receiving network packets rather than disk blocks.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There is also a fourth type that presents itself as a group of files in one
+    of the pseudo filesystems. For example, you might access the GPIO driver through
+    a group of files in `/sys/class/gpio`, as I will describe later in this chapter.
+    Let’s begin by looking at these three basic device types in more detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Character devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Character devices are identified in user space by a special file called a **device
+    node**. This filename is mapped to a device driver using the major and minor numbers
+    associated with it. Broadly speaking, the **major number** maps the device node
+    to a particular device driver, while the **minor number** tells the driver which
+    interface is being accessed. For example, the device node of the first serial
+    port on the Arm Versatile PB is named `/dev/ttyAMA0` and has a major number of
+    `204` and a minor number of `64`. The device node for the second serial port has
+    the same major number but the minor number is `65`. We can see the numbers for
+    all four serial ports in the directory listing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The list of standard major and minor numbers can be found in the kernel documentation
+    in `Documentation/admin-guide/devices.txt`. The list does not get updated very
+    often and does not include the `ttyAMA` device described in the preceding paragraph.
+    Nevertheless, if you look at the kernel source code in `drivers/tty/serial/amba-pl011.c`,
+    you will see where the major and minor numbers are declared:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Where there is more than one instance of a device, as with the `ttyAMA` driver,
+    the convention for forming the name of the device node is to take a base name
+    (`ttyAMA`) and append the instance number from `0` to `3`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As I mentioned in [*Chapter 5*](Chapter_05.xhtml#_idTextAnchor138), device
+    nodes can be created in several ways:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`devtmpfs`: The device node is created when the device driver registers a new
+    device interface using a base name supplied by the driver (`ttyAMA`) and an instance
+    number.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`udev` or `mdev` (without `devtmpfs`): These are essentially the same as `devtmpfs`,
+    except that a user space daemon program has to extract the device name from `sysfs`
+    and create the node.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mknod`: If you are using static device nodes, they are created manually using
+    `mknod`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You may have gotten the impression from the numbers I used here that both major
+    and minor numbers are 8-bit numbers in the range of 0 to 255\. In fact, the major
+    number is 12 bits long, which gives valid major numbers from 1 to 4,095, and the
+    minor number is 20 bits long, from 0 to 1,048,575.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you open a character device node, the kernel checks whether the major and
+    minor numbers fall into a range registered by a character device driver. If so,
+    it passes the call to the driver; otherwise, the `open(2)` call fails. The device
+    driver can extract the minor number to find out which hardware interface to use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To write a program that accesses a device driver, you need to have some knowledge
+    of how it works. In other words, a device driver is not the same as a file: the
+    things you do with it change the state of the device. A simple example is the
+    `urandom` pseudorandom number generator, which returns bytes of random data every
+    time you read it.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a program that does just this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can find the full source code and a BitBake recipe for this program in the
+    `MELD/Chapter11/meta-device-drivers/recipes-local/read-urandom` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The nice thing about the Unix driver model is that once we know that there is
+    a device named `urandom`, then every time we read from it, it returns a fresh
+    set of pseudorandom data, so we don’t need to know anything else about it. We
+    can just use standard functions such as `open(2)`, `read(2)`, and `close(2)`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**TIP**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You could use the stream I/O functions known as `fopen(3)`, `fread(3)`, and
+    `fclose(3)` instead, but the buffering implicit in these functions often causes
+    unexpected behavior. For example, `fwrite(3)` usually only writes to the user
+    space buffer, not to the device. You need to call `fflush(3)` to force the buffer
+    to be written out. Therefore, it is best to not use stream I/O functions when
+    calling device drivers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most device drivers employ a character interface. Mass storage devices are a
+    notable exception. Reading and writing to disk requires a block interface for
+    maximum speed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Block devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Block devices are also associated with a device node that also has major and
+    minor numbers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Tip**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although character and block devices are identified using major and minor numbers,
+    they are in different namespaces. A character driver with a major number of 4
+    is in no way related to a block driver with a major number of 4\.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With block devices, the major number is used to identify the device driver,
+    and the minor number is used to identify the partition. Let’s look at the MMC
+    driver on the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, `mmcblk0` is the eMMC chip, which has two partitions, and `mmcblk1` is
+    the microSD card slot, which has a card also with two partitions. The major number
+    for the MMC block driver is `179` (you can look it up in `devices.txt`). The minor
+    numbers are used in ranges to identify different physical MMC devices and the
+    partitions of the storage medium that are on that device. In the case of the MMC
+    driver, the ranges are eight minor numbers per device: the minor numbers from
+    `0` to `7` are for the first device, the numbers from `8` to `15` are for the
+    second, and so on. Within each range, the first minor number represents the entire
+    device as raw sectors, and the others represent up to seven partitions. On the
+    BeaglePlay’s eMMC chip, there are two 4 MB areas of memory reserved for use by
+    a bootloader. These are represented as two devices known as `mmcblk0boot0` and
+    `mmcblk0boot1`, and they have minor numbers of `256` and `512`, respectively.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As another example, you are probably aware of the SCSI disk driver known as
+    `sd`, which is used to control a range of disks that use the SCSI command set,
+    including SCSI, SATA, USB mass storage, and **Universal Flash Storage** (**UFS**).
+    It has the major number `8` and ranges of `16` minor numbers per interface or
+    disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The minor numbers from `0` to `15` are for the first interface with device nodes
+    named `sda` up to `sda15`; the numbers from `16` to `31` are for the second disk
+    with device nodes `sdb` up to `sdb15`; and so on. This continues up to the 16th
+    disk from `240` to `255` with the node name `sdp`. There are other major numbers
+    reserved for them because SCSI disks are so popular, but we needn’t worry about
+    that here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Both the MMC and SCSI block drivers expect to find a partition table at the
+    start of the disk. The partition table is created using utilities such as `fdisk`,
+    `sfidsk`, and `parted`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A user space program can open and interact with a block device directly via
+    the device node. This is not a common thing to do, though. It is usually only
+    done to perform administrative operations such as creating partitions, formatting
+    a partition with a filesystem, and mounting. Once the filesystem has been mounted,
+    you interact with the block device indirectly through the files in that filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most block devices will have a kernel driver that works, so we rarely need to
+    write our own. The same goes for network devices. Just like a filesystem abstracts
+    the details of a block device, the network stack eliminates the need to interact
+    directly with a network device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Network devices are not accessed through device nodes, and they do not have
+    major and minor numbers. Instead, a network device is allocated a name by the
+    kernel based on a string and an instance number. Here is an example of the way
+    a network driver registers an interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This creates a network device named `net0` the first time it is called, `net1`
+    the second time, and so on. More common names include `lo`, `eth0`, `enp2s0`,
+    `wlan0,` and `wlp1s0`. Note that this is the name it starts off with; device managers
+    such as `udev` may change it to something different later.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Usually, the network interface name is only used when configuring the network
+    using utilities such as `ip` to establish a network address and route. Thereafter,
+    you interact with the network driver indirectly by opening sockets and letting
+    the network layer decide how to route them to the right interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, it is possible to access network devices directly from the user space
+    by creating a socket and using the `ioctl` commands listed in `include/linux/sockios.h`.
+    Here is a program that uses `SIOCGIFHWADDR` to query the network driver for a
+    hardware (MAC) address:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: You will find the full source code and a BitBake recipe for this program in
+    the `MELD/Chapter11/meta-device-drivers/recipes-local/show-mac-address` directory.
+    The `show-mac-address` program takes a network interface name as an argument.
+    After opening a socket, we copy the interface name to a struct and pass that struct
+    into the `ioctl` call on the socket before printing out the resulting MAC address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know what the three categories of device drivers are, how do we
+    list the different drivers that are in use on our system?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finding out about drivers at runtime
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once you have a running Linux system, it is useful to know which device drivers
+    have been loaded and what state they are in. You can find out a lot by reading
+    the files in `/proc` and `/sys`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'List the character and block device drivers that are currently loaded and active
+    by reading `/proc/devices`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: For each driver, you can see the major number and the base name. However, this
+    does not tell you how many devices each driver is attached to. It only shows `ttyAMA`
+    but it gives you no clue as to whether it is attached to four real serial ports.
+    I will come back to that later when we look at `sysfs`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Network devices do not appear in this list because they do not have device
+    nodes. Instead, you can use the `ip` tool to get a list of network devices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can also find out about devices attached to USB or PCI buses using the well-known
+    `lsusb` and `lspci` commands, respectively. There is information about them in
+    the respective manual pages and plenty of online guides, so I will not describe
+    them any further here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The really interesting information is in `sysfs`, which is the next topic we’ll
+    cover.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting information from sysfs
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can define `sysfs` in a pedantic way as a representation of kernel objects,
+    attributes, and relationships. A kernel object is a **directory**, an attribute
+    is a **file**, and a relationship is a **symbolic link** from one object to another.
+    From a more practical point of view, since the Linux device driver model represents
+    all devices and drivers as kernel objects, you can see the kernel’s view of the
+    system laid out before you by looking in `/sys`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the context of discovering information about devices and drivers, I will
+    look at three of these directories: `devices`, `class`, and `block`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Devices – /sys/devices
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'This is the kernel’s view of the devices that have been discovered since boot
+    and how they are connected to each other. It is organized at the top level by
+    the system bus, so what you see varies from one system to another. Here is the
+    QEMU emulation of the Arm Versatile board:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are three directories that are present on all systems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`system/`: This contains devices at the heart of the system including CPUs
+    and clocks.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`virtual/`: This contains devices that are memory-based. You will find the
+    memory devices that appear as `/dev/null`, `/dev/random`, and `/dev/zero` in `virtual/mem`.
+    You will also find the `lo` loopback device in `virtual/net`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`platform/`: This is a catch-all for devices that are not connected via a conventional
+    hardware bus. This may be almost everything on an embedded device.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The other devices appear in directories that correspond to actual system buses.
+    For example, the PCI root bus, if there is one, appears as `pci0000:00`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Navigating this hierarchy is quite hard because it requires some knowledge of
+    the topology of your system and the pathnames become quite long and hard to remember.
+    To make life easier, `/sys/class` and `/sys/block` offer two different views of
+    the devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Drivers – /sys/class
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: This is a view of the device drivers presented by their type. In other words,
+    it is a software view rather than a hardware view. Each of the subdirectories
+    represents a class of drivers and is implemented by a component of the driver
+    framework. For example, UART devices are managed by the `tty` layer, so you will
+    find them in `/sys/class/tty`. Likewise, you will find network devices in `/sys/class/net`,
+    input devices such as keyboard, touchscreen, and mouse in `/sys/class/input`,
+    and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is a symbolic link in each subdirectory for each instance of that type
+    of device pointing to its representation in `/sys/device`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s look at the serial ports on the Versatile PB. We can see that there are
+    four of them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each directory is a representation of the kernel object that is associated
+    with an instance of a device interface. Looking within one of these directories,
+    we can see the attributes of the object, represented as files, and the relationships
+    with other objects, represented by links:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The link called `device` points to the hardware object for the device. The link
+    called `subsystem` points back to the parent subsystem at `/sys/class/tty`. The
+    remaining directory entries are attributes. Some are specific to a serial port,
+    such as `xmit_fifo_size`, while others apply to many types of devices, such as
+    `irq` for the interrupt number and `dev` for the device number. Some attribute
+    files are writable and allow you to tune parameters in the driver at runtime.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `dev` attribute is particularly interesting. If you look at its value,
+    you will find the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: These are the major and minor numbers of the device. This attribute is created
+    when the driver registers the interface. It is from this file that `udev` and
+    `mdev` find the major and minor numbers of the device driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Block drivers – /sys/block
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'There is one more view of the device model that is important to this discussion:
+    the block driver view that you will find in `/sys/block`. There is a subdirectory
+    for each block device. This listing is from a BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you look inside `mmcblk0`, which is the eMMC chip on this board, you will
+    see the attributes of the interface and the partitions within it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: In conclusion, you can learn a lot about the devices (the hardware) and the
+    drivers (the software) that are present on a system by reading `sysfs`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finding the right device driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A typical embedded board is based on a reference design from the manufacturer
+    with changes to make it suitable for a particular application. The BSP that comes
+    with the reference board should support all the peripherals on that board. Then
+    you customize the design, perhaps by adding a temperature sensor attached via
+    I2C, some lights and buttons connected via GPIO pins, a display panel via a MIPI
+    interface, or many other things. Your job is to create a custom kernel to control
+    all of these, but where do you start looking for device drivers that support all
+    these peripherals?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most obvious place to look is the driver support page on the manufacturer’s
+    website, or you could ask them directly. In my experience, this seldom gets you
+    the result you want. Hardware manufacturers are not particularly Linux-savvy,
+    and they often give you misleading information. They may have proprietary drivers
+    as binary blobs or source code for a different version of the kernel than the
+    one you have. So, by all means, try this route. Personally, I will always try
+    to find an open-source driver for the task at hand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There may be support in your kernel already: there are many thousands of drivers
+    in mainline Linux and there are many vendor-specific drivers in the vendor kernels.
+    Begin by running `make menuconfig` (or `xconfig`) and search for the product name
+    or number. If you do not find an exact match, try more generic searches allowing
+    for the fact that most drivers handle a range of products from the same family.
+    Next, try searching through the code in the `drivers` directory (`grep` is your
+    friend here).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you still don’t have a driver, you can try searching online and asking in
+    the relevant forums to see if there is a driver for a later version of Linux.
+    If you find one, you should seriously consider updating the BSP to use the later
+    kernel. Sometimes, this is not practical, so you may have to think about backporting
+    the driver to your kernel. If the kernel versions are similar, it may be easy,
+    but if they are more than 12 to 18 months apart, then chances are that the code
+    will have changed to the extent that you will have to rewrite a chunk of the driver
+    to integrate it with your kernel. If all these options fail, you will have to
+    find a solution yourself by writing the missing kernel driver. However, this is
+    not always necessary. We will look at an alternative in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Device drivers in user space
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before you start writing a device driver, pause for a moment to consider whether
+    it is really necessary. There are generic device drivers for many common types
+    of devices that allow you to interact with hardware directly from user space,
+    without having to write a line of kernel code. User space code is certainly easier
+    to write and debug. It is also not covered by the GPL, although I don’t feel that
+    is a good reason to do it this way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These drivers fall into two broad categories: those that you control through
+    files in `sysfs`, including GPIO and LEDs, and serial buses that expose a generic
+    interface through a device node, such as I2C.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s build a Yocto image for the BeaglePlay with some examples installed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Navigate one level above the directory where you cloned Yocto:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Copy the meta-device-driver layers from the book’s Git repo:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Set up your BitBake work environment for the BeaglePlay:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This sets up a bunch of environment variables and puts you back in the `build-beagleplay`
+    directory you populated during the *Layers* section from [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110).
+    Repeat the exercise where you add your own `meta-nova` layer and build `core-image-minimal`
+    for the BeaglePlay if you have since deleted that work.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Remove the `meta-nova` layer:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Add the `meta-device-drivers` layer:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Confirm that your layer structure is set up correctly:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Modify `conf/local.conf` so that the example programs and dummy driver are
+    installed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Enable the legacy `/sys/class/gpio` interface in the kernel:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Ensure that the `CONFIG_EXPERT`, `CONFIG_GPIO_SYSFS`, `CONFIG_DEBUG_FS`, and
+    `CONFIG_DEBUG_FS_ALLOW_ALL` options are enabled. Ensure that the `CONFIG_KEYBOARD_GPIO`
+    option is disabled.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Enable the `/sys/class/leds` interface in the kernel by ensuring that the `CONFIG_LEDS_CLASS`,
+    `CONFIG_LEDS_GPIO`, and `CONFIG_LEDS_TRIGGER_TIMER` options are enabled.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Save the modified kernel `.config` and exit `menuconfig`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Build `core-image-minimal`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Write the finished image to a microSD using balenaEtcher, insert the microSD
+    into your BeaglePlay, and boot it as described in the *Running the BeaglePlay
+    target* section from [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110).
+  prefs: []
+  type: TYPE_NORMAL
+- en: GPIO
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**General-Purpose Input/Output** (**GPIO**) is the simplest form of digital
+    interface since it gives you direct access to individual hardware pins, each of
+    which can be in one of two states: either high or low. In most cases, you can
+    configure the GPIO pin to be either an input or an output. You can even use a
+    group of GPIO pins to create higher-level interfaces such as I2C or SPI by manipulating
+    each bit in software, a technique that is called **bit banging**. The main limitation
+    is the speed and accuracy of the software loops and the number of CPU cycles you
+    want to dedicate to them. Generally, it is hard to achieve timer accuracy better
+    than a millisecond unless you configure a real-time kernel, as we shall see in
+    [*Chapter 21*](Chapter_19.xhtml#_idTextAnchor654). More common use cases for GPIO
+    are for reading push buttons and digital sensors and controlling LEDs, motors,
+    and relays.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most SoCs have a lot of GPIO bits grouped together in GPIO registers, usually
+    32 bits per register. On-chip GPIO bits are routed through to GPIO pins on the
+    chip package via a multiplexer known as a **pin mux**. There may be additional
+    GPIO pins available off-chip in the power management chip and in dedicated GPIO
+    extenders connected through I2C or SPI buses. All this diversity is handled by
+    a kernel subsystem known as `gpiolib`, which is not actually a library, but the
+    infrastructure GPIO drivers use to expose I/O in a consistent way. There are details
+    about the implementation of `gpiolib` in the kernel source under `Documentation/driver-api/gpio/`,
+    and the code for the drivers themselves is in `drivers/gpio/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Applications can interact with `gpiolib` through files in the `/sys/class/gpio/`
+    directory. Here is what you would see on a typical embedded board like a BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The directories named `gpiochip512` through to `gpiochip631` represent four
+    GPIO registers, each with a variable number of GPIO bits. If you look in one of
+    the `gpiochip` directories, you will see the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The file named `base` contains the number of the first GPIO pin in the register,
+    while `ngpio` contains the number of bits in the register. In this case, `gpiochip512/base`
+    is `512` and `gpiochip512/ngpio` is `3`, which tells you that it contains GPIO
+    bits `512` to `514`. It is possible for there to be a gap between the last GPIO
+    in one register and the first GPIO in the next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To control a GPIO bit from user space, you first need to export it from kernel
+    space, which you can do by writing the GPIO number to `/sys/class/gpio/export`.
+    This example shows the process for GPIO 640, which is wired to the INT pin of
+    the mikroBUS connector on the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, there is a new `gpio640` directory containing the files you need to control
+    the pin.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Important note**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the GPIO bit is already claimed by the kernel, you will not be able to export
+    it in this way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `gpio640` directory contains these files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: The pin begins as an input that is valid for the INT (interrupt) pin of the
+    mikroBUS connector. To convert a GPIO to an output, write `out` to the `direction`
+    file. The `value` file contains the current state of the pin, which is `0` for
+    low and `1` for high. If it is an output, you can change the state by writing
+    `0` or `1` to `value`. Sometimes the meaning of low and high is reversed in hardware
+    (hardware engineers enjoy doing that sort of thing), so writing `1` to `active_low`
+    inverts the meaning of `value` so that a low voltage is reported as `1` and a
+    high voltage is reported as `0`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Conversely, you can remove a GPIO from user space control by writing the GPIO
+    number to `/sys/class/gpio/unexport`, as you did for export.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling interrupts from GPIO
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In many cases, a GPIO input can be configured to generate an interrupt when
+    it changes state. This allows you to wait for the interrupt rather than polling
+    in an inefficient software loop. If the GPIO bit can generate interrupts, a file
+    called `edge` exists. Initially, it has the value called `none`, meaning that
+    it does not generate interrupts. To enable interrupts, you can set it to one of
+    these values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`rising`: Interrupt on the rising edge.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`falling`: Interrupt on the falling edge.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`both`: Interrupt on both rising and falling edges.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`none`: No interrupts (default).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To determine which GPIO the USR button on the BeaglePlay is assigned to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you want to wait for a falling edge on GPIO 557 (USR button), you must first
+    enable interrupts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here is a program that waits for an interrupt from the GPIO:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here is how the code for the `gpio-int` program works. First, call `epoll_create`
+    to create the `epoll` notification facility. Next, open the GPIO and read out
+    its initial value. Call `epoll_ctl` to register the GPIO’s file descriptor with
+    `POLLPRI` as the event. Lastly, wait for an interrupt using the `epoll_wait` function.
+    When you press the USR button on the BeaglePlay, the program will print `Button
+    pressed:` followed by the number of bytes and value read from the GPIO.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While we could have used `select` and `poll` to handle interrupts, unlike those
+    other two system calls, the performance of `epoll` does not degrade rapidly as
+    the number of file descriptors being monitored increases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The complete source code for this program, as well as a BitBake recipe and GPIO
+    configuration script, can be found inside the `MELD/Chapter11/meta-device-drivers/recipes-local/gpio-int`
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Like GPIOs, LEDs are accessible from `sysfs`. The interface, however, is noticeably
+    different.
+  prefs: []
+  type: TYPE_NORMAL
+- en: LEDs
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: LEDs are often controlled through a GPIO pin, but there is another kernel subsystem
+    that offers more specialized control specifically for this purpose. The `leds`
+    kernel subsystem adds the ability to set brightness, should the LED have that
+    ability, and it can handle LEDs connected in other ways than a simple GPIO pin.
+    It can be configured to trigger the LED on an event, such as block device access
+    or a heartbeat, to show that the device is working. You will have to configure
+    your kernel with the `CONFIG_LEDS_CLASS` option and with the LED trigger actions
+    that are appropriate to you. There is more information in `Documentation/leds/`
+    and the drivers are in `drivers/leds/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As with GPIOs, LEDs are controlled through a `sysfs` interface in the `/sys/class/leds/`
+    directory. In the case of the BeaglePlay, the user LED names are encoded in the
+    device tree in the form of `:function`, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can look at the attributes of one of the LEDs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that leading backslashes are required by the shell to escape any colons
+    in the path.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `brightness` file controls the brightness of the LED and can be a number
+    between `0` (off) and `max_brightness` (fully on). If the LED doesn’t support
+    intermediate brightness, any non-zero value turns it on. The file called `trigger`
+    lists the events that trigger the LED to turn on. The list of triggers is implementation-dependent.
+    Here is an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The trigger currently selected is shown in square brackets. You can change
+    it by writing one of the other triggers to the file. If you want to control the
+    LED entirely through brightness, select `none`. If you set trigger to `timer`,
+    two extra files will appear that allow you to set the on and off times in milliseconds:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the LED has on-chip timer hardware, the blinking takes place without interrupting
+    the CPU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I2C
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: I2C is a simple low-speed 2-wire bus that is common on embedded boards. It is
+    typically used to access peripherals that are not on the SoC such as display controllers,
+    camera sensors, GPIO extenders, and so on. There is a related standard known as
+    **system management bus** (**SMBus**) that is found on PCs and is used to access
+    temperature and voltage sensors. SMBus is a subset of I2C.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I2C is a master-slave protocol with the master being one or more host controllers
+    on the SoC. Slaves have a 7-bit address assigned by the manufacturer (read the
+    data sheet) allowing up to 128 nodes per bus, but 16 are reserved, so only 112
+    nodes are allowed in practice. The master may initiate read or write transactions
+    with one of the slaves. Frequently, the first byte is used to specify a register
+    on the slave, while the remaining bytes are the data that’s read from or written
+    to that register.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is one device node for each host controller. This SoC has five:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The device interface provides a series of `ioctl` commands that query the host
+    controller and send the read and write commands to I2C slaves. There is a package
+    named `i2c-tools` that uses this interface to provide basic command-line tools
+    to interact with I2C devices. The tools are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`i2cdetect`: Lists the I2C adapters and probes the bus.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i2cdump`: Dumps data from all the registers of an I2C peripheral.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i2cget`: Reads data from an I2C slave.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i2cset`: Writes data to an I2C slave.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `i2c-tools` package is available in Buildroot and The Yocto Project as well
+    as most mainstream distributions. Writing a user space program to talk to the
+    device is straightforward as long as you know the address and protocol of the
+    slave. The example that follows shows how to read the first four bytes from the
+    FT24C32A-ELR-T EEPROM, which is mounted on the BeaglePlay on I2C bus 0\. The EEPROM
+    has a slave address of `0x50`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the code for a program that reads the first four bytes from an I2C
+    address:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: This `i2c-eeprom-read` program prints `0xaa 0x55 0x33 0x33` when executed on
+    a BeaglePlay. That four-byte sequence is the magic number for the EEPROM. The
+    complete source and a BitBake recipe for this program can be found inside the
+    `MELD/Chapter11/meta-device-drivers/recipes-local/i2c-eeprom-read` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that a device on the other end of the I2C bus can be little-endian or big-endian.
+    Little-endian and big-endian refer to the order of bytes within a data word. A
+    32-bit word contains four bytes. Little-endian means that the least significant
+    byte is at index 0 and the most significant byte is at index 3\. In contrast,
+    big-endian means that the most significant byte is at index 0 and the least significant
+    byte is at index 3\. Big-endian is also referred to as *network order* corresponding
+    to the order in which the bytes are transmitted over the wire in network protocols.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This program is like `i2cget` except that the address and register bytes being
+    read from are both hardcoded rather than passed in as arguments. We can use `i2cdetect`
+    to discover the addresses of any peripherals on an I2C bus. `i2cdetect` can leave
+    I2C peripherals in a bad state or lock up the bus, so it’s good practice to reboot
+    after using it. A peripheral’s data sheet tells us what the registers map to.
+    With that information, we can then use `i2cset` to write to its registers over
+    I2C. These I2C commands can easily be converted into a library of C functions
+    for interfacing with the peripheral.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Important note**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is more information about the Linux implementation of I2C in `Documentation/i2c/dev-interface.rst`.
+    The host controller drivers are in `drivers/i2c/busses/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another popular communication protocol is the **SPI**, which utilizes a 4-wire
+    bus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SPI
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The SPI bus is similar to I2C but is a lot faster by up to tens of MHz. The
+    interface uses four wires with separate send and receive lines, which allow it
+    to operate in full duplex. Each chip on the bus is selected with a dedicated chip
+    select line. It is commonly used to connect to touchscreen sensors, display controllers,
+    and serial NOR flash devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As with I2C, it is a master-slave protocol, with most SoCs implementing one
+    or more master host controllers. There is a generic SPI device driver that you
+    can enable through the `CONFIG_SPI_SPIDEV` kernel configuration. This creates
+    a device node for each SPI controller, which allows you to access SPI chips from
+    user space. The device nodes are named `spidev<bus>.<chip select>`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: For examples of using the `spidev` interface, please refer to the example code
+    in `Documentation/spi/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far, the device drivers we’ve seen all have longstanding upstream support
+    within the Linux kernel. Because all these device drivers are generic (GPIO, LEDs,
+    I2C, and SPI), accessing them from user space is straightforward. At some point,
+    you will encounter a piece of hardware that lacks a compatible kernel device driver.
+    That hardware may be the centerpiece of your product (LiDAR, SDR, and so on).
+    There may also be an FPGA in between the SoC and this hardware. Under these circumstances,
+    you may have no other recourse than to write your own kernel module(s).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing a kernel device driver
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Eventually, when you have exhausted all the previous user space options, you
+    will find yourself having to write a device driver to access a piece of hardware
+    attached to your device. Character drivers are the most flexible and should cover
+    90% of all your needs; network drivers apply if you are working with a network
+    interface; and block drivers are for mass storage. The task of writing a kernel
+    driver is complex and beyond the scope of this book. There are some references
+    at the end that will help you on your way. In this section, I want to outline
+    the options available for interacting with a driver – a topic not normally covered
+    – and show you the bare bones of a character device driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing a character driver interface
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The main character driver interface is based on a stream of bytes, as you would
+    have with a serial port. However, many devices don’t fit this description: a controller
+    for a robot arm needs functions to move and rotate each joint, for example. Luckily,
+    there are other ways to communicate with device drivers than just `read` and `write`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ioctl`: The `ioctl` function allows you to pass two arguments to your driver.
+    These arguments can have any meaning you like. By convention, the first argument
+    is a command that selects one of several functions in your driver, while the second
+    is a pointer to a structure that serves as a container for the input and output
+    parameters. This is a blank canvas that allows you to design any program interface
+    you like. It is pretty common when the driver and application are closely linked
+    and written by the same team. However, `ioctl` is deprecated in the kernel, and
+    you will find it hard to get any drivers with new uses of `ioctl` accepted upstream.
+    The kernel maintainers dislike `ioctl` because it makes kernel code and application
+    code too interdependent, and it is hard to keep both of them in step across kernel
+    versions and architectures.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sysfs`: This is the preferred way to do things now, with a good example being
+    the LED interface described earlier. The advantage is that it is somewhat self-documenting,
+    so long as you choose descriptive names for the files. It is also scriptable because
+    the file’s content is usually text strings. On the other hand, the requirement
+    for each file to contain a single value makes it hard to achieve atomicity if
+    you need to change more than one value at a time. Conversely, `ioctl` passes all
+    its arguments in a structure, via a single function call.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mmap`: You can get direct access to kernel buffers and hardware registers
+    by mapping kernel memory into user space, thus bypassing the kernel. You may still
+    need some kernel code to handle interrupts and DMA. There is a subsystem that
+    encapsulates this idea known as `uio`, which is short for **user I/O**. There
+    is more documentation in `Documentation/driver-api/uio-howto.rst` and there are
+    example drivers in `drivers/uio/`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sigio`: You can send a signal from a driver using the kernel function named
+    `kill_fasync()` to notify applications of an event such as input becoming ready
+    or an interrupt being received. By convention, the signal called `SIGIO` is used,
+    but it could be any. You can see some examples in `drivers/uio/uio.c` and `drivers/char/rtc.c`.
+    The main problem is that it is difficult to write reliable signal handlers in
+    user space, so it remains a little-used facility.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`debugfs`: This is another pseudo filesystem that represents kernel data as
+    files and directories, like `proc` and `sysfs`. The main distinction is that `debugfs`
+    must not contain information that is needed for the normal operation of the system;
+    it is for debug and trace information only. It is mounted via `mount -t debugfs
+    debug /sys/kernel/debug`. There is a good description of `debugfs` in `Documentation/filesystems/debugfs.rst`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`proc`: The `proc` filesystem is deprecated for all new code unless it relates
+    to processes, which was what the filesystem was originally intended for. However,
+    you can use `proc` to publish any information you choose. And, unlike `sysfs`
+    and `debugfs`, it is available to non-GPL modules.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`netlink`: This is a socket protocol family. `AF_NETLINK` creates a socket
+    that links kernel space to user space. It was originally created so that network
+    tools could communicate with the Linux network code to access the routing tables
+    and other details. It is also used by `udev` to pass events from the kernel to
+    the `udev` daemon. It is very rarely used in general device drivers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There are many examples of all the preceding filesystems in the kernel source
+    code, and you can design really interesting interfaces to your driver code. The
+    only universal rule is the *principle of least astonishment*. In other words,
+    application writers who are using your driver should find that everything works
+    in a logical way without any quirks or oddities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Anatomy of a device driver
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: It’s time to draw some threads together by looking at the code for a simple
+    device driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the start of a device driver named `dummy`, which creates four devices
+    that can be accessed through `/dev/dummy0` to `/dev/dummy3`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we will define the `dummy_open()`, `dummy_release()`, `dummy_read()`,
+    and `dummy_write()` functions for the character device interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After that, we need to initialize a `file_operations` structure and define
+    the `dummy_init()` and `dummy_exit()` functions, which are called when the driver
+    is loaded and unloaded:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At the end of the code, the macros called `module_init` and `module_exit` specify
+    the functions to be called when the module is loaded and unloaded:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The closing three macros, named `MODULE_*`, add some basic information about
+    the module:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: This information can be retrieved from the compiled kernel module using the
+    `modinfo` command. The complete source code, as well as a `Makefile` for this
+    driver, can be found inside the `MELD/Chapter11/meta-device-drivers/recipes-kernel/dummy-driver`
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When the module is loaded, the `dummy_init()` function is called. The point
+    at which it becomes a character device is when it makes the call to `register_chrdev`
+    passing a pointer to `struct file_operations` containing pointers to the four
+    functions that the driver implements. While `register_chrdev` tells the kernel
+    that there is a driver with a major number of `42`, it doesn’t say anything about
+    the class of the driver, so it will not create an entry in `/sys/class/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Without an entry in `/sys/class/`, the device manager cannot create device nodes.
+    So, the next few lines of code create a device class named `dummy` and four devices
+    of that class called `dummy0` to `dummy3`. The result is that the `/sys/class/dummy/`
+    directory is created containing subdirectories `dummy0` to `dummy3` when the driver
+    is initialized. Each of the subdirectories contains a `dev` file that contains
+    the major and minor numbers of the device. This is all that a device manager needs
+    to create device nodes `/dev/dummy0` to `/dev/dummy3`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `dummy_exit()` function has to release the resources claimed by `dummy_init()`
+    by freeing up the device class and major number.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The file operations for this driver are implemented by `dummy_open()`, `dummy_read()`,
+    `dummy_write()`, and `dummy_release()`. They are called when a user space program
+    calls `open(2)`, `read(2)`, `write(2)`, and `close(2)`, respectively. They just
+    print a kernel message so that you can see that they were called. You can demonstrate
+    this from the command line using the `echo` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, the messages appear because I was logged on to the console, and
+    kernel messages are printed to the console by default. If you are not logged on
+    to the console, you can still see the kernel messages by using the `dmesg` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The full source code for this driver is less than 100 lines, but it is enough
+    to illustrate how the linkage between a device node and driver code works, how
+    the device class is created, and how the data is moved between the user and kernel
+    spaces. Next, you need to build it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compiling kernel modules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: At this point, you have some driver code that you want to compile and test on
+    your target system. You can copy it into the kernel source tree and modify makefiles
+    to build it, or you can compile it as a module out of tree. Let’s start by building
+    out of tree.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You will need a simple `Makefile` that uses the kernel build system to do all
+    the hard work:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: Yocto sets `KERNEL_SRC` to the directory of the kernel for your target device
+    that you will be running the module on. The `obj-m := dummy.o` code will invoke
+    the kernel build rule to take the `dummy.c` source file and create a `dummy.ko`
+    kernel module. I will show you how to load kernel modules in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Important note**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Kernel modules are not binary compatible between kernel releases and configurations:
+    the module will only load on the kernel it was compiled with.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you want to build a driver in the kernel source tree, the procedure is quite
+    simple. Choose a directory appropriate to the type of driver you have. The driver
+    is a basic character device, so I would put `dummy.c` in `drivers/char/`. Then,
+    edit the makefile in the directory and add a line to build the driver unconditionally
+    as a module, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alternatively, you can add the following line to build it unconditionally as
+    a built-in:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you want to make the driver optional, you can add a menu option to the `Kconfig`
+    file and make the compilation conditional on the configuration option, as I described
+    in the *Understanding kernel configuration* section of [*Chapter 4*](Chapter_04.xhtml#_idTextAnchor096).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Loading kernel modules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can load, list, and unload modules using the simple `modprobe`, `lsmod`,
+    and `rmmod` commands. Here, they are loading and unloading the dummy driver:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If the module is placed in a subdirectory in `/lib/modules/<kernel release>`,
+    you can create a modules dependency database using the `depmod -a` command, like
+    so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: The information in the `modules.*` files is used by the `modprobe` command to
+    locate a module by name rather than its full path. `modprobe` has many other features,
+    all of which are described on the `modprobe(8)` manual page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have written and loaded our dummy kernel module, how do we get it
+    to talk to some real piece of hardware? We need to bind our driver to that hardware
+    either by way of the device tree or platform data. Discovering hardware and linking
+    that hardware to a device driver is the topic of the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discovering the hardware configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The dummy driver demonstrates the structure of a device driver, but it lacks
+    interaction with real hardware since it only manipulates memory structures. Device
+    drivers are usually written to interact with hardware. Part of that is being able
+    to discover the hardware in the first place, bearing in mind that it may be at
+    different addresses in different configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In some cases, the hardware provides the information itself. Devices on a discoverable
+    bus such as PCI or USB have a query mode that returns resource requirements and
+    a unique identifier. The kernel matches the identifier and possibly other characteristics
+    with the device drivers and marries them up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, most of the hardware blocks on an embedded board do not have such identifiers.
+    You have to provide the information yourself in the form of a **device tree**
+    or as C structures known as **platform data**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the standard driver model for Linux, device drivers register themselves
+    with the appropriate subsystem: PCI, USB, open firmware (device tree), platform
+    device, and so on. The registration includes an identifier and a callback function
+    called a `probe` function that is called if there is a match between the ID of
+    the hardware and the ID of the driver. For PCI and USB, the ID is based on the
+    vendor and the product IDs of the devices. For device trees and platform devices,
+    it is a name (a text string).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Device trees
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: I gave you an introduction to device trees in [*Chapter 3*](Chapter_03.xhtml#_idTextAnchor061).
+    Here, I want to show you how the Linux device drivers hook up with this information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As an example, I will use the Arm Versatile board (`arch/arm/boot/dts/versatile-ab.dts`)
+    for which the Ethernet adapter is defined here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: Pay special attention to the `compatible` property of this node. This string
+    value will reappear later in the source code for the Ethernet adapter. We will
+    learn more about device trees in [*Chapter 12*](Chapter_04.xhtml#_idTextAnchor126).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Platform data
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In the absence of device tree support, there is a fallback method of describing
+    hardware using C structures, known as the platform data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Each piece of hardware is described by `struct platform_device`, which has
+    a name and a pointer to an array of resources. The resource’s type is determined
+    by flags, which include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`IORESOURCE_MEM`: This is the physical address of a region of memory.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`IORESOURCE_IO`: This is the physical address or port number of I/O registers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`IORESOURCE_IRQ`: This is the interrupt number.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Here is an example of the platform data for an Ethernet controller taken from
+    `arch/arm/machversatile/core.c`, which has been edited for clarity:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It has a memory area of 64 KB and an interrupt. The platform data is usually
+    registered with the kernel when the board is initialized:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: The platform data shown here is functionally equivalent to the previous device
+    tree source except for the `name` field, which takes the place of the `compatible`
+    property.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linking hardware with device drivers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In the preceding section, you saw how an Ethernet adapter is described using
+    a device tree or platform data. The corresponding driver code is in `drivers/net/ethernet/smsc/smc91x.c`
+    and it works with both the device tree and platform data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the initialization code, once again edited for clarity:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: When the driver is initialized, it calls `platform_driver_register()` pointing
+    to `struct platform_driver`, in which there is a callback to a `probe` function,
+    a driver name of `smc91x`, and a pointer to `struct of_device_id`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If this driver has been configured by the device tree, the kernel will look
+    for a match between the `compatible` property in the device tree node and the
+    string being pointed to by the compatible structure element. For each match, it
+    calls the `probe` function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if it was configured through platform data, the probe function
+    will be called for each match on the string pointed to by `driver.name`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `probe` function extracts information about the interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: The calls to `platform_get_resource()` extract the memory and `irq` information
+    from either the device tree or the platform data. It is up to the driver to map
+    the memory and install the interrupt handler. The third parameter (`0` in both
+    of the previous cases) comes into play if there is more than one resource of that
+    particular type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: For most drivers, specific bindings are documented in `Documentation/devicetree/bindings/`.
+    For this particular driver, the information is in `Documentation/devicetree/bindings/net/smsc,lan9115.yaml`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The main thing to remember here is that drivers should register a `probe` function
+    and enough information for the kernel to call `probe` as it finds matches with
+    the hardware it knows about. The linkage between the hardware described by the
+    device tree and the device driver is done through the `compatible` property. The
+    linkage between platform data and a driver is done through the name.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Device drivers have the job of handling devices, usually physical hardware
+    but sometimes virtual interfaces, and presenting them to the user space in a consistent
+    and useful way. Linux device drivers fall into three broad categories: character,
+    block, and network. Of the three, the character driver interface is the most flexible
+    and, therefore, the most common. Linux drivers fit into a framework known as the
+    driver model, which is exposed through `sysfs`. Pretty much the entire state of
+    the devices and drivers is visible in `/sys/`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each embedded system has its own unique set of hardware interfaces and requirements.
+    Linux provides drivers for most standard interfaces, and by selecting the right
+    kernel configuration, you can get a working target board very quickly. This leaves
+    you with the non-standard components for which you will have to add your own device
+    support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In some cases, you can sidestep the issue by using generic drivers for GPIO,
+    I2C, and SPI, and instead, write user space code to do the work. I recommend this
+    as a starting point as it gives you the chance to become familiar with the hardware
+    without writing kernel code. Writing kernel drivers is not particularly difficult,
+    but you do need to code carefully so as not to compromise the stability of the
+    system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I have talked about writing the kernel driver code: if you go down this route,
+    you will inevitably want to know how to check whether it is working correctly
+    and detect any bugs. I will cover that topic in [*Chapter 19*](Chapter_19.xhtml#_idTextAnchor611).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next chapter demonstrates techniques for rapid prototyping with single board
+    computers and add-on boards.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further study
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Linux Kernel Development, 3rd Edition*, by Robert Love'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Linux Weekly News* – [https://lwn.net/Kernel](https://lwn.net/Kernel%0D%0A)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Async IO on Linux: select, poll, and epoll*, by Julia Evans – [https://jvns.ca/blog/2017/06/03/async-io-on-linux--select--poll--and-epoll/](https://jvns.ca/blog/2017/06/03/async-io-on-linux--select--poll--and-epoll/%0D%0A)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Essential Linux Device Drivers, 1st Edition*, by Sreekrishnan Venkateswaran'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Join our community on Discord
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Join our community’s Discord space for discussions with the authors and other
+    readers: https://packt.link/embeddedsystems'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/QR_Code12308107448340296.png)'
+  prefs: []
+  type: TYPE_IMG

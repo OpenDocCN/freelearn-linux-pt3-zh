@@ -1,0 +1,1266 @@
+- en: '8'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Yocto under the Hood
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we’ll dive deeper into **Yocto**, embedded Linux’s premier
+    build system. We will begin with a tour of Yocto’s architecture, taking you through
+    the entire build workflow step by step. Next, we’ll look at Yocto’s multi-layer
+    approach and why it is a good idea to separate metadata into different layers.
+    As more and more **BitBake** layers stack up inside your projects, problems will
+    inevitably arise. We will examine a number of ways to debug Yocto build failures,
+    including task logs, `devshell`, and dependency graphs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After taking apart the build system, we’ll revisit the topic of BitBake from
+    the previous chapter. This time around, we’ll cover more of the basic syntax and
+    semantics so that you can write your own recipes from scratch. We’ll look at real-world
+    examples of a BitBake shell and Python code from actual recipe, include, and configuration
+    files so that you know what to expect when you begin to venture out into Yocto’s
+    ocean of metadata.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Decomposing Yocto’s architecture and workflow
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Separating metadata into layers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Troubleshooting build failures
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding BitBake’s syntax and semantics
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To follow along with the examples, make sure you have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Linux-based host system with at least 90 GB of free disk space
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Yocto 5.0 (scarthgap) LTS release
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You should have already built the 5.0 (scarthgap) LTS release of Yocto in [*Chapter
+    6*](Chapter_04.xhtml#_idTextAnchor110). If you have not, then please refer to
+    the *Compatible Linux Distribution* and *Build Host Packages* sections of the
+    *Yocto Project Quick Build* guide ([https://docs.yoctoproject.org/brief-yoctoprojectqs/](https://docs.yoctoproject.org/brief-yoctoprojectqs/))
+    before building Yocto on your Linux host according to the instructions in [*Chapter
+    6*](Chapter_04.xhtml#_idTextAnchor110).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code used in this chapter can be found in the chapter folder in this book’s
+    GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Decomposing Yocto’s architecture and workflow
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Yocto is a complex beast. Taking it apart is the first step toward understanding
+    it. The architecture of a build system can be organized in terms of its workflow.
+    Yocto gets its workflow from the **OpenEmbedded** project it is based on. Source
+    materials feed into the system as inputs by way of metadata in the form of BitBake
+    recipes. The build system uses this metadata to fetch, configure, and compile
+    the source code into binary package feeds. These individual output packages are
+    assembled inside a staging area before the finished Linux image and SDK are generated,
+    complete with a manifest that includes a license for each package that’s on board:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.1 – OpenEmbedded architecture workflow](img/B18466_08_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.1 – OpenEmbedded architecture workflow
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here are the seven steps of Yocto’s build system workflow, as shown in the
+    preceding diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Define layers for policy, machine, and software metadata.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Fetch sources from the source URI of a software project.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Extract the source code, apply any patches, and compile the software.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Install the build artifacts into a staging area for packaging.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bundle the installed build artifacts into a package feed for the root filesystem.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Run QA checks on a binary package feed before submitting it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Generate the finished Linux image and an SDK in parallel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Except for the first and last steps, all of the steps in this workflow are performed
+    on a per-package basis. Code linting, sanitizing, and other forms of static analysis
+    may occur before or after compilation. Unit and integration tests can run directly
+    on the build machine, on a QEMU instance acting as a stand-in for the target SoC,
+    or on the target itself. When a build completes, the finished image can then be
+    deployed to a group of dedicated devices for further testing. As the gold standard
+    for embedded Linux build systems, Yocto is a vital component of the software CI/CD
+    pipeline for many products.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The packages Yocto generates can be in either `rpm`, `deb`, or `ipk` format.
+    In addition to the main binary package, the build system attempts to generate
+    all of the following packages for a recipe by default:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`dbg`: Binary files, including debug symbols'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`static-dev`: Header files and static libraries'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`dev`: Header files and shared library symlinks'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`doc`: Documentation, including man pages'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`locale`: Language translation information'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Packages that would contain no files are not generated unless the `ALLOW_EMPTY`
+    variable is enabled. The set of packages to be generated by default is determined
+    by the `PACKAGES` variable. Both variables are defined in `meta/classes-recipe/packagegroup.bbclass`,
+    but their values can be overridden by package group recipes that inherit from
+    that BitBake class.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building an SDK enables a whole other development workflow for manipulating
+    individual package recipes. In the *Capturing changes with devtool* section of
+    the previous chapter, we learned how to use `devtool` to add and modify SDK software
+    packages so that we can integrate them back into an image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Metadata
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Metadata** is the input that goes into the build system. It controls what
+    gets built and how. Metadata is more than just recipes. BSPs, policies, patches,
+    and other forms of configuration files are also metadata. Which version of a package
+    to build and where to pull the source code from are certainly forms of metadata.
+    A developer makes all these choices by naming files, setting variables, and running
+    commands. These configuration actions, argument values, and their resulting artifacts
+    are yet another form of metadata. Yocto parses all of these inputs and transforms
+    them into a complete Linux image.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first choice a developer makes with respect to building with Yocto is what
+    machine architecture to target. You do this by setting the `MACHINE` variable
+    in the `conf/local.conf` file for your project. When targeting QEMU, I like to
+    use `MACHINE ?= "qemuarm64"` to specify `aarch64` as the machine architecture.
+    Yocto ensures that the correct compiler flags propagate from a BSP down to the
+    other build layers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Architecture-specific settings are defined in files called *tunes*, which are
+    located in Yocto’s `meta/conf/machine/include` directory, and the individual BSP
+    layers themselves. A number of BSP layers are included with every Yocto release.
+    We worked extensively with the `meta-raspberrypi` BSP layer in the previous chapter.
+    The source for each BSP resides inside its own Git repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To clone Xilinx’s BSP layer, which contains support for their Zynq family of
+    SoCs, use the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is just one example of the many BSP layers that accompany Yocto. You won’t
+    need this layer for any of the subsequent exercises, so feel free to discard it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Metadata needs source code to act upon. BitBake’s `do_fetch` task can obtain
+    recipe source files in a number of different ways. Here are the two most prominent
+    methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When someone else develops some software that you need, the easiest way to get
+    it is to tell BitBake to download a tarball release of the project.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To extend someone else’s open source software, simply fork the repository on
+    GitHub. BitBake’s `do_fetch` task can then use Git to clone the source files from
+    a given `SRC_URI`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If your team is responsible for the software, then you can choose to embed it
+    into your work environment as a local project. You can do this either by nesting
+    it as a subdirectory or defining it out-of-tree using the `externalsrc` class.
+    Embedding means that the sources are tied to your layer repository and can’t be
+    easily used somewhere else. Out-of-tree projects that use `externalsrc` require
+    identical paths on all building instances and sabotage reproducibility. Both of
+    these techniques are merely tools used to expedite development. Neither should
+    be used in production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Policies are properties that are bundled together as a distribution layer. These
+    include things such as which features (`systemd`, for example), C library implementation
+    (`glibc` or `musl`), and package manager are required by a Linux distribution.
+    Each distro layer has its own `conf/distro` subdirectory. The `.conf` files inside
+    that directory define the top-level policies for a distribution or image. See
+    the `meta-poky` subdirectory for an example of a distro layer. This Poky reference
+    distribution layer includes `.conf` files for building default, tiny, bleeding-edge,
+    and alternative flavors of Poky for your target device. We covered this in the
+    previous chapter, in the *Building your own distro* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Build tasks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We already saw how BitBake’s `do_fetch` task downloads the source for a recipe.
+    The next steps in the build process are extracting, patching, configuring, and
+    compiling said source code: `do_unpack`, `do_patch`, `do_configure`, and `do_compile`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `do_patch` task uses the `FILESPATH` variable and a recipe’s `SRC_URI` variable
+    to locate patch files and apply them to the intended source code. The `FILESPATH`
+    variable, found in `meta/classes/base.bbclass`, defines the default set of directories
+    that the build system uses to search for patch files (*Yocto Project Reference
+    Manual*, [https://docs.yoctoproject.org/ref-manual/index.html](https://docs.yoctoproject.org/ref-manual/index.html)).
+    By convention, patch files have names ending in `.diff` and `.patch` and reside
+    in a subdirectory below where the corresponding recipe file is located. This default
+    behavior can be extended and overridden by defining a `FILESEXTRAPATHS` variable
+    and appending file pathnames to the recipe’s `SRC_URI` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After patching the source code, the `do_configure` and `do_compile` tasks configure,
+    compile, and link it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.2 – Package feeds](img/B18466_08_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.2 – Package feeds
+  prefs: []
+  type: TYPE_NORMAL
+- en: When `do_compile` is done, the `do_install` task copies the resulting files
+    to a staging area where they are readied for packaging. There, the `do_package`
+    task processes the build artifacts and assembles them into one or more packages.
+    Before they are submitted to the package feeds area, the `do_package_qa` task
+    subjects package artifacts to a battery of QA checks. These autogenerated QA checks
+    are defined in `meta/classes-global/insane.bbclass`. Lastly, the `do_package_write_*`
+    tasks create the individual packages and send them to the package feeds area.
+    Once the package feeds area has been populated, BitBake is ready for image and
+    SDK generation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Image generation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Generating an image is a multi-stage process that relies on several variables
+    to perform a series of tasks. The `do_rootfs` task creates the root filesystem
+    for an image. These variables determine what packages get installed onto the image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`IMAGE_INSTALL`: Packages to install onto the image'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`PACKAGE_EXCLUDE`: Packages to omit from the image'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`IMAGE_FEATURES`: Additional packages to install onto the image'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`PACKAGE_CLASSES`: Package format (`rpm`, `deb`, or `ipk`) to use'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`IMAGE_LINGUAS`: Languages (cultures) to include support packages for'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Recall that we added packages to the `IMAGE_INSTALL` variable back in [*Chapter
+    6*](Chapter_04.xhtml#_idTextAnchor110)*,* as part of the *Writing an image recipe*
+    section. The list of packages from the `IMAGE_INSTALL` variable is passed to a
+    package manager (`dnf`, `apt`, or `opkg`) so that they can be installed on the
+    image. Which package manager gets invoked depends on the format of the package
+    feeds: `do_package_write_rpm`, `do_package_write_deb`, or `do_package_write_ipk`.
+    Package installation happens regardless of whether a runtime package manager is
+    included on the target. If there is no package manager onboard, then installation
+    scripts and package metadata get deleted from the image at the end of this phase
+    for hygiene purposes and to save space.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once package installation is complete, the package’s post-installation scripts
+    are run. These post-installation scripts come included with the packages. If all
+    the post-installation scripts run successfully, a manifest is written and optimizations
+    are performed on the root filesystem image. This top-level `.manifest` file lists
+    all the packages that have been installed on the image. The default library size
+    and executable startup time optimizations are defined by the `ROOTFS_POSTPROCESS_COMMAND`
+    variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that the root filesystem has been fully populated, the `do_image` task can
+    begin image processing. First, all the pre-processing commands defined by the
+    `IMAGE_PREPROCESS_COMMAND` variable get executed. Next, the process creates the
+    final image output files. It does this by launching a `do_image_*` task for every
+    image type (for example, `cpio.lz4`, `ext4`, and `squashfs-lzo`) specified in
+    the `IMAGE_FSTYPES` variable. The build system then takes the contents of the
+    `IMAGE_ROOTFS` directory and converts it into one or more image files. These output
+    image files are compressed when the specified filesystem format allows for it.
+    Lastly, the `do_image_complete` task finishes the image by executing every post-processing
+    command defined by the `IMAGE_POSTPROCESS_COMMAND` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have traced through Yocto’s entire build workflow from end to end,
+    let’s look at some best practices for structuring large projects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Separating metadata into layers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Yocto metadata is organized around the following concepts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**distro**: OS features, including choice of C library, init system, and window
+    manager'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**machine**: CPU architecture, kernel, drivers, and bootloader'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**recipe**: Application binaries and/or scripts'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**image**: Development, manufacturing, or production'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These concepts map directly to actual byproducts of the build system, thus offering
+    us guidance when designing our projects. We could rush to assemble everything
+    inside a single layer, but that would likely result in a project that is inflexible
+    and unmaintainable. Hardware inevitably gets revised, and one successful consumer
+    device quickly multiplies into a series of products. For these reasons, it is
+    better to adopt a multi-layered approach early on so that we end up with software
+    components that we can easily modify, swap out, and reuse.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At a minimum, you should create individual distribution, BSP, and application
+    layers for every major project that you start with Yocto. The distribution layer
+    builds the target OS (Linux distro) that your application(s) will run on. Frame
+    buffer and window manager configuration files belong in the distribution layer.
+    The BSP layer specifies the bootloader, kernel, and device tree needed for the
+    hardware to operate. The application layer contains the recipes needed to build
+    all the packages that comprise your custom application(s).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first encountered the `MACHINE` variable back in [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110)*,*
+    when we performed our first builds with Yocto. We looked at the `DISTRO` variable
+    toward the end of the previous chapter when we created our own distribution layer.
+    The other Yocto exercises in this book rely on `meta-poky` for their distro layer.
+    Layers are added to your build by inserting them into the `BBLAYERS` variable
+    within the `conf/bblayers.conf` file in your active build directory. Here is an
+    example of Poky’s default `BBLAYERS` definition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Rather than edit `bblayers.conf` directly, use the `bitbake-layers` command-line
+    tool to work with project layers. Resist the temptation to modify the Poky source
+    tree directly. Always create your own layer (for example, `meta-mine`) above Poky
+    and make your changes there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is what the `BBLAYERS` variable should look like within the `conf/bblayers.conf`
+    file in your active build directory (for example, `build-mine`) during development:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`workspace` is a special temporary layer we encountered in the previous chapter
+    when we experimented with `devtool`. Every BitBake layer has the same basic directory
+    structure regardless of what type of layer it is. Layer directory names typically
+    start with the `meta` prefix by convention. Take the following dummy layer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Every layer must have a conf directory with a `layer.conf` file so that BitBake
+    can set up paths and search patterns for metadata files. We looked closely at
+    the contents of `layer.conf` back in [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110)*,*
+    when we created a meta-nova layer for our Nova board. BSP and distribution layers
+    may also have a `machine` or `distro` subdirectory under the `conf` directory
+    with more `.conf` files. We examined the structure of the machine and distro layers
+    in the previous chapter when we built on top of the `meta-raspberrypi` layer and
+    created our own `meta-mackerel` distro layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `classes` subdirectory is only needed for layers that define their own BitBake
+    classes. Recipes are organized by category, such as *connectivity*, so `recipes-a`
+    is actually a placeholder for `recipes-connectivity` and so on. A category can
+    contain one or more packages each with its own set of BitBake recipe files (`.bb`).
+    The recipe files are versioned by package release number. Again, names such as
+    `package-a` and `package-z` are merely placeholders for real packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s very easy to get lost in all these different layers. Even as you become
+    more proficient with Yocto, there will be many times when you find yourself asking
+    how a particular file ended up on your image. Or, more likely, where are the recipe
+    files you need to modify or extend to do what you need to do? Luckily, Yocto provides
+    some command-line tools to help you answer these questions. I recommend that you
+    explore `recipetool`, `oe-pkgdata-util`, and `oe-pkgdata-browser` and familiarize
+    yourself with them. You could save yourself many hours of frustration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Troubleshooting build failures
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the two preceding chapters, we learned how to build bootable images for QEMU,
+    our Nova board, and Raspberry Pi 4\. But what happens when things go wrong? In
+    this section, we will cover a number of useful debugging techniques that should
+    make the prospect of wrangling Yocto build failures less intimidating.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To execute the commands in the subsequent exercises, you need to activate a
+    BitBake environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, navigate one level above the directory where you cloned Yocto.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Next, set up your BitBake work environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This sets a bunch of environment variables and puts you back in the `build-rpi`
+    directory that we created in the previous chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Isolating errors
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'So, your build failed, but where did it fail? You have an error message, but
+    what does it mean and where did it come from? Do not despair. The first step in
+    debugging is reproducing the bug. Once you can reproduce the bug, you can narrow
+    the problem down to a series of known steps. Retracing those steps is how you
+    spot the malfunction:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, look at the BitBake build error message and see if you recognize any
+    package or task names. If you’re not sure what packages are in your workspace,
+    you can use the following command to get a list of them:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Once you have identified which package failed to build, then search your current
+    layers for any recipe or appends files related to that package like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The package to search for is `connman` in this instance. The `../poky` argument
+    in the preceding find command assumes your build directory is adjacent to `poky`
+    like `build-rpi` from the previous chapter.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Next, list all the tasks available for the `connman` recipe:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'To reproduce the error, you can rebuild `connman` as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Now that you know the recipe and task where your build failed, you are ready
+    to move on to the next stage of debugging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dumping the environment
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'While you are debugging a build failure, you are going to want to see the current
+    values of the variables within BitBake’s environment. Let’s start from the top
+    and work our way down:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, dump the global environment and search for the value of `DISTRO_FEATURES`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Enter `/DISTRO_FEATURES=` (note the leading forward slash); `less` should jump
+    to a line that looks kind of like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'To dump BusyBox’s package environment and locate its source directory, use
+    the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'To locate ConnMan’s working directory, use the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: A package’s working directory is where its recipe task logs are saved during
+    BitBake builds.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In *step 1*, we could have piped the output from `bitbake -e` into `grep`, but
+    `less` allows us to trace the evaluation of the variable more easily. Enter `/DISTRO_FEATURES`
+    without the trailing equal sign in less to search for more occurrences of the
+    variable. Hit *n* to jump forward to the next occurrence and *N* to jump back
+    to the previous occurrence.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The same commands work for image as well as package recipes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, the target environment to dump belongs to `core-image-minimal`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that you know where the source and task log files are, let’s look at some
+    task logs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reading the task log
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'BitBake creates a log file for every shell task and saves it to a temp folder
+    in the package’s working directory. In the case of ConnMan, the path to that temp
+    folder looks sort of like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The format of the log filenames is `log.do_<task>.<pid>`. There are also symlinks
+    with no `<pid>` at the end of their names, which point to the latest log files
+    for each task. The log files contain the output of the task run, which in most
+    cases is all the information you need to debug the problem. If not, guess what
+    you can do?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding more logging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Logging from Python is different from logging from shell in BitBake. To log
+    from Python, you can use BitBake’s `bb` module, which calls out to Python’s standard
+    `logger` module, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To log from shell, you can use BitBake’s `logging` class, whose source can
+    be found at `meta/classes-global/logging.bbclass`. All recipes that inherit `base.bbclass`
+    automatically inherit `logging.bbclass`. This means that all of the following
+    logging functions should already be available to you from most shell recipe files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'According to the `logging.bbclass` source, the `bbdebug` function takes an
+    integer debug log level as its first argument:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Depending on the debug log level, a `bbdebug` message may or may not go to the
+    console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running commands from devshell
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'BitBake provides a development shell so that you can run build commands manually
+    in a more interactive environment. Spawning a `devshell` requires a terminal multiplexer
+    like `tmux`. To install `tmux`, use the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To get into a `devshell` for building ConnMan, use the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: First, this command extracts and patches the source code for ConnMan. Next,
+    it opens a new terminal in ConnMan’s source directory with the environment correctly
+    set up for building. Once inside a `devshell`, you can run commands such as `./configure`
+    and `make` or invoke the cross-compiler directly using `$CC`. `devshell` is perfect
+    for experimenting with values such as `CFLAGS` or `LDFLAGS`, which get passed
+    to tools such as CMake and Autotools as command-line arguments or environment
+    variables. At the very least, you can increase the verbosity level of build commands
+    if the error messages you are reading aren’t meaningful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Graphing dependencies
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Sometimes, the cause of the build error cannot be located inside the package
+    recipe files because the error actually occurred when building one of the package’s
+    dependencies. To get a list of dependencies for the ConnMan package, use the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can use BitBake’s built-in task explorer to display and navigate dependencies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding command launches the task explorer’s graphical UI after analyzing
+    ConnMan:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some larger images like core-image-x11 have complex package dependency trees
+    that will likely crash the task explorer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18466_08_03.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.3 – Task explorer
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s move away from the topic of builds and build failures and immerse
+    ourselves in the raw materials of The Yocto Project. I am talking about BitBake
+    metadata.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding BitBake syntax and semantics
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: BitBake is a task runner. It is similar to GNU Make in that respect, except
+    that it operates on recipes instead of makefiles. The metadata in these recipes
+    defines tasks in shell and Python. BitBake itself is written in Python. The OpenEmbedded
+    project that Yocto is based on consists of BitBake and a large collection of recipes
+    for building embedded Linux distributions. BitBake’s power lies in its ability
+    to run tasks in parallel while still satisfying inter-task dependencies. Its layered
+    and inheritance-based approach to metadata enables Yocto to scale in ways Buildroot-based
+    build systems simply cannot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110), we learned about the five
+    types of BitBake metadata files: `.bb`, `.bbappend`, `.inc`, `.bbclass`, and `.conf`.
+    We also wrote BitBake recipes for building a basic `helloworld` program and `nova-image`
+    image. Now, we will look more closely at the contents of BitBake metadata files.
+    We know that tasks are written in a mix of shell and Python, but what goes where
+    and why? What language constructs are available to us and what can we do with
+    them? How do we compose metadata to build our applications? Before you can harness
+    the full power of Yocto, you need to learn to read and write BitBake metadata.
+    To do that, you need to learn BitBake’s syntax and semantics.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tasks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Tasks are functions that BitBake needs to run in sequence to execute a recipe.
+    Recall that task names start with the `do_` prefix. Here is a task from `recipes-core/systemd`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, a function named `do_deploy` is defined and immediately elevated
+    to a task using the `addtask` command. The `addtask` command also specifies inter-task
+    dependencies. For instance, this `do_deploy` task depends on the `do_compile`
+    task completing, while the `do_build` task depends on the `do_deploy` task completing.
+    The dependencies expressed by `addtask` can only be internal to the recipe file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Tasks can also be deleted using the `deltask` command. This stops BitBake from
+    executing the task as part of the recipe. To delete the preceding `do_deploy`
+    task, use the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: This deletes the task from the recipe, but the original `do_deploy` function
+    definition remains and can still be called.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dependencies
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To ensure efficient parallel processing, BitBake handles dependencies at the
+    task level. We saw just how `addtask` can be used to express dependencies between
+    tasks within a single recipe file. Dependencies between tasks in different recipes
+    also exist. In fact, these inter-task dependencies are what we usually think of
+    when we consider build-time and runtime dependencies between packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inter-task dependencies
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Variable flags (**varflags**) are a means of attaching properties or attributes
+    to variables. They behave like keys in a hash map in the sense that they let you
+    set keys to values and retrieve values by their keys. BitBake defines a large
+    set of varflags for use in recipes and classes. These varflags indicate what the
+    components and dependencies of a task are. Here are some examples of varflags:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The value that’s assigned to a varflag’s key is often one or more other tasks.
+    This means that BitBake varflags offer us another way of expressing inter-task
+    dependencies, different from `addtask`. The `addtask` command specifies when a
+    task gets executed (e.g., `before do_build after do_compile`). Most embedded Linux
+    developers will probably never need to touch varflags in their day-to-day work.
+    I have introduced them here so that we can make sense of the following `DEPENDS`
+    and `RDEPENDS` examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Build-time dependencies
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'BitBake uses the `DEPENDS` variable to manage build-time dependencies. The
+    `deptask` varflag for a task signifies the task that must be completed for each
+    item in `DEPENDS` before that task can be executed (*BitBake User Manual*, [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies)):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, the `do_packagedata` task of each item in `DEPENDS` must complete
+    before `do_package` can execute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alternatively, you can bypass the `DEPENDS` variable and define your build-time
+    dependencies explicitly using the `depends` flag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, the `do_populate_sysroot` task belonging to the `quilt-native`
+    namespace must be completed before `do_patch` can execute. A recipe’s tasks are
+    often grouped together inside their own namespace to enable this sort of direct
+    access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Runtime dependencies
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'BitBake uses the `PACKAGES` and `RDEPENDS` variables to manage runtime dependencies.
+    The `PACKAGES` variable lists all the runtime packages a recipe creates. Each
+    of those packages can have `RDEPENDS` runtime dependencies. These are packages
+    that must be installed for a given package to run. The `rdeptask` varflag for
+    a task specifies which tasks must be completed for every runtime dependency before
+    that task can be executed (*BitBake User Manual*, [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies)):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, the `do_package_data` task of each item in `RDEPENDS` must
+    complete before `do_package_qa` can execute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Similarly, the `rdepends` flag works much like the `depends` flag by allowing
+    you to bypass the `RDEPENDS` variable. The only difference is that `rdepends`
+    is enforced at runtime instead of build time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Variables
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: BitBake variable syntax resembles the Make variable syntax. The scope of a variable
+    in BitBake depends on the type of metadata file where a variable was defined.
+    Every variable declared in a recipe file (`.bb`) is local. Every variable declared
+    in a configuration file (`.conf`) is global. An image is just a recipe, so an
+    image cannot affect what happens in another recipe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Assignment and expansion
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Variable assignment and expansion work like they do in shell. By default, the
+    assignment occurs as soon as the statement is parsed and is unconditional. The
+    `$` character triggers variable expansion. Enclosing braces are optional and serve
+    to protect the variable from being expanded from characters immediately following
+    it. Expanded variables are usually wrapped in double quotes to prevent accidental
+    word splitting and globbing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Variables are mutable and normally evaluated at the time of reference, not assignment,
+    like in Make. This means that if a variable is referenced on the right-hand side
+    of an assignment, then that referenced variable is not evaluated until the variable
+    on the left-hand side is expanded. So, if a value on the right-hand side changes
+    over time, then so does the value of the variable on the left-hand side.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Conditional assignment only defines a variable if it is undefined at the time
+    of parsing. This prevents reassignment when you don’t want that behavior:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: Conditional assignment is employed at the top of makefiles to prevent variables
+    that may have already been set by the build system (for example, `CC`, `CFLAGS`,
+    and `LDFLAGS`) from being overwritten. Conditional assignment ensures that we
+    don’t append or prepend to an undefined variable later on in a recipe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Lazy assignment using ??= behaves identically to ?= except that the assignment
+    is made at the end of the parsing process rather than immediately (BitBake User
+    Manual, HYPERLINK “[https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#setting-a-weak-default-value”):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: What that means is that if a variable name is on the left-hand side of multiple
+    lazy assignments, then the last lazy assignment statement wins.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another form of variable assignment forces the right-hand side of the assignment
+    to be evaluated immediately at the time of parsing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that the`:=` operator for immediate assignment comes from Make not shell.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Appending and prepending
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Appending or prepending to a variable or variable flags in BitBake is easy.
+    The following two operators insert a single space in between the value on the
+    left-hand side and the value being appended or prepended from the right-hand side:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that the `+=` operator means increment not append when applied to an integer
+    as opposed to string values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you wish to omit the single space, there are assignment operators that do
+    that as well:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: The single-space versions of the appending and prepending assignment operators
+    are used throughout BitBake metadata files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Overrides
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'BitBake offers an alternative syntax for appending and prepending to variables.
+    This style of concatenating is known as override syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: While it may not be obvious at first glance, the two preceding lines are not
+    defining new variables. The `:append` and `:prepend` suffixes modify or override
+    the values of existing variables. They function more like BitBake’s `.=` and `=.`
+    than the `+=` and `=+` operators in the sense that they omit the single space
+    when combining strings. Unlike those operators, overrides are lazy, so assignment
+    does not take place until all parsing has completed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, let’s look at a more advanced form of conditional assignment involving
+    the `OVERRIDES` variable defined in `meta/conf/bitbake.conf`. The `OVERRIDES`
+    variable is a colon-separated list of conditions that you want satisfied. This
+    list is used to select between multiple versions of the same variable, each of
+    which is distinguished by a different suffix. The various suffixes match the names
+    of the conditions. Let’s say the `OVERRIDES` list contains `${TRANSLATED_TARGET_ARCH}`
+    as a condition. Now, you can define a version of a variable that is conditional
+    on a target CPU architecture of `aarch64`, such as the `VALGRINDARCH:aarch64`
+    variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: When the `TRANSLATED_TARGET_ARCH` variable expands to `aarch64`, the V`ALGRINDARCH:aarch64`
+    version of the `VALGRINDARCH` variable is selected over all the other overrides.
+    Selecting variable values based on `OVERRIDES` is cleaner and less brittle than
+    other methods of conditional assignment, such as `#ifdef` directives in C.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'BitBake also supports appending and prepending operations to variable values
+    based on whether a specific item is listed in `OVERRIDES` (*BitBake User Manual*,
+    [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#conditional-metadata).
+    Here are various real-world examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice how `libc-musl` is a condition for appending string values to the `DEPENDS`,
+    `EXTRA_OECONF`, and `EXTRA_OEMAKE` variables. Like the earlier unconditional override
+    syntax for appending and prepending to variables, this conditional syntax is also
+    lazy. Assignment does not occur until after the recipes and configuration files
+    have been parsed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Conditionally appending and prepending to variables based on the contents of
+    `OVERRIDES` is complicated and can result in unwanted surprises. I recommend getting
+    lots of practice with conditional assignments based on `OVERRIDES` before adopting
+    these advanced BitBake features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inline Python
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The `@` symbol in BitBake lets us inject and execute Python code inside variables.
+    An inline Python expression gets evaluated each time the variable on the left-hand
+    side of the `=` operator is expanded. An inline Python expression on the right-hand
+    side of the `:=` operator is evaluated only once at parse time. Here are some
+    examples of inline Python variable expansion:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that `bb` and `oe` are aliases for BitBake and OpenEmbedded’s Python
+    modules. Also, notice that `d.getVar("PV")` is used to retrieve the value of the
+    `PV` variable from the task’s runtime environment. The `d` variable refers to
+    a datastore object that BitBake saves a copy of the original execution environment
+    to. This is largely how a BitBake shell and Python code interoperate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Functions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Functions are the stuff that BitBake tasks are made of. They are written in
+    either shell or Python and defined inside the `.bbclass`, `.bb`, and `.inc` files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Shell
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Functions written in shell are executed as functions or tasks. Functions that
+    run as tasks usually have names that start with the `do_` prefix. This is what
+    a function looks like in shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: Remember to remain shell-agnostic when writing your functions. BitBake executes
+    shell snippets with `/bin/sh`, which may or may not be a Bash shell, depending
+    on the host distro. Avoid Bashisms by running the `scripts/verify-bashisms` linter
+    against your shell scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Python
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'BitBake understands three types of Python functions: pure, BitBake style, and
+    anonymous.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pure Python functions
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'A **pure Python function** is written in regular Python and called by other
+    Python code. By pure, I mean that the function lives exclusively within the realm
+    of the Python interpreter’s execution environment, not pure in the functional
+    programming sense. Here is an example from `meta/recipes-connectivity/bluez5/bluez5.inc`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that this function takes parameters just like a real Python function.
+    There are a couple more noteworthy things I would also like to point out about
+    this function. First, the datastore object is unavailable, so you need to pass
+    it in as a function parameter (the `d` variable in this instance). Second, the
+    `os` module is automatically available, so there is no need to import or pass
+    it in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Pure Python functions can be called by inline Python assigned to shell variables
+    using the `@` symbol. In fact, that is precisely what happens on the next line
+    of this include file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that both the `d` datastore object and the `bb` module are automatically
+    available inside the inline Python scope after the `@` symbol.
+  prefs: []
+  type: TYPE_NORMAL
+- en: BitBake-style Python functions
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'A **BitBake-style Python** function definition is denoted by the `python` keyword
+    instead of Python’s native `def` keyword. These functions are executed by invoking
+    `bb.build.exec_func()` from other Python functions, including BitBake’s own internal
+    ones. Unlike pure Python functions, BitBake-style functions do not take parameters.
+    The absence of parameters isn’t much of a problem since the datastore object is
+    always available as a global variable (`d`, that is). While not as Pythonic, the
+    BitBake style of defining functions is predominant throughout Yocto. Here is a
+    BitBake-style Python function definition from `meta/classes/sign_rpm.bbclass`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: Anonymous Python functions
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'An **anonymous Python function** looks much like a BitBake-style Python function,
+    but it executes during parsing. Because they run first, anonymous functions are
+    good for operations that can be done at parse time, such as initializing variables
+    and other forms of setup. Anonymous function definitions can be written with or
+    without the `__anonymous` function name:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `d` variable within an anonymous Python function represents the datastore
+    for the entire recipe (*BitBake User Manual*, [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#anonymous-python-functions).
+    So, when you set a variable inside an anonymous function scope, that value will
+    be available to other functions by way of the global datastore object when they
+    run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RDEPENDS revisited
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s return to the subject of runtime dependencies. These are packages that
+    must be installed for a given package to run. This list is defined in the package’s
+    `RDEPENDS` variable. Here is an interesting excerpt from `populate_sdk_base.bbclass`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And here is the definition of the corresponding inline Python function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is quite a bit to unpack here. First, the function makes a copy of the
+    datastore object so as not to modify the task runtime environment. Recall that
+    the `OVERRIDES` variable is a list of conditions used to select between multiple
+    versions of a variable. The next line adds a condition of `task-populate-sdk-ext`
+    to the `OVERRIDES` list in the local copy of the datastore. Lastly, the function
+    returns the value of the `rdepends varflag` for the `do_populate_sdk` task. The
+    difference now is that `rdepends` is evaluated using the `_task-populate-sdk-ext`
+    versions of variables like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: I find this use of temporary `OVERRIDES` to be both clever and terrifying.
+  prefs: []
+  type: TYPE_NORMAL
+- en: BitBake syntax and semantics can seem daunting. Combining shell and Python makes
+    for an interesting mix of language features. Not only do we now know how to define
+    variables and functions, but we can also inherit from class files, override variables,
+    and change conditions programmatically. These advanced concepts appear again and
+    again in the `.bb`, `.bbappend`, `.inc`, `.bbclass`, and `.conf` files and will
+    become increasingly recognizable over time. As we strive to achieve proficiency
+    in BitBake and begin to stretch our newfound abilities, mistakes are bound to
+    occur.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Even though you can build just about anything with Yocto, it’s not always easy
+    to tell what the build system is doing or how. There is hope for us, though. There
+    are command-line tools to help us find where something came from and how to change
+    it. There are task logs we can read from and write to. There is also `devshell`,
+    which we can use to configure and compile individual things from the command line.
+    And if we divide our projects into multiple layers from the outset, we are likely
+    to get much more mileage out of the work we do.
+  prefs: []
+  type: TYPE_NORMAL
+- en: BitBake’s mix of shell and Python supports some powerful language constructs,
+    such as inheritance, overrides, and conditional variable selection. That’s both
+    good and bad. It’s good in the sense that layers and recipes are completely composable
+    and customizable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s bad in the sense that metadata in different recipe files and different
+    layers can interact in strange and unexpected ways. Combine those powerful language
+    features with the datastore object’s ability to act as a portal between the shell
+    and Python execution environments and you have a recipe for countless hours of
+    fun.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This concludes our in-depth exploration of The Yocto Project and the second
+    section of this book, *Building Embedded Linux Images*. In the next section of
+    this book, we switch gears and examine *System Architecture and Design Decisions*,
+    beginning with [*Chapter 9*](Chapter_09.xhtml#_idTextAnchor293). We will get a
+    chance to use Yocto again in [*Chapter 10*](Chapter_10.xhtml#_idTextAnchor341),
+    when we evaluate Mender.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further study
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Yocto Project Overview and Concepts Manual*, Yocto Project – [https://docs.yoctoproject.org/overview-manual/](https://docs.yoctoproject.org/overview-manual/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*What I wish I’d known about Yocto Project*, Yocto Project – [https://docs.yoctoproject.org/what-i-wish-id-known.html](https://docs.yoctoproject.org/what-i-wish-id-known.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*BitBake User Manual*, by Richard Purdie, Chris Larson, and Phil Blundell –
+    [https://docs.yoctoproject.org/bitbake/](https://docs.yoctoproject.org/bitbake/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Embedded Linux Development Using Yocto Project Cookbook*, by Alex Gonzalez'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Join our community on Discord
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Join our community’s Discord space for discussions with the authors and other
+    readers: https://packt.link/embeddedsystems'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/QR_Code12308107448340296.png)'
+  prefs: []
+  type: TYPE_IMG

@@ -1,0 +1,818 @@
+- en: '*Chapter 8*: Understanding the systemd Boot Process'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''ll take a brief look at the `systemd` boot process. Now,
+    you might think that this would be a bit dull, but I can assure you that it won''t
+    be. Rather than lead you through a dull slog about all that happens during bootup,
+    my aim is to give you practical information that can make bootups run more efficiently.
+    After that, I''ll show you some ways in which `systemd` has been made somewhat
+    backward-compatible with the legacy **System V** (**SysV**) stuff. Specific topics
+    in this chapter include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing SysV bootup and `systemd` bootup
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Analyzing bootup performance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Some differences on Ubuntu Server 20.04
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `systemd` generators
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note that we won't be talking about bootloaders in this chapter because we're
+    saving that for later.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right—if you're ready, let's get started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The technical requirements are the same as always—just have an Ubuntu and an
+    Alma **virtual machine** (**VM**) fired up so that you can follow along.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3phdZ6o](https://bit.ly/3phdZ6o)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing SysV bootup and systemd bootup
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Computer bootups all start pretty much the same way, regardless of which operating
+    system is running. You turn on the power switch, then the machine's `systemd`
+    bootup sequence.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding SysV and systemd bootup similarities
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Once the machine can access the MBR of the machine's drive, the operating system
+    begins to load. In the `/boot/` directory, you'll see a compressed Linux kernel
+    file that generally has `vmlinuz` in its filename. You'll also see an `initramfs`
+    or `initrd` in its filename. The first step of this process is for the Linux kernel
+    image to get uncompressed and loaded into the system memory. At this stage, the
+    kernel still can't access the root filesystem because it can't access the proper
+    drivers for it. These drivers are in the initial RAM disk image. So, the next
+    step is to load this initial RAM disk image, which will establish a temporary
+    root filesystem that the kernel can access. Once the kernel has loaded the proper
+    drivers, the image will unload. The boot process will then continue by accessing
+    whatever it needs to access on the machine's root filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After this, things get different. To show how, let's take a whirlwind tour of
+    the SysV bootup process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the SysV bootup process
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: I'm not going to go deep into the details of the SysV bootup process because
+    there's no need to. All I want to do is to show you enough information so that
+    you can understand how it differs from the `systemd` bootup.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `init` process, which is always `PID 1`), is the first process to start.
+    This `init` process will control the rest of the boot sequence with a series of
+    complex, convoluted bash shell scripts in the `/etc/` directory. At some point,
+    the `init` process will obtain information about the default run level from the
+    `/etc/inittab` file. Once the basic system initialization has been completed,
+    system services will get started from bash shell scripts in the `/etc/init.d/`
+    directory, as determined by what's enabled for the default runlevel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bootups on a SysV machine can be rather slow because everything gets started
+    in a serial mode—in other words, SysV can only start one service at a time during
+    bootup. Of course, I may have made SysV sound worse than it really is. Although
+    it's outdated by today's standards, it did work well for the hardware of its time.
+    I mean, when you're talking about a server that's running with a pair of single-core
+    750 **megahertz** (**MHz**) Pentium III processors and 512 **megabytes** (**MB**)
+    of memory, there's not much you can do to speed it up in any case. (I still have
+    a few of those old machines in my collection, but I haven't booted them up in
+    ages.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: As I said, this is a whirlwind tour. For our present purposes, this is all you
+    need to know about SysV bootup. So, let's leave this topic and look at how the
+    `systemd` bootup process works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the systemd bootup process
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'With `systemd`, the `systemd` process is the first process to start. It also
+    runs as `PID 1`, as you can see here on the Alma machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Curiously, `PID 1` still shows up as the `init` process on the Ubuntu machine,
+    as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is because the Ubuntu developers, for some bizarre reason, created an
+    `init` symbolic link that points to the `systemd` executable, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: I have no idea why the Ubuntu developers thought they needed to do that. It
+    works though, so it's all good.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Instead of running complex bash shell scripts to initialize the system, `systemd`
+    runs targets. It starts by looking at the `default.target` file to see if it''s
+    set to `graphical` or `multi-user`. As I pointed out in [*Chapter 6*](B17491_06_Final_NM_ePub.xhtml#_idTextAnchor077),
+    *Understanding systemd Targets*, there''s a chain of dependencies that begins
+    with whatever the default target is and stretches backward. Let''s say that our
+    machine has the graphical target set as its default. In the `graphical.target`
+    file, we see the following line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This means that the graphical target can''t start until after the multi-user
+    target has started. In the `multi-user.target` file, we see this line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, if we keep tracing this chain back to its origin, we'll see that the basic
+    target *Requires* the `sysinit.target` file, which in turn *Wants* the `local-fs.target`
+    file, which in turn starts `after` the `local-fs-pre.target` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, what does all this mean? Well, it''s just that once the `systemd` process
+    has determined what the default target is, it starts loading the bootup targets
+    in the following order:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`local-fs-pre.target`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`local-fs.target`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`sysinit.target`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`basic.target`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`multi-user.target`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`graphical.target` (if enabled)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Okay—I know. You''re now yelling: *But Donnie. You said that systemd starts
+    its processes in parallel, not in sequence.* Indeed, `systemd` does start its
+    bootup processes in parallel. Remember what I told you before. A target is a *collection*
+    of other `systemd` units that are grouped together for a particular purpose. Within
+    each target, processes start up in parallel.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can see a graphical representation of this bootup chain on the `bootup`
+    man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I''ve also pointed out before that some of these targets are hardcoded into
+    the `systemd` executable file. This means that some of these targets don''t have
+    their own `.target` files, and others have `.target` files that seem to not do
+    anything. There are a few ways to see what''s going on with these hardcoded targets.
+    The first way is to look at a target with `systemctl list-dependencies`. Here''s
+    what we see when we look at the `local-fs.target` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: This target starts the services that mount the filesystems. We see that it mounts
+    the `boot` partition, which is represented by `boot.mount`. It then mounts the
+    `root` filesystem, which is represented by `-.mount`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I showed you before how to look at a list of targets that are hardcoded into
+    the `systemd` executable file. We can also look for information that''s specific
+    to just one target. Here''s how that looks for the `local-fs.target` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: By default, `grep` only shows the line in which it finds the search term that
+    you specify. The `-A` option makes it show a specified number of lines that come
+    after the line in which the search term is found. The `-A 100` option that I'm
+    using here tells `grep` to show me the next 100 lines that follow the line that
+    contains `local-fs.target`. We don't see the exact program code like this, but
+    the embedded text strings do give us some sense of what's going on. My choice
+    of 100 lines was completely arbitrary, but you can keep increasing that if you
+    like, until you start seeing lines that have nothing to do with mounting filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A third way to get information about these hardcoded targets is to look at the
+    `bootup` and the `systemd.special` man pages. Neither of these man pages gives
+    much detail, but you still might learn a little something from them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, with this out of the way, let's look at how to analyze bootup problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Analyzing bootup performance
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Let's say that your server is taking longer than you think it should to boot
+    up, and you want to know why. Fortunately, `systemd` comes with the built-in `systemd-analyze`
+    tool that can help.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s start by looking here at how long it took to boot up my AlmaLinux machine
+    with its GNOME 3 desktop:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you don't specify an option, `systemd-analyze` just uses the `time` option.
+    (You can type in `systemd-analyze time` if you really want to, but you'll get
+    the same results that you see here.) The first line of output shows how long it
+    took for the kernel, the initial RAM disk image, and the user space to load. The
+    second line shows how long it took for the graphical target to come up. In reality,
+    the total bootup time doesn't look too bad, especially when you consider the age
+    of the host machine that I'm using to run this VM. (This host machine is a 2009-or-so
+    vintage Dell, running with an old-fashioned Core 2 Quad **central processing unit**
+    (**CPU**).) If I were either running this VM on a newer model host or running
+    Alma on bare metal, the bootup time could possibly be a bit quicker. There's also
+    the fact that this VM is running with the GNOME 3 desktop environment, which is
+    somewhat resource-intensive. I personally prefer lighter-weight desktops, which
+    could possibly cut the bootup time down a bit. Unfortunately, **Red Hat Enterprise
+    Linux 8** (**RHEL 8**) and all of its free-of-charge offspring only come with
+    GNOME 3\. (It is possible to install the lightweight **XForms Common Environment**
+    (**XFCE**) desktop if you have the third-party **Extra Packages for Enterprise
+    Linux** (**EPEL**) repository installed, but that's beyond the scope of this book.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that the bootup process on this machine really is too slow,
+    and you want to speed it up if possible. First, let''s use the `blame` option
+    to see who we want to *blame*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This `blame` option shows you all of the services that got started during the
+    bootup, along with the time it took to start each service. The services are listed
+    in descending order of how long it took each one to start. Look through the whole
+    list, and see if there are any services that you can safely disable. For example,
+    further down the list, you''ll see that the `wpa_supplicant.service` is running,
+    as I show you here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: That's great if you're working with either a desktop machine or a laptop where
+    you might need to use a wireless adapter, but it's not necessary on a server that
+    doesn't have wireless. So, you might consider disabling this service. (Of course,
+    this service only took 710 **milliseconds** (**ms**) to start, but that's still
+    something.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disabling unnecessary services is good for both performance and security. A
+    basic tenet of security that's been around forever is that you should always minimize
+    the number of running services on your system. This provides potential attackers
+    with fewer attack vectors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you want to see how long it took for each target to start during bootup,
+    use the `critical-chain` option, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: For formatting reasons, I can only show you a small portion of the output, so
+    try it for yourself to see how the whole thing looks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These commands work the same on an Ubuntu machine as they do here on the Alma
+    machine, but there are a few differences with how the default target is set up
+    on Ubuntu Server 20.04\. So, let's look at that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some differences on Ubuntu Server 20.04
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'My Ubuntu Server 20.04 machine, which runs purely in text mode, boots considerably
+    faster, as you can see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'I must confess that I haven''t worked that much with Ubuntu Server 20.04 since
+    it''s been out, and I still encounter some new things about it that surprise me.
+    Before I set up the VMs for this chapter, I had never before noticed that Ubuntu
+    Server 20.04 comes with `graphical.target` as the default, even though no graphical
+    interface is installed. The explanation for that is that the `accounts-daemon.service`
+    file gets started by the graphical target, not by the multi-user target, as we
+    can see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you look in the `graphical.target` file, you''ll see that it only *Wants*
+    the `display-manager.service` file and doesn''t *Require* it, as evidenced by
+    this line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, even though the display manager doesn't exist on this VM, it still goes
+    into the `graphical.target` just fine. But, let's get back to that `accounts-daemon.service`
+    file. What is it, exactly? Well, according to the official documentation at [https://www.freedesktop.org/wiki/Software/AccountsService/](https://www.freedesktop.org/wiki/Software/AccountsService/),
+    "*AccountsService is a D-Bus service for accessing the list of user accounts and
+    information attached to those accounts.*" Yeah, I know—that isn't much of an explanation.
+    A better explanation is that it's a service that allows you to manage users and
+    user accounts from **graphical user interface** (**GUI**)-type utilities. So,
+    why do we have it enabled on Ubuntu Server when there's no graphical interface?
+    That's a good question, to which I don't have a good answer. It's not something
+    that we need running on a text-mode server. That's okay, though. We'll take care
+    of that in just a bit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So now, what's D-Bus?
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`accounts-daemon.service` file is one service that''s meant to be started by
+    D-Bus messages. We can see that here in the `Type=dbus` line of the `[Service]`
+    section of the `accounts-daemon.service` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'However, we see here in the `[Install]` section that we''re still going to
+    start this service during the bootup process for performance reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: (The `gdm` that's mentioned here stands for **GNOME Display Manager**, which
+    handles user login operation for systems with the GNOME 3 desktop.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As I said before, we don''t need this `accounts-daemon.service` file to run
+    on a text-mode server. So, let''s set the `default.target` file to `multi-user`
+    for this Ubuntu machine, which will prevent the `accounts-daemon.service` file
+    from automatically starting when we boot up the machine. As you might remember,
+    this is the command to do that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you reboot the machine now, you should see it boot a bit faster. On the
+    off-chance that the `accounts-daemon.service` ever is needed, a D-Bus message
+    would start it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Out of curiosity, I created a new AlmaLinux VM without the GNOME desktop, to
+    see if it would also default to `graphical.target`. It turned out that that Alma
+    without GNOME defaults to `multi-user.target` and doesn't even install the `AccountsService`
+    package. (So, without GUI-type user management utilities, the `accounts-daemon.service`
+    file isn't even needed.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's *generate* some real excitement with `systemd` generators.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding systemd generators
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`systemd` generators can make life somewhat easier for a busy administrator
+    and also provide some backward compatibility with legacy SysV stuff. Let''s first
+    look at how generators make disk and partition configuration easier.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding mount units
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Look in the `/lib/systemd/system/` directory of either VM, and you''ll see
+    several mount unit files that got created when you installed the operating system,
+    as shown here on this Alma machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'All of these mount units, except for the `tmp.mount` file, are for kernel functions
+    and have nothing to do with the drives and partitions that we want to mount. Unlike
+    Ubuntu, Alma mounts the `/tmp/` directory on its own partition, which is why you
+    don''t see the `tmp.mount` file on the Ubuntu machine. Let''s peek inside the
+    `tmp.mount` file to see what''s there. Here''s the `[Unit]` section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `ConditionPathIsSymbolicLink=!/tmp` line prevents the system from mounting
+    `/tmp/` if `/tmp` is found to be a symbolic link instead of the actual `mount`
+    point directory. (Remember that the `!` sign negates an operation.) We then see
+    that this mount unit `Conflicts` with the `umount.target` file, which means that
+    a `umount` operation will *unmount* `/tmp/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let''s see what''s in the `[Mount]` section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `What=` and `Type=` lines denote this as a *temporary filesystem*. The
+    `Where=` line defines the mountpoint directory. Finally, there''s the `Options=`
+    line, with the following options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`mode=1777`: This sets the permissions value for the mountpoint directory.
+    The `777` part sets full read, write, and execute permissions for everybody. The
+    `1` part sets the *sticky bit*, which prevents users from deleting each others''
+    files.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`strictatime`: This causes the kernel to maintain full access-time (`atime`)
+    updates on all files on this partition.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nosuid`: If any files on this partition have the **Set User ID** (**SUID**)
+    bit set, this option prevents SUID from doing anything. (The SUID bit is a way
+    to escalate privileges for non-privileged users and can be a security problem
+    if it''s set on files that shouldn''t have it.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nodev`: This security feature prevents the system from recognizing any character
+    device or block device files that might be on this partition. (You should only
+    see device files in the `/dev/` directory.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Finally, we have the `[Install]` section, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, this partition gets mounted by the `local-fs.target` file, right at the
+    beginning of the bootup process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Okay—you now have a basic understanding of what a mount unit file looks like.
+    You''re now wondering: *Where are the mount unit files for our normal disk partitions?*
+    Ah, I''m glad you asked.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is possible to manually create mount unit files for your normal disk partitions,
+    but it isn''t necessary. In fact, the `systemd.mount` man page recommends against
+    this. Under the `FSTAB` section of this man page, you''ll see that it''s both
+    possible and *recommended* to configure partitions in the `/etc/fstab` file, just
+    like you''ve always done. A `systemd` generator will dynamically create the appropriate
+    mount unit files, based on the information that''s in the `fstab` file. For example,
+    here''s the `fstab` file from the Alma machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: The two `/dev/mapper` lines indicate that the root filesystem partition and
+    the swap partition are mounted as logical volumes. We also see that the root partition
+    is formatted as an `xfs` partition. The `UUID=` line indicates that the `/boot/`
+    partition is mounted as a normal partition that's designated by its **universally
+    unique identifier** (**UUID**) number. (That makes sense because Linux systems
+    can't boot from a logical volume.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Okay—the SysV system would just take the information from the `fstab` file
+    and use it directly. As I''ve already indicated, `systemd` will take this information
+    and use it to dynamically generate the mount unit files under the `/run/systemd/generator/`
+    directory, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It''s fairly obvious which of these files correspond to the `/boot/` and `swap`
+    partitions. What isn''t so obvious is that the `-.mount` file corresponds to the
+    root filesystem partition. Let''s peek into the `boot.mount` file to see what''s
+    there:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: From what you've already seen in the previous example and in the `fstab` file,
+    you should be able to figure out what's going on here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You might want to see what''s in the `-.mount` file, but you can''t do that
+    the normal way. If you try it, you''ll get this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This will happen regardless of which command-line utility you try. That''s
+    because the `–` sign that''s in the prefix of the filename makes the Bash shell
+    think that we''re dealing with an option switch. To make this work, just precede
+    the filename with `./` so that you''ll be working with an absolute path. The command
+    will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay—I think that covers it for the mount units. Let's shift over to the Ubuntu
+    Server 20.04 machine and check out one of the backward-compatibility features
+    of `systemd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding backward compatibility
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can also use `systemd` generators to control services from old-fashioned
+    SysV `init` scripts. You won''t see much of that with Red Hat-type systems, but
+    you will with Debian and Ubuntu systems. (For some strange reason, the Debian
+    and Ubuntu maintainers still haven''t converted all of their services over to
+    native `systemd` services.) To demonstrate, disable and stop the normal `ssh`
+    service on the Ubuntu machine by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, install `Dropbear`, which is a lightweight replacement for the normal
+    OpenSSH package. Do that with the following two commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When the installation completes, you should see that the Dropbear service is
+    already enabled and running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So far, everything looks normal, except for the part about how it loaded the
+    service from the `/etc/init.d/dropbear` `init` script. If you look for a `dropbear.service`
+    file in the `/lib/systemd/system/` directory, you won''t find it. Instead, you''ll
+    see the `dropbear` `init` script in the `/etc/init.d/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When the Dropbear service starts, `systemd` will generate a `dropbear.service`
+    file in the `/run/systemd/generator.late/` directory, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This file isn''t permanently saved to disk and only lasts as long as the system
+    is running. Look inside, and you''ll see that it''s just a normal service unit
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_8.1_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.1 – A generated service file for the Dropbear service
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay—maybe it's not *completely* normal. (I have no idea why it lists the `Before=multi-user.target`
+    line three different times.) Also, it's missing the `[Install]` section because
+    this is actually meant to be a static service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you really want to, you can trick the system into creating a normal `dropbear.service`
+    file in the `/etc/systemd/system/` directory, just by doing a normal `sudo systemctl
+    edit --full dropbear` command. Delete the `SourcePath=/etc/init.d/dropbear` line
+    from the `[Unit]` section because you no longer need it. Next, insert the following
+    line into the `[Service]` section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: This will allow you to set certain Dropbear parameters in the `/etc/default/dropbear`
+    file, which is already there. (Look at the `Dropbear` man page to see which options
+    you can set.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, add the `[Install]` section, which will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Save the file and do a `sudo systemctl daemon-reload` command. Then, enable
+    Dropbear and reboot the VM to verify that it works. Finally, look in the `/run/systemd/generator.late/`
+    directory. You'll see that the `dropbear.service` file is no longer there because
+    `systemd` is no longer using the `dropbear` `init` script. Instead, it's using
+    the `dropbear.service` file that you just created in the `/etc/systemd/system/`
+    directory. If you need to, you can now edit this service file the same way that
+    you'd edit any other service file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Yes indeed, ladies and gents, we've once again covered a lot of ground and looked
+    at some cool stuff. We started with an overview of the SysV and `systemd` boot
+    processes, and then looked at some ways to analyze bootup performance. We then
+    looked at an oddity about the Ubuntu Server bootup configuration. Finally, we
+    wrapped things up by looking at two uses for `systemd` generators.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we'll use some `systemd` utilities to set certain system
+    parameters. I'll see you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: How does `systemd` handle a service that still uses an old-fashioned `init`
+    script?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a. It just uses the `init` scripts directly.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b. It creates and saves a service unit file in the `/etc/systemd/system/` directory.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c. It dynamically generates a service unit file in the `/run/systemd/generator.late/`
+    directory.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d. It won't run a service that only has an `init` script.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What is the recommended way of configuring disk partitions on a `systemd` machine?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a. Manually create a mount unit file for each partition.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b. Edit the `/etc/fstab` file as you normally would.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c. Manually create partition device files in the `/dev/` directory.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d. Use the `mount` utility.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following files represents the root filesystem?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a. `root.mount`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b. `-.mount`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c. `/.mount`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d. `rootfs.mount`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following commands would show you how long each service takes to
+    start during bootup?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a. `systemctl blame`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b. `systemctl time`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c. `systemd-analyze`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d. `systemd-analyze time`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: e. `systemd-analyze blame`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: c
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: b
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: b
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: e
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'D-Bus documentation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.freedesktop.org/wiki/Software/dbus/](https://www.freedesktop.org/wiki/Software/dbus/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`AccountsService` documentation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.freedesktop.org/wiki/Software/AccountsService/](https://www.freedesktop.org/wiki/Software/AccountsService/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Cleaning up the Linux startup process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.linux.com/topic/desktop/cleaning-your-linux-startup-process/](https://www.linux.com/topic/desktop/cleaning-your-linux-startup-process/)'
+  prefs: []
+  type: TYPE_NORMAL

@@ -1,0 +1,1233 @@
+- en: Enterprise Repository Management with Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far in this book, we have covered several tasks related to the build and
+    configuration of Linux servers for deployment in an Enterprise environment. While
+    much of the work we have completed scales well to cover most scenarios, it must
+    be noted that so far we have only installed packages from one of two sources—either
+    the upstream public package repositories corresponding to each Linux distribution
+    we are using or, in the case of our PXE booting chapter, from an ISO image we
+    downloaded.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Needless to say, this presents several challenges, especially when it comes
+    to creating repeatable, manageable builds of Linux. We will explore these in greater
+    depth in the section titled *Installing Pulp for patch management*, but suffice
+    to say, using the publicly available repositories means that two builds being
+    performed on two different weekdays could be different! The ISO installation method
+    presents the other end of the spectrum and always produces consistent builds regardless
+    of when they are performed, but in this case, no security (or other) updates are
+    received! What is required is a compromise between these two extremes, and thankfully,
+    one exists in the form of a software package called **Pulp**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We shall explore Pulp in this chapter, specifically covering the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Pulp for patch management
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building repositories in Pulp
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Patching processes with Pulp
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This chapter includes examples based on the following technologies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ubuntu Server 18.04 LTS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CentOS 7.6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ansible 2.8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To run through these examples, you will need access to two servers or virtual
+    machines running one of each of the operating systems listed previously and Ansible.
+    Note that the examples provided in this chapter may be destructive in nature and
+    if run as-is are only intended to be run in an isolated test environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All example code discussed in this chapter is available on GitHub at the following
+    URL: [https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter08](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter08).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Pulp for patch management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we delve into the practical aspects of installing Pulp, let's take a
+    more in-depth look at why you would use it. Throughout this book, we have advocated
+    building a Linux environment that is standardized and features high degrees of
+    repeatability, audibility, and predictability. These are important not just as
+    a foundation for automation, but also serves as good practice in the enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s assume that you build a server and deploy a new service to it with Ansible,
+    as we have set out earlier in this book. So far, so good—the Ansible playbooks
+    provide documentation on the build standard and ensure the build can be accurately
+    repeated at a later date. There is a catch, however. Let''s say that, a few months
+    later, you return to create another server—perhaps to scale an application or
+    for a **Disaster Recovery** (**DR**) scenario. Depending on the source for your
+    packages, one of two things will happen:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you install from the public internet-facing repositories, both builds will
+    have the latest versions of all the packages that were installed on the date they
+    were built. This difference may be significant, and if time has been put into
+    testing and qualifying software on a given build of Linux, you may not be able
+    to guarantee this with different package versions. Sure, everything is up to date,
+    and you will have all of the latest security patches and bug fixes, but every
+    time you perform this build on a different day, you are prone to getting different
+    package versions. This causes problems with repeatability, especially when ensuring
+    that code that has been tested in one environment works in another.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At the other end of the scale is the ISO build repositories that we used in [Chapter
+    6](0c3b40ef-5f31-4fd1-b05f-d549444db163.xhtml), *Custom Builds with PXE Booting*.
+    These never change (unless someone downloads a newer ISO and extracts it over
+    the old one), and so while it produces builds that are of a completely known quantity
+    (and hence support our repeatability goal), they never receive any security updates.
+    This in itself may be a problem.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The compromise is, of course, to find a middle ground between these two extremes.
+    What if it were possible to create our own repositories of packages that were
+    a snapshot of a given point in time of a public repository? Hence, they remain
+    static when we need them to (thus ensuring consistent builds), and yet can be
+    updated on demand if an important security fix comes out. The Pulp project comes
+    to our rescue here and is capable of doing exactly these things. It is also a
+    component in some of the more complex infrastructure management solutions such
+    as Katello, as we shall see in the next chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, for installations where a **Graphical User Interface** (**GUI**) is
+    not a requirement, Pulp meets our needs perfectly. Let's take a look at how we
+    might install it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we discussed in [Chapter 1](c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml),
+    *Building a Standard Operating Environment on Linux*, in this book, there will
+    be times when even though you may have built a standardized operating environment
+    around a given Linux distribution such as Ubuntu Server, you have to create an
+    exception. Pulp is such a case, for although it can manage both `.rpm` and `.deb`
+    packages (hence handling repository requirements for a wide variety of Linux distributions),
+    it is only packaged for (and therefore is easiest to install) on CentOS, Fedora,
+    and RHEL-based operating systems. You can still manage your Ubuntu Server estate
+    with Pulp—you just need to install it on CentOS (or your preferred Red Hat variant).
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are several facets to the Pulp installation. For example, Pulp relies
+    on a MongoDB installation, which may be external if desired. Similarly, it also
+    relies on a message bus, and it is possible to use either RabbitMQ or Qpid as
+    preferred. Most organizations will have their own standards for these things,
+    and so it is left as an exercise to you to define the architecture best suited
+    to your enterprise. In this chapter, we will perform a very simple installation
+    of Pulp on a single server to demonstrate the steps involved.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Given the relative complexity of installing Pulp, it is recommended that you
+    create an Ansible Playbook for your Pulp installation. However, in this chapter,
+    we will complete the installation manually to demonstrate the work involved—there
+    is no one-size-fits-all Pulp installation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we can begin the installation, we must build a virtual (or physical)
+    server to host our Pulp repositories. For our example, we will base this on CentOS
+    7.6, which is the latest supported version for Pulp at the time of writing. Also,
+    note the following filesystem requirements:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/mongodb`: We will build our example Pulp server with MongoDB on the
+    same host. The MongoDB database can grow to over 10 GB in size, and it is recommended
+    to mount this path on a dedicated LVM backed filesystem so that it can be easily
+    grown if required, and so that if it ever does fill up, it doesn''t halt the rest
+    of the system.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/var/lib/pulp`: This directory is where the Pulp repositories are housed,
+    and again it should be on a dedicated LVM backed filesystem. The size will be
+    determined by the repositories you wish to create—for example, if you want to
+    mirror a 20 GB upstream repository, then `/var/lib/pulp` needs to be a minimum
+    of 20 GB in size. This filesystem also must be XFS-based—if created on `ext4`,
+    you run the risk of running out of inodes.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Once these requirements are met, we must install the EPEL repository as the
+    Pulp install will draw packages from here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then need to install the Pulp repository file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we set up the MongoDB server—this must be completed before we proceed
+    with the Pulp installation. It is expected that most enterprises will have some
+    internal standards for the database servers that they will follow—here, we will
+    suffice with a default installation with SSL encryption:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Again, it is fair to say that most enterprises will have their own certificate
+    authority, be it internal or otherwise. For our example server, we will generate
+    a simple self-signed certificate with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then need to concatenate the private key and certificate into one file for
+    MongoDB to pick up:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this complete, we must reconfigure MongoDB to pick up the newly created
+    certificate file and enable SSL. Edit the `/etc/mongod.conf` file and configure
+    the following parameters (any other parameters in the file can be left at their
+    defaults):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At this stage, we can now enable the MongoDB service to start on boot and start
+    it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With our Mongo database server running, we now need to install the message
+    bus. Again, most enterprises will have corporate standards for this and it is
+    recommended to adhere to these where they are defined. The following example is
+    the minimum required set of steps for a functional demo—it should not be considered
+    fully secured, but it is functional for the sake of testing and evaluating pulp.
+    Here, we simply install the required packages and then enable and start the services:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With our underlying infrastructure completed, we can now install Pulp itself.
+    The initial steps are to install the base packages:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Pulp uses a plugin-based architecture to host the various repositories it is
+    capable of serving. At the time of writing, Pulp is capable of hosting the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: RPM-based repositories (for example, CentOS, RHEL, and Fedora)
+  prefs:
+  - PREF_UL
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: DEB-based repositories (for example, Debian and Ubuntu)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Python modules (for example, for mirroring PyPI content)
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Puppet manifests
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Docker images
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: OSTree content
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Unfortunately, this chapter does not allow us space to go into all of these
+    modules in detail—however, it is safe to say that, at a high-level, Pulp operates
+    in the same manner across all these different technologies. Whether working with
+    Python modules, Docker images, or RPM packages, you can create a central repository
+    that is stable and can be version controlled to ensure an up-to-date environment
+    can be maintained without losing control of what that environment contains.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As our use case is Pulp for serving out Linux packages, we will install the
+    RPM- and DEB-based plugins:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With Pulp installed, we must configure the core services. This is performed
+    by editing `/etc/pulp/server.conf`—most of the default settings are fine for a
+    simple demo such as ours—however, as we enabled SSL support on our MongoDB backend,
+    we must tell the Pulp server we have done this and disable SSL verification as
+    we are using self-signed certificates. The `[database]` section of the aforementioned
+    file should look like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you examine this file, you will see there is a great deal of configuration
+    that can be carried out, all of which is well documented with comments. Specifically,
+    you can customize the following sections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`[email]`: This is off by default but if you want your Pulp server to send
+    email reports, you would configure this here.'
+  prefs:
+  - PREF_UL
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`[database]`: We have simply turned on SSL support in this section, but if
+    the database was on an external server or required more advanced parameters, these
+    would be specified here.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`[messaging]`: For communication between different Pulp components, the default
+    Qpid message broker requires no further configuration here, but if you are using
+    RabbitMQ and/or have turned on authentication/SSL support, then that will need
+    to be configured here.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`[tasks]`: Pulp can have separate message brokers for inter-component communication
+    and its asynchronous tasks, and the broker for the latter can be configured here.
+    As we are using the same Qpid instance for both functions, nothing further is
+    required for this example.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`[server]`: This is used to configure the server''s default credentials, hostname,
+    and such.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Once the Pulp server is configured, we must generate the RSA key pair and CA
+    certificate for Pulp using the following two commands:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Pulp uses Apache to serve its HTTP(S) content, and so we must configure this.
+    First of all, we initialize the backend database by running the following command
+    (note it is run as the `apache` user):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you are intending to use SSL transport with Apache, be sure to configure
+    it to your enterprise requirements. CentOS installs a self-signed certificate
+    for Apache SSL by default, but you may want to replace this with a certificate
+    signed by your Enterprise CA. Also, be sure to disable the insecure SSL protocols—as
+    a minimum, it is recommended to place the following two settings into `/etc/httpd/conf.d/ssl.conf`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: This, of course, is only a guide, and most enterprises will have their own security
+    standards that should be adhered to here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As new vulnerabilities are discovered, these requirements may change. The preceding
+    configuration is believed to be good practice at the time of writing, but could
+    change at any time without notice. It is up to you to check any and all security-related
+    settings for your environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With Apache configured, set it to start on boot and start it up:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Pulp has several other backend services that are required for it to be operational.
+    Each of these can be configured and tuned as required, but again, for the sake
+    of our example server, it is sufficient to enable and start each in turn:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Our final task is to install the administrative components of Pulp so that
+    we can manage our server:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is one final task to complete for our server. Pulp is designed to be
+    administered remotely, and as such, it communicates over SSL to ensure the security
+    of all transactions. Although we have created an *all-in-one* host and throughout
+    this chapter will perform the server admin from the same host, we need to tell
+    the Pulp admin client that we are using self-signed certificates—otherwise, SSL
+    validation will fail. To do this, edit `/etc/pulp/admin/admin.conf`, and in the `[server]` section,
+    define the following parameter:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, we can test that our Pulp server is operational by logging in to it.
+    Although Pulp supports multiple user accounts, and even integration with LDAP
+    backends, a simple installation such as ours comes with one administrator account,
+    where the username and password are both `admin`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'If all goes well, you should see output similar to the following and be able
+    to query to server status (note that the output has been truncated to save space):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/666b7da6-ad6b-40e4-933e-4021fe49b930.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Now that we have a fully operational Pulp server, we shall demonstrate the process
+    of creating repositories for managed stable updates and system builds using our
+    newly built Pulp system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building repositories in Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Although in this chapter we will only be using a subset of the features available
+    in Pulp, it is intended that a viable workflow is demonstrated here that showcases
+    why you might choose Pulp to manage Enterprise repositories, rather than rolling
+    your own solution (for example, copying packages off an ISO as we did in [Chapter 6](0c3b40ef-5f31-4fd1-b05f-d549444db163.xhtml),
+    *Custom Builds with PXE Booting*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The process for handling RPM-based package repositories and DEB-based ones is
+    broadly similar.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's start by exploring how to create and manage RPM-based repositories.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building RPM-based repositories in Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Although installing Pulp is quite a complex process, once it is installed, the
+    process of managing repositories is incredibly straightforward. However, it does
+    require a little knowledge of the repository structure for your chosen Linux distribution.
+    Let's continue with the CentOS 7 build that we have been using as an example throughout
+    this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The core CentOS 7 repositories are split into two—first of all, there is the OS repository;
+    this contains all of the files for the latest point release of CentOS 7—which,
+    at the time of writing, is 7.6\. This was last updated in November 2018 and will
+    remain static until CentOS 7.7 is released. The updates for this release are then
+    contained in a separate repository, and so to build a fully functional mirror
+    for CentOS 7 in our Pulp server, we need to mirror both of these paths.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s start by creating a mirror of the base operating system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step is to log into the `pulp-admin` client, as we demonstrated at
+    the end of the previous section. Then, from there, we run the following command
+    to create a new repository:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s break that command down:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`rpm repo create`: This set of keywords tells the Pulp server to create a new
+    RPM-based repository definition. Note that nothing is synchronized or published
+    at this stage—this is simply creating metadata for a new repository.'
+  prefs:
+  - PREF_UL
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--repo-id=''centos76-os''`: This tells Pulp that the ID of our new repository
+    is `centos76-os`—this is like a unique key and should be used to differentiate
+    your new repository from others.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--relative-url=''centos76-os''`: This instructs Pulp where to publish the
+    repository—RPM-based repositories are published at `http(s)://pulp-server-address/pulp/repos/<relative-url>`.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--feed=http://mirror.centos.org/centos/7/os/x86_64/`:   This is the upstream
+    location from which RPM-based content will be synchronized.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'With our repository definition created, the next step is to synchronize the
+    packages from the upstream server. This is as simple as running this command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This kicks off an asynchronous command that runs in the background on the server—you
+    can check the status at any time using this command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, once the synchronization is completed, the repository must be published—this
+    effectively makes the synchronized content available over the Apache web server
+    installed as part of the Pulp installation earlier:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, with this completed, you have an internal snapshot of the upstream CentOS
+    7.6 OS repository defined by the `--feed` parameter, which will remain constant
+    on our Pulp server even when CentOS 7.7 is released.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, of course, we also need updates to ensure we get the latest security patches,
+    bug fixes, and so on. The frequency of updates of your repositories will depend
+    upon your patching cycle, internal security policies, and so on. Hence, we will
+    define a second repository to house the update packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will issue an almost identical set of commands to the preceding ones to
+    create the updates repository, only this time there are two key differences:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We are using the `/updates/` path for the feed rather than `/os/`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We have put a date stamp into `repo-id` and `relative-url`—you could, of course,
+    adopt your own versioning scheme here—however, as this repository will be a snapshot
+    of all CentOS 7 updates to August 7, 2019, using the date of the snapshot as an
+    identifier is one sensible approach:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: With this run, we can then use the `pulp-admin` client to inspect the repositories
+    and inspect the disk usage. At present, we can see that the Pulp filesystem has
+    33 GB used, though not all of this is for CentOS as there are other repositories
+    on this test system. This level of usage will become important in a minute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In an enterprise environment, a good practice would be to build or update a
+    set of test CentOS 7 systems to this August 7 snapshot and perform the requisite
+    testing on them to ensure confidence in the build. This is especially important
+    in physical systems where kernel changes could cause issues. Once confidence has
+    been established in this build, it becomes the baseline for all CentOS 7 systems.
+    The great thing about this for an enterprise scenario is that all systems (provided
+    they use the Pulp repository) will have the same versions of all packages. This,
+    combined with good automation practices, as we have discussed throughout this
+    book so far, brings almost Docker-like stability and platform confidence to a
+    Linux environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building on this scenario, suppose that overnight a critical security patch
+    is released for CentOS 7\. As important it is to apply this patch in a timely
+    manner, it also is important to perform testing on it to ensure it doesn't break
+    any existing services. As a result, we do not wish to update our `centos7-07aug19` repository
+    mirror, as this is a known stable snapshot (in other words, we have tested it
+    and are happy with it—it is stable within our enterprise environment).
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we were just using the upstream internet-facing repositories, then we would
+    have no control over this and our CentOS 7 servers would blindly pick up the patch
+    the next time an update was run. Equally, if we were manually building repository
+    mirrors using a tool such as `reposync`, we would have one of two choices. First,
+    we could update our existing mirror, which would cost us little disk space, but
+    would bring the same problems as using the upstream repositories (that is, all
+    servers pick up the new patch as soon as an update is run). Alternatively, we
+    could create a second snapshot for testing purposes. I estimated that mirroring
+    the CentOS 7 updates on the Pulp server required approximately 16 GB of disk space
+    and so creating a second snapshot would require around 32 GB of disk space. As
+    time goes on, more snapshots would require more and more disk space, which is
+    incredibly inefficient.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is where Pulp really shines—not only can it create and manage RPM-based
+    repositories in an efficient manner, but it also knows not to download packages
+    that it already has on a sync operation and not to duplicate packages on a publish—hence,
+    it is very efficient in terms of both bandwidth and disk usage. Due to this, we
+    can issue the following command set to create a new snapshot of the CentOS 7 updates
+    on August 8:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You will recognize the similarity with the commands we ran earlier in this
+    section to create the August 7, 2019 snapshot—they are, in fact, identical except
+    for the new repository ID (`--repo-id`) and URL (`--relative-url`), which carry
+    the new date in to differentiate it from our earlier one. This process will run
+    as before, as shown in the following screenshot—it appears that all packages are
+    downloaded and at this stage, there is little clue as to what goes on behind the
+    scenes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/35ae2ab6-0b63-4f93-a0a2-8dc28039fd0c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'However, let''s now examine the disk usage:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/133bb03b-d5a6-47e3-a3ce-e277eb7f3a58.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Here, we can see that the disk usage has been rounded up to 34 GB—we would likely
+    find the usage considerably less if we used a more fine-grained measure. In this
+    way, Pulp allows us to create snapshots almost as we require them, without consuming
+    vast amounts of disk space, while retaining older ones for stability purposes
+    until new ones are proved, at which point redundant snapshots can be deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is worth saying in this regard that deleting a repository from Pulp does
+    not necessarily free up disk space. The reason for this is that the package de-duplication
+    at the backend must be careful not to delete any packages that are still required.
+    In our example, more than 99% of the packages from our August 7 snapshot are also
+    in the August 8 one, and so it is important that if we delete either of these,
+    that the other remains intact.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In Pulp, this process is called orphan recovery, and it is the very process
+    of finding packages that no longer belong to any repository (presumably because
+    the repository was deleted) and tidying them up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Completing our current example, suppose that we tested our August 8 snapshot
+    and the updated packages in it caused problems in testing. From this, we have
+    determined that this snapshot is not suitable for production and that we will
+    delete it, pending creation of a new snapshot when a fix becomes available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, we must delete the repository itself:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: This removes the repository definition and the published URL on the Apache server
+    so that it can no longer be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To clean up any orphan packages, we can then issue the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This command is a general cleanup that removes all orphans from across the
+    entire Pulp server and is a good general maintenance step. However, the command
+    can receive more fine-grained control to remove only a specific type of orphan
+    (for example, you could clean out all orphan RPMs, but not DEB packages):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/024a3646-89cc-40da-b766-091b2db4e84e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once this step is completed, we will see that our additional disk space used
+    by the new snapshot has been recovered:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/32b4b4fd-9aa2-4f55-b0f1-d270f76b8f3e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this section, so far we have stepped through all the Pulp commands and activities
+    manually—this has been done to provide you with a good understanding of the steps
+    required in setting up Pulp and the accompanying repositories. In regular services,
+    best practice would dictate that these steps are performed with Ansible—however,
+    there are no native Ansible modules to cover all of the tasks we have performed
+    in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, the `pulp_repo` module (introduced to Ansible in version 2.3) is
+    capable of creating and deleting repositories, as we have done so far in this
+    chapter with `pulp-admin rpm repo create`. However, it cannot perform orphan clean-up,
+    and so this command would need to be issued using the `shell` or `command` Ansible
+    modules. Full automation with Ansible is left as an exercise for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once our repos are set up, the final step is to put them into use on our Enterprise
+    Linux servers, and we will cover this in the next section of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, though, we will look at some of the nuances of managing DEB packages
+    in Pulp in contrast to RPM-based management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building DEB-based repositories in Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Although there are some subtle differences in the command-line structure between
+    the RPM repository plugin for Pulp and the DEB one, the overall process is the
+    same. As before, some prior knowledge is also required of the repository structure
+    to create an effective mirror. In this book, we have worked with Ubuntu Server
+    18.04 LTS as an example, and the default repository set that is configured on
+    this is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bionic`: This is the baseline repository for the release of Ubuntu Server
+    18.04 (codename Bionic Beaver), and as with the OS repository for CentOS 7, does
+    not change following the release of the operating system'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bionic-security`: These are security-specific updates for the bionic operating
+    system built post-release'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bionic-updates`: These are non-security updates for the bionic operating system
+    release'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There are other repositories too, such as `backports`, and in addition to the `main` component
+    (which we will concern ourselves with here), there is a wide array of packages
+    available in the `restricted`, `universe`, and `multiverse` components. Going
+    into greater detail about the Ubuntu repository structure is beyond the scope
+    of this book, but suffice to say there is a wide array of documentation available
+    on this subject. The following link is a good place to start reading about the
+    different Ubuntu repositories you may wish to mirror: [https://wiki.ubuntu.com/SecurityTeam/FAQ#Repositories_and_Updates](https://wiki.ubuntu.com/SecurityTeam/FAQ#Repositories_and_Updates).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For now, let''s suppose we are updating a minimal build of Ubuntu Server 18.04
+    LTS. For this, we are only interested in packages in the `main` component, but
+    we do need a snapshot of all the security fixes and updates at a given point in
+    time, just like one we had for our CentOS 7 build:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, having ensured we are logged in to the `pulp-admin` client as
+    before, we will create a repository in Pulp for the `main` component and the operating
+    system release packages:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the preceding command is very similar to our RPM repository
+    creation command. We specify `repo-id` and `relative-url` in the same manner as
+    before and specify an upstream `feed` URL. This time, though, we are specifying
+    the Ubuntu `releases`, `components`, and `architectures` as command-line options
+    whereas, in our CentOS 7 example, these were implicit in the URL we mirrored.
+    In addition to these DEB-specific configuration parameters, we are now also specifying
+    the `--serve-http` option. By default, Pulp serves all repository content over
+    HTTPS only. However, owing to some limitations around package signing for DEB
+    packages in Pulp, which will be discussed later in this chapter, we must enable
+    the serving of repository content over plain HTTP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that, as the plural naming of the `--releases` option implies, more than
+    one release may be specified here. Although this works at repository creation
+    time, the sync process is, at the time of writing, broken, and so one separate
+    Pulp repository must be created for each Ubuntu release we wish to mirror. This
+    is expected to be fixed at a future date.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Having done this, we will create two more repositories for the `security` and `updates` repositories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With our repository creation completed, we can run our sync processes, just
+    like we did previously:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we publish the repositories:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is worth noting that Ubuntu repositories tend to be much larger than their
+    CentOS counterparts, especially the `updates` and `security` ones. During the
+    sync process, the packages are downloaded into `/var/cache/pulp` temporarily before
+    they are archived into the `/var/lib/pulp` directory. If `/var/cache/pulp` is
+    on your root filesystem, there is a significant danger of your root filesystem
+    filling up, and as such, it may be best to create a new volume for this purpose
+    and mount at `/var/cache/pulp` to prevent a disk full situation from stopping
+    your Pulp server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The DEB plugin for Pulp features the same package deduplication as its RPM counterpart
+    and publishes packages over HTTPS (and optionally HTTP) in the same manner. With
+    a few changes to the syntax of the commands, we can effectively create snapshots
+    of upstream Linux repositories for most of the major distributions that are found
+    in enterprise environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a result of completing this section, you have learned how to create your
+    own repository mirrors for both RPM- and DEB-based content in Pulp, which may
+    be treated as stable and unchanging and hence provide an excellent basis for patch
+    management in an enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section of this chapter, we will look at how to deploy these repositories
+    to two different types of Linux server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Patching processes with Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It is worth mentioning at the outset of this section that Pulp supports two
+    main methods for the distribution of packages from the repositories created within
+    it. The first is a kind of push-based distribution that uses something called
+    the **Pulp Consumer**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will not be exploring this in this chapter for the following reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Pulp Consumer only works with RPM-based repositories and distributions,
+    and at the time of writing, there is no equivalent client available for Ubuntu
+    or Debian. This means that our processes cannot be uniform across the enterprise,
+    which, in an ideal world, they would be.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the Pulp Consumer means we would have two overlapping means of automation.
+    Distributing packages to nodes using the consumer is a task that can be performed
+    with Ansible, and if we use Ansible for this task, then we have an approach that
+    is common across all of our platforms. This supports the principles of automation
+    in an enterprise context that we established earlier in this book around lowering
+    barriers to entry, ease of use, and so on.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As such, we will build out separate Ansible-based examples for managing repositories
+    and updates using the repositories we created in the previous section, entitled *Building
+    repositories in Pulp*. These can be managed along with all the other Ansible playbooks
+    and can be run through a platform such as AWX to ensure a single pane of glass
+    is used wherever possible for all tasks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's get started by looking at how to patch RPM-based systems using a combination
+    of Ansible and Pulp.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RPM-based patching with Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous section of this chapter, we created two repositories for our
+    CentOS 7 build—one for the operating system release and another to contain the
+    updates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The process of updating a CentOS 7 build from these repositories is, at a high
+    level, done as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Move aside any existing repository definitions in `/etc/yum.repos.d` to ensure
+    we only load repositories from the Pulp server.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Deploy the appropriate configuration using Ansible.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Employ Ansible to pull the updates (or any required packages) from the Pulp
+    server using the new configuration.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Before we proceed with creating the appropriate playbooks, let''s take a look
+    at what the repository definition file would look like on our CentOS 7 machine
+    if we created it by hand. Ideally, we want it to look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: There's nothing particularly unique about this configuration—we are using the `relative-url` we
+    created earlier with our repository using `pulp-admin`. We are using GPG checking
+    of package integrity, along with the CentOS 7 RPM GPG key, which we know will
+    already be installed on our CentOS 7 machine. The only tweak we've had to make
+    to this otherwise standard configuration is to turn off SSL verification since
+    our demo Pulp server features a self-signed certificate. Of course, if we are
+    using an enterprise certificate authority and the CA certificates are installed
+    on each machine, then this problem goes away.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Given the power of Ansible, we can be a bit clever about how we do this. There's
+    no point creating and deploying static configuration files when we know that,
+    at some point, we're going to update the repository—meaning, at the very least,
+    that `baseurl` might change.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s start off by creating a role called `pulpconfig` to deploy the correct
+    configuration—`tasks/main.yml` should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The accompanying `templates/centos-pulp.repo.j2` template should look like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice the variable substitutions at the end of each of the `baseurl` lines—these
+    allow us to keep the same template (which should be common for most purposes)
+    but change the repository URL over time to adapt to updates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we will define a second role specifically for updating the kernel—this
+    will be very simple for our example and `tasks/main.yml` will contain the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we will define `site.yml` at the top level of the playbook structure
+    to pull all of this together. We could, as we discussed previously, define the
+    variables for the relative URLs in a whole host of places, but for the sake of
+    this example, we will put them in the `site.yml` playbook itself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, if we run this in the usual manner, we will see output similar to the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3ca9b23c-7687-4ddf-b54d-6a6039dab28f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: So far, so good—the `changed` statuses from the preceding play tell us that
+    the new configuration was applied successfully.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Those with a keen eye will have observed the warning on the `Clean out yum database` tasks—Ansible
+    detects when a raw shell command is being used that has overlapping functionality
+    with a module and recommends that you use the module instead for reasons of repeatability
+    and idempotency, as we discussed earlier. However, as we want to ensure all traces
+    of any earlier `yum` databases are removed (which can present problems), I have
+    adopted a *brute force* method here to clean up the old databases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, as I''m sure you will have spotted, the great thing about this approach
+    is that if, say, we want to test our `08aug19` repository snapshot that we created
+    in the previous section, all we have to do is modify the `vars:` block of `site.yml` so
+    that it looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Hence, we can reuse the same playbook, roles, and templates in a variety of
+    scenarios simply by changing one or two variable values. In an environment such
+    as AWX, these variables could even be overridden using the GUI, making the whole
+    process even easier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this way, combining Ansible with Pulp lends itself to a really stable enterprise
+    framework for managing and distributing (and even testing) updates. However, before
+    we look at this process on Ubuntu, a word on rollbacks. In the previous section,
+    we hypothesized an example where our `08aug19` snapshot failed testing and so
+    had to be deleted. As far as CentOS 7 servers are concerned, rollbacks are not
+    as straightforward as simply installing the earlier repository definitions and
+    performing an update since the update will detect newer packages that have been
+    installed and take no action.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Pulp repository does, of course, provide a stable base to roll back to—however,
+    rollbacks are generally quite a manual process as you must identify the transaction
+    ID in the `yum` database that you want to roll back to and validate the actions
+    to be performed and then roll back to it. This, of course, can be automated, provided
+    you have a reliable way of retrieving the transaction ID.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following screenshot shows a simple example of identifying the transaction
+    ID for the kernel update we just automated and establishing the details of the
+    change that was performed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/23b9467c-1cc1-453c-9f97-a11cf42a8071.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Then, we can (if we so choose) roll back the transaction using the command
+    shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b2a07d83-c7b1-4c53-a864-4f904ba65b1e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Using this simple process and the playbooks offered here as a guide, it should
+    be possible to establish a solid, stable, automated update platform for any RPM-based
+    Linux distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will look at the method we can use to perform the same
+    set of tasks, except for DEB-based systems such as Ubuntu.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DEB-based patching with Pulp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At a high level, the process of managing updates on Ubuntu from our Pulp server
+    is exactly the same as it is for managing the RPM based updates for CentOS (save
+    for the fact that we have no option regarding the use of the Pulp Consumer and
+    must use Ansible for the update process).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are, however, a couple of limitations when it comes to the use of Pulp
+    with Ubuntu''s APT repository system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the time of writing, there is an issue whereby the Pulp sync process does
+    not mirror the signing keys from the upstream Ubuntu repository. This means that
+    even though the upstream repository features `Release.gpg`, it is not mirrored
+    on the Pulp server. Hopefully, in the future, this will be fixed, but in this
+    chapter, we will work around this by adding implicit trust to the packages.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: HTTPS support on Ubuntu is configured not to accept updates from unverifiable
+    (that is, self-signed) certificates by default. Although we can turn off SSL verification
+    as we did on CentOS, Ubuntu's APT package manager then goes in search of an `InRelease` file
+    (which should have the aforementioned GPG key embedded). As we discussed in the
+    previous point, the Pulp DEB plugin does not support the signing of mirrored repositories,
+    and so right now, the only workaround for this is to use unencrypted HTTP traffic.
+    Hopefully, in a future release, these two issues will be fixed—however, at the
+    time of writing, there appears to be no documented fix or workaround for them.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'With these two limitations understood, we can define our APT sources file for
+    the repository set we created earlier. Following on from the examples in the previous
+    section, our `/etc/apt/sources.list` file could look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `[trusted=yes]` string tells the APT package manager to ignore the lack
+    of package signing. The file structure itself is incredibly simple, and so just
+    as with our CentOS example, we can create a template file so that the relative
+    URL can be populated using a variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we''ll create a role called `pulpconfig` and create the following `templates/sources.list.j2` template:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we will create some tasks with the role to install this template and
+    move aside any old configuration for APT:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we will define a role to update the kernel, but this time using APT:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Our `site.yml` playbook for Ubuntu systems now looks like this—save for the
+    variable differences, it is almost identical to the CentOS 7 one, once again highlighting
+    the value in using Ansible as an automation platform:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, after putting this all together and running it, we should see output similar
+    to what can be seen in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/866e4066-b61c-493e-a2ad-59507ea55947.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Putting aside the security limitations present in the current Pulp Debian support,
+    this provides a neat space-efficient solution for managing Ubuntu updates across
+    an enterprise infrastructure in a manner that is repeatable and lends itself well
+    to automation. As with our earlier CentOS-based example, it would be very easy
+    to test packages from a new snapshot by simply changing the variable definitions
+    passed to our roles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As with CentOS, should a new package set not be suitable for production use,
+    Ansible makes it easy to restore the previous repository configuration. However,
+    rolling back packages on Ubuntu (and other Debian-based distributions) is a much
+    more manual process than we saw in the previous section. Fortunately, there is
+    a great deal of history regarding package transactions kept in `/var/log/dpkg.log` and `/var/log/apt/history.log*`, which
+    can be used to determine which packages were installed and/or upgraded and when.
+    The `apt-get` command can then be used to install a specific version of a package
+    using the `apt-get install <packagename>=<version>` syntax. There are many elegant
+    scripted solutions to this problem on the internet, and so it is left as an exercise
+    for you to determine the one best suited to your needs and environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Managing package repositories in an enterprise setting can present numerous
+    challenges, especially when it comes to efficient storage, conservation of internet
+    bandwidth, and ensuring build consistency. Fortunately, the Pulp software package
+    provides an elegant solution to these challenges for most of the common Linux
+    distributions and lends itself well to effective management in the enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, you learned how to install Pulp to begin patching an Enterprise
+    Linux environment. You then learned how to build repositories in Pulp for both
+    RPM-based and DEB-based Linux distributions through hands-on examples, before
+    gaining practical knowledge of deploying the appropriate Pulp configuration and
+    updating packages using Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will explore how the Katello software tools complement
+    Pulp in enterprise environment management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Why would you want to create a repository with Pulp rather than just a simple
+    mirror of files that you could download manually?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are the issues around building and testing Linux patch repositories in
+    an enterprise environment?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What components does Pulp need to run?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Specify the filesystem requirements for successfully installing Pulp.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you patch an RPM-based system from a Pulp repository you created previously?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why would you use Ansible to deploy patches from a Pulp repository rather than
+    the Pulp Consumer?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Does the removal of a Pulp repository free up disk space? If not, how is this
+    performed?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For more in-depth details on the Pulp project and how to make use of this tool,
+    please refer to the official documentation ([https://pulpproject.org/](https://pulpproject.org/)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

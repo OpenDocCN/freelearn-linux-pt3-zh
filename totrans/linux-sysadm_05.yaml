@@ -1,0 +1,524 @@
+- en: '5'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Hardware Discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Knowing how to find out what hardware an operating system runs on and what peripherals
+    are attached is a necessary skill for all systems administrators – at the very
+    least, every administrator needs to know how many CPU cores they have and how
+    much memory there is to allocate resources to applications. In this chapter, we’ll
+    learn how to retrieve and interpret information about CPUs, USB peripherals, and
+    storage devices, using both the raw kernel interfaces and utilities to work with
+    them. We will also cover tools specific to x86 machines with a SMBIOS/DMI interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to discover the number of CPUs, their model names, and features
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to discover PCI, USB, and SCSI peripherals
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to use platform-specific tools to retrieve detailed hardware information
+    from system firmware
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Discovering CPU model and features
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The central processor is certainly one of the most important hardware components,
+    and there are many reasons to find out detailed information about it. The CPU
+    model name or number and frequency are the first things you would look at to find
+    out the age and overall performance of a machine. However, there are more details
+    that are often useful in practice. For example, the number of CPU cores is important
+    to know if you run applications that support multiple worker threads or processes
+    (such as `make -j2`). Trying to run more processes than there are CPUs may slow
+    the application down because some of those processes end up waiting for an available
+    CPU, so you may want to run fewer worker processes to avoid overloading the machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s also important to know whether your CPU supports specific acceleration
+    technologies such as AES-NI or Intel QuickAssist. If they are available, some
+    applications can perform much better if you enable support for those acceleration
+    features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Feature discovery on different platforms
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One thing you should remember about CPU information discovery is that it’s largely
+    a feature of the CPU itself rather than a feature of Linux. If a CPU has no way
+    to report certain information, it may be difficult or even impossible to figure
+    it out from the software.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many ARM and MIPS CPUs do not report their exact model names, so the only way
+    to find them may be to just open the case and look at the chip.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, the popular Raspberry Pi 4 single-board computer uses an ARM Cortex
+    A72 CPU, but it doesn’t tell you that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We will focus on x86 CPUs made by AMD and Intel because they are still the most
+    common CPUs outside of embedded system markets, and they have the most extensive
+    feature-reporting functionality.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The /proc/cpuinfo file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We discussed the `/proc` filesystem when we talked about process control in
+    [*Chapter 4*](B18575_04.xhtml#_idTextAnchor059), *Processes and Process Control*.
+    That filesystem is virtual – files under `/proc` aren’t present on any disk, and
+    the kernel simply presents that information as if it were stored in files, according
+    to the *everything is a file* principle of the Unix philosophy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Apart from information about running processes, the kernel also uses `/proc`
+    for information about CPUs and memory. The file with CPU information is named
+    `/proc/cpuinfo`, as we saw earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s look at that file on an Intel machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Some information is obvious and needs no interpretation. The model is Intel
+    Xeon L5630, its frequency is 2.13 GHz, and it has 12 kilobytes of cache. The reason
+    why CPU vendor names are written in seemingly strange ways such as `GenuineIntel`
+    and `AuthenticAMD` is that, internally, the vendor string is stored as three 32-bit
+    values, which gives 12 bytes. Note how both `GenuineIntel` and `AuthenticAMD`
+    are 12 characters long – they were chosen to fill all 12 bytes with printable
+    ASCII characters to avoid issues with different interpretations of null bytes
+    on different systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One field of note is `bogomips`. Its name hints at the **Million Instructions
+    per Second** (**MIPS**) performance metric, but that value isn’t a useful indicator
+    of overall performance. The Linux kernel uses it for internal calibration purposes,
+    and you shouldn’t use it to compare the performance of different CPUs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `flags` field has the highest information density and is the most difficult
+    to interpret. A flag is simply a bit in the Flags register, and the meanings of
+    those bits vary widely. Some of them aren’t even set in the hardware CPU, such
+    as the hypervisor flag, which indicates that the system runs on a virtual machine
+    (but its absence doesn’t mean anything, since not all hypervisors set it).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many flags indicate whether a certain feature is present, although interpreting
+    their nature and importance requires familiarity with the vendor’s terminology.
+    For example, the Neon feature from the Raspberry Pi output is a set of **Single
+    Instruction, Multiple Data** (**SIMD**) instructions for ARM CPUs, comparable
+    with Intel’s SSE, which is often used in multimedia and scientific applications.
+    When in doubt, consult the CPU vendor documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Multi-processor systems
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Most CPUs on the market today include multiple CPU cores, and server mainboards
+    often have multiple sockets. The `cpuinfo` file includes all information necessary
+    to figure out the CPU socket and core layout, but there are caveats.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The field you should look at to determine the number of CPU sockets is `physical
+    id`. Note that `physical id` values aren’t always consecutive, so you can’t just
+    look at the maximum value and should consider all the values present. You can
+    find unique IDs by piping the `cpuinfo` file through the `sort` and `uniq` commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In virtual machines running on x86 hardware, all CPUs that the hypervisor presents
+    to them will show up as if they were in different physical sockets. For example,
+    if you have a hypervisor host with a single quad-core CPU and create a virtual
+    machine with two virtual CPUs, it will look like two single-core CPUs in different
+    sockets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On many non-x86 architectures, such as ARM, all CPUs will look as if they are
+    different physical CPUs, whether they are different chips or cores on the same
+    chips.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On bare-metal x86 machines, you can find two `cpuinfo` entries with different
+    physical IDs and examine them further to find out the number of cores in each
+    socket.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider this `cpuinfo` entry from a Linux system running on a laptop:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: From the `cpu cores` field, you can see that it’s a quad-core CPU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, note that the entry has `processor: 7` in it, and the `siblings` field
+    is set to `8`. It appears that the system has eight CPUs, even though it clearly
+    has a single physical CPU chip (all entries have `physical id: 0`), and the reported
+    number of cores in each entry is `4`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is caused by *simultaneous multithreading* technologies such as AMD SMT
+    and Intel Hyper-Threading. Those technologies allow a single CPU core to maintain
+    the state of more than one execution thread, which can speed up certain applications.
+    If every core supports two threads at once, to the operating system it looks as
+    if the machine has twice as many CPU cores than it really does. For this reason,
+    you can’t determine the number of physical cores just by looking at the highest
+    `/proc/cpuinfo` entry number, so you need to examine it more closely.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is a utility named `nproc` in the GNU `coreutils` package whose purpose
+    is to output the number of CPU cores in the system, and it can simplify your job
+    if you need the number of CPUs – for example, to determine how many worker processes
+    or threads of an application to spawn. However, it does not take simultaneous
+    multithreading into account and prints the number of virtual cores if an SMT technology
+    is enabled. If your application requires the number of physical cores, you should
+    not rely on the output of `nproc` for that purpose. This is what the output of
+    `nproc` would look like on that machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: High-level CPU discovery utilities
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As you can see, reading the `/proc/cpuinfo` file can be a tedious and tricky
+    task. For this reason, people created utilities that aim to simplify it. The most
+    popular tool in this category is `lscpu` from the `util-linux` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If offers an easier-to-read output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Another advantage is that you can get a machine-readable JSON output by running
+    `lscpu --json` and analyzing it with scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note, however, that `lscpu` doesn’t take the simultaneous multithreading issue
+    into account (at least as of version 2.38) and will report twice as many CPUs
+    if AMD SMT or Intel Hyper-Threading is enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, there is a lot of information about the CPUs that you can get
+    either directly from the `/proc` filesystem or by using high-level utilities to
+    simplify the process. However, you should always remember the nuances of interpretation,
+    such as the issue of core numbers being inflated by simultaneous multithreading
+    technologies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Memory discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Discovering the amount of memory is often even more practically important than
+    discovering CPU features. It is required to plan application deployment, choose
+    the size of a swap partition, and estimate whether you need to install more memory
+    already.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, the kernel interfaces for memory discovery are not as rich as those
+    for discovering CPU features. For example, it is impossible to find out how many
+    memory slots a system has, how many of them are used, and what the sizes of memory
+    sticks installed in those slots using the kernel interface are alone. At least
+    on some architectures, it is possible to obtain that information, but from the
+    firmware rather than from the kernel, as we will see later in the *dmidecode*
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Moreover, information from the kernel can be misleading for beginners who are
+    unfamiliar with Linux kernel conventions. First, let us look at that information
+    and then discuss how to interpret it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, we will look at the output of the `free` utility that comes from the
+    `procps-ng` package. That utility has the `-m` option to show memory amounts in
+    megabytes rather than in kibibytes, which is much easier to read.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.1 – the free –m output](img/B18575_05_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.1 – the free –m output
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the surface, its output seems self-descriptive. The total amount of memory
+    here is about 16 gigabytes. Of that amount, `13849` megabytes are used. However,
+    the question of how the kernel uses memory is not trivial. Not all memory that
+    is declared as used is used by user applications – the kernel also uses memory
+    to cache data from disk to speed up input-output operations. The more memory the
+    system has that is not currently used by any processes, the more memory will be
+    used by Linux for caching. Whenever there is not enough completely unused memory
+    to allocate to a process that requests it, the kernel will evict some cached data
+    to free up space. For this reason, the amount of memory in the `used` column can
+    be very high, even on a system that runs very few applications, which may create
+    an impression that the system is running out of memory when, in fact, there is
+    lots of memory available to applications. The amount of memory used for disk caching
+    is in the `buff/cache` column, and the amount of memory available to applications
+    is in the `available` column.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Raw information about memory consumption is found in the `/proc/meminfo` file.
+    The output of the `free` utility is a summary of information from that file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discovering PCI devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Many peripherals are attached to a PCI bus. These days, this usually means **PCI
+    Express** (**PCI-e**) rather than older PCI or PCI-x buses, but from a software
+    point of view, they are all PCI devices, whichever variant of that bus they are
+    attached to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The kernel exposes information about them in the `/sys/class/pci_bus` hierarchy,
+    but reading those files by hand would be a very time-consuming task, unlike in
+    `/proc/cpuinfo`, so in practice, people always use utilities for it. The most
+    popular one is `lspci` from the `pciutils` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a sample output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Full access to the PCI bus information is only available to the `root` user,
+    so you should run `lspci` with `sudo`. PCI device classes are standardized, so
+    that utility will not only tell you about device vendors and models but also their
+    functions, such as an Ethernet controller or a SATA controller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of those names may be slightly misleading – for example, a VGA-compatible
+    controller may not have an actual VGA port; these days, it’s almost invariably
+    DVI, HDMI, or Thunderbolt/DisplayPort.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discovering USB devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To discover USB devices, there’s the `lsusb` utility from the `usbutils` package.
+    That command does not require `root` privileges. Here’s what its output may look
+    like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Even though the USB bus specification also includes standardized device classes,
+    `lsusb` does not show them by default. One reason for that behavior is that a
+    single USB device may implement multiple functions. A smartphone, for example,
+    can present itself as a mass storage device (similar to a USB stick) for generic
+    file transfer and as a digital camera to retrieve pictures from it using **Picture
+    Transfer** **Protocol** (**PTP**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can get detailed information about a device by running `lsusb` with additional
+    options. In the previous example, running `lsusb -s 2 -v` would show you information
+    about device `002` – a Kensington trackball.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that if a device is shown in the output of `lsusb`, it doesn’t always mean
+    that it’s attached to a USB port. Onboard devices may also be connected to the
+    USB bus. In the previous example, the Bluetooth controller is an internal device
+    in the laptop.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discovering storage devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Storage devices can be attached to different buses, so discovering them may
+    be complicated. One useful command to discover everything that looks like a storage
+    device is `lsblk` from the `util-linux` package (its name stands for list block
+    devices):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'One caveat is that it will show virtual devices as well as physical ones. For
+    example, if you mount an ISO image using a virtual loop device, it will show up
+    as a storage device – because from the user’s point of view, it is indeed a storage
+    device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you try to discover physical devices, you may want to try the `lsscsi` command
+    from the package that is also usually called `lsscsi`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: A confusing part is that the *protocol* of the original parallel SCSI bus found
+    many new applications and remains widely used, even though its original hardware
+    implementation was replaced by newer buses. There are many devices that will show
+    up in the output of that utility, including SATA, **Serial-Attached SCSI** (**SAS**),
+    and NVMe drives, as well as USB mass storage devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Conversely, paravirtual devices such as VirtIO drives in KVM and Xen virtual
+    machines will not be included in the `lsscsi` output. All in all, you may need
+    to rely on a combination of `lsusb`, `lsscsi`, and `lsblk` to get the full picture.
+    A good thing is that none of those commands require `root` privileges. Another
+    good thing about `lsblk` specifically is that you can run `lsblk --json` to get
+    machine-readable output and load it in a script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: High-level discovery tools
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As well as these tools, which are specific to a certain bus or device type,
+    there are also tools that can help you discover all hardware present in a system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: dmidecode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: On x86 systems, you can use a program named `dmidecode` to retrieve and view
+    information from the firmware (BIOS/UEFI) via the Desktop Management Interface
+    (hence its name). That interface is also known as SMBIOS. Since it’s specific
+    to the x86 PC firmware standards, it will not work on machines with other architectures
+    such as ARM or MIPS, but on x86 laptops, workstations, and servers, it can help
+    you discover information that cannot be obtained in any other way, such as the
+    number of RAM slots.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One disadvantage is that you need `root` privileges to run it. Another thing
+    to take note of is that it produces a lot of output. There is no way to reproduce
+    a complete output in the book because it would take many pages, but for reference,
+    here’s what the beginning of its output may look like (in this case, in a VMware
+    virtual machine):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see in this output, there are exact model names for the chassis and
+    the mainboard. Unlike, for example, a USB, where the protocol itself includes
+    features that allow devices themselves to report their names and capabilities
+    to the host, there is no cross-platform way to query the mainboard name, but at
+    least on most x86 machines, that information is available through the DMI interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: lshw
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Another tool that provides comprehensive hardware reporting is `lshw` (LiSt
+    HardWare). Like `dmidecode`, it can use the DMI interface as its information source,
+    but it tries to support more hardware platforms and their platform-specific hardware
+    discovery interfaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One disadvantage is that none of the popular distributions install it by default,
+    so you’ll always need to install it from the repositories by hand. It also requires
+    `root` privileges to run, since it relies on the privileged access DMI.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a sample output from a virtual machine running in KVM on the DigitalOcean
+    cloud platform. Its output is also very large, so we only include its beginning:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the output includes information that can only be retrieved from
+    DMI (such as the mainboard model), together with information that we have seen
+    in the outputs of `lsusb` and other utilities. In this sense, `lshw` can replace
+    them if you want a detailed and complete overview of all installed hardware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we learned that the Linux kernel can gather a lot of information
+    about the system hardware and provide it to the user. In an emergency situation,
+    it’s possible to retrieve all that information directly from the kernel, using
+    the `/proc` and `/sys` filesystems and reading files such as `/proc/cpuinfo`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, high-level utilities such as `lscpu`, `lsscsi`, and `lsusb` can make
+    it much easier to retrieve information and analyze it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are also platform-specific utilities, such as `dmidecode` for x86 PCs,
+    that can help you retrieve even more detailed information that cannot be retrieved
+    otherwise, such as the number of memory slots.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will learn about configuring basic system settings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 2: Configuring and Modifying Linux Systems'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The second part of the book is dedicated to managing individual Linux systems.
+    Once you are comfortable interacting with the system, the next step is to learn
+    how to configure it. In this part, you will learn how to configure basic settings
+    such as the system hostname, how to create and manage users and groups, how to
+    install additional software from package files or remote repositories, and how
+    to set up and debug network connections and storage devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 6*](B18575_06.xhtml#_idTextAnchor109), *Basic System Settings*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 7*](B18575_07.xhtml#_idTextAnchor118), *User and Group Management*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 8*](B18575_08.xhtml#_idTextAnchor134), *Software Installation and
+    Package Repositories*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 9*](B18575_09.xhtml#_idTextAnchor152), *Network Configuration and
+    Troubleshooting*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 10*](B18575_10.xhtml#_idTextAnchor175), *Storage Management*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

@@ -1,0 +1,979 @@
+- en: CIS Hardening with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [Chapter 13](3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml), *Using CIS Benchmarks*,
+    we explored in detail the concept of CIS Benchmarks, how they benefit Linux security
+    in the enterprise, and how to apply them. We examined in some detail an example
+    of the CIS hardening benchmarks, that being the one for Red Hat Enterprise Linux
+    (and CentOS) 7\. Although we concluded that the benchmark document provided a
+    great deal of detail regarding the validation checks, and even how to implement
+    the benchmarks, we also saw that the whole process was incredibly manual. Further,
+    with almost 400 pages of detail to a single operating system benchmark, we established
+    that the potential workload for an engineer to implement this on just one server
+    would be huge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will once again bring Ansible into consideration. We have
+    already established that Ansible lends itself extremely well to automation at
+    enterprise scale, and implementation of the CIS Benchmarks is no exception. As
+    we proceed through this chapter, we will learn how to rewrite the CIS Benchmarks
+    in Ansible, and then how to apply them at enterprise scale and even maintain oversight
+    of the ongoing compliance of your Linux servers against these benchmarks going
+    forward. In doing this, we will develop a highly scalable, repeatable approach
+    to implementing security benchmarks in the enterprise in a manner that is manageable,
+    repeatable, reliable, and secure – all the hallmarks of effective automation in
+    the enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing Ansible security policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Application of enterprise-wide policies with Ansible
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Testing security policies with Ansible
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This chapter includes examples based on the following technologies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: CentOS 7.6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ansible 2.8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To run through these examples, you will need access to a server or virtual machine
+    running the operating system listed previously, alongside Ansible. Note that the
+    examples given in this chapter may be destructive in nature (for example, they
+    delete files and make changes to server configuration) and if run as shown are
+    only intended to be run in an isolated test environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once you are satisfied that you have a safe environment to operate in, we can
+    get started with routine system maintenance with Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All example code discussed in this chapter is available on GitHub at the following
+    URL: [https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter14](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter14).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing Ansible security policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [Chapter 13](3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml), *Using CIS Benchmarks*,
+    we explored the CIS Benchmark for Red Hat Enterprise Linux 7 (version 2.2.0) and
+    looked in detail at the document and implementation techniques. Although throughout
+    this book we have focused on two of the more common operating systems found in
+    the enterprise – Ubuntu Server LTS and RHEL/CentOS 7 – in the previous chapter,
+    we chose to focus on the CIS Benchmark for RHEL 7 alone. This was purely for simplicity,
+    as many of the good security practices that apply to RHEL 7 will also apply to
+    Ubuntu Server LTS. For example, neither system should have root SSH logins enabled,
+    and neither should have packet redirect sending enabled unless it is core to their
+    role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will continue to develop our RHEL 7-based example. Please
+    know that most of the techniques employed in this chapter for automating the implementation
+    of this benchmark with Ansible will apply equally well to Ubuntu Server LTS, and
+    so it is hoped that the knowledge you gain from this chapter will serve you well
+    when it comes to implementing security benchmarks on Ubuntu, or any other Linux
+    server to which they may apply.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's get straight into some practical, hands-on examples of developing CIS
+    Benchmark implementations, only this time we will use Ansible rather than shell
+    scripts based on the example code in the CIS Benchmark document.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's start by considering our old friend, the remote root login.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ensuring remote root login is disabled
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the previous chapter, we devised the following shell script to test for
+    the condition described in CIS Benchmark recommendation 5.2.8 (RHEL 7, benchmark
+    version 2.2.0), and then implemented it if the condition was not met. It is included
+    here so that it can be contrasted against the Ansible solution we are about to
+    create:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This shell script is for just one of the numerous benchmarks, and although it
+    does work, it is quite fragile and does not scale across multiple systems. Further,
+    the script is not at all easy to read, and so imagine the scale of the script
+    that would be required if all the CIS Benchmark recommendations were implemented!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's consider how we might rewrite this functionality in an Ansible role instead.
+    First of all, we know we are testing for a specific line of configuration in a
+    single file. If it is not present, then we know that the configuration (implicit
+    or otherwise) is to allow remote root logins. In this instance, we carry out two
+    actions: first of all, we modify the configuration file to insert the correct
+    line (or modify the existing line if it exists but has the wrong value configured).
+    Then, we restart the SSH daemon if the configuration file was changed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our experience with Ansible has shown us that the `lineinfile` module can handle
+    nearly all of the work-related to both checking the configuration file and modifying
+    it if the requisite line isn't correctly configured. We have also learned that
+    the `service` module can easily restart the SSH daemon, and that this module would
+    be run from a `handler` rather than in the main task flow to ensure that the daemon
+    is not restarted unless the configuration is actually modified.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Thus, we might define a role containing a single task that looks like this
+    in a role called `rhel7cis_recommendation528`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice how we have given the task a meaningful name – taken, in fact, directly
+    from the CIS Benchmark document itself. Thus, we know exactly which benchmark
+    this is, what it is for, and whether or not it is scored.  We have also inserted
+    the level information into the title as again this would save us from cross-referencing
+    the original CIS Benchmark document later on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alongside our role tasks, we also want to create a handler to restart the SSH
+    daemon if we modify the configuration file (it will not pick up the changes without
+    this) – an example of suitable code for this handler is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can already see that this playbook is much easier to read than our original
+    shell script – there is none of the code duplication we found when we implemented
+    this benchmark in a shell script, and the `lineinfile` module is so powerful that
+    it wraps all of our various checks up into one single Ansible task.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the role should yield output similar to that shown in the following
+    screenshot on a system that has remote root logins enabled:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/441adfc0-b2c3-4ab3-bd44-fea8096075a8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'By contrast, if the recommendation is already implemented, then the output
+    will look like that shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9524fed6-2ed1-41cf-8aa5-bd63ecf68a6b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As you can see, if the condition is met, the `lineinfile` module makes no changes
+    (resulting in the `ok` status seen in the preceding screenshot), and the handler
+    does not run at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This in itself is extremely powerful, and a huge improvement over our shell
+    script in terms of both manageability and coding effort. Nonetheless, the RHEL
+    7 CIS Benchmark contains almost 400 recommendations, and you would not want to
+    have to create and include 400 roles in a playbook run as this would detract from
+    the otherwise manageable nature of our Ansible automation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section of this chapter, we will look at expanding our current playbook
+    by adding another recommendation from *section 5* of the CIS Benchmark, thus building
+    up our playbook code in a scalable, manageable fashion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building up security policies in Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If we were to proceed precisely as we did in the previous section, then when
+    it comes to *section 5.2.9* of the RHEL 7 CIS Benchmark version 2.2.0 (Ensure
+    SSH `PermitEmptyPasswords` is disabled), we would create a new role called `rhel7cis_recommendation529`
+    and put the relevant tasks and handlers inside it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I''m sure that you will be able to see that this does not scale well – the
+    creation of a new role means we need to specify it in our top-level playbook,
+    which would look something like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Having one role per line, with almost 400 roles to include, would quickly become
+    tedious and detract from the highly manageable nature of our Ansible code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exactly how you divide up your Ansible tasks into roles is up to you, and you
+    should utilize the method that you find most manageable. As a suggestion, though,
+    looking at the table of contents for our example CIS Benchmark, we can see that
+    the recommendations are divided into six sections. Those in *section 5* relate
+    specifically to *Access, Authentication*, *and Authorization*, and thus it is
+    entirely logical that we might want to group all of these together into one role,
+    perhaps called `rhel7cis_section5`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With this decision made regarding playbook structure, we can now proceed to
+    build both the checks for recommendations 5.2.8 and 5.2.9 into the same role.
+    They can share the same handler too, as both relate to SSH daemon configuration.
+    Thus, our new role''s tasks could look like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The resulting code is still highly readable and is broken down into manageable
+    chunks, but is now not so granular that it would be difficult to maintain the
+    top-level playbook.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our handler code remains the same as before, and now when we run the role on
+    a system that does not meet either of these recommendations, the output should
+    look something like the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/2a96f435-4509-4ab3-b77b-431271ea1c27.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'This is very clean and tidy, and hopefully you can see how this could scale
+    well when it comes to implementing all of the nearly 400 recommendations from
+    the CIS Benchmark if you chose to do so. However, it also raises an important
+    consideration: in an ideal world, all of the CIS recommendations would be applied
+    to every machine, yet in reality, this is not always possible. In the *Applying
+    security policy wisely* section of [Chapter 13](3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml),
+    *Using CIS Benchmarks*, we discussed a variety of recommendations that you would
+    apply caution to implementing. In addition, as much as it is desirable to never
+    perform a remote login with the root account over SSH, I have come across systems
+    where this is actually required to support some kind of legacy system until it
+    can be updated.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In short, there will always be a requirement for exceptions in the process of
+    policy enforcement. The important thing is to handle this in a graceful manner.
+    Say you have 100 Linux machines to apply our newly written mini security policy
+    to, but that two require remote root logins to be enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this instance, we have two choices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Maintain a separate set of playbooks for the two servers where the exceptions
+    are required
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Find a way to selectively run the tasks in our role without having to modify
+    it
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Of these choices, the second is clearly the better of them as it supports us
+    in maintaining one single playbook. But how do we achieve this?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ansible offers us two tools to approach this problem. The first is the `when`
+    clause that we have already considered several times in this book. So far, we
+    have only looked at this clause to evaluate a condition programatically (for example,
+    to run a disk cleanup on the condition that free space on the disk falls below
+    a certain value). In this instance, we employ a much simpler implementation – simply
+    evaluating whether a Boolean value is true or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Suppose that we add the following code below our task to implement recommendation
+    5.2.8:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These two lines evaluate a variable called `recommendation_528` and applies
+    two Jinja2 filters to ensure it is processed correctly, even when the variable
+    is undefined:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `default` filter sets the variable to `true` by default as Ansible will
+    fail the play with an error if any variable it encounters is undefined. This removes
+    the need for us to define these variables up-front – our role simply defaults
+    them to `true` unless we set them otherwise.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second filter casts them to a `bool` type to ensure a reliable evaluation
+    of the condition.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Remember that `true` can be both a string and a Boolean value, depending on
+    how you interpret it. Using the `|bool` filter ensures that Ansible evaluates
+    it in the Boolean context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, for the second task, we would add the following immediately below
+    the `notify` clause:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, if we run the playbook without doing anything else to it against a system
+    that is not compliant, it behaves exactly as it did before, as shown in the following
+    screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f8a1bba0-e42d-4a57-b870-6177e5143dba.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The magic now happens when we want to run it against a system where we wish
+    to skip one or both of these recommendations. Imagine that our host, `legacy-testhost`,
+    is a legacy system where remote root logins are still a requirement. To use this
+    role on this particular system, we know that we must set `recommendation_528`
+    to `false`. This can be performed at a variety of levels, and the inventory is
+    probably the most sensible place to define it as it prevents someone from accidentally
+    running the playbook in the future without defining this and hence breaking our
+    legacy code by denying remote root logins. We can create a new inventory for this
+    system that might look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Having set the variable for the recommendation we want to skip to `false`,
+    we can then run our role against this new inventory, and the results should look
+    something like those shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/16be69cc-264c-4f70-8467-4d7f41256025.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: This was exactly what we desired – recommendation 5.2.8 was skipped on our legacy
+    system, and all we had to do was define a variable in the inventory – the role
+    code from all our other servers was reused.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the `when` clause with a simple Boolean variable works well for simple
+    decisions like this, but what about when you have multiple criteria to evaluate?
+    Although the `when` clause can evaluate both logical `and` and `or` constructs,
+    this could become somewhat difficult to manage as complexity increases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ansible tags are the second tool that will help us here, and these are a special
+    feature that is designed specifically to allow you to run only desired portions
+    of a role or playbook, rather than having to run the whole thing from start to
+    finish. Suppose that we add the following tags below our task for implementing
+    recommendation 5.2.8:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Below the task for recommendation 5.2.9, we might add the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The behavior of these tags is best explained by example, and as this is a hands-on
+    book, we will do exactly that. The first thing to note is that adding tags to
+    a playbook (or role within a playbook) does absolutely nothing unless you specify
+    which tags to run, or to skip. Thus, if we run our playbook in its current form,
+    it behaves exactly as it always has, in spite of the addition of the tags, as
+    the following screenshot shows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/803ae32e-11bf-4136-91c3-add7780bcee1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The magic comes when we specify which tags are to be run. Let''s repeat the
+    previous command, but this time add `--skip-tags=notlegacy`. The switch does exactly
+    what it implies – all tasks with the `notlegacy` tag are ignored. The following
+    screenshot shows the output from such a run of this playbook:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f51d5c68-3554-41b4-9f11-23e80006f74e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Here, we see a marked difference from the use of the `when` clause – where previously
+    we observed that our task for recommendation 5.2.8 was evaluated but subsequently
+    skipped, it does not even appear in the preceding playbook output – in short,
+    the entire task has been treated as if it didn't exist.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we had run the playbook with the `--tags=allservers` option, we would have
+    observed both tasks running, as both were tagged with this value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This becomes incredibly useful not only for our example here, but when considering
+    the wider benchmark document. For example, we have already discussed that all
+    recommendations are either level 1 or level 2\. Equally, we know that some are
+    scored, and some not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Knowing that level 1 benchmarks are less likely to disrupt the day-to-day running
+    of a Linux server, we could implement all recommendations in a playbook with the
+    level as one of the tags for each, and then if we were to run the playbook with
+    `--tag=level1`, then only the level 1 recommendations would be implemented. Working
+    with this example, the tags for our task for recommendation 5.2.8 might be as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you are building up your roles and playbooks to implement security benchmarks,
+    regardless of the operating system or security standard, it is recommended that
+    you make use of the when clause and tags to the best of your advantage. Remember
+    – when automating at enterprise scale, the last thing you want is lots of fragmented
+    pieces of code to manage, all of which are similar but do slightly different things.
+    The more you can standardize, the more manageable your enterprise will be, and
+    appropriate use of these features will serve you well in ensuring you can maintain
+    a single Ansible code base, and yet tailor its actions at runtime to handle the
+    exceptions in your server estate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since we have been considering appropriate playbook and role structure for our
+    security benchmark, we have deliberately kept our examples simple in this section.
+    In the next section, we will revisit some of the more complex examples we highlighted
+    in [Chapter 13](3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml), *Using CIS Benchmarks*,
+    and demonstrate how Ansible makes them far easier to code and understand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing more complex security benchmarks in Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One of the examples we considered in detail in [Chapter 13](3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml),
+    *Using CIS Benchmarks*, was recommendation 3.1.2, which is concerned with packet
+    redirect sending being disabled. This is considered important on any machine that
+    is not supposed to be acting as a router (though it should not be implemented
+    on a router as it would stop the router from functioning correctly).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the face of it, this recommendation looks quite straightforward – we simply
+    need to set these two kernel parameters, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: In spite of this apparent simplicity, we ended up developing almost 60 lines
+    of shell script to implement this check because we had to check both the currently
+    active kernel parameters and persistent configuration file values, and then perform
+    the appropriate changes if the values were not set as desired.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here, once again, Ansible comes to our rescue. The `sysctl` module within Ansible
+    wraps up many of the tests and configuration work that we constructed into our
+    shell script. Further, we can use a loop so that the same task code can we run
+    twice – once against each of the aforementioned kernel parameters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When developing a role for this, we could define a single task that looks something
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The recommendation also says that if we implement these changes, we should
+    also flush out the IPv4 routes on the system. This is also achieved through a
+    `sysctl` parameter, and so we simply use the `sysctl` module again, only this
+    time in a `handler`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running this against a test system might yield output similar to that shown
+    in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/836b6104-e9c2-4e1e-b1a8-9ab7d26b6217.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As we can see from the preceding screenshot, this code has run successfully
+    and applied the setting recommended by the benchmark, and as a direct result of
+    the change, the handler has fired and flushed the IPv4 routes. The overall result
+    of this is that what took 57 lines of fairly unreadable shell script can now be
+    achieved in 14 lines of far more readable YAML.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far, we have built up a clear picture of how Ansible can make the design
+    and implementation of CIS recommendations straightforward, especially when compared
+    to alternatives such as shell scripting. We have noted that native Ansible modules
+    such as `sysctl` and `lineinfile` can gracefully wrap up a multitude of steps
+    that would have have been performed by a shell script. However, there are times
+    when you, as the playbook author, must make some important decisions for your
+    playbooks, and we will look at this in more detail in the following section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Making appropriate decisions in your playbook design
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As you build up your roles and playbooks to implement security baselines, you
+    will discover that some of your implementation will be cut and dried (for example,
+    you will almost certainly know whether you want root SSH logins to be possible
+    or not), whereas there will be decisions to be made for other aspects. Time synchronization
+    is one such example, and in this section, we will explore this in more detail
+    to demonstrate the kinds of decisions you can expect to make when designing your
+    roles, as well as how to address them in a constructive manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you review *section 2.2.1* of the RHEL 7 CIS Benchmark (version 2.2.0), you
+    will see that it is entirely concerned with time synchronization. Indeed, this
+    is an important function in just about every Enterprise Linux infrastructure,
+    and discrepancies between the clocks on servers can cause issues such as with
+    certificate validity and Kerberos tickets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Although it is almost universally agreed that time synchronization is vitally
+    important, there is less agreement on the way to achieve it. For example, there
+    are two main time synchronization services available for most mainstream Linux
+    distributions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`chrony`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ntpd`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Although `chrony` is now the standard on RHEL 7, this does not mean that the
+    venerable `ntpd` service will no longer work – in fact, some enterprises still
+    choose to implement this because they have extensive experience with it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is entirely possible to get Ansible to detect which of these two services
+    a given Linux server is using – at a high level, we could get Ansible to do the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Query the RPM package database to see whether `ntpd`, `chrony`, or both are
+    installed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'If one or both are installed, detect which one is active:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a. If neither are active, this needs rectifying as we have established the need
+    for time synchronization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: b. If both are active, the services will clash and one should be disabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As I'm sure you will see, there comes a point in the preceding process where
+    an intervention is required – if neither service is started, we need to choose
+    one to start. If both are active, we need to disable one. This is where Ansible's
+    ability to help ends – it cannot decide for your particular enterprise which of
+    these two perfectly valid services is best for your use case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thus, it is important to make a decision up-front about which time synchronization
+    service you are using. With this decision made, playbooks can then be specifically
+    coded to perform the appropriate checks and equally perform the appropriate remediation
+    steps as required. In addition, we know from our discussion in [Chapter 1](c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml),
+    *Building a Standard Operating Environment on Linux*, that automation at enterprise
+    scale is supported by commonality and standards – so we know from these principles
+    that we should choose a standard time synchronization service and stick with it
+    except where there is a good business reason to raise an exception.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To progress this example, let''s look at recommendation 2.2.1.1\. This states
+    that we should ensure that a time synchronization service is in use – though it
+    is agnostic about which one. If we have made our decision up-front about which
+    service is relevant, our playbook development is easy. Suppose we have chosen
+    `chrony` (the default for RHEL 7); our role for this recommendation might be as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This simple code ensures that we both check for and satisfy recommendation 2.2.1.1
+    without the need for any logic to detect which time service is in use. Of course,
+    we could choose to be more thorough and check that `ntpd` is not started, but
+    this is left as an exercise to you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Naturally, we cannot fit all the Ansible code that's required for the roughly
+    400 recommendations in this CIS Benchmark into this book – that would deserve
+    an entire book to itself! In addition, this example is just for one benchmark
+    – if your enterprise introduces a new operating system such as RHEL 8, you can
+    be sure there will be a separate CIS Benchmark for this operating system that
+    will need to be implemented. However, it is hoped that the development of these
+    examples from the RHEL 7 CIS Benchmark is sufficient for you to design and build
+    your own policy. Thus, in the next section of this chapter, we will look at techniques
+    for making this task manageable at enterprise scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Application of enterprise-wide policies with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Although we have seen the significant benefits that Ansible can bring to CIS
+    Benchmark implementation, I'm sure it is apparent at this stage that development
+    and maintenance of these policies could turn into a full-time job, especially
+    when coupled with the need to run them against the infrastructure and manage the
+    results of each run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fortunately, the spirit of open source development brings a solution to this
+    dilemma. Imagine if someone had already spent a great deal of time and effort
+    developing a high-quality set of Ansible roles for implementing CIS Benchmarks,
+    and that this was available as open source code so that you could audit it, ensure
+    it was fit for your environment, and tailor it easily if required. Further, imagine
+    that they had put a great deal of time and effort into tagging each task, and
+    adding appropriate variable structure to allow you to easily specify your choices
+    such as which time synchronization service your enterprise uses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thankfully, this work has already been completed by MindPoint Group, and their
+    code has been made freely available on GitHub at [https://github.com/MindPointGroup/RHEL7-CIS](https://github.com/MindPointGroup/RHEL7-CIS).
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the time of writing, the latest CIS Benchmark available for EL7 systems is
+    version 2.2.0, whereas the aforementioned playbooks are written against version
+    2.1.1 of the benchmark. It is up to you to ensure you are aware of the benchmark
+    version you are implementing, as well as any possible security implications if
+    you implement a slightly older version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to this, just as users of Ubuntu may choose paid support or to use
+    the free open source operating system, and EL7 users may choose between Red Hat
+    Enterprise Linux 7 or CentOS 7, MindPoint Group also offers a commercially supported
+    version of their Ansible hardening code, available via [https://www.lockdownenterprise.com/](https://www.lockdownenterprise.com/).
+    Thus, they offer support for both ends of the spectrum, respecting that some enterprises
+    will absolutely require an enterprise support contract, while others will prefer
+    to use freely available open source software.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s explore how we might use the open source code against our CentOS 7 server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, we need to clone the GitHub repository:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once this is complete, we can then proceed to use the code exactly as we would
+    use any other role. Where appropriate, we should set variables, which can be set
+    either in the inventory or in the main playbook (more on this in a second).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Thus, the purest and simplest possible implementation of the MindPoint Group
+    CIS Benchmark in Ansible once the role has been cloned from GitHub is a playbook
+    that looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With these steps complete, you can literally begin implementing the EL7 benchmark
+    and its near 400 recommendations on your Linux servers in a matter of minutes
+    – the playbook is run in the normal manner, and will produce many pages of output
+    as all the checks are performed and recommendations implemented (if/when required).
+    The following screenshot shows the playbook being run and the initial page of
+    output:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/a25b3be9-a3c6-48bb-86a8-1eb96437f806.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Now, a word on variables. As we established in the previous section (*Writing
+    Ansible security policies*), there will be occasions where you need to vary your
+    playbook run. The variables and tags are all documented in the `README.md` file
+    that accompanies the GitHub repository we cloned earlier, and for purposes of
+    illustration, let's consider a few examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First off, suppose we only want to implement the level 1 recommendations (those
+    that are less risky to day-to-day operations). This can be achieved by running
+    the playbook and using the `level1` tag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Alternatively, you might be running the hardening playbooks against a set of
+    servers that act as routers. In this instance, we would need to set the `rhel7cis_is_router`
+    variable to `false` to ensure that kernel parameters that disable router functionality
+    are not set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This could be done on the command line as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, this is very manual, and it would be far too easy for someone to accidentally
+    run the playbook without setting this variable, suddenly disabling the router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It would be far better to set this variable at the inventory level, thus ensuring
+    that it is always set correctly whenever the playbook is run. Thus, we might create
+    an inventory such as this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this inventory in place, running the playbook against the routers is performed
+    using a command such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: As long as this inventory file is used, there is no danger of someone forgetting
+    to set the `rhel7cis_is_router` variable to `true`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, this discussion does not mean that you must download and use these
+    playbooks – it is still entirely possible to develop and maintain your own playbooks
+    to your own requirements. Indeed, there may be situations in which this strategy
+    is actually preferable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What is important is that you choose the strategy that is best for your enterprise.
+    When selecting your strategy for implementing security policy at scale, you should
+    take the following into account:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Whether you want to own your own code (with all the advantages and disadvantages
+    that brings)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Whether you want to be responsible for the maintenance of your code base going
+    forward
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: That you should standardize on one code base as far as possible to ensure your
+    code structure remains maintainable
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Whether you need third-party support on implementing these benchmarks or whether
+    you are happy that you have the skills and resources in-house
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Once you have made your evaluation, you will be well placed to define your path
+    forward with creating Ansible playbooks to implement your chosen security standards.
+    It is intended that the information provided to you in this chapter so far will
+    be sufficient to support you in whichever path you choose. Although we have focused
+    on EL7 (Red Hat Enterprise Linux 7 and CentOS 7) in this chapter, everything we
+    have discussed will scale well to other operating systems for which there exist
+    security benchmarks (for example, Ubuntu Server 18.04). In fact, if you run through
+    the processes we have discussed within this chapter using the CIS Benchmark for
+    Ubuntu Server 18.04, you will find a great deal of similarity can be achieved.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far, we have dealt almost exclusively with the implementation of CIS Benchmarks.
+    This chapter would not be complete, however, without providing a method to check
+    levels of enforcement without the need to make changes. After all, auditing is
+    an important part of most enterprise policies, especially where security is concerned,
+    yet changes must be made under an authorized change request window.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing security policies with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we have discussed so far, it is important to ensure that not only can you
+    implement security policies in an efficient and repeatable manner, but that it
+    should also be possible to audit them. There are a variety of tools available
+    for this task, both closed source and open source. Before we consider any other
+    tools, though, it is worthwhile looking at how Ansible itself can assist with
+    this task.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's return to one of our original examples, where we were implementing two
+    of the recommendations from *section 5* of the CIS Benchmark.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Previously, we ran this with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: This ran through the two checks, implementing the changes if the system was
+    not already compliant with the security recommendations. However, Ansible also
+    has a mode of operation called check mode. In this mode, Ansible does not make
+    any changes to the remote system(s) – rather, it tries to predict all changes
+    that might be made to the systems instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Not all modules are compatible with check mode, and so some care is advised
+    when using this mode. For example, Ansible cannot possibly know the output of
+    running a particular shell command using the `shell` module, as there are so many
+    possible permutations of commands. Also, running shell commands might be destructive
+    or cause a change to the system, and so any tasks that use the `shell` module
+    are skipped during a check run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, many of the core modules we have already used, such as `yum`, `lineinfile`,
+    and `sysctl`, do support check mode and so can be used quite effectively in this
+    mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Thus, if we run our example playbook again, only this time in check mode, we
+    would see an output similar to what''s shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e6323e0e-a2a5-498b-ae66-4c90ee855323.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: You will notice that this looks exactly like any other playbook run – there
+    are, in fact, no clues at all that it is running in check mode, other than the
+    `-C` flag on the command line invoking this run. However, if you examine the target
+    system, you will see that no changes were made.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding output is very useful, though, for auditing processes – it demonstrates
+    to us that the target system does not meet the recommendations for either *section
+    5.2.8* or *5.2.9* of the benchmark – if these were met, then the result should
+    have been `ok`. Equally, we know that the handler only fires in the event that
+    changes are required on the remote system, and again this tells us that the system
+    is not compliant in some way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is accepted that some interpretation of the output is going to be required
+    – however, by exercising good design practices in your roles when you write them
+    (especially when putting the benchmark section number and title into the task
+    names), then you can very quickly start to interpret the output and see which
+    systems are not compliant, and further, which recommendations specifically they
+    fail on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Further, the variable structure we put in place to determine which tasks are
+    run and when still applies in check mode, so if we run this playbook on the legacy
+    hosts that need remote root logins enabled (but this time in check mode), we can
+    see that this task is skipped, ensuring that we don''t get false positives during
+    an audit. The following screenshot shows this being run:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/aba6824e-590c-46b6-be73-2c9fde8772f9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this manner (coupled with good playbook design), Ansible code can be reused
+    not just for implementation purposes, but for auditing purposes too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is hoped that this chapter has given you sufficient knowledge to proceed
+    with confidence when it comes to implementing security hardening on your Linux
+    servers at enterprise scale, and even auditing them as part of an ongoing process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Ansible is an incredibly powerful tool that lends itself well to the implementation
+    and auditing of security benchmarks such as the CIS security benchmark. We have
+    demonstrated through practical example how it can reduce a shell script of nearly
+    60 lines down to less than 20, and how the same code can be easily reused in a
+    variety of scenarios, and even be used to audit security policies across the enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, you learned how to write Ansible playbooks to apply server
+    hardening benchmarks such as CIS. You then gained hands-on knowledge of applying
+    server hardening policies across the enterprise using Ansible, and how to make
+    use of publicly available open source roles to assist you in this. Finally, you
+    learned about how Ansible supports testing and auditing of successful policy application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will look at an open source tool called **OpenSCAP**
+    that can be used to perform effective auditing of security policies across the
+    enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: How do Ansible modules such as `lineinfile` make security benchmark implementation
+    code more efficient than shell scripting?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can Ansible tasks be made conditional for a specific server or group of
+    servers?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are good practices for naming your tasks when writing Ansible tasks to
+    implement the CIS Benchmark?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How might you modify a playbook so that you can easily get the CIS level 1 benchmarks
+    to run without any of the level 2 ones being evaluated?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between the `--tags` and `--skip-tags` options when running
+    an Ansible playbook?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why would you want to make use of publicly available open source code for your
+    CIS Benchmark implementation?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What does the `-C` flag do to a playbook run when used with the `ansible-playbook`
+    command?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Does the `shell` module support check mode?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To review common questions about the CIS Benchmarks, please refer to [https://www.cisecurity.org/cis-benchmarks/cis-benchmarks-faq/](https://www.cisecurity.org/cis-benchmarks/cis-benchmarks-faq/).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A full list of CIS Benchmarks is available at [https://www.cisecurity.org/cis-benchmarks/](https://www.cisecurity.org/cis-benchmarks/).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For an in-depth understanding of Ansible, please refer to *Mastering Ansible,
+    Third Edition* by *James Freeman* and *Jesse Keating* ([https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition](https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

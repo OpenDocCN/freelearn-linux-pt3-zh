@@ -1,0 +1,2883 @@
+- en: '20'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Shell Script Security
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Thus far, we haven’t talked a whole lot about shell scripting security. Frankly,
+    it’s because it’s one of those things that you might never have to worry about.
+    I mean, a lot of times you’ll just be writing scripts for your own use, that you’ll
+    just be running from your home directory on your own local machine. Even if you’re
+    an administrator who needs to create scripts that perform some sort of administrative
+    task, you might only need to either run them on from your own home directory or
+    share them with other *trusted* administrators who just run them from their own
+    home directories. In these cases, shell scripting security isn’t necessarily a
+    huge deal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, you may at times need to share your script with other users or administrators
+    that you don’t fully trust. In these cases, shell scripting security is *extremely
+    important*, and should be a major part of your scripting focus. For example, you
+    might have some sort of administrative script that you need to place into a directory
+    that administrators with only limited permissions can access. In those cases,
+    you also need to ensure that nobody can modify it, and that only certain designated
+    administrators can execute it. You’ll also want to design the script in a way
+    that will prevent bad actors from using it to perform command injection attacks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Topics in this chapter include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling Access to Your Scripts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding SUID and SGID Considerations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Avoiding Sensitive Data Leakage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding Command Injection with `eval`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding Path Security
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you’re ready, let’s get going.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical Requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: I’ll mainly be working with Fedora Server and Ubuntu Server virtual machines.
+    But, the techniques that I’ll show you should work on just about any Linux distro.
+    I’ll also be showing you some things on a FreeBSD 14 virtual machine, and an OpenIndiana
+    virtual machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As always, you can grab the scripts by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Controlling Access to Your Scripts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A lot of the scripts that you create might be just for yourself or your co-workers.
+    Or, they might be for general distribution to the public. In all of these cases,
+    you might not need to worry about having any kind of access control on your scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'But, there might also be times when you need to create scripts that only certain
+    people can access. The methods that you can use for this include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Assigning `sudo` privileges
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Assigning an Access Control List
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Obfuscating plain-text scripts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We’ll begin by looking using `sudo`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Assigning sudo Privileges
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`sudo` is a handy security feature that is installed by default on macOS, OpenIndiana
+    and most Linux distros. It’s also available for installation on most BSD-type
+    distros and any Linux distros on which it isn’t installed by default. The most
+    common way to use `sudo` is to allow non-privileged users to run programs with
+    root user privileges. (You can also use `sudo` to allow users to run programs
+    with the privileges of other non-root users, such as a database user. I’m not
+    going to go into all that now though, because I’m trying to keep things simple.)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, here’s what makes `sudo` so cool. Let’s say that you want a particular
+    user to run one particular program with root user privileges. With `sudo`, you
+    don’t have to give that user the root user password. Instead, just configure the
+    user’s `sudo` privileges for the program, and then let the user enter his or her
+    own password whenever he or she needs to run the program. Let’s look at how that
+    works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hands-on Lab ­– Configuring sudo
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In this lab, you’ll create a simple script, and configure `sudo` so that only
+    designated users can run it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create the `sudo_demo1.sh` script, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Copy the script to the `/usr/local/sbin/` directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: As you see, copying this script to `/user/local/sbin/` caused the ownership
+    of the file to automatically change to the root user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Set permissions on the `sudo_demo1.sh` file so that only the root user can
+    access it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Note how in the `chmod 700` command, the 7 assigns read, write, and execute
+    privileges to the root user. The two 0s remove all privileges from the *group*
+    and from *others*. But, how do we obtain the value of 7 in the *user* position?
+    Here’s the breakdown on how it works:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *read* permission has a value of 4.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *write* permission has a value of 2.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *execute* permission has a value of 1.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this case, we want the user to have full read, write, and execute permissions.
+    Adding the values of all three of those permissions gives us a value of 7\.
+  prefs: []
+  type: TYPE_NORMAL
+- en: (I know that this is a rather cursory explanation, but for now, please bear
+    with me.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a non-privileged user account for Horatio.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'On Debian/Ubuntu, do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On Fedora and other Red Hat-type distros:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Begin configuring `sudo` by entering:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This command will open the `/etc/sudoers` file in either `nano`, `vi`, or `vim`,
+    depending upon which operating system you’re working with. Beyond that, the directions
+    are the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Scroll down until you see this line:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Directly below that line, place this line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Save the file as you would with a normal text editor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I know that the `ALL=(ALL:ALL)` thing looks confusing, but it’s really quite
+    simple. Here’s the TL;DR of what it means:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: ON_HOSTS=(AS_USER:AS_GROUP_MEMBER) ALLOWED_COMMANDS
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, here’s the more specific breakdown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first `ALL` means that the specified user can run this command on all machines
+    on the local network. Optionally, you can replace this `ALL` with the hostname
+    of a particular machine or groups of machines on which you want this user to be
+    able to run this command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second `ALL` means that the specified user can run this command as all users,
+    including the root user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The third `ALL` means that Horatio can run this command as a member of all groups,
+    including the root user’s group. (Note that this is optional. You can also just
+    omit the group, and set this to `ALL=(ALL)`.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the `root` line, the final `ALL` means that the root user can run all privileged
+    commands. In the `horatio` line, the final `ALL` is replaced by the specific command
+    that we want to allow Horatio to run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Open another terminal window on your host machine, and log into the virtual
+    machine with Horatio’s account.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Have Horatio test this by first trying to run the script without `sudo`, and
+    then with `sudo`, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You see that Horatio can run the script with his `sudo` privileges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Have Horatio attempt to view the script’s source code, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Horatio can’t view or edit the source code, because he doesn’t have the proper
+    `sudo` privileges for that. He has `sudo` privileges to do one thing, and one
+    thing only, as the root user, which is just to execute the `sudo_demo1.sh` script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That does it for our introduction to the mysteries of `sudo`. Let’s move on
+    to our next method of controlling access to scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using an Access Control List
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If you’ve ever been a Windows administrator, you likely know that the NTFS filesystem
+    on Windows allows you to grant really fine-grained permissions settings on files
+    and directories. Sadly, the filesystems on Linux, Unix, and Unix-like systems
+    don’t have such fine-grained access control built into them. But, we can make
+    up for that deficiency somewhat by using an **Access Control List**, or **ACL**.
+    Let’s look at how to do that in this hands-on lab.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hands-on Lab – Setting an ACL for Horatio on Linux
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In this lab, we’ll create another script for which only Horatio will have permission
+    to run. To keep things simple, just use the same virtual machine that you used
+    for the previous lab, so that you won’t have to create another user account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You’ll find everything you need for setting up ACLs already installed on your
+    Fedora virtual machine. If you’re using a Debian/Ubuntu type of machine, you might
+    have to install the `acl` package by doing:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Log into your own normal user account, and create the `acl_demo.sh` script,
+    like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Copy the script to the `/usr/local/sbin/` directory, and note how the ownership
+    automatically changes to the root user:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'In order for an ACL to work, you’ll need to remove all permissions from group
+    and others, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This is because the whole point of using an ACL is to prevent everyone who hasn’t
+    been set up with an ACL from accessing the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use `getfacl` to verify that no ACL has been set:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'In another terminal window, log into Horatio’s account, and try to run the
+    `acl_demo.sh` script, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You see that Horatio has been denied.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go back to your own terminal window. Create an ACL so that Horatio will have
+    read and execute permissions on the `acl_demo.sh` script, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Here’s the breakdown of the command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`-m`: This means to modify the existing ACL. It will also create an ACL if
+    one hasn’t been created yet.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`u:horatio`: This means that we’re creating an ACL for user `horatio`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`rx`: This means that we’re granting the read and execute permissions for this
+    file to the specified user.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note the `+` at the end of the permissions settings for this file. This indicates
+    that an ACL has been created.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Use `getfacl` to verify that the ACL was created properly:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The `user:horatio:r-x` line indicates that the ACL has been created for Horatio.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go back to Horatio’s terminal window, and have him try to run the script:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This time, Horatio has achieved coolness.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is one downside to using an ACL instead of `sudo`. That is, `sudo` automatically
+    assumes that a user needs to read a shell script in order to execute it. So, `sudo`
+    allows a user to execute the script without explicitly setting the read permission
+    for that user. This means that the user won’t be able to use any utility such
+    as `cat` or `less` to view the contents of the script file. When using an ACL,
+    the read permission and the execute permission both have to be explicitly set
+    on the script to allow someone to run it. So, when using an ACL, you won’t be
+    able to prevent the user from viewing the contents of the file. You can prove
+    that by having Horatio view the file, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The bottom line here is that if you want to prevent users from viewing the contents
+    of your scripts, set them up with the appropriate `sudo` privileges instead of
+    using an ACL. On the other hand, if you don’t mind that users can view the script’s
+    source code, then using an ACL is definitely an option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Space doesn’t allow for me to present more than just a cursory coverage of permissions
+    settings, `sudo`, and ACLs in this chapter. If you need more information about
+    them, I have entire chapters devoted to each of these topics in my *Mastering
+    Linux Security and Hardening* book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s does it for `sudo` and ACLs on Linux. Let’s now see how to do it on FreeBSD
+    14.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hands-on Lab – Setting an ACL for Horatio on FreeBSD 14
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: You’ll find everything you need for creating ACLs already installed on FreeBSD
+    14\. Let’s begin.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create Horatio’s user account by doing:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The FreeBSD `adduser` command is interactive, similar to the `adduser` command
+    on Debian and Ubuntu. After you invoke it, you’ll just need to enter Horatio’s
+    information, as prompted. Here’s what it looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![B21693_20_1](img/B21693_20_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 20.1: Adding a user account to FreeBSD'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In case you’re wondering about the **Full Name** field, it’s just that Horatio
+    really is a black cat who’s been visiting me lately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the same `acl_demo.sh` script that you used for the Linux lab. Copy it
+    to the `/usr/local/sbin/` directory, and verify that ownership has changed to
+    the root user:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Apply the 700 permissions setting to `acl_demo.sh`. This will mean that the
+    root user will have read, write, and execute permissions, and that *group* and
+    *others* have no permissions.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: In another terminal window, log into Horatio’s user account on the FreeBSD machine.
+    Then, have him attempt to run the `acl_demo.sh` script.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Go back to your own terminal window, and set the ACL for Horatio, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note that the command is slightly different this time, because Linux uses the
+    **Network Filesystem version 4** (**NFSv4**) style of ACLs, and FreeBSD uses the
+    POSIX style of ACLs. It’s not a big difference, though. It’s just that with FreeBSD,
+    you have to add `allow` to the `setfacl` command.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Verify that the ACL has been properly set:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You see that indeed, Horatio does have read and execute permissions for this
+    script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go back to Horatio’s terminal, and have him try to run the `acl_demo.sh` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: It works, which means that Horatio has now achieved coolness on FreeBSD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let’s give this a try on OpenIndiana.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hands-on Lab – Setting an ACL for Horatio on OpenIndiana
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Doing this on OpenIndiana will be considerably different, because it doesn’t
+    use `setfacl` or `getfacl` to manage ACLs. Instead, it uses `chmod` for managing
+    both normal permissions settings and ACLs. You’ll once again use the same `acl_demo.sh`
+    script that you used for the previous labs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create Horatio’s user account, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The `-m` option tells `useradd` to create the new user’s home directory. On
+    the OpenIndiana version of `useradd`, this is normally the only option switch
+    that you’ll need.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There’s no `/usr/local/` directory on OpenIndiana, so just copy the `acl_demo.sh`
+    script to the `/usr/sbin/` directory, instead. Then, verify that the ownership
+    has changed to the root user.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Change the permissions setting of the `acl_demo.sh` file to 700, as you did
+    in the previous labs:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'In another terminal window, log into Horatio’s account. Have him try to run
+    the `acl_demo.sh` script:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now, apply an ACL for Horatio, granting him both read and execute privileges
+    for the `acl_demo.sh` script:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note how instead of using `setfacl -m u:horatio`, OpenIndiana uses `chmod A+user:horatio`.
+    The `A+` in this case just means that we’re adding an ACL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go back to Horatio’s terminal, and have him try to run the script:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Yes, indeed. Even on OpenIndiana, Horatio has achieved coolness.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you need to learn about OpenIndiana administration, you’ll find that the
+    official documentation at the OpenIndiana website is rather lacking. Fortunately,
+    OpenIndiana is a fork of Oracle’s Solaris operating system, which means that you
+    can use the official Solaris documentation, instead. (I’ve placed a link to the
+    relevant page in the *Further Reading* section.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: I think that that about covers it for ACLs. Let’s move on to another way to
+    control access to your scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Obfuscating Plain-Text Scripts
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can also hide the contents of your shell scripts and prevent anyone from
+    tampering with them by using the `shc` utility to convert your scripts into obfuscated
+    executable binary files. And, you can do some things with `shc` that you can’t
+    do with either `sudo` or ACLs. Specifically, `shc` allows you to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create an executable file that can run on only one machine.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Set expiration dates for the executable files.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create executable files that can’t be traced with debugging utilities such as
+    `strace` or `truss`. (I’ll explain those in just a bit.)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s begin by installing `shc`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing shc
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'It’s easy to install on Linux, FreeBSD, and macOS. Here’s how it’s done:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On Fedora:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On Debian/Ubuntu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that on Linux, you also need to install the `gcc` package so that you will
+    have a C compiler that will work with `shc`. On FreeBSD, the C compiler gets installed
+    as part of the operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On FreeBSD:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On macOS with Homebrew installed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Sadly, `shc` isn’t available for OpenIndiana.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hands-on Lab – Using shc
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: For this lab, you’ll create the `supersecret.sh` script on your Fedora virtual
+    machine. Also, go ahead and boot up your Debian/Ubuntu virtual machine, so that
+    you can test your compiled scripts on it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using `shc` is simple. To demo, let’s create the `supersecret.sh` script, like
+    this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This is just a simple *here document* that prints out a message, which looks
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The next step is to convert the shell script into an obfuscated binary file,
+    like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As you see, I’m using the `-f` option to point to the shell script that I want
+    to obfuscate, and the `-o` option to save the obfuscated binary file with the
+    specified filename. This operation also creates a C language source file, as you
+    see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`shc` works by first creating this C source code file, and then by calling
+    a C compiler to compile the C source code into the binary file. You can prove
+    that this works by trying to open the binary file with `cat`, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you can read that, then you’re better than I am.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Try running this new `supersecret` binary, and you’ll see that it works just
+    like the script:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Okay, let’s be real. You’re not going to obfuscate a simple script that does
+    nothing but print out a message. I mean, anyone who can execute this binary file
+    can still see the message. So, let’s just say that your script contains a lot
+    of additional code or data that you want to hide from everyone, including even
+    the authorized users of the script. You also want to ensure that nobody can modify
+    your scripts. In cases like that, `shc` is definitely a useful tool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By default, `shc` creates binary files that will only run on the machine on
+    which they were created. For example, let’s see what happens when I transfer the
+    `supersecret` binary that I created on this Fedora machine to an Ubuntu machine:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: That’s definitely a handy security feature, because it allows you to control
+    where your program can be run. So, if a malicious hacker were to somehow find
+    your program and download it, he or she wouldn’t be able to run it. The only catch
+    is that we see the default `Please contact your provider. . .` message that’s
+    built into `shc`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The default `Please contact your provider. . .` message doesn’t mean anything
+    to us, because it provides us with a bogus contact address. On the Fedora machine,
+    fix that by adding the `-m` option and a custom message, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Transfer the new `supersecret` binary file to the Debian/Ubuntu machine, and
+    try to run it. You should now see your custom message, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Of course, you could also add your own contact address, if you really wanted
+    to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Sometimes though, you might want to create binary files that will run on any
+    machine that’s running the same operating system as the machine on which you created
+    them. To do that, just relax the security a bit with the `-r` option, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'When I transfer this new binary file to my Ubuntu machine, it will run just
+    fine, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Also, understand that `shc` creates binary files that can run on only one type
+    of operating system. To see how that works, let’s transfer the binary that I created
+    on my Fedora machine to a FreeBSD machine. Here’s what happens when I try to run
+    it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: But, if you transfer the original script to the FreeBSD machine and then run
+    `shc` on it, you’ll get a binary that will run on FreeBSD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The good news here is that `shc` works exactly the same on FreeBSD as it does
+    on Linux. So, you won’t even have to modify your `shc` commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next `shc` option I’ll cover is the `-e` option, which allows you to set
+    an expiration date on your program. Just specify the expiration date in the day-month-year
+    (dd/mm/yyyy) format, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: I’m doing this on 1 July 2024, so I’ll have to come back tomorrow to see if
+    this actually works. So bye for now, I’ll see you tomorrow.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Okay, it’s now 2 July 2024, and I’m back. Let’s see if this `supersecret` binary
+    file still works:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Cool, the expiration date option works just fine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Remember**: Even when you obfuscate your scripts with `shc`, you’ll still
+    need to use either `sudo` or an ACL to control who can execute them on a particular
+    machine.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s see about making our executables untraceable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hands-on Lab – Creating Untraceable Executables
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As you’ll see in the next chapter, we have several tracing tools available to
+    help programmers debug programs. These tools include `strace` for Linux systems,
+    `truss` for FreeBSD, and either `dtrace` or `dtruss` for macOS. For Linux, there’s
+    also `ltrace`, which can trace calls to programming libraries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `strace`, `dtrace`, `truss`, and `dtruss` utilities can trace the **system
+    calls** that a program makes. The easiest way to explain system calls is that
+    they’re the mechanism that programs use to communicate with the operating system
+    kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The problem for us is that either a malicious actor or an unauthorized non-malicious
+    actor could also use the information that these utilities provide to reverse engineer
+    one of your compiled scripts. This could allow these unauthorized parties to see
+    secrets that you don’t want them to see.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What information would we not want unauthorized people to see? Here are two
+    examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**The names and locations of sensitive files that your program accesses**:
+    These files could reveal secrets to unauthorized actors.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Embedded passwords**: Even if you encrypt passwords, using `strace`, `truss`,
+    `dtrace`, or `dtruss` on your compiled binary file will reveal the plain-text
+    passwords. (You’ll soon see that in the *Avoiding Sensitive Data Leakage* section.)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Needless to say, either of these cases can represent a serious security problem.
+    So to be sure, just get into the habit of making your `shc` binaries untraceable,
+    as I’m about to show you in this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here’s how it works:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the Fedora machine, install `strace` and `ltrace`, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: On the Fedora machine, create a new `supersecret` binary without either the
+    expiration date or the custom message.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a file that contains `strace` data about the `supersecret` binary, like
+    this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note that the `strace` output gets sent to `stderr`, which is why you have to
+    use the `2>` redirector.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open the `supersecret1_trace.txt` file in less. What you’ll see is a jumbled
+    up mess that looks something like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: For the most part, you would need to be a C language kernel programmer to understand
+    what’s going on with this. However, as we’ll soon see, you might be able to glean
+    some really important information if you know how to look for it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Count how many lines are in the `supersecret1_trace.txt` file, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: So, there are 297 lines of output in the `supersecret1_trace.txt` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that for all of these examples, you might get a different number of output
+    lines on your own machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Perform an `ltrace` operation on the `supersecret` binary, saving the output
+    to the `supersecret1_ltrace.txt` file. Then, count the number of lines in the
+    `supersecret1_ltrace.txt` file, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You see that there are 7270 lines in the `supersecret1_ltrace` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a new `supersecret` binary. This time though, use the `-U` option to
+    make this binary untraceable.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: You won’t have to delete the original binary before you do this, because this
+    new command will overwrite the original binary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Run `strace` on the `supersecret` binary again, saving the output to the `supersecret2_tract.txt`
+    file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This time, `strace` was prevented from doing its job.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Even with the `-U` option, you’ll still get some output sent to the output file.
+    However, it will be much less than you got without the `-U`. Verify that by counting
+    the lines in the `supersecret2_trace.txt` file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This time, there are only 34 lines of output, which is way less than the 297
+    lines that we had without the `-U` switch. So, this is further proof that the
+    `-U` option prevents an `strace` operation from being successful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, do an `ltrace` on the `supersecret` binary, and save the output to the
+    `supersecret2_ltrace.txt` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Count the lines in the `supersecret2_ltrace.txt` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Wow! There are only four lines in the output file this time. That’s a far cry
+    from the 7270 lines that we had without the `-U` option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On FreeBSD, the `shc` commands to create the obfuscated binary files are identical
+    to what you’ve seen on Linux. But, to perform system call tracing on FreeBSD binaries,
+    use `truss` instead of `strace`, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: As far as I’ve been able to tell, there’s no FreeBSD equivalent to the Linux
+    `ltrace` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On macOS, you have the `dtrace` and `dtruss` commands. But to use them, you’ll
+    have to boot your machine into **Recovery** mode and disable the **System Integrity
+    Protection** (**SIP**). I don’t recommend doing that unless you absolutely, positively
+    have to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You’ll also see that `dtrace` is available on OpenIndiana. But, since `shc`
+    isn’t available on OpenIndiana, I won’t bother to cover it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let’s see if we can decrypt this script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Decrypting shc Binaries
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Many years ago, when I showed `shc` to the students in my first shell scripting
+    class, it was somewhat easy to crack the `shc` algorithm in order to convert a
+    binary file back to the original shell script. So at that time, `shc` wasn’t a
+    very secure option. Now, due to `shc` developers taking advantage of improvements
+    in modern operating system kernels, it’s a lot harder to crack `shc`. But, there
+    are a couple of utilities that are *supposed* to crack `shc`, or at least that’s
+    what their developers say.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This might be a bit of a spoiler, but I’ll share it anyway.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you’ll soon see, the binaries that `shc` creates are currently safe from
+    this type of cracking attack. But, there’s always the possibility that someone
+    could come up with better cracking tools in the future. So, think of this section
+    as a framework for performing your own tests on any cracking tools that might
+    come out in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s take a quick look at these utilities, shall we?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Hands-on Lab: Testing UnSHc'
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: This lab will familiarize you with the UnSHc utility. I’m using a Fedora Server
+    virtual machine, but you can use either another Linux virtual machine or a FreeBSD
+    virtual machine if you desire.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Download UnSHc from Github by doing:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Once it’s downloaded, which only takes a few seconds, `cd` into the `UnSHc/latest/`
+    directory, and copy the `unshc.sh` script to the `/usr/local/bin/` directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: In the `UnSHc/sample/` directory, you’ll see an example shell script, along
+    with the corresponding C source code file and compiled binary file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Note that this C source code file and binary file were both generated by a very
+    old version of `shc`. (The reason why I mention this will become apparent in just
+    a moment.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Copy the binary file, which is `test.sh.x`, to your home directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Attempt to decrypt the `test.sh.x` file, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The output should look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![B21693_20_2](img/B21693_20_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 20.2: Using UnSHc'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Verify that the `test.sh.x` binary file actually did get decrypted, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Okay, so that works just fine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, try to decrypt a binary file that you created with the current version
+    of `shc`. (You can use the binary file that you created in the *Using shc* lab,
+    or you can create a new one.) Do it like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: As you see this time, the operation failed. So, the binary didn’t get decrypted,
+    and the original shell script was not reconstructed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see why the operation failed this time, go into the `UnSHc/` directory and
+    open the `README.md` file. Close to the top of the file, you’ll see this paragraph:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Due to the many problems since `shc` 4.0.3, there seems to be a need for
+    clarification. In `shc` 4.0.3 many structural changes have been incorporated,
+    so that `shc` now makes use of various security mechanisms provided by the linux-kernel
+    itself. Therefore, it is now almost impossible to extract the original shell script
+    at all with current UnSHc version, if the new `shc` version was used. This requires
+    a more in-depth approach, which means that a modified `bash` or a modified linux-kernel
+    is needed to bypass the security measures.**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: So you see that the current version of `shc` is much more secure than the older
+    versions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I also tested UnSHc on a FreeBSD machine, and got the same results. That tells
+    me that the security enhancements that prevent you from successfully using UnSHc
+    are also in the current FreeBSD kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Also, I tested another `shc` cracker that’s called `deshc-deb`. If you’d like
+    to play with it, you can download it by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: '(Spoiler alert: `deshc-deb` doesn’t work either.)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, I know, that was a lot of work to show you that something doesn’t work.
+    But, I figured that you might want to see for yourself, instead of just accepting
+    my say-so for it. Seriously though, the bottom line is that `shc` is a good, secure
+    way to obfuscate your scripts, in case you really need to do that. And, due to
+    improvements in the Linux and FreeBSD kernels, the current decrypting utilities
+    no longer work. However, you still need to take precautions to avoid sensitive
+    data leakage, as you’ll see a bit later in the *Avoiding Sensitive Data Leakage*
+    section. Next though, let’s look at a pair of permissions setting that could get
+    you into trouble.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding SUID and SGID Considerations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**SUID** and **SGID**, which stand for **Set User Identity** and **Set Group
+    Identity**, are permissions settings that you can place on executable files. These
+    two permissions settings are not only handy, but are also mandatory on certain
+    executable files that deal with certain functions of Linux, Unix, and Unix-like
+    operating systems. However, if you set SUID or SGID on programs that you create
+    yourself, you could be opening your system up to all kinds of security problems.
+    Before I explain why that is, I need to explain what SUID and SGID actually do
+    and why they’re needed.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let’s go into the `/bin/` directory, and look at the permissions settings
+    for the `rm` executable, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here’s the breakdown of what you’re seeing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `root root` portion of this output indicates that this file belongs to the
+    root user, and is associated with the root user’s group.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The permissions settings are at the beginning of the line, and are divided into
+    three sections. The `rwx` settings are for the *user* of the file, which in this
+    case is the root user. (In the Linux/Unix world, we refer to the *owner* of the
+    file as the file’s *user*.) The `rwx` here means that the root user has read,
+    write, and executable permissions for this file.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The next group of settings, which is `r-x`, is for the *group*, which in this
+    case is for the root group. This means that members of this group, which in this
+    case consists of only the root user, have read and executable permissions for
+    this file.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, we have the third group of settings, which again is `r-x`. This group
+    of settings is for *others*. This means that anyone who isn’t the root user or
+    a member of the root group can invoke the `rm` command, even though the `rm` executable
+    belongs to the root user. The catch with this is that a normal, unprivileged user
+    can only use `rm` to remove files and directories with permissions settings that
+    allow the normal user to do so. (Normally, this would mean that the normal user
+    can only remove his or her own files and directories.) Removing any other files
+    and directories with `rm` requires root privileges.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now, there are times when a normal user who doesn’t have either root or `sudo`
+    privileges needs to do something that requires root privileges. The most common
+    task of this sort is when a normal user needs to change his or her own password.
+    Changing a password requires modifying the `/etc/shadow` file on Linux and OpenIndiana
+    systems, and the `/etc/master.passwd` file on FreeBSD and most other BSD-type
+    systems. But, look at the permissions settings of the `shadow` file on my Fedora
+    workstation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE72]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, this looks very strange, because there are no permissions of any kind
+    on this file for anybody. In reality, the root user does have read and write permissions
+    on this file. It’s just that Red Hat-type operating systems, such as Fedora, use
+    another mechanism to grant those permissions to the root user. (I don’t want to
+    go into what that mechanism is, because it’s beyond the scope of our present topic.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'More typical is what you see on this Debian machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE73]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we see that only the root user has read and write permissions, and that
+    the shadow group only has read permissions. Either way though, a normal user who
+    needs to change his or her own password needs to modify this file, without invoking
+    root or `sudo` privileges. How can that be accomplished? Well, with SUID, of course.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Adding the SUID permission to an executable file allows any normal user to
+    execute that file with the same privileges as that file’s user. For example, look
+    at the permissions settings on the `passwd` executable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE74]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This time, we see `rws` as the permissions setting for the *user*, which again
+    in this case is the root user. The lower-case `s` here means that the executable
+    permission is set for the root user, and that the SUID permission is also set.
+    In the third permissions group, you see `r-x`, which means that normal, unprivileged
+    users can run this program. The SUID permission is what allows the normal user
+    to change his or her own password, which requires modifying either the `/etc/shadow`
+    file or the `/etc/master.passwd` file. So now, let’s see if this works for Frank,
+    who has no root or `sudo` privileges:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE75]'
+  prefs: []
+  type: TYPE_PRE
+- en: Indeed it does, thanks to the SUID setting on the `passwd` executable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I should point out that the SUID setting on the `passwd` executable only works
+    if a user is setting his or her own password. To set anyone else’s password, a
+    user would still need to have the proper `sudo` privileges. (And no, I don’t know
+    how the operating system developers can make SUID work selectively like that.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The SGID setting on executable files works the same way, except for groups.
+    For example, look at the settings for the `write` executable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE76]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this case, you see the `s` setting in the *group* permissions, which means
+    that any user who executes this program has the same privileges as the associated
+    group. In this case, we’re talking about the tty group, which is a system group
+    that allows its members to send output to the terminal. The SGID permission here
+    allows a normal user to use `write` to send messages to another user who’s logged
+    into another terminal, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE77]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After entering the `write frank` command, I hit **Enter**. I then entered the
+    message and hit *Ctrl*-*d* to actually send the message. Thanks to the SGID setting
+    on `write`, I was able to make that message show up on Frank’s terminal, as you
+    see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE78]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, what does all this have to do with shell scripting? Well, it’s just that
+    even though SUID and SGID are mandatory on certain executable files that are part
+    of the operating system, they can be a security hazard if you set them on executable
+    files that you create. By doing so, you can inadvertently allow normal users to
+    do things that they shouldn’t be allowed to do, and you can also allow intruders
+    to invoke malicious code that could affect the entire system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, the general rule is to never, but *never*, set either SUID or SGID on programs
+    of your own creation, unless you really know what you’re doing and can avoid the
+    security problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By the way, here’s how to set the SUID permission on files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE79]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Setting SGID looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE80]'
+  prefs: []
+  type: TYPE_PRE
+- en: But, for shell scripters, there’s a bit of good news. That is, if you set either
+    SUID or SGID on a shell script, it will have no effect at all. This is because
+    the kernels of Linux, Unix, and Unix-like operating systems contain code that
+    cause the operating system to ignore SUID and SGID settings on any executable
+    script file that contains a shebang line. So, contrary to what you might see in
+    other shell scripting tutorials, setting either of these dangerous permissions
+    on your scripts isn’t a problem, because they will have absolutely zero effect.
+    However, they *might* have an effect on any binary files that you create with
+    `shc`, so watch out for them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unfortunately, I haven’t been able to extensively test the effects of SUID and
+    SGID permissions on the binary files that you create with `shc`. So, just be aware
+    that you don’t want to see either of these permissions settings on those binary
+    files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I should also mention that it is possible to mount filesystem partitions with
+    the `nosuid` option, which would cause the SUID and SGID permissions to be completely
+    ignored on any files that are within that partition. In fact, many modern Linux
+    and Unix distros already mount certain important partitions, such as the `/tmp/`
+    filesystem, with the `nosuid` option by default. Unfortunately, showing you how
+    to set this option on your own partitions is beyond the scope of this book. In
+    fact, I really can’t, because the procedure differs for the various Linux and
+    Unix distros, as well as for the various filesystem formats that they use. If
+    you need to know how to set the `nosuid` option, your best bet is to consult the
+    documentation for your particular distro.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, let’s talk about data leakage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Avoiding Sensitive Data Leakage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As a systems administrator, there’s a very good chance that you’ll eventually
+    have to deal with some sort of sensitive data, such as passwords, financial information,
+    or customer information. You’ll always want to ensure that your scripts don’t
+    inadvertently cause any sensitive data to leak out to any unauthorized people.
+    Let’s look at some ways that that could happen, and how to prevent it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Securing Temporary Files
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'At some point, you might need to create scripts that store some sort of ephemeral
+    data in a temporary file. Reasons that you might need to do this include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Processing a large amount of data without using excessive system memory.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Storing the intermediate results of some sort of complex operation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Storing temporary data for logging debugging information.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Allowing different processes or scripts to communicate with each other.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Since the `/tmp/` directory is the most common place to store temporary files,
+    let’s begin this topic with and explanation of it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the /tmp/ Directory
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As I just said, the most common place to store temporary files is in the `/tmp/`
+    directory. The good part about this directory is that it is world-readable and
+    world-writable, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE81]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is good, because it provides a common, well-known place that different
+    scripts and processes can access. Indeed, this directory isn’t just used by your
+    shell scripts. It’s also used by various operating system processes. Here on the
+    Fedora virtual machine, you see that it’s storing temporary data from various
+    `systemd` processes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE82]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you see here, every file or directory that gets created in `/tmp/` is set
+    with restrictive permissions, so that only the *user* of those files or directories
+    can access them. Also, take another look at the permissions settings for the `/tmp/`
+    directory itself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE83]'
+  prefs: []
+  type: TYPE_PRE
+- en: At the end of the permissions string, you see a `t` in place of an `x`. This
+    means that the executable permission is set for *others*, so in that sense it
+    does the same job as the `x`. So, anybody can enter that directory. But, the `t`,
+    which is known as the **sticky bit**, also makes it so that different users can’t
+    delete each other’s files or directories, unless they have root privileges. (This
+    would be true even if the files and directories were set with world-writable permissions.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: I know that this is a rather cursory explanation of the sticky bit, but a fuller
+    explanation is beyond the scope of this book. You’ll find a lot more about it
+    in my *Mastering Linux Security and Hardening* Book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, now that you understand the `/tmp/` directory, let’s look at how you can
+    create scripts that will create temporary files. Understand though, that there
+    are two ways to do it. First there’s the wrong way, and then there’s the right
+    way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Wrong Way to Create Temporary Files
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'So now, let’s say that you really need to write a script that creates temporary
+    files. How would you do it, and how would it be a security concern? Well, before
+    I show you the right way to create temporary files, let me show you the wrong
+    way, in this `tmp_file1.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE84]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Run this script, and you’ll see this in the `/tmp/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE85]'
+  prefs: []
+  type: TYPE_PRE
+- en: You see that the read permission is set for the *user*, *group*, and *others*.
+    The write permission is only set for the *user*. So, I’m the only person who can
+    write to this file, but every unprivileged user who’s logged into the server can
+    read it. That’s not what you want if you’re really dealing with sensitive data.
+    The other problem is that this script is using a predictable naming convention
+    for the temporary file, which makes it easy for attackers to perform **sym link
+    attacks**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Trying to explain how **sym link attacks** work is way beyond the scope of
+    this book. For now, let’s just say that they can cause bad things to happen, such
+    as:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Leakage of sensitive data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Injection of false data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Denial of service attacks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you want to learn more about sym link attacks, check out the references in
+    the *Further Reading* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, bear in mind that security threats don’t always come from unauthorized
+    intruders. Authorized system users who can easily access the `/tmp/` directory
+    can also be threats.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that you’ve seen the wrong way to do business, let’s look at the right way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Right Way to Create Temporary Files
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The absolute best way to create temporary files is to use the `mktemp` utility.
+    Here’s how it works from the command-line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE86]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is cool, because it solves both of the problems that we had in the previous
+    demo. First, it automatically sets restrictive permissions on the files that it
+    creates, so that nobody but the person who created them can access them. Secondly,
+    it creates files with random filenames, which makes the files safe from sym link
+    attacks. Let’s see how this works in the `tmp_file2.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE87]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `temp_file=$(mktemp)` line, I’m using command substitution to assign
+    the output of the `mktemp` command to the `temp_file` variable. Since `mktemp`
+    creates files with random filenames, the name of the temporary file will be different
+    every time you run the script. The `echo` line is just sending some output into
+    the temporary file. Anyway, let’s see what we have when we run this script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE88]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we’ve already noted above, the file is set with restrictive permissions,
+    so that only I can access it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE89]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, this is all cool, and it looks good. But, we still don’t have a way to
+    automatically delete our temporary files when we no longer need them. I mean,
+    even though they’re all set with restrictive permissions, you still don’t want
+    them hanging around when they’re no longer needed. Now, you might be tempted to
+    just put an `rm` command at the end of the script, as you see here in the `tmp_file3.sh`
+    script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE90]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Sure, that works in a simple script like this one. But, if you’re creating
+    a complex script that could possibly exit without running to completion, the `rm`
+    command might not get invoked. So, your best bet is to use a **trap** that will
+    delete the temporary file, even if the script exits prematurely. Here’s how that
+    works, in the the `tmp_file4.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE91]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When you execute a script, it always opens in a new child shell. When the script
+    has either run to completion or has exited prematurely, the child shell closes.
+    The second line in this script, the `trap` line, specifies a command to run when
+    that child shell closes. In this case, we want the `rm -f` command to run. (The
+    `-f` switch forces the `rm` command to delete files without prompting the user.)
+    After the `echo` line, which sends some text into the temporary file, I’ve added
+    two lines that will prove that the temporary file really does get created. Anyway,
+    here’s what happens when I run the script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE92]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, when I ran the script, it showed me the file and then showed me its contents,
+    as I had hoped it would. But when I ran the `ls -l /tmp/tmp*` command afterwards,
+    it showed that no `tmp` file exists. This proves that the `trap` command in the
+    script really did delete the temporary file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As good as all this looks, there’s still one more modification that I’d like
+    to show you in the `tmp_file5.sh` script, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE93]'
+  prefs: []
+  type: TYPE_PRE
+- en: The only thing I did here was to add `|| exit 1` to the `temp_file` line. This
+    makes it so that if for some weird reason the `mktemp` command can’t create the
+    temporary file, the script will exit gracefully with exit code 1\. In reality,
+    it might not be needed here, because it’s almost a sure bet that `mktemp` will
+    be able to create the temporary file. But, it’s considered good programming practice
+    to provide a graceful exit mechanism, and it certainly doesn’t hurt anything to
+    have it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that you can also create temporary directories in the `/tmp/` directory
+    by using `mktemp` with the `-d` option switch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, you now know how to work with temporary files in a secure manner. Now,
+    let’s move on to something else that can be a bit of a bugaboo. That is, how to
+    securely use passwords in scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Passwords in Shell Scripts
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The information in this section can help you out with two different scenarios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You need to create a script that a certain administrator or group of administrators
+    will use, and place it where they can all access it. These administrators all
+    have limited privileges, and what they need to do requires the password to some
+    remote server. But, you don’t want them to know that password, because you don’t
+    want to allow them to actually log into that server. All you want them to do is
+    just one specific job, such as copying files to that server.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You need to create a script for your own use that requires a password to a remote
+    server. You want to set the script up to automatically run at a regularly scheduled
+    time, as either a `cron` job or as a `systemd` timer job. If the script has to
+    prompt you for a password, the job will be interrupted and won’t run to completion.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In both cases, you’ll need to embed a password into your script. But, there’s
+    a danger that your password might leak out to unauthorized parties. Naturally,
+    you’ll want to prevent that. So, let’s see how.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hands-on Lab – Encrypting Passwords
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: For this scenario, I’ll show you a solution that I borrowed from the *How-to
+    Geek* website. It’s a good solution as far as it goes, but it’s only a partial
+    solution, as you’ll soon see. First though, let’s encrypt a password and create
+    a script that uses it. Then, I’ll show you the complete solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I’ve placed the link to the original *How-to Geek* article in the *Further Reading*
+    section. Also, to avoid re-inventing the proverbial wheel, I won’t repeat the
+    extensive explanations that the author of this article has already provided.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To begin, you’ll need a system with both the `openssl` and the `sshpass` packages
+    installed. The `openssl` package is normally installed on pretty much every Linux,
+    Unix, or Unix-like operating system, so you won’t have to worry about that. You’ll
+    only need to worry about installing `sshpass`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You’ll use `openssl` to encrypt your password, and `sshpass` to automatically
+    pass your password to the `ssh` client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `sshpass` package is in the normal repositories for Fedora, Debian/Ubuntu,
+    and FreeBSD. The package name is the same in all cases, so just use your normal
+    package manager to install it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just for fun, I’ll be using the FreeBSD virtual machine for this lab, but you
+    can use either of your Linux virtual machines if you desire. (The procedure will
+    be the same, regardless.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create the `.secret_vault.txt` file that contains the encrypted password for
+    the remote server that you want to access, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE94]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: In this command, `Chicken&&Lips` is the password for the remote server that
+    you want to access, and `Turkey&&Lips` is the password that you’ll need to decrypt
+    the password. (Why you need this decryption password will become clear in a few
+    moments.) `Chicken&&Lips` is the password that you’ll encrypt.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the `chmod 600 .secret_vault.txt` command to set the read and write permissions
+    for yourself, and to remove all permissions from everyone else:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE95]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Look in the `.secret_vault.txt` file, and you’ll see the `sha512` hash value
+    of your remote server password:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE96]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create the `go-remote.sh` script, using your own information for the `Remote_User`,
+    `Remote_Password`, and `Remote_Server`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE97]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: As you’ll see explained in the original *How-to Geek* article, the password
+    for decrypting the `Remote_Password` has to be in the script, in plain-text. The
+    author of the article doesn’t consider this a problem, because the `.secret_vault.txt`
+    file is a so-called hidden file that’s in your own home directory, and because
+    the permissions on it are set so that only the file owner can access it. However,
+    that explanation only makes sense if the plain-text script is in a location that
+    nobody else can access. (I’ll explain more about that in just a bit.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of hard-coding the information for the remote user, remote server, and
+    remote server password into the body of the script, I’m assigning the values for
+    this information to the `Remote_User`, `Remote_Password`, and `Remote_Server`
+    variables. To obtain the decrypted password that I need to assign to the `Remote_Password`
+    variable, I’m using the `stdin` (`<`) redirector to read the password hash from
+    the `.secret_vault.txt` file into the `openssl` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `sshpass -p` command passes Horatio’s password, from the `Remote_Password`
+    variable, to the `ssh` client. Since we don’t need for Horatio to open a remote
+    terminal, we’ll disable that with the `-T` option for `ssh`. The `_remote_commands`
+    *here document* contains a single command that will be executed on the remote
+    server. That is, it will create a `script.log` file that contains a timestamp
+    in Horatio’s home directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In order for this script to work, you’ll need to have Horatio’s public SSH
+    key for the remote server in your `.ssh/known_hosts` file. So, before you try
+    to run the script, have Horatio log into the remote server in the normal manner,
+    and then have him log back out, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE98]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Execute the `go-remote.sh` script. You should see the login information from
+    the remote server come up momentarily, and then be returned to the command prompt
+    of your local machine.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Log into Horatio’s account on the remote server. You should see the `script.log`
+    file that contains a timestamp. It should look something like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE99]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: If you see the `script.log` file in Horatio’s home directory, you have achieved
+    coolness. But, is this really a complete solution? Well, no. Let’s look at some
+    potential problems that the author of this *How-to Geek* article doesn’t address.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the Problems with this Solution
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: Again I ask, is the solution that I’ve just presented a good one? Well, that
+    depends upon a few factors. I mean, if you have the script and the hashed password
+    in your own home directory where only you can access it, it might be okay. But,
+    here’s an important consideration. Some operating systems, such as FreeBSD and
+    older implementations of Linux, have users’ home directories open to other users
+    by default. Anyone who can get into your home directory can read the encryption
+    password in your plain-text script, and see the name of the file that contains
+    the encrypted password. In fact, let’s take a look at that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Home Directory Permissions on FreeBSD
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: 'Here’s how it looks on FreeBSD:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE100]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you see, by default, FreeBSD sets the read and execute permissions for *others*
+    on users’ home directories. In this case, it means that Horatio can see what’s
+    in my directory, and I can see what’s in his directory, without having to use
+    any kind of administrative privileges. Fortunately, I can easily fix that for
+    myself, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE101]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `chmod 700` command preserves the read, write, and execute permissions
+    that I have for myself, and removes all permissions for everyone else. To ensure
+    that any future users have this restrictive permissions settings on their FreeBSD
+    home directories, create the `/etc/adduser.conf` file with that setting, like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE102]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is an interactive utility that prompts you for a lot of information. Accept
+    the defaults for everything except for the `Home directory permissions (Leave
+    empty for default):` line. For it, enter `700` as the value. Test your setup by
+    creating another user account. You should see that the new user will have restrictive
+    permissions set on his or her home directory, as you see here for the account
+    that I just created for Vicky:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE103]'
+  prefs: []
+  type: TYPE_PRE
+- en: Also, keep in mind that when you install FreeBSD, the user account that the
+    installer creates for you will have the more open permissions settings for your
+    home directory. So, after you complete the installation, be sure to set your home
+    directory permissions to the more restrictive value. Then, run the `sudo adduser
+    -C` command to create the `/etc/adduser.conf` file, as I’ve just shown you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Home Directories on Linux
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: 'Home directory permissions on Linux aren’t as much of a problem, because many
+    modern Linux distros create home directories with restrictive permissions by default.
+    For example, here’s how they look on any Red Hat-type system, such as Fedora,
+    and on Debian 12:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE104]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And, here’s how they look on Ubuntu 22.04 and newer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE105]'
+  prefs: []
+  type: TYPE_PRE
+- en: The only difference with Ubuntu is that it has read and execute permissions
+    for the user’s private group, where the Red Hat distros and Debian don’t. That’s
+    okay because either way, nobody can access the home directories except for their
+    respective owners.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Home Directories on Other Linux or Unix Distros
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: Other Linux or Unix distros might have other ways of doing business with their
+    users’ home directories. If you work with any of them, be sure to check the home
+    directory permissions settings, and make any necessary changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, that does it for home directory permissions. But, what if you need to
+    place a script somewhere else where other administrators can access it? Let’s
+    see what we can do about that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Hands-on Lab: Making an Untraceable Binary'
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: If other administrators need to access a script that requires an embedded password,
+    you might have to place both it and the encrypted password file into some other
+    directory, such as `/usr/local/bin/` or `/usr/local/sbin/`. In those cases, you’ll
+    want to ensure that nobody can read or modify the script, and that nobody can
+    trace it. That’s because anyone who can read your script, the `go-remote.sh` script
+    in this case, can see the password that you need to decrypt the remote server
+    password, as well as the name of the file that contains the remote server password.
+    And of course, anyone who can edit this file can add extra commands to do possibly
+    nasty things on the remote server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fortunately, you can easily solve this problem by using `shc` to turn your scripts
+    into executable binary files, as I showed you a few pages back in the *Controlling
+    Access to Your Scripts* section. But, when you do this, you absolutely *must*
+    use `shc` with the `-U` option to make the binary untraceable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you don’t make your binary files untraceable, anyone who can access the files
+    can use debugging utilities such as `strace`, `truss`, `dtrace`, or `dtruss` to
+    obtain the plain-text password, even if it has been encrypted with the strongest
+    algorithm known to mankind.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To demonstrate, go back to the same virtual machine that you used to create
+    the `go-remote.sh` script. Turn the script into an executable binary, using `shc`
+    without the `-U` option:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE106]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Using `truss` on FreeBSD or `strace` on Linux, create the `trace1.txt` trace
+    file of the `go-remote` executable.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'On FreeBSD:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE107]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On Linux:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE108]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Open the `trace1.txt` file, and scroll down until you see Horatio’s password
+    for the remote server. In my own file, it was on line 191, and it looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE109]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Yes indeed, `Chicken&&Lips` really is Horatio’s password for the remote server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Re-create the `go-remote` binary, using the `-U` option to make it untraceable:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE110]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Repeat *Step 2*, except this time save the output to the `trace2.txt` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Open the `trace2.txt` file and search for Horatio’s password. (Spoiler alert:
+    This time, you won’t find it.)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Now, after all this, I need to let you in on a little secret. That is, that
+    neither Horatio’s username nor the address of the remote server shows up in the
+    `truss` or `strace` output. So, anyone who were to trace your binaries will have
+    the password, but no username or server address. But, don’t think that you’re
+    all good because of this. Remember, you need to think like a malicious hacker.
+    Any malicious hacker worth his or her salt would already have used other means
+    to map the servers on your network, and would have found a way to enumerate a
+    list of possible usernames. So, even though this procedure only gives hackers
+    one piece of the puzzle, it’s still an important piece that can be combined with
+    the other pieces.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: All right, I think we’re about through with this topic. Let’s now take a quick
+    look at secure coding practices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Command Injection with eval
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Another major problem with shell script security involves scripts that accept
+    input from untrusted users or untrusted sources. If the script is coded incorrectly,
+    an attacker could use it to inject malicious commands as the script’s input. Before
+    we look at examples of that, let’s look the `eval` command, which facilitates
+    passing data or commands into a script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using eval on the Command-line
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `eval` command is a shell builtin that’s available on most shells. It’s
+    very handy when used properly, but dangerous when used improperly. Before we get
+    into that, let’s look at how `eval` works on the command-line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, `eval` is one of those commands that can be really complex to fully understand.
+    So, to keep things simple, I’ll be presenting some rather simplistic `eval` demos
+    in this section. Even though they’ll demonstrate things that you’ll never do in
+    real life, they’ll serve the purpose of demonstrating the concepts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For anyone who would like to see more in-depth coverage of `eval`, I’ll drop
+    some links into the *Further Reading* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The best way to think of `eval` is that you can use it to dynamically process
+    commands that the shell would normally treat as meaningless text strings. For
+    example, let’s say that we want to find the date from three weeks ago. We would
+    use `date` with the `--date=` option, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE111]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you see, I just used the `"3 weeks ago"` text string as the argument for
+    the `--date` option, which works just fine. Now, let’s assign this date command
+    to the `threeweeksago` variable and `echo` back the results, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE112]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you see, the `echo` command just returned the text string that I assigned
+    to the variable. For some real magic, watch what happens when I replace `echo`
+    with `eval`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE113]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, let’s wait a few minutes and run this again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE114]'
+  prefs: []
+  type: TYPE_PRE
+- en: Look carefully, and you’ll see that the second `eval` command has updated the
+    time value. This sort of thing can be handy in scripting, because it allows you
+    to assign a command to a variable, and then use that variable throughout the rest
+    of the script. This allows you to execute the command in various parts of the
+    script, without having to type out the entire command multiple times. But, as
+    I’ve already mentioned, there’s both a safe way and a dangerous way to use `eval`.
+    Let’s first look at the safe way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using eval Safely
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s take a look at the `eval-test1.sh` script to see a simple example of
+    safe `eval` usage:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE115]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running the script looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE116]'
+  prefs: []
+  type: TYPE_PRE
+- en: The reason this is safe is because we’re feeding `eval` a text string that comes
+    from within the script itself. As long as you have the permissions on this script
+    locked down so that nobody can modify it, it’s perfectly sane and safe. Using
+    `eval` in this way makes it impossible for attackers to insert their own malicious
+    commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Of course, this script is rather pointless, because it doesn’t do anything
+    at all useful. So, let’s look at a more practical example in the `eval-test2.sh`
+    script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE117]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, I’m using `eval` within a command substitution construct to create the
+    value for the `datestamp` variable. I’ll use then use this `datestamp` variable
+    to insert a datestamp into both the text file, and the name of the text file.
+    Here’s how it looks when I run the script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE118]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you see, it works just fine. And, if I were to run this command a few moments
+    later, I would see a new file with a new timestamp. And of course, if I were to
+    decide to change the `--date` value to something else, such as `"1 month ago"`,
+    I would only have to make the change in the `desiredDate=` line, instead of having
+    to change it multiple times throughout the script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, now that I’ve shown you the safe way to use `eval`, let’s look at the dangerous
+    way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using eval Dangerously
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `eval-test3.sh` script shows a very simple example of what you *never*
+    want to do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE119]'
+  prefs: []
+  type: TYPE_PRE
+- en: Yeah, I know what you’re thinking. Nobody would ever create such a simplistic
+    script that uses `eval` in this manner. That’s okay though, because it serves
+    the purpose of demonstrating the concept. Let’s try it out to see what happens.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE120]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you see, the `date` command gets passed into `eval` as positional parameter
+    `$1`. This seems safe enough, but is it really? The key here is that anyone who
+    runs this script can insert any command that he or she wants to run. For example,
+    let’s say that this script is in the `/usr/local/bin/` directory. The permissions
+    are set so that nobody can modify it, but also so that every non-privileged user
+    can execute it. So, what could a malicious hacker accomplish with this? Let’s
+    see.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE121]'
+  prefs: []
+  type: TYPE_PRE
+- en: This particular example might not seem like a big deal, because the `passwd`
+    file is world-readable anyway. But then, it could be a big deal under certain
+    circumstances. For example, let’s say that you’re running a web server, and you
+    have a shell script set up as a CGI script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**CGI** stands for **Common Gateway Interface**. You can create CGI scripts
+    from various programming languages, including shell scripting. These CGI scripts
+    can perform various functions on web servers, such as counting users, or even
+    serving out content.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A full explanation of setting up web servers and how to hack them is way beyond
+    the scope of this book. For now, let’s just say that there are some clever hackers
+    out there who can find and exploit poorly designed CGI scripts on web servers.
+    That’s especially true if the web server security isn’t set up properly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A malicious hacker who hasn’t been able to log into the web server wouldn’t
+    be able to view the `passwd` file. But, if he or she were to find that this poorly-designed
+    script is performing some sort of CGI function, he or she might be able to view
+    the `passwd` file to enumerate the server’s users. (But then, maybe not. Proper
+    web server security measures might prevent this from happening, even if the script
+    is insecure.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For another example that might be more probable, let’s say that you’ve placed
+    the `eval-test3.sh` script in the `/usr/local/sbin/` directory, and have it set
+    up so that only the root user has executable permissions, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE122]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You then invoke the `sudo visudo` command to set up Charlie so that he has
+    root privileges to run the `eval-test3.sh` script, but nothing else. Here’s the
+    line that does that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE123]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let’s see how that works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE124]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Charlie didn’t do any harm this time, but what about next time? Let’s see:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE125]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, Charlie did some real damage. He shut down the web server, causing
+    a Denial-of-Service attack. Ordinarily, Charlie wouldn’t have the power to do
+    this. But, because he has `sudo` privileges to run the `eval-test3.sh` script,
+    and that script contains the `eval $1` line, Charlie can now run any command he
+    wants to run, including system administrative commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As I said at the beginning of this section, I’ve tried to keep the explanation
+    of `eval` simple. To see more complex and somewhat more realistic `eval` scenarios,
+    I would like to draw your attention to two really good articles that I’ve found.
+    The first one is on Medium.com, and is the absolute best write-up I’ve found that
+    covers a real-world way to exploit poorly-written scripts with `eval`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The perils of Bash eval:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://medium.com/dot-debug/the-perils-of-bash-eval-cc5f9e309cae](https://medium.com/dot-debug/the-perils-of-bash-eval-cc5f9e309cae)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second one, at the Earthly.dev site, shows how to perform a **reverse shell
+    attack** with an `eval` script. (If you don’t know what a reverse shell attack
+    is, you’ll find the explanation in the article.) Anyway, you can find it here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Bash eval: Understanding and (Safely) Using the Power of Dynamic Code Evaluation:
+    [https://earthly.dev/blog/safely-using-bash-eval/](https://earthly.dev/blog/safely-using-bash-eval/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Also, there has been at least one instance of a real-life shell script vulnerability
+    that involved an incorrect usage of `eval`. This involved the installation script
+    for Gradle, which is an automated build tool for software development. You can
+    read about it here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'CVE-2021-32751:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-32751](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-32751)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that you understand the dangers of `eval`, let’s consider whether or not
+    we even have to use it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Alternatives to eval
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Many times, you’ll be able to use a safe alternative to `eval`. Let’s look at
+    a few examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Command Substitution
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In the `eval-test1.sh` script that I showed you at the beginning of this section,
+    you could have replaced `eval` with a command substitution construct.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here’s how it looks in the `eval-test1-alternative.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE126]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Run the script, and you’ll see that it behaves exactly the same as the `eval`
+    version:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE127]'
+  prefs: []
+  type: TYPE_PRE
+- en: Granted, it doesn’t really matter in this case, because the script doesn’t accept
+    external input. So, it’s perfectly safe to use `eval` with it. But, if you create
+    a script that does accept external input and you have the choice between using
+    `eval` and using command substitution, your best bet is to go with command substitution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Remember**: Always go with the safest option for your scripts.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Evaluating if eval is Necessary
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In some cases, using `eval` doesn’t even do anything that we can’t do without
+    it. For example, look at the `eval-test4.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE128]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When you run this script, you’ll pass in a number as positional parameter `$1`.
+    The arithmetic operator in the `eval` line will increment the number by 1, and
+    display the result. Here’s how that looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE129]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s remove the `eval` command, so that the script looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE130]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running the script without `eval` gives us this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE131]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output is identical to what it was when we used `eval`, which tells me that
+    `eval` isn’t even needed here. So, the only thing that `eval` does here is to
+    add an attack vector that we definitely don’t need.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Remember**: Don’t use `eval` when it isn’t necessary.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A similar scenario involves assigning a command to a variable, as we see here
+    in the `eval-test5.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE132]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running this script will indeed show us the status of the web server service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE133]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As before, we can accomplish the same thing without using `eval` at all, as
+    you see here in the `eval-test6.sh` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE134]'
+  prefs: []
+  type: TYPE_PRE
+- en: Run this script, and the results will be identical to what they were when you
+    used `eval`. So again, `eval` isn’t needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another example of this is the `value5.sh` script that I showed you in *Chapter
+    10—Understanding Functions*. To refresh your memory, here’s what it looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE135]'
+  prefs: []
+  type: TYPE_PRE
+- en: I’ve already explained this in *Chapter 10*, so for now I’ll just say that I’m
+    using `eval` here as a mechanism to help pass values in and out of the `valuepass`
+    function. But, if you refer back to *Chapter 10*, you’ll see that this is only
+    one of several methods that I showed you for passing values in and out of a function.
+    Using `eval` here is perfectly safe, since this script is only passing values
+    internally. But, if you ever need to create a function that accepts external values
+    from either the script’s user or an external text file, you’ll want to use one
+    of the alternative methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I think that covers it for `eval`. Let’s look at one last possible coding problem,
+    and then move on to the next chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Path Security
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The possibility—however remote it may be—exists that someone could plant a
+    trojaned version of some system utility on your system, and then manipulate a
+    user’s `PATH` setting so that the trojaned utility would be invoked, instead of
+    the real one. The trojaned utility could do a variety of nasty things, such as
+    exfiltrating sensitive data or performing a ransomware attack by encrypting important
+    files. Before I show you a script, let’s see how this looks on the command-line.
+    Let’s begin by showing you where the executable file for the normal `ls` command
+    is located:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE136]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We see that it’s located in the `/usr/bin/` directory, as it should be. Now,
+    let’s create a bogus `ls`, in the form of a script, and place it into the `/tmp/`
+    directory. Here’s the `ls` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE137]'
+  prefs: []
+  type: TYPE_PRE
+- en: Of course, the `echo` command is harmless, but a real malicious hacker would
+    replace that with something that isn’t harmless. After running the malicious command,
+    the script will then invoke the normal `ls` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let’s manipulate the user’s `PATH` setting so that this script will get
+    invoked instead of the real `ls`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE138]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we’ll invoke `ls`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE139]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, the bogus `ls` was invoked, because the `/tmp/` directory is the
+    first directory in the user’s `PATH` setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, the shell scripts that you create will use your normal `PATH` settings
+    to find the utilities and programs that the script invokes. For example, when
+    you want to invoke the `ls` command in a script, just add a line that says `ls`
+    instead of `/usr/bin/ls`. By doing that though, any attacker who can manipulate
+    a user’s `PATH` setting could cause the script to run a bogus, trojaned program.
+    There are three things you can do to prevent that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Method 1**: Make the script unreadable and untraceable, as I showed you in
+    the first portion of this chapter. That way, attackers won’t be able to see which
+    utilities that the script is invoking, which means that they won’t know which
+    utilities to replace with a trojaned version.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Method 2**: Explicitly set a new `PATH` at the top of the script. Here’s
+    how that would look, in the `path-test1.sh` script:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE140]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '**Method 3**: Use the entire path to every command that you place in the script.
+    So, for example, when you want to invoke `awk`, have the line say `/bin/awk` instead
+    of just `awk`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: One problem with the third method is that it could make your scripts less portable.
+    That’s because some operating systems, such as FreeBSD, might have the executable
+    files for certain utilities stored in directories that are different from what
+    you’re used to. For example, FreeBSD has the executable files for many of its
+    utilities in the `/usr/local/bin/` directory, instead of in the `/usr/bin/` as
+    we’re used to seeing on Linux operating systems. So, if you want to ensure that
+    your scripts will run on as many operating systems as possible, your best bet
+    is to forget about Method 3\. Using Method 2 will be much easier and just as effective.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And now, you’re wondering how an attacker could possibly manipulate someone’s
+    `PATH` setting like this. Well, I can think of two possible scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Attack Scenario 1: Compromising the User’s Account'
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One way that an attacker can manipulate a user’s `PATH` setting is to first
+    gain access to the user’s account. If the attacker has already accomplished that,
+    then it’s game over anyway and path security would be the least of the user’s
+    problems. So, your best bet would be to ensure that users’ accounts are configured
+    securely, to prevent anyone from breaking in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Attack Scenario 2: Social Engineering'
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An attacker could also possibly use social engineering to trick a user into
+    running a program that would alter the user’s shell configuration files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the world of cybersecurity, **social engineering** can take many forms. For
+    example, it can come by way of a scam email with a link to a malicious file, or
+    it could come by way of a face-to-face encounter. In any case, the goal is to
+    convince the victim to perform some sort of action that could cause a breach of
+    security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this scenario, I’m using the Fedora Server virtual machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let’s look at the `harmless-program.sh` script:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE141]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Run the script, and note that it places an extra `PATH` directive at the end
+    of the `.bashrc` file. This extra directive overrides the `PATH` directive that’s
+    at the top of the file. This new setting won’t take effect right away, but it
+    will the next time that the user either logs into the system or opens another
+    terminal window.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Log out and then log back in again. Prepare to be amazed at what happens when
+    you try to do a directory listing:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE142]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Of course, in real life the script would have done something a bit more nasty.
+    Also, distributing this sort of malicious program as a script would be a bit obvious.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, let’s use `shc` to convert this to an untraceable executable binary. Also,
+    use the `-r` option so that the binary will execute on other Linux machines.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE143]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Before you try to execute the binary, open the `.bashrc` file in your text editor,
+    and delete the two lines that were added by the script.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Log out and then log back in.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Execute the new `harmless-program` binary.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Log out and then log back in. Then, execute the `ls` command. You should see
+    the same results that you saw in Step 3.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, open the `.bashrc` file in your text editor and delete the two lines
+    that were added by the `harmless-program` program.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If you do a web search for articles related to shell scripting security, you’ll
+    find several that talk about path security attacks. Curiously though, I’ve never
+    seen a single one that explains how someone might execute such an attack.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, this scenario provides a prime example of why all personnel who use a
+    computer should learn to recognize and avoid social engineering attacks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, I think that this about covers things for this topic. So, let’s wrap up
+    and move on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we covered topics that are important to a security-conscious
+    Linux or Unix administrator. We began with a discussion of how to control access
+    to your important scripts, and showed various methods of doing so. Next, we looked
+    at considerations about the SUID and SGID permissions settings, and then we looked
+    at a few different ways to prevent your scripts from leaking sensitive data. We
+    then looked at how using the `eval` command in scripts can be quite dangerous,
+    and wrapped up with a discussion of path security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll talk about debugging buggy scripts. I’ll see you
+    there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Which of the following is true about the `eval` command?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It’s always safe to use `eval` in your scripts.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It’s always dangerous to use `eval` in your scripts.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It’s only safe to use `eval` in your scripts if it only takes input from and
+    external source.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It’s only safe to use `eval` in your scripts if it only takes input from within
+    your script.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which two of the following statements are true about the `/tmp/` directory?
+    (Choose two.)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It’s completely secure, because only administrative users can enter it.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Anybody can create files in it.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Anybody can read files that `mktemp` creates in the `/tmp/` directory.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Any files that `mktemp` creates in the `/tmp/` directory can only be read by
+    the user who created them.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you prevent an attacker from obtaining information from a binary that
+    you’ve created with `shc`?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It’s never possible to obtain information from an `shc` binary.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Use `shc` with the `-U` option.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Use `shc` with the `-u` option.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There’s nothing you can do to prevent this.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Before you set an Access Control List on a file, what must you do to that file?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Remove all permissions from *group* and *others*.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There’s nothing that you need to do.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Ensure that *user*, *group*, and *others* all have read, write, and execute
+    permissions.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Change ownership of the file to the root user.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What’s the best way to ensure that any temporary files that your script creates
+    in the `/tmp/` directory always get deleted?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: After you run the script, go into the `/tmp/` directory and delete the temporary
+    files yourself.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Automatically delete the files with an `rm` command at the end of the script.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Automatically delete the files with a `trap` command at the beginning of the
+    script.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: No action is needed, because your script will always automatically delete its
+    temporary files.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further Reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Setting and Displaying ACLs on ZFS File in Compact Format—Oracle Solaris ZFS
+    Administration Guide: [https://docs.oracle.com/cd/E23823_01/html/819-5461/gbchf.html#scrolltoc](https://docs.oracle.com/cd/E23823_01/html/819-5461/gbchf.html#scrolltoc)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Shell Scripts and Security: [https://stackoverflow.com/questions/8935162/shell-scripts-and-security](https://stackoverflow.com/questions/8935162/shell-scripts-and-security)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Shell Script Security: [https://developer.apple.com/library/archive/documentation/OpenSource/Conceptual/ShellScripting/ShellScriptSecurity/ShellScriptSecurity.html](https://developer.apple.com/library/archive/documentation/OpenSource/Conceptual/ShellScripting/ShellScriptSecurity/ShellScriptSecurity.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to Securely Work with Temporary Files in Linux Shell Scripting: [https://youtu.be/zxswimoojh4?si=ERfbJ04U2LJzQE60](https://youtu.be/zxswimoojh4?si=ERfbJ04U2LJzQE60)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Why is SUID disabled for shell scripts but not for binaries?: [https://security.stackexchange.com/questions/194166/why-is-suid-disabled-for-shell-scripts-but-not-for-binaries](https://security.stackexchange.com/questions/194166/why-is-suid-disabled-for-shell-scripts-but-not-for-binaries
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Dangers of SUID shell scripts: [https://www.drdobbs.com/dangers-of-suid-shell-scripts/199101190](https://www.drdobbs.com/dangers-of-suid-shell-scripts/199101190)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Using the trap builtin to catch interrupts for graceful event handling in the
+    shell: [https://www.shellscript.sh/trap.html](https://www.shellscript.sh/trap.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Reverse Engineering Tools in Linux—strings, nm, ltrace, strace, LD_PRELOAD:
+    [https://www.thegeekstuff.com/2012/03/reverse-engineering-tools/](https://www.thegeekstuff.com/2012/03/reverse-engineering-tools/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Reverse Engineering with strace: [https://function61.com/blog/2017/reverse-engineering-with-strace/](https://function61.com/blog/2017/reverse-engineering-with-strace/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to Use Encrypted Passwords in Bash Scripts: [https://www.howtogeek.com/734838/how-to-use-encrypted-passwords-in-bash-scripts/](https://www.howtogeek.com/734838/how-to-use-encrypted-passwords-in-bash-scripts/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Beginners Guide for eval Command on Linux: [https://linuxtldr.com/eval-command/](https://linuxtldr.com/eval-command/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to Use eval in Linux Bash Scripts: [https://www.howtogeek.com/818088/bash-eval/](https://www.howtogeek.com/818088/bash-eval/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Eval Command and Security Issues: [http://mywiki.wooledge.org/BashFAQ/048](http://mywiki.wooledge.org/BashFAQ/048)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Code Injection: [https://owasp.org/www-community/attacks/Code_Injection](https://owasp.org/www-community/attacks/Code_Injection)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Securing Shell Scripts: [https://www.admin-magazine.com/Archive/2021/64/Best-practices-for-secure-script-programming](https://www.admin-magazine.com/Archive/2021/64/Best-practices-for-secure-script-programming)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: d
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: b and d
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: b
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: c
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Join our community on Discord!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Read this book alongside other users, Linux experts, and the author himself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ask questions, provide solutions to other readers, chat with the author via
+    Ask Me Anything sessions, and much more. Scan the QR code or visit the link to
+    join the community.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://packt.link/SecNet](https://packt.link/SecNet)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/QR_Code10596186092701843.png)'
+  prefs: []
+  type: TYPE_IMG

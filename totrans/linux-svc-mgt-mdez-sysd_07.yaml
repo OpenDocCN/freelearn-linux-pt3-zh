@@ -1,0 +1,813 @@
+- en: '*Chapter 6*: Understanding systemd Targets'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we'll look at what `systemd` targets are, and what they can
+    do for us. Now, I have to tell you that there is a bit of confusion that surrounds
+    this topic, and I hope to clear that up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Specific topics covered in this chapter include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the purpose of `systemd` targets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding the structure of a target file
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Comparing `systemd` targets to SysVinit run levels
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding target dependencies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Changing the default target
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Temporarily changing the target
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding targets is important and can help you out either in the server
+    room or in your own home. If you're ready, let's get started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For this chapter, you'll need a virtual machine that's running with a graphical
+    desktop environment. I'll be using my *AlmaLinux virtual machine*, which is running
+    with the *Gnome 3 desktop*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3Dgar9d](https://bit.ly/3Dgar9d)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As always, this is hands-on, so feel free to follow along.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the purpose of systemd targets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The legacy `systemd`, we have *targets* instead of runlevels. Several of these
+    targets perform the same function that runlevels used to. That part is easy to
+    understand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Where the confusion comes in is that targets are more than just runlevels. As
+    we'll soon see, there are many different targets, all with their own specific
+    purposes. In `systemd`, a target is a unit that groups together other `systemd`
+    units for a particular purpose. The units that a target can group together include
+    services, paths, mount points, sockets, and even other targets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By doing a `systemctl list-units -t target` command, you can see all of the
+    active targets on your system, which should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_6.1_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.1 – Active targets on AlmaLinux
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add the `--inactive` option to see the inactive targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_6.2_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.2 – Inactive targets on AlmaLinux
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can probably figure out what a lot of these targets are doing just by looking
+    at their names. For the ones that aren't so obvious, either just look in the `systemd.special`
+    man page or search for a man page with a particular target name.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's peek inside a few of these target files to see what we can see.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the structure of a target file
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As I've said before, the best way to learn `systemd` is to look at examples
+    of the various unit files. In this section, we'll look at some `.target` files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the sockets.target file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let''s start with the `sockets.target` file, which is one of the simplest targets
+    we have:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Yeah, that''s it, the entire file. The `[Unit]` section is the only section
+    it has, and it only consists of the `Description=` line and the `Documentation=`
+    line. At first glance, you would think that this can''t possibly be doing anything
+    for us. But that''s where you''d be wrong. Look in the `/etc/systemd/system/sockets.target.wants`
+    directory, and you''ll see that this target is just a group of all the sockets
+    that we need to have running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To see how this works, let''s look inside the `cups.socket` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can see in the `[Install]` section that this socket is wanted by `sockets.target`.
+    In other words, this socket for the `sockets.target` is activated. Of course,
+    `sockets.target` is already active by default on pretty much any Linux system,
+    so you normally won''t have to worry about activating it yourself. `cups.socket`
+    is also normally active by default, but you might not always need it. Let''s say
+    that you''re running a text-mode server, and you know for a fact that you''ll
+    never need to print anything from it. You can disable `cups.socket` the same way
+    that you''d disable a service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you do this, the associated `cups.service` is still running, so you'll
+    also need to stop and disable it. If you change your mind, you can always re-enable
+    the service and the socket.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding dependencies in the sshd.service file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We've already looked at the `sshd.service` file, but it's worthwhile to look
+    at it again. To save space, I'll just show the `[Unit]` and `[Install]` sections,
+    which are the only two sections that we need to look at.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The [Unit] and [Install] sections
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Here are the `[Unit]` and `[Install]` sections of the `sshd.service` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: We've already seen the `WantedBy=multi-user.target` line in the `[Install]`
+    section, which means that the secure shell service will automatically start when
+    the machine boots into multi-user mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the `[Unit]` section of the `sshd.service` file, we see that `sshd.service`
+    won't start until after `network.target` and `sshd-keygen.target` have started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let's see what's in the `network.target` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding passive targets
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The `network.target` file looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: One interesting thing here is the `RefuseManualStart=yes` line that we see at
+    the end. This just means that this target will start automatically and that we
+    can't start it ourselves. This is why we consider `network.target` as a *passive*
+    target. We also see that `network.target` will start after `network-pre.target`,
+    which is also a passive target.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What''s even more interesting, and a bit curious, is that this `network.target`
+    doesn''t appear to be doing anything for us. I mean, there''s no code here that''s
+    really doing anything; it doesn''t appear to be starting any services, and there''s
+    no `.wants` directory under the `/etc/systemd/system/` directory that would allow
+    us to add services to it. We can see that here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, what''s going on here? Well, this is one of those things that takes a bit
+    of detective work to find out, because the developers of `systemd` don''t document
+    it well. The answer is that several targets are *hardcoded* into the `systemd`
+    executable file. `network.target` is one example. To get a bit of a clue about
+    this, we can use the `strings` utility to view any text strings that might be
+    in the `systemd` executable file. The command to use it is:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output should look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_6.3_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.3 – Targets that are hardcoded into the systemd executable
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understand that not all of these hardcoded targets are passive targets. For
+    example, at the top of the list, you see several targets that have to do with
+    powering down the machine, rebooting the machine, or rescuing the machine. (I'm
+    talking about everything down to `emergency.target`.) These are targets that we
+    can definitely invoke ourselves.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Passive targets are automatically started during the system initialization portion
+    of the boot process. `network.target` gets activated when the machine is able
+    to reach the network. By placing `After=network.target` in the `[Unit]` section
+    of the `sshd.service` file, we ensure that the Secure Shell service won't start
+    until after the network is activated and available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding service templates
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To refresh our memories, let''s take another look at the `[Unit]` section of
+    our `sshd.service` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We see that `sshd.service` wants `sshd-keygen.target`, and is not to start
+    until after `sshd-keygen.target` has started. Let''s peek inside the `sshd-keygen.target`
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We see that `sshd.target` wants `sshd-keygen@.service` three different times.
+    The `@` symbol in the filename indicates that this is a service *template*. When
+    we invoke a service template, we''ll place the value of a variable after the `@`
+    symbol, which allows us to run a service multiple times with different parameters.
+    To see what I''m talking about, let''s look inside the `sshd-keygen@.service`
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first thing to note is the `%i` variable. In the `sshd-keygen.target` file,
+    we see that the three values for this variable are `rsa`, `ecdsa`, and `ed25519`.
+    These values represent the three types of secure shell keys that we want on our
+    system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `ConditionFileNotEmpty=|!/etc/ssh/ssh_host_%i_key` line verifies whether
+    or not these three key files already exist. On my AlmaLinux system, the keys look
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this `ConditionFileNotEmpty=` line, the `!` means that we're looking for
+    the *absence* of these three key files. The pipe symbol (`|`) that's before the
+    `!` is the *trigger* symbol. When you put both of these symbols together, it means
+    that nothing will happen if the three key files already exist. But if the key
+    files *don't* exist, the `|` symbol will cause this service to run in order to
+    create them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the `[Service]` section, we see the `ExecStart=/usr/libexec/openssh/sshd-keygen
+    %i` line. This will cause the `sshd-keygen` command to run once for every value
+    of the `%i` variable that's defined in `sshd-keygen.target`. Each time it runs,
+    it will create one of the three key files that we need.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The last thing to look at here is the `Type=oneshot` line, which is also in
+    the `[Service]` section. This causes the service to just run as a normal script
+    that performs some specified one-time task, instead of as a continuously running
+    daemon. After the specified commands have run, the service shuts down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, we've seen what targets are, and we've seen a few simple examples. Now,
+    let's look at the targets that have replaced the old-fashioned runlevels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing systemd targets to SysVinit runlevels
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The old SysV runlevels defined which services would run when the operating
+    system reached a certain state. It was a simple concept, except that there were
+    four different sets of runlevel definitions that a Linux user would have to know.
+    There was the generic set, which was created by the big Linux gurus at the Linux
+    Foundation as part of the *Linux Standard Base*. The Red Hat definitions were
+    almost identical to the generic ones. The *Slackware* and *Debian* developers
+    basically came out of left field and created their own definitions that didn''t
+    look anything like the generic ones. (Of course, Slackware and Debian are the
+    two oldest surviving Linux distros, so it''s possible that they might have created
+    their own definitions before the Linux Foundation gurus created the generic definitions.)
+    This made things a bit confusing for new Linux users, especially for those of
+    us who had to study for the Linux Professional Institute certification exam. It
+    also made things a bit difficult for developers who needed to create new services
+    that would run on all the different families of Linux distros. Fortunately, all
+    we need to consider for now is the generic definitions, and how they compare to
+    the `systemd` targets. Let''s look at the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B17491_06_Table_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In `systemd`, there are some runlevel-type targets that have no SysV counterparts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`emergency.target` is like `rescue.target`, except that filesystems are mounted
+    as read-only.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`hibernate.target` saves the system state and then powers down the machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`suspend.target` just puts the system to sleep without powering it down.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`hibernate.target` and `suspend.target`, which aren''t needed on server implementations
+    of Linux, are a big help to the growing numbers of people who use Linux on laptop
+    and desktop computers. Prior to systemd, there was no good, standardized way of
+    implementing these features.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that in the official generic definition set, `runlevel 2` and `runlevel
+    4` don't exactly correspond to the multi-user target. For some reason, every explanation
+    of runlevels versus targets always places runlevels 2 and 4 here, and I'm not
+    sure why.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A big difference between SysV and `systemd` is that on SysV, each runlevel
+    is its own independent unit. So, if you had a machine set up to boot into `runlevel
+    5`, it would go directly to `runlevel 5`. On `systemd`, one target can depend
+    upon another target, which in turn might depend upon yet another target. Take,
+    for example, this `graphical.target` unit file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Requires=multi-user.target` line means that `graphical.target` will fail
+    to start unless `multi-user.target` is already running. All of the services that
+    get started in multiuser mode will continue to run in graphical mode. The `Wants=display-manager.service`
+    line means that it wants to start the display manager, but it won't fail if the
+    display manager doesn't start.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `Conflicts=rescue.service rescue.target` line tells `systemd` to shut down
+    `graphical.target` if either `rescue.service` or `rescue.target` gets started,
+    or to shut down `rescue.service` or `rescue.target` if `graphical.target` gets
+    started. Of course, `shutdown.target` is also a conflict, but we don't need to
+    list it. The `Conflicts=shutdown.target` parameter is already implied.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `After=` line seems a bit strange, doesn't it? I mean, it does make sense
+    that `graphical.target` can't run until after `multi-user.target` and `display-manager.service`
+    have completed starting up. But what about `rescue.service` and `rescue.target`?
+    Why would we need these rescue units to run before starting `graphical.target`?
+    Well, we actually don't. It's just that the `After=` directive also affects what
+    happens when you shut down a target. In this case, the directive says that if
+    you decide to switch from `graphical.target` to `rescue.target`, `rescue.target`
+    and `rescue.service` won't start until after `graphical.target` shuts down. So,
+    by switching from graphical mode to rescue mode, the `After=` line operates in
+    an inverse fashion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The last line is `AllowIsolate=yes`. This just means that we can switch from
+    this target to another, if we so desire. For example, if we need to drop out of
+    graphical mode to a pure command-line mode, we can *isolate* to `multi-user.target`.
+    (Yeah, the terminology is a bit strange, but that's just the way it is.) Before
+    we move on to that, let's talk a bit more about *dependencies*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding target dependencies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this `graphical.target` file, the `Requires=multi-user.target` line means
+    that `multi-user.target` has to be running before `graphical.target` can start.
+    So, `multi-user.target` is a dependency for `graphical.target`. Now, let''s peek
+    into the `multi-user.target` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we see that `multi-user.target` requires `basic.target`. So, let''s look
+    at the `basic.target` file to see what it requires:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, `basic.target` requires `sysinit.target`. So, let''s see what `sysinit.target`
+    requires:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`sysinit.target` doesn''t *require* anything, but it does *want* `local-fs.target`
+    and `swap.target`. Some of these chained targets have their own `.wants` directories
+    in the `/etc/systemd/system/` directory that contain symbolic links to the services
+    that will start for those targets. Here, for example, is the contents of the `/etc/systemd/system/sysinit.target.wants/`
+    directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Trying to figure out all of a target''s dependencies might seem like a complex
+    operation, but it really isn''t. To see the dependencies for `graphical.target`,
+    we''ll just do `systemctl list-dependencies graphical.target`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: The whole output is too long to list here, but you get the idea.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `--after` and `--before` options show the dependencies that must start
+    either *before* or *after* a target starts. (No, I didn''t do that backward. The
+    `--after` option indicates that the target must start after the listed dependencies,
+    and the `--before` option indicates that the target must start before the listed
+    dependencies.) For a simple example, let''s see what must start before `network.target`
+    can start:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you like, you can also create a graphical representation of a target''s
+    dependencies. To do that, you''ll first need to install the `graphviz` package.
+    The command to do that on the AlmaLinux machine is:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, let''s use `systemd-analyze` to create the graphics file that shows the
+    dependencies for `graphical.target`. The command looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, open the resultant `graphical.svg` file in *Firefox*. Either resize
+    the image to fit the screen or use the slider bar at the bottom to view different
+    parts of the image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_6.4_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.4 – The graphical.target dependencies
+  prefs: []
+  type: TYPE_NORMAL
+- en: (Note that your graphic might not look exactly like mine. I don't know why,
+    but that's how it is.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: The point I'm trying to make here is that targets can have an entire chain of
+    dependencies. This allows us to have a more modular setup, so that we don't have
+    to create each individual target file with its own complete list of dependencies.
+    This is the opposite of how SysV works. With SysV, each runlevel has its own directory
+    of symbolic links that point to all of the services that are to be started for
+    the specified runlevel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we've seen what targets are and how they're constructed, let's see
+    how to set the default target.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Changing the default target
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When you install a Linux operating system, the installer will configure either
+    `multi-user.target` or `graphical.target` as the default, depending upon whether
+    or not you choose to install a graphical desktop environment. When you boot up
+    a Linux machine, it can be quite obvious what the default target is. If a graphical
+    desktop shows up, you can rest assured that `graphical.target` is set as the default:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_6.5_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.5 – AlmaLinux with the Gnome 3 desktop
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, if a graphical desktop doesn't show up, it doesn't necessarily mean
+    that the machine is set up with `multi-user.target` as its default. It could be
+    that `graphical.target` is the default, and that the graphical display manager
+    has failed to start. (I've seen that happen a few times when a video card driver
+    is configured incorrectly.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see which target is set as the default, use `systemctl get-default`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can also see the default setting by looking at the `/etc/systemd/system/default.target`
+    symbolic link, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: We see that the symbolic link points to the `graphical.target` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that you no longer want this machine to boot into graphical
+    mode. Just set it to multiuser mode, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can see that the `default.target` symbolic link now points to the `multi-user.target`
+    file. When you reboot this machine now, the graphical desktop won''t start up.
+    After you''ve rebooted the machine to verify that this works, go ahead and change
+    it back to graphical mode by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Then, reboot the machine to get back into graphical mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, this is all good. But there might be times when we'll just want to
+    change to another target temporarily without changing the default. Let's look
+    at that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Temporarily changing the target
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You can also change from one target to another without changing the default.
+    This can come in handy for a few reasons. For example, let''s say that you''re
+    setting up a gaming computer with an *Nvidia* graphics card. Now, if all you want
+    to do with your Linux computer is just surf the web or do normal office work,
+    the open source Nvidia drivers that come with your Linux distro work fine. For
+    gaming though, the open source drivers might not give you the gaming performance
+    that you really crave. To get around that, you''ll go to the Nvidia website and
+    download their proprietary driver. The first step in the installation procedure
+    is to drop the machine out of graphical mode, into text mode. To do that with
+    `systemd`, we''ll use the `systemctl isolate` option, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This will shut down the graphics server and bring you back to a text-mode login
+    prompt:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_6.6_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.6 – Text-mode login on Alma Linux
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get back to graphical mode, you can reboot the machine, assuming that you
+    still have `graphical.target` set as the default. Or, you can just run the `isolate`
+    command again, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Be aware though that isolating back to graphical mode can sometimes be a bit
+    quirky, so you might find it better to just reboot. Besides, if you're installing
+    a video driver, you'll need to reboot in any case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, if you''re an old-as-dirt codger like me, you might be so used to the
+    old way of doing things that you can''t do things the new way. Well, I have good
+    news. You can still use the old SysV commands to change targets if you really
+    want to. To allow this to happen, the `systemd` developers created symbolic runlevel
+    links that point to the corresponding targets. Here''s what they look like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The legacy `init` and `telinit` commands are also still there, so you can still
+    use either of them to change runlevels. For example, you can drop from graphical
+    mode down to multiuser mode with either of these two commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: To get back to graphical mode, just run either of these commands again, replacing
+    the `3` with a `5`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All jokes aside, it's great that they included the backward-compatibility stuff
+    for those who really need it. Still though, you'll want to get used to the modern
+    `systemctl isolate` way of doing things, because the `systemd` developers could
+    pull this backward-compatibility stuff out at any time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All righty, I think that about covers things. Let's wrap this chapter up and
+    put a bow on it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we always do, we've covered a lot of ground and seen a lot of cool stuff.
+    We looked at the purpose of `systemd` targets and how they're structured. Then,
+    we looked at how `systemd` targets compare to the old SysVinit runlevels, and
+    at how to view a target's dependencies. We finished by looking at how to set the
+    default runlevel, and how to temporarily change the runlevel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we'll look at `systemd` timers. I'll see you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is a target?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a) It's just another name for the old-fashioned runlevels.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b) It's a unit that groups together other units for a specific purpose.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c) It's a unit that starts a service.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d) It's a unit that listens for incoming network connections.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What is a passive target?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a) It's a target that you can't start yourself.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b) It's a placeholder target that doesn't do anything.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c) A passive target is configured with the `TargetMode=passive` line.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d) It's a target that just runs in the background.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: How would you change from graphical mode to text mode?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a) `sudo systemctl isolate text-mode`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b) `sudo systemctl 3`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c) `sudo systemctl isolate multi-user`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d) `sudo runlevel multi-user`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What is a major difference between SysV runlevels and `systemd` targets?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a) SysV runlevels depend upon each other. `systemd` targets are self-contained
+    units.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b) `systemd` targets depend upon each other. Each SysV runlevel has its own
+    complete list of services to run.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c) SysV runlevels run more efficiently than `systemd` targets.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d) There is no real difference.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following commands shows you the default target?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a) `systemctl show-target`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: b) `systemctl show-default`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: c) `systemctl default`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: d) `systemctl get-default`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: b
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: c
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: b
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: d
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'An explanation of `network.target`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/](https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Booting CentOS into emergency or rescue mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.thegeekdiary.com/how-to-boot-into-rescue-mode-or-emergency-mode-through-systemd-in-centos-rhel-7-and-8/](https://www.thegeekdiary.com/how-to-boot-into-rescue-mode-or-emergency-mode-through-systemd-in-centos-rhel-7-and-8/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Booting Ubuntu into emergency or rescue mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://linuxconfig.org/how-to-boot-ubuntu-18-04-into-emergency-and-rescue-mode](https://linuxconfig.org/how-to-boot-ubuntu-18-04-into-emergency-and-rescue-mode)'
+  prefs: []
+  type: TYPE_NORMAL

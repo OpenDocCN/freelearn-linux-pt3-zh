@@ -1,0 +1,1523 @@
+- en: '9'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Managing Storage Volumes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When it comes to storage on our servers, it seems as though we can never get
+    enough. While hard disks are growing in capacity every year, and high-capacity
+    disks are cheaper than ever, our servers gobble up available space quickly. As
+    administrators of servers, we always do our best to order servers with ample storage,
+    but business needs evolve over time, and no matter how well we plan, a successful
+    business will always need more. While managing your servers, you’ll likely find
+    yourself adding additional storage at some point. But managing storage is more
+    than just adding new disks every time your current one gets full. Planning ahead
+    is also important, and technologies such as **Logical Volume Manager** (**LVM**)
+    will make your job much easier as long as you start using it as early as you possibly
+    can.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'LVM itself is just one of the concepts we’ll go over in this chapter that will
+    give you more flexibility with how you handle servers. I’ll also walk you through
+    additional concepts that will no doubt come in handy as you manage storage and
+    volumes on your server. More specifically, this discussion will include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding additional storage volumes to the filesystem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Formatting and partitioning storage devices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Mounting and unmounting volumes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding the `/etc/fstab` file
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Backing up and restoring volumes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Utilizing LVM
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: One possible solution when your server is running out of disk space is to add
+    an additional storage volume. So the first order of business for us, in this chapter,
+    will be to look into how we can do exactly that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding additional storage volumes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At some point or another, you’ll reach a situation where you’ll need to add
+    additional storage to your server. On physical servers, we can add additional
+    hard disks, and on virtual or cloud servers, we can add additional virtual disks.
+    Either way, in order to take advantage of the extra storage, we’ll need to determine
+    the name of the device, format it, and mount it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the case of LVM (which we’ll discuss later in this chapter), we’ll have
+    the opportunity to expand an existing volume, often without a server reboot being
+    necessary. There’s an overall process to follow when adding a new device, though.
+    When adding additional storage to your system, you should ask yourself the following
+    questions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**How much storage do you need?** If you’re adding a virtual disk, you can
+    usually make it any size you want, as long as you have enough space remaining
+    in the pool of your hypervisor.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**After you attached it, what device name did it receive?** When a new disk
+    is attached to our server, it will be detected by the system and given a device
+    name. In most cases, the naming convention of `/dev/sda`, `/dev/sdb`, and so on
+    will be used. In other cases (such as virtual disks), this will be different,
+    such as `/dev/vda`, `/dev/xda`, and possibly others. The naming scheme usually
+    ends with a letter, incrementing to the next letter with each additional disk.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**How do you want the storage device formatted?** At the time of writing, the
+    ext4 filesystem is the most common. However, for different workloads, you may
+    consider other options (such as XFS). When in doubt, use ext4, but definitely
+    read up on the other options to see if they may benefit your use case. ZFS is
+    another option that you can consider, though compared to the other choices, it’s
+    relatively new. We’ll discuss formatting in the next section, *Formatting and
+    partitioning storage devices*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It may be common knowledge to you by now, but the word filesystem is a term
+    that can have multiple meanings on a Linux system depending on its context and
+    may confuse newcomers. Linux administrators like us will most often use the term
+    filesystem to discuss the file and directory structure of a typical Linux system.
+    However, the term is also used to describe how a disk is formatted for use with
+    the distribution (for example, the ext4 filesystem). In this chapter, we’ll be
+    primarily focusing on the latter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Where do you want it mounted?** The new disk needs to be accessible to the
+    system and possibly users, so you would want to mount (attach) it to a directory
+    on your filesystem where your users or your application will be able to use it.
+    In the case of LVM, which we also discuss in this chapter, you’re probably going
+    to want to attach it to an existing storage group. You can come up with your own
+    directory for use with the new volume, but I’ll discuss a few common locations
+    later on in this chapter. We’ll go over the process of mounting and unmounting
+    in the *Mounting and unmounting volumes* section.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s consider the answers to the first two questions. With regard to how much
+    space you should add, you would want to research the needs of your application
+    or organization and find a reasonable amount. In the case of physical disks, you
+    don’t really get a choice beyond deciding which disk to purchase. In the case
+    of virtual disks, you’re able to be more frugal, as you can add a small disk to
+    meet your needs (you can always add more later).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The main benefit of LVM with virtual disks is being able to grow a filesystem
+    without a server reboot. For example, you can start with a 30 GB volume and then
+    expand it in increments of 10 GB by adding additional 10 GB virtual disks. This
+    method is certainly better than adding a 200 GB volume all at once when you’re
+    not completely sure all that space will ever be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: LVM can also be used on physical servers as well, but would most likely require
+    a reboot anyway since you’d have to open the case and physically attach a hard
+    drive. Some servers allow for hot-plugging, which gives you the ability to add/remove
+    physical hard drives without powering off the server first, which is a great benefit
+    to have.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, the device name can be found with the `fdisk -l` command. The `fdisk`
+    command is normally used for creating and deleting partitions, but it will also
+    allow us to determine which device name our new disk received. Using the `fdisk
+    -l` command will give you the info, but you’ll need to run it as `root` or with
+    `sudo`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Executing this command produces output similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.1: Output of the fdisk -l command'
+  prefs: []
+  type: TYPE_NORMAL
+- en: I always recommend running `fdisk -l` *before and after* attaching a new device.
+    That way, it will be more obvious which device name represents the new device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another trick is to use the following command, with which the output will update
+    automatically as you add the disk:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Just start the command, attach the disk, and watch the output. When done, press
+    *Ctrl* + *c* on your keyboard to return to the prompt.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can also find the device name of your new disk with the `lsblk` command.
+    The benefit of `lsblk` is that you don’t need `root` privileges, and the information
+    it returns is simplified:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.2: Output of the lsblk command'
+  prefs: []
+  type: TYPE_NORMAL
+- en: On a typical server, the first disk (basically, the one that you installed Ubuntu
+    Server on) will be given a device name of `/dev/sda` while additional disks will
+    be given the next available name, such as `/dev/sdb`, `/dev/sdc`, and so on (depending
+    on the type of hard disk you have). Nowadays, **Non-Volatile Memory Express**
+    (**NVMe**) hard drives are becoming increasingly common, so you may see a device
+    name similar to `/dev/nvme0n1`. You’ll also need to know the partition number.
+    Device names for disks will also have numbers at the end, representing individual
+    partitions. For example, the first partition of `/dev/sda` will be given `/dev/sda1`,
+    while the second partition of `/dev/sdc` will be given `/dev/sdc2`. These numbers
+    increment and are often easy to predict. As I mentioned before, your device naming
+    convention may vary from server to server, especially if you’re using a **Redundant
+    Array of Independent Disks** (**RAID**) controller or a virtualization host such
+    as VMware or XenServer. If you haven’t created a partition on your new disk yet,
+    you will not see any partition numbers at the end of their names.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that you’ve added and named an additional storage volume, we can proceed
+    through the process of setting it up. We need to decide where we’re going to mount
+    it, and what purpose it will serve. But before we can even mount the storage device
+    in the first place, we need to create at least one partition on it and then format
+    it. We’ll take care of both in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Formatting and partitioning storage devices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once you’ve installed a physical or virtual disk, you’re well on your way to
+    benefiting from additional storage. But in order to utilize a disk, it must first
+    be formatted. In order to ensure we’re formatting the correct disk, we need to
+    find the name the device was given. As you already know from the previous section,
+    there’s a specific naming scheme that is used in Linux distributions to name disks.
+    So you should already know the device name of the new disk. As explained earlier,
+    you can use the `sudo fdisk -l` command to see details regarding the storage devices
+    attached to your server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This will produce an output that looks similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_03.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.3: Using fdisk -l to view a list of storage devices on the server'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In my case, the device `/dev/sdb` is brand-new—I just added it to the server.
+    Since I’m using a virtual machine for the examples in this chapter, the new disk
+    shows a model of `QEMU HARDDISK`. It doesn’t have any partitions currently; notice
+    how we see a few lines above it referring to a different hard disk and partitions,
+    such as `/dev/sda3`. We don’t have any lines like that in the description underneath
+    for `/dev/sdb`. If we did have one or more partitions on that device, they would
+    show up in the output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, we know which storage device is new—there’s no doubt that in
+    the preceding example, it’s `/dev/sdb`. We always need to make sure we don’t attempt
+    to format or repartition the wrong device, or we may lose data. In this case,
+    we can see `/dev/sdb` has no partitions (and this volume wasn’t present before
+    I added it), so it’s obvious which disk we’ll want to work with. Now we can create
+    one or more partitions on it, to continue preparing it for use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a partition
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To create an actual partition on this device, we’ll use the `fdisk` command
+    with `sudo`, using the device’s name as an option. In my case, I would execute
+    the following to work with disk `/dev/sdb`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that I didn’t include a partition number here, as `fdisk` works with the
+    disk directly (and we also have yet to create any partitions). In this section,
+    I’m assuming you have a disk that has yet to be partitioned or one you won’t mind
+    wiping. When executed correctly, `fdisk` will show you an introductory message
+    and give you a prompt:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_04.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.4: Main prompt of fdisk'
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, you can press *m* on your keyboard for a menu of possible commands
+    you can execute. In this example, I’ll walk you through the commands required
+    to set up a new disk for the first time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I’m sure it goes without saying, but be aware of the destructive possibilities
+    of `fdisk`. If you run `fdisk` against the wrong drive, irrecoverable data loss
+    may result. It’s common for an administrator to memorize utilities such as `fdisk`
+    to the point where using it becomes muscle memory. But always take the time to
+    ensure that you’re running such commands against the appropriate disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we continue with creating a new partition, some discussion is required
+    with regard to the **Master Boot Record** (**MBR**) and **GUID Partition Table**
+    (**GPT**) partition tables. When creating a partition table on a new disk, you’ll
+    have the option to set it up to use an MBR or GPT partition table. GPT is the
+    newer standard, while MBR has been around for quite some time and is probably
+    what you’ve been using if you’ve been working with servers for a long time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may see MBR referred to as DOS when referring to the older partition structure.
+    As you may already know, **DOS** is short for **Disk Operating System**, but we’re
+    not referencing that operating system here in this chapter; we’re referencing
+    the partitioning structure that IBM came up with decades ago. For example, while
+    using `fdisk`, it will refer to the MBR partition structure as DOS. In this chapter,
+    we’ll use MBR to refer to the older style whenever possible to avoid confusion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With MBR partition tables, you have some limitations to consider. First, MBR
+    only allows you to create up to four primary partitions. In addition, it also
+    limits you to using somewhere around 2 TB of a disk. If the capacity of your disk
+    is 2 TB or less, this won’t be an issue. However, disks larger than 2 TB are becoming
+    more and more common.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, GPT doesn’t have a 2 TB restriction, so if you have a very
+    large disk, the decision between MBR and GPT has pretty much been made for you.
+    In addition, GPT doesn’t have a restriction of up to four primary partitions,
+    as `fdisk` with a GPT partition table will allow you to create up to 128 of them.
+    It’s certainly no wonder GPT is fast becoming the new standard! It’s only a matter
+    of time before GPT becomes the default, so unless you have a good reason not to,
+    I recommend using it if you have a choice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you first enter the `fdisk` prompt, you can press *o* to create an MBR-style
+    partition layout, or you can press *g* to create the partition layout with the
+    newer GPT style. As I’ve mentioned before, this is a potentially destructive process,
+    so make sure you’re using this utility against the correct drive! Make sure you
+    press the associated key for your chosen partition style and then press *Enter*,
+    and then we can proceed. Once you press *g* or *o*, you should see a confirmation
+    that you have created a new partition table.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Continuing on, after you’ve made your choice and created either an MBR or GPT
+    partition table, we’re ready to proceed. Next, at the `fdisk` prompt, type *n*
+    to tell `fdisk` that you would like to create a new partition. Then, you’ll be
+    asked if you would like to create a primary or extended partition (if you’ve opted
+    for MBR). With MBR, you would want to choose primary for the first partition,
+    and then you can use extended for creating additional partitions. If you’ve opted
+    for GPT, this prompt won’t appear, as it will create your partition as primary
+    no matter what.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next prompt that will come up will ask you for the partition number, defaulting
+    to the next available number. Press *Enter* to accept the default. Afterward,
+    you’ll be asked for the first sector of the partition to use (press *Enter* to
+    accept the default of `2,048`), and then the next prompt will ask you for the
+    last sector to use. If you press *Enter* to accept the default last sector, your
+    partition will consist of all the free space that was remaining on the device.
+    If you’d like to create multiple partitions, don’t accept the default at the last
+    sector prompt. Instead, you can clarify the size of your new partition by typing
+    the *+* symbol followed by the number of mebibytes or gibibytes to use, and then
+    `M` for mebibytes or `G` for gibibytes. For example, you can enter `+20G` here
+    to create a partition of 20 GiB. Note that there is no space after the `+` symbol,
+    nor is there a space between `20` and `G`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this point, you’ll be returned to the `fdisk` prompt. To save your changes
+    and exit `fdisk`, press *w* and then *Enter*. Now if you run the `fdisk -l` command
+    as `root`, you should see the new partition you created. Here is some example
+    output from the `fdisk` command from one of my servers, to give you an idea of
+    what the entire process looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_05.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.5: Example run of the fdisk command'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you’ve made a mistake or you want to redo your partition layout, you can
+    do so by entering the `fdisk` prompt again and then pressing *g* to create a new
+    GPT layout or *o* to create a new MBR layout. Then, continue through the steps
+    again to partition your disk. Feel free to practice this a few times until you
+    get the hang of the process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Formatting partitions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'After you create your partition layout for your new disk and you’re satisfied
+    with it, you’re ready to format it. Now that I’ve created a partition layout on
+    the new disk, the output of `sudo fdisk -l` will be different:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_06.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.6: Another example of sudo fdisk -l after creating a partition'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Notice that now, we have the partition `/dev/sdb1` added, which is visible
+    in the output. Now, we can go ahead and format it. To do so, we take care of that
+    with the `mkfs` command. This command is run with a specific syntax that entails
+    typing `mkfs` along with a period (`.`), followed by the type of filesystem you
+    would like to format the target as. The following example will format `/dev/sdb1`
+    as ext4:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Your output will look similar to mine in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_07.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.7: Formatting a volume using the ext4 filesystem'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you’ve opted for a filesystem type other than ext4, you can use that in
+    place of ext4 when using `mkfs`. The following example creates an XFS filesystem
+    instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Some filesystems, such as XFS, are not supported by default and may need an
+    additional package installed in order for them to be used. In the case of XFS,
+    it requires the `xfsprogs` package to be installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, now that we’ve created one or more partitions and formatted them, we’re
+    ready to mount the newly created partition(s) on our server. In the next section,
+    I’ll walk you through mounting and unmounting storage volumes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mounting and unmounting volumes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that you’ve added a new storage volume to your server and formatted it,
+    you can mount the new device so that you can start using it. To do this, we use
+    the `mount` command. This command allows you to attach a storage device (or even
+    a network share) to a local directory on your server. Before mounting, the directory
+    must be empty. The `mount` command, which we’ll get to practice with an example
+    very shortly, basically just requires you to designate a place (directory) for
+    the device to be mounted to. But where should you mount the volume?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Normally, there are two directories, created by default, in your Ubuntu Server
+    installation that exist for the purposes of mounting volumes: `/mnt` and `/media`.
+    While there is no hard rule as far as where media needs to be mounted, these two
+    directories exist as part of the **Filesystem Hierarchy Standard** (**FHS**) that
+    was mentioned in *Chapter 4*, *Navigating and Essential Commands*. The purposes
+    of the `/mnt` and `/media` directories are defined within this specification.
+    The FHS defines `/mnt` as a mount point for a temporarily mounted filesystem,
+    and `/media` as a mount point for removable media.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In plain English, this means that the intended purpose of `/mnt` is for storage
+    volumes you generally keep mounted most of the time, such as additional hard drives,
+    virtual hard disks, and network-attached storage. The FHS document uses the term
+    *temporary* when describing `/mnt`, but in practice, this is typically where things
+    are mounted that you generally expect to be around for a while. In regard to `/media`,
+    the FHS is basically indicating that removable media (flash drives, CD-ROM media,
+    external hard drives, and so on) are intended to be mounted there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, it’s important to point out that where the FHS indicates you should
+    mount your extra volumes is only a suggestion. (Perhaps a strong suggestion, but
+    a suggestion nonetheless.) No one is going to force you to follow it, and the
+    fate of the world isn’t dependent on your choice. With the `mount` command, you
+    can literally mount your extra storage anywhere that isn’t already mounted or
+    full of files. You could even create the directory `/kittens` and mount your disks
+    there and you won’t suffer any consequences other than a few chuckles from your
+    colleagues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Often, organizations will come up with their own scheme for where to mount extra
+    disks. Although I personally follow the FHS designation, one example of a custom
+    layout was with a company I worked with in the past. They used the `/store` directory
+    for mounting storage on their servers, a directory they created themselves on
+    each server. Whatever scheme you use is up to you; the only suggestion I can make
+    is to be as consistent as you can from one server to another, if only for the
+    sake of sanity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `mount` command generally needs to be run as `root`. While there is a way
+    around that (you can allow normal users to mount volumes, but we won’t get into
+    that just yet), it’s usually the case that only `root` can or should be mounting
+    volumes. As I mentioned, you’ll need a place to mount these volumes, so to facilitate
+    that, we can create a directory called `/mnt/vol1` with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When you’ve created a directory, like I have, or decided on an existing one,
+    you can mount a volume with a command similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: In that example, I’m mounting device `/dev/sdb1` to directory `/mnt/vol1`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, you’ll need to adjust the command to reference the device you want
+    to mount and where you want to mount it. As a reminder, if you don’t remember
+    which devices exist on your server, you can list them with `fdisk –l`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Normally, the `mount` command wants you to issue the `-t` option with a given
+    type. In my case, the `mount` command would’ve been the following had I used the
+    `-t` option, considering my disk is formatted with `ext4`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: A useful trick when mounting devices is to execute the `df –h` command before
+    and after mounting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While that command is generally used to check how much free space you have on
+    various mounts, it does show you a list of mounted devices, so you can simply
+    compare the results after mounting the device to confirm that it is present.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In that example, I used the `-t` option along with the type of filesystem I
+    formatted the device with. In the first example, I didn’t. This is because, in
+    most cases, the `mount` command is able to determine which type of filesystem
+    the device uses and adjust itself accordingly. Thus, most of the time, you won’t
+    need the `-t` option. In the past, you almost always needed it, but it’s easier
+    nowadays. The reason I bring this up is that if you ever see an error when trying
+    to mount a filesystem that indicates an invalid filesystem type, you may have
+    to specify this. Feel free to check the man pages for the `mount` command for
+    more information regarding the different types of options you can use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you are finished using a volume, you can unmount it with the `umount`
+    command (the missing *n* in the word *unmount* is intentional):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `umount` command, which also needs to be run as `root` or with `sudo`, allows
+    you to disconnect a storage device from your filesystem. In order for this command
+    to be successful, the volume should not be in use. If it is, you may receive a
+    device- or resource-busy error message. If you execute `df -h` after unmounting,
+    you should see that the filesystem is missing from the output and, thus, isn’t
+    mounted anymore.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The downside to manually mounting devices is that they will not automatically
+    remount themselves the next time your server boots. In order to ensure the mount
+    is available anytime your server boots up, you’ll need to edit the `/etc/fstab`
+    file, which I’ll walk you through in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the /etc/fstab file
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `/etc/fstab` file is a very critical file on your Linux system. You can
+    edit this file to call out additional volumes you would like to automatically
+    mount at boot time. However, the main purpose of this file is to also mount your
+    main filesystem, so if you make a mistake while editing it, your server will not
+    boot (at all). Definitely be careful here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Analyzing the contents of /etc/fstab
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When your system boots, it looks at the `/etc/fstab` file to determine where
+    the root filesystem is. In addition, the location of your `swap` area is read
+    from this file and mounted at boot time as well. Your system will also read any
+    other mount points listed in this file, one per line, and mount them. Basically,
+    just about any kind of storage you can think of can be added to this file and
+    automatically mounted. Even network shares from Windows servers can be added here.
+    It won’t judge you (unless you make a typo).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As an example, here are the contents of `/etc/fstab` on one of my machines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_08.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.8: Viewing the contents of the /etc/fstab file'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you install Ubuntu Server, the `/etc/fstab` file is created for you and
+    populated with a line for each of the partitions the installer created during
+    installation. On the server I used to grab the example `fstab` content, I have
+    a single partition for the root filesystem, and you can also see where the swap
+    file is mentioned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each partition is typically designated with a **Universally Unique Identifier**
+    (**UUID**) instead of the `/dev/sdaX` naming convention you might be more accustomed
+    to if you’ve worked with storage devices in the past. In my output, you can see
+    UUID `dm-uuid-LVM-H8VEs7qDbMgv...`, which refers to my root filesystem, and you
+    can also see that I have a `swap` file located at `/swap.img`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The concept of a UUID has been around for a while, but there’s nothing stopping
+    you from replacing the UUID with the actual partition names (such as `/dev/sda1`
+    or similar). If you were to do that, the server would still boot, and you probably
+    wouldn’t notice a difference (assuming you didn’t make a typo).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Nowadays, UUIDs are preferred over common device names due to the fact that
+    the names of devices can change depending on where you place them physically (such
+    as which particular **Serial Advanced Technology Attachment** (**SATA**) port
+    a hard disk is plugged into, which of your USB ports an external drive is connected
+    to, and so on) or how you order them (in the case of virtual disks).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add to this the fact that removable media can be inserted or removed at any
+    time, and you have a situation where you don’t really know what name each device
+    is going to have at any one time. For example, your external hard drive may be
+    named `/dev/sdb1` on your system now, but it may not be the next time you mount
+    it if something else you connect claims the name of `/dev/sdb1`. This is one situation
+    in which the concept of UUIDs comes in handy. The UUID of a device will not change
+    if you reorder your disks (but it will change if you reformat the volume). As
+    stated in *Figure 9.8*, you can easily list the UUIDs of your volumes with the
+    `blkid` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output will show you the UUID of each device attached to your system, and
+    you can use this command any time you add new volumes to your server to list your
+    UUIDs. This is also the first step in adding a new volume to your `/etc/fstab`
+    file. While I did say that using UUIDs is not required, it’s definitely recommended
+    and can save you from trouble later on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each line of an `fstab` entry is broken down into several columns, each separated
+    by spaces or tabs. There isn’t a set number of spaces necessary to separate each
+    column; in most cases, spaces are only used to line up each column to make them
+    easier to read. However, at least one space is required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first column of the example `fstab` file, we have the device identifier,
+    which can be the UUID or label of each device that differentiates it from the
+    others. (You can add a label to a device while formatting it with the `-L` argument
+    with `mkfs` commands.) In the second column, we have the location we want the
+    device to be mounted to. In the case of the root filesystem, this is `/`, which
+    (as you know) is the beginning of the Linux filesystem. The third entry in the
+    screenshot (for `swap`) has a mount point of `none`, which means that a mount
+    point is not necessary for this device. In the third column, we have the filesystem
+    type, the first two being `ext4`, and the third having a type of `swap`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the fourth column, we have a list of options for each mount separated by
+    a comma. In this case, we only have one option for each of the example lines.
+    With the root filesystem, we have an option of `errors=remount-ro`, which tells
+    the system to remount the filesystem as read-only if an error occurs. Such an
+    issue is rare but will keep your system running in read-only mode as best it can
+    if something goes wrong. The `swap` partition has a single option of `sw`. There
+    are many other options that can be used here, so feel free to consult the man
+    pages for a list. We will go over some of these options in this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The fifth and sixth columns refer to `dump` and `pass` respectively, which on
+    my system are `0` and `0` for each line. The `dump` partition is almost always
+    `0` and can be used with a backup utility to determine whether the filesystem
+    should be backed up (`0` for no, and `1` for yes). In most cases, just leave this
+    at `0` since this is rarely ever used by anything nowadays. The `pass` field refers
+    to the order in which `fsck` will check the filesystems. The `fsck` utility scans
+    hard disks for filesystem errors in the case of a system failure or a scheduled
+    scan. The possible options for `pass` are `0`, `1`, or `2`. With `0`, the partition
+    is never checked with `fsck`. If set to `1`, the partition is checked first. Partitions
+    with a `pass` of `2` are considered a second priority and checked last. As a general
+    rule of thumb, consider using `1` for your main filesystem and `2` for all others.
+    It’s not uncommon for cloud server providers to use `0` for both fields. This
+    may be because if a disk does undergo a routine check, it would take considerably
+    longer to boot up. In a cloud environment, you can’t always wait very long to
+    get a server up and running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we understand all the columns of a typical `fstab` entry, we can work
+    through adding another volume to the `fstab` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding to the /etc/fstab file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To add another volume to the `fstab` file, we first need to know the `UUID`
+    of the volume we would like to add (assuming it’s a hard disk or virtual disk).
+    Again, we do that with the `blkid` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice that I used the device name of `/dev/sdb1` as an argument. This is because
+    I want to specifically fetch the UUID of the new device we added. The output of
+    that command will give us the UUID of that device, so it can be added to the `/etc/fstab`
+    file. Copy that down somewhere, as we’ll need it shortly. Next, we need to know
+    where we want to mount the volume. Go ahead and create the directory now, or use
+    an existing directory if you wish. For example, you could create the directory
+    `/mnt/extra_storage` for this purpose:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At this point, we should have all we need in order to add a new entry to `fstab`.
+    To do so, we’ll need to open the file in a text editor and then create a new line
+    after all the others. If you don’t have a preferred editor, you can use the `nano`
+    editor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For example, the `/etc/fstab` file after adding an entry for `/dev/sdb` would
+    look similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_09.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.9: The /etc/fstab file after adding a new entry to it'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In my example, I created a comment line with a little note about what the extra
+    volume will be used for (`Extra storage`). It’s always a good idea to leave comments,
+    so other administrators will have a clue regarding the purpose of the extra storage.
+    Then, I created a new line with the UUID of the volume, the mount point for the
+    volume, the filesystem type, `defaults` option, and a `dump`/`pass` of `0` and
+    `0`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `defaults` option is one I’ve not mentioned before. By using `defaults`
+    as your mount option in `fstab`, your mount will be given several useful options
+    in one shot, without having to list them individually. Among the options included
+    with `defaults` are the following, which are worth an explanation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`rw`: Device will be mounted read/write'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`exec`: Allow files within this volume to be executed as programs'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`auto`: Automatically mount the device at boot time'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`nouser`: Only `root` is able to mount the filesystem'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`async`: Output to the device should be asynchronous'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Depending on your needs, the options included with defaults may or may not be
+    ideal. Instead, you can call the options out individually, separated by commas,
+    choosing only the ones you need. For example, with regard to `rw`, you may not
+    want users to be allowed to change the content. In fact, I strongly recommend
+    that you use `ro` (read-only) instead unless your users have a very strong use
+    case for needing to make changes to files. I’ve actually learned this the hard
+    way, where I’ve experienced an entire volume getting completely wiped out (and
+    no one admitted to clearing the contents). This volume included some very important
+    company data. From that point on, I mandated `ro` being used for everything, with
+    a separate `rw` mount created, with only a select few (very responsible) people
+    having access to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `exec` option may also not be ideal. For example, if your volume is intended
+    for storing files and backups, you may not want scripts to be run from that location.
+    By using the inverse of `exec` (`noexec`), you can prevent scripts from running
+    to create a situation where users are able to store files on the volume but not
+    execute programs that are stored there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another option worth explaining is `auto`. The `auto` option basically tells
+    your system to automatically mount that volume whenever the system boots or when
+    you enter the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: When executed, `sudo mount -a` will mount any entry in your `/etc/fstab` file
+    that has the `auto` option set. If you’ve used `defaults` as an option for the
+    mount, those will be mounted as well since `defaults` implies `auto`. This way,
+    you can mount all filesystems that are supposed to be mounted without rebooting
+    your server (this command is safe to run whenever, as it will not disrupt anything
+    that is already mounted).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The opposite of the `auto` option is `noauto`, which can be used instead. As
+    you can probably guess by the name, an entry in `fstab` with the `noauto` option
+    will not be automatically mounted and will not be mounted when you run `mount
+    -a`. Instead, entries with this option will need to be mounted manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You may be wondering, then, what the point is of including an entry in `/etc/fstab`
+    just to use `noauto`, which kind of seems to defeat the purpose. To explain this
+    better, here is an example `fstab` entry with `noauto` being used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, let’s say that I have an external disk that I only mount when I’m performing
+    a backup. I wouldn’t want this device mounted automatically at boot time (I may
+    not always have it connected to the server), so I use the `noauto` option. But
+    since I do have an entry for it in `/etc/fstab`, I can easily mount it any time
+    after I connect it with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that I didn’t have to include the device name or options; only the destination
+    path for the mount. The `mount` command knows what device I’m referring to since
+    I have an entry in the `/etc/fstab` file for a device to be mounted at `/mnt/ext_disk`.
+    This saves me from having to type the device name and options each time I want
+    to mount the device. So, in addition to mounting devices at boot time, the `/etc/fstab`
+    file also becomes a convenient place to declare devices that may be used on an
+    on-demand basis but aren’t always attached.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One final option I would like to cover before we move on is `users`. When used
+    with a mount in `/etc/fstab`, this allows regular users (users other than `root`)
+    to mount and unmount the filesystem. This way, `root` or `sudo` will not be necessary
+    at all for a mount used with this option. Use this with care, but it can be useful
+    if you have a device with non-critical data that you don’t mind your users having
+    full control over when mounting and unmounting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the concept of a text file controlling which devices are mounted on the
+    system may seem odd at first, I think you’ll appreciate being able to view a single
+    file in order to find out everything that should be mounted and where it should
+    be mounted. As long as administrators add all on-demand devices to this file,
+    it can be a convenient place to get an overview of the filesystems that are in
+    use on the server. As a bonus, you can also use the `mount` command (with no options)
+    to have the system provide you with a list of everything that’s mounted. Go ahead
+    and try that, and I’ll meet you in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backing up and restoring volumes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Since we’re dealing with servers, the data that’s being stored on our storage
+    devices is no doubt going to be extremely important. While it’s normal to have
+    a few test servers for use as test subjects in a typical environment, our servers
+    usually exist to carry out a very important task. I can tell you from first-hand
+    experience, never put too much trust in storage devices. In fact, I recommend
+    not trusting them at all. I consider all storage to be temporary, as hard drives
+    can and do break. If your important data is only stored on one device, it’s not
+    safe. In this section, I’m going to discuss some very important topics around
+    backups.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, consider RAID volumes. We haven’t discussed them in this chapter because
+    while the technology can still be beneficial, it’s not as popular as it once was.
+    Don’t get me wrong, there’s still a place for RAID, but it’s just not as popular
+    as it used to be. RAID allows you to join multiple disks in various configurations,
+    which can result in a lower chance of losing data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, RAID level 1 ensures that two hard disks always have the same data.
+    If one of the disks physically fails, then you haven’t actually lost anything.
+    When you replace a failed disk in RAID, it will rebuild the array with the new
+    disk and then you’ll again benefit from having some expandability. RAID 5 allows
+    you to have multiple disks to benefit from more space, and RAID 6 is the same
+    but it allows you to have two disks fail before you lose data, rather than just
+    one. Generally, that’s the difference between one level of RAID and another; how
+    many disks are allowed to fail before it becomes a problem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, RAID suffers from some serious problems. The worst is that it’s *not*
+    a backup solution. It doesn’t advertise itself to be that, but many administrators
+    mistakenly assume that their data is safe when utilizing RAID. The truth is, the
+    level of protection RAID offers you is minimal. If there’s a lightning storm and
+    a power surge gets past your surge protector and fries a hard disk, chances are
+    the other one will fry too. Generally, the environmental factors that cause one
+    hard disk to fail will likely cause other disks to fail too. Worse yet, if a criminal
+    breaks into your server room, grabs your server, and runs away with it, then the
+    crook got away with your server *and* all the disks in your RAID anyway, so there
+    are various scenarios where it won’t save you. RAID can definitely be good to
+    have, but it’s more of a convenience than anything else.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backups that are actually good exist off of the server somewhere else. The further
+    away the backup is from the source server, the better. If you store your backups
+    in a drawer outside of your server room, then that’s certainly better than leaving
+    an external backup disk connected all the time (which can also be susceptible
+    to power surges just the same as an internal disk). But if a terrible storm takes
+    out your entire building, then having the backup disk stored in the same physical
+    location will work against you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It may seem as though I’m being a bit overly dramatic here. But actually, I’m
+    not. These situations can and do happen. Successful backups are resilient, and
+    allow you to get your servers up and running quickly. Backups of your data are
+    on a more important level than that, as some companies can go out of business
+    if they lose their important files, which can include things like schematics that
+    enable the company to be in business in the first place. As a system administrator,
+    you’ll need to develop a backup scheme that will account for as many scenarios
+    as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An effective backup routine will include several layers. Having an external
+    disk is a useful backup, but why not have more than one, just in case one of them
+    fails? Perhaps you can store one off-site, and swap the off-site and on-site backup
+    disks weekly. In addition, perhaps you may use a command such as `rsync` to copy
+    the files on your server to a remote server in another location periodically.
+    You may even consider cloud backup solutions, which are another great addition.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this section, I can’t give you a backup scheme for your organization because
+    the layout of your backup system will depend on the needs of the organization,
+    which are different from one company to the next. But what I can leave you with
+    are some tips:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Make sure to test your backups regularly. Simply having a backup isn’t enough—they
+    have to actually work! Try to restore data from a backup periodically to test
+    the effectiveness.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Have at least three layers in your backup scheme, with at least one being off-site.
+    This can be a combination of external hard disks, network-attached storage, cloud
+    storage, mirroring data to another server in another location, or whatever makes
+    the most sense for your organization.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Consider encryption. Although it’s beyond the scope of this chapter, if your
+    backups fall into the wrong hands, then protected data may leak and be readable
+    by people you don’t want to have the information.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Check the policies of your organization, and ensure that your backup scheme
+    is compliant. Not all companies have such a scheme, but if yours does, this is
+    critical. Consider retention (how long backups must be kept for) and how frequently
+    backups must be updated. If you don’t have organizational policies, consult a
+    lawyer to determine whether there are legal retention requirements for the industry
+    of your organization.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Above all else, the point is to keep your data safe. So far in this book, we’ve
+    looked at creating additional volumes and mounting them, and we even took a quick
+    look at `rsync` earlier on. You’ve already learned some of the tools that can
+    be made a part of a backup scheme, and you’ll learn about more methods before
+    the book comes to a close. For now, keep these points in mind as you proceed through
+    the book, and consider how each new skill you learn can be implemented as part
+    of a backup scheme, if applicable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**LVM** is one of my favorite technologies, giving us additional flexibility
+    with our storage. In fact, let’s take a look at that now.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Utilizing LVM
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The needs of your organization will change with time. While we as server administrators
+    always do our best to configure resources with long-term growth in mind, budgets
+    and changes in policy always seem to get in our way. LVM is something that I’m
+    sure you’ll come to appreciate. In fact, technologies such as LVM are those things
+    that make Linux the champion when it comes to scalability and cloud deployments.
+    With LVM, you are able to resize your filesystems online, without needing to reboot
+    your server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Take the following scenario for example. Say you have an application running
+    on a virtualized production server—a server that’s so important that downtime
+    would cost your organization serious money. When the server was first set up,
+    perhaps you gave the application’s storage directory a 100 GB partition, thinking
+    it would never need more than that. Now, with your business growing, it’s not
+    only using a lot of space, but you’re about to run out! What do you do? If the
+    server was initially set up with LVM, you could add an additional storage volume,
+    add it to your LVM pool, and grow your partition, all without rebooting your server!
+    On the other hand, if you didn’t use LVM, you’re forced to find a maintenance
+    window for your server and add more storage the old-fashioned way, which would
+    include having it be inaccessible for a time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With physical servers, you can install additional hard drives and keep them
+    on standby without utilizing them to still gain the benefit of growing your filesystem
+    online, even though your server isn’t virtual. In addition, if your server supports
+    hot-plugging, you can still add additional volumes without powering the server
+    down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It’s for this reason that I must stress that you should always use LVM on storage
+    volumes in virtual servers whenever possible. Let me repeat myself: you should
+    *always* use LVM on storage volumes when you are setting up a virtual server!
+    If you don’t, this will eventually catch up with you when your available space
+    starts to run out and you find yourself working over the weekend to add new disks.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This process might involve manually syncing data from one disk to another and
+    then migrating your users to the new disk. This is not a fun experience, believe
+    me. You might not think you’ll be needing LVM right now, but you never know.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting started with LVM
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When setting up a new server via Ubuntu’s installer, you’re given the option
+    to use LVM during installation. But it’s much more important for your storage
+    volumes to use LVM, and by those, I mean the volumes where your users and applications
+    will store their data. LVM is a good choice for your Ubuntu Server’s root filesystem
+    if you’d like the root filesystem to also benefit from the features of LVM. In
+    order to get started with LVM, there are a few concepts that we’ll need to understand,
+    specifically **volume groups**, **physical volumes**, and **logical volumes**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A volume group is a namespace given to all the physical and logical volumes
+    that you wish to use with that implementation of LVM. Basically, a volume group
+    is the highest name that encompasses your entire implementation of an LVM setup.
+    Think of it as a kind of container that is able to contain disks. An example of
+    this might be a volume group named `vg-accounting`. This volume group would be
+    used as a location for the accounting department to store their files. It will
+    encompass the physical volumes and logical volumes that will be in use by these
+    users. It’s important to note that you aren’t limited to just a single volume
+    group; you can have several, each with its own disks and volumes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A physical volume is a physical or virtual hard disk that is a member of a volume
+    group. For example, the hypothetical `vg-accounting` volume group may consist
+    of three 100 GB hard disks, and each would be considered a physical volume. Keep
+    in mind that these disks are still referred to as physical volumes in the context
+    of LVM, even when the disks are virtual. Basically, any block device that is owned
+    by a volume group is a physical volume.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, logical volumes are similar in concept to partitions. Logical volumes
+    can take up a portion, or the whole, of a disk, but unlike standard partitions,
+    they may also span multiple disks. For example, a logical volume can include three
+    100 GB disks and be configured such that you would receive a cumulative total
+    of 300 GB. When mounted, users will be able to store files there just as they
+    would a single partition on a standard disk. When the volume gets full, you can
+    add an additional disk and then grow the partition to increase its size. Your
+    users would see it as a single storage area, even though it may consist of multiple
+    disks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The volume group can be named anything you’d like, but I always give mine names
+    that begin with `vg-` and end with a name detailing its purpose. As I mentioned,
+    you can have multiple volume groups. Therefore, you can have `vg-accounting`,
+    `vg-sales`, and `vg-techsupport` (and so on) all on the same server. Then, you
+    assign physical volumes to each. For example, you can add a 500 GB disk to your
+    server and assign it to `vg-sales`. From that point on, the `vg-sales` volume
+    group owns that disk. You’re able to split up your physical volumes in any way
+    that makes sense to you. Then, you can create logical volumes utilizing these
+    physical volumes, which is what your users will use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I think it’s always best to work through an example when it comes to learning
+    a new concept, so I’ll walk you through such a scenario. In my case, I just created
+    a local Ubuntu Server VM on my machine via VirtualBox, and then I added four additional
+    20 GB disks after I installed the distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Virtualization is a good way to play around with learning LVM if you don’t have
+    a server available with multiple free physical disks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get started with LVM on a server that isn’t already using it, you’ll first
+    need to have at least one additional (unused) volume, and install the required
+    packages, which may or may not be present on your server. To find out if the required
+    `lvm2` package is installed on your server, execute the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If it’s not present (the output of the previous command doesn’t include `[installed,automatic]`),
+    the following command will install the `lvm2` package and its dependencies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, we’ll need to take an inventory of the disks we have available to work
+    with. You can list them with the `fdisk -l` command as we’ve done several times
+    now. In my case, I’ve added a few new volumes to my server, so now I have `/dev/sdb`,
+    `/dev/sdc`, `/dev/sdd`, and `/dev/sde` to work with. The names of your disks will
+    be different depending on your hardware or virtualization platform, so make sure
+    to adjust all of the following commands accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To begin, we’ll need to configure each disk to be used with LVM, by setting
+    up each one as a physical volume. Note that we don’t need to format a storage
+    device, or even use `fdisk` to set it up before beginning the process of setting
+    up LVM. Formatting actually comes later in this particular process. The `pvcreate`
+    command is the first command we run to configure our disks for use with LVM. Therefore,
+    we’ll need to run the `pvcreate` command against all of the drives we wish to
+    use for this purpose. For example, if I had four disks I wanted to use with LVM,
+    I would run the following to set them up:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: And so on, for however many disks you plan on using.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To confirm that you have followed the steps correctly, you can use the `pvdisplay`
+    command as `root` to display the physical volumes you have available on your server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_10.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.10: Output of the pvdisplay command on a sample server'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The screenshot shows only one volume, as it had to be formatted to fit this
+    page. The `pvdisplay` command will show more output if you scroll up. Although
+    we have some physical volumes to work with, none of them are assigned to a volume
+    group. In fact, we haven’t even created a volume group yet. We can now create
+    our volume group with the `vgcreate` command, where we’ll give our volume group
+    a name and assign our first disk to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, I’m creating a volume group named `vg-test` and I’m assigning it one
+    of the physical volumes I prepared earlier `(/dev/sdb`). Now that our volume group
+    is created, we can use the `vgdisplay` command with `sudo` to view details about
+    it, including the number of assigned disks (which should now be `1`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_11.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.11: Output of the vgdisplay command on a sample server'
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, if you created four virtual disks as I have, you have three more
+    disks left that are not part of the volume group. Don’t worry, we’ll come back
+    to them later. Let’s forget about them for now as there are other concepts to
+    work on at the moment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All we need to do at this point is to create a logical volume and format it.
+    Our volume group can contain all of, or a portion of, the disk we’ve assigned
+    to it. With the following command, I’ll create a logical volume of 5 GB from the
+    virtual disk I added to the volume group:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The command may look complicated, but it’s not. In this example, I’m giving
+    my logical volume the name `myvol1` with the `-n` option. Since I only want to
+    give it 5 GB of space, I use the `-L` option and then `5g` to represent 5 GB.
+    Finally, I give the name of the volume group that this logical volume will be
+    assigned to. You can run `lvdisplay` with `sudo` to see information regarding
+    this volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B18425_09_12.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 9.12: Output of the lvdisplay command on a sample server'
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, we should have everything we need as far as setting up LVM is
+    concerned. But we still need to format a volume before we can use it, similar
+    to a non-LVM disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Formatting logical volumes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Next, we need to format our logical volume so that it can be used. However,
+    as always, we need to know the name of the device so that we know what it is we’re
+    formatting. With LVM this is easy. The `lvdisplay` command gave us this already;
+    you can see it in the output (it’s the third line down in *Figure 9.12*, under
+    `LV Path`). Let’s format it with the `ext4` filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And now this device can be mounted as any other hard disk. I’ll mount mine
+    at `/mnt/lvm/myvol1`, but you can use any directory name you wish:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To check our work, execute `df -h` to ensure that our volume is mounted and
+    shows the correct size. We now have an LVM configuration containing just a single
+    disk, so this isn’t very useful. The 5 GB I’ve given it will not likely last very
+    long, but there is some remaining space we can use that we haven’t utilized yet.
+    With the following `lvextend` command, I can resize my logical volume to take
+    up the remainder of the physical volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this case, `+100%FREE` is the argument that clarified that we are wanting
+    to use the entirety of the remaining space for the logical volume. If done correctly,
+    you should see output similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now my logical volume is using the entire physical volume I assigned to it.
+    Be careful, though, because if I had multiple physical volumes assigned, that
+    command would’ve claimed all the space on those as well, giving the logical volume
+    a size that is the total of all the space it has available, across all its disks.
+    You may not always want to do this, but since I only had one physical volume anyway,
+    I don’t mind. Go ahead and check your free space again with the `df -h` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Unfortunately, it’s not showing the extra space we’ve given the volume. The
+    output of `df` is still showing the size the volume was before. That’s because
+    although we have a larger logical volume, and it has all the space assigned to
+    it, we didn’t actually resize the `ext4` filesystem that resides on this logical
+    volume. To do that, we will use the `resize2fs` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: The double-hyphen in the previous command is intentional, so make sure you’re
+    typing the command correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If run correctly, you should see output similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now you should see the added space as usable when you execute `df -h`. The coolest
+    part is that we resized an entire filesystem without having to restart the server.
+    In this scenario, if our users have got to the point where they have utilized
+    the majority of their free space, we will be able to give them more space without
+    disrupting their work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, you may have additional physical volumes that have yet to be assigned
+    to a volume group. In my example, I created four and have only used one in the
+    LVM configuration so far. We can add additional physical volumes to our volume
+    group with the `vgextend` command. In my case, I’ll run this against the three
+    remaining drives. If you have additional physical volumes, feel free to add yours
+    with the same commands I use, but substitute my device names with yours:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should see a confirmation similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you run `pvdisplay` now, you should see the additional physical volumes
+    attached that weren’t showing there before. Now that we have extra disks in our
+    LVM configuration, we have some additional options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We could give all the extra space to our logical volume right away and extend
+    it as we did before. However, I think it’s better to withhold some of the space
+    from our users. That way, if our users do use up all our available space again,
+    we have an emergency reserve of space we could use at a pinch if we needed to
+    while we figure out the long-term solution. In addition, LVM snapshots (which
+    we will discuss soon) require you to have unallocated space in your LVM setup.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following example command will add an additional 10 GB to the logical volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And finally, make the free space available to the filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: With very large volumes, the resizing may take some time to complete. If you
+    don’t see the additional space right away, you may see it gradually increase every
+    few seconds until all the new space is completely allocated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Removing volumes with LVM
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Finally, you may be curious about how to remove a logical volume or volume
+    group. For these purposes, you would use the `lvremove` or `vgremove` commands.
+    It goes without saying that these commands are destructive, but they are useful
+    in situations where you want to delete a logical volume or volume group. To remove
+    a logical volume, the following syntax will do the trick:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Basically, all you’re doing is giving the `lvremove` command the name of your
+    volume group, a forward slash, and then the name of the logical volume within
+    that group that you would like to remove. To remove the entire volume group, the
+    following command and syntax should be fairly self-explanatory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can only remove a logical volume if it’s not in use, and this may not be
+    something you’ll do very often, but if you ever do need to decommission an LVM
+    component, then there are commands that will enable you to do so.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hopefully, you’re convinced by now how awesome LVM is. It allows you flexibility
+    over your server’s storage that other platforms can only dream of. The flexibility
+    of LVM is one of the many reasons why Linux excels in the cloud market. These
+    concepts can be difficult to grasp at first if you haven’t worked with LVM before.
+    But thanks to virtualization, playing around with LVM is easy. I recommend you
+    practice creating, modifying, and destroying volume groups and logical volumes
+    until you get the hang of it. If the concepts aren’t clear now, they will be with
+    practice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, you saw some ways in which LVM can benefit you; it allows you
+    to take the storage of your server to the next level, even expanding it and growing
+    it on demand. However, LVM also has additional tricks up its sleeve. It even allows
+    you to create snapshots as well. We’ll cover this useful ability next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding LVM snapshots
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**LVM snapshots** allow you to capture a logical volume at a certain point
+    in time and preserve it. After you create a snapshot, you can mount it as you
+    would any other logical volume and even revert your volume group to the snapshot
+    if something fails. In practice, this is useful if you want to test some potentially
+    risky changes to files stored within a volume, but want the insurance that if
+    something goes wrong, you can always undo your changes and go back to how things
+    were. LVM snapshots allow you to do just that. LVM snapshots require you to have
+    some unallocated space in your volume group.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, LVM snapshots are definitely *not* a viable form of backup. For the
+    most part, these snapshots are best when used as a temporary holding area when
+    running tests or testing out experimental software before rolling out changes
+    to production systems. During Ubuntu’s installation process, you were offered
+    the option to create an LVM configuration. Therefore, you can use snapshots to
+    test how security updates will affect your server if you used LVM for your root
+    filesystem. If the new updates start to cause problems, you can always revert
+    back. When you’re done testing, you should merge or remove your snapshot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, why did I refer to LVM snapshots as a temporary solution and not a backup?
+    First, similar to our discussion earlier, backups aren’t secure if they are stored
+    on the same server that’s being backed up. It’s always important to save backups
+    of the server at least, preferably off-site. But what’s worse is that if your
+    snapshot starts to use up all available space in your volume group, it can get
+    corrupted and stop working. Therefore, this is a feature you would use with caution,
+    just as a means of testing something, and then revert back or delete the snapshot
+    when you’re done experimenting. Don’t leave an LVM snapshot hanging around for
+    too long.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you create a snapshot with LVM, what happens is a new logical volume is
+    created that is a clone of the original. Initially, no space is consumed by this
+    snapshot. But as you run your server and manipulate files in your volume group,
+    the original blocks are copied to the snapshot as you change them, to preserve
+    the original logical volume. If you don’t keep an eye on usage, you may lose data
+    if you aren’t careful and the logical volume will fill up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To show this in an example, the following command will create a snapshot (called
+    `mysnapshot`) of the `myvol1` logical volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should see the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: With that example, we’re using the `lvcreate` command, with the `-s` option
+    (snapshot) and the `-n` option (which allows us to name the snapshot), where we
+    declare a name of `mysnapshot`. We’re also using the `-L` option to designate
+    a maximum size for the snapshot, which I set to 4 GB in this case. Finally, I
+    give it the volume group and logical volume name, separated by a forward slash
+    (`/`). From here, we can use the `lvs` command to monitor its size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since we’re creating a new logical volume when we create a snapshot, we can
+    mount it as we would a normal logical volume. This is extremely useful if we want
+    to pull a single file without having to restore the entire thing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'But what about restoring the snapshot? One of the major benefits of snapshots
+    is the ability to “roll back” to when the snapshot was taken. Essentially, this
+    allows you to test changes to the server and then undo those changes. To roll
+    back to a snapshot, we can do so with the `lvconvert` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output will look similar to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, it’s important to note, that, unlike being able to resize a logical
+    volume online, we cannot merge a snapshot while it is in use. If you do, the changes
+    will take effect the next time it is mounted. Therefore, you can either unmount
+    the logical volume before merging or unmount and remount after merging. Afterward,
+    you’ll see that the snapshot is removed the next time you run the `lvs` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since you cannot merge (roll back) a snapshot that is in use, if the snapshot
+    is of the root filesystem, you’ll have to reboot the server for the rollback to
+    finalize.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you’d like to make the snapshot permanent, which finalizes all of the changes
+    you’ve made since the snapshot was first taken, we can use the `lvremove` command.
+    For our example snapshot in this section, we can use the following command to
+    make the snapshot permanent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can probably conclude based on the name of the command, `lvremove` deletes
+    the snapshot. The act of deleting the snapshot is actually what makes its changes
+    final, while the `lvconvert` command mentioned earlier rolls back to when the
+    snapshot was taken.
+  prefs: []
+  type: TYPE_NORMAL
+- en: LVM snapshots are definitely a useful feature, even if it’s not supposed to
+    be considered a backup solution. My favorite use case for these snapshots is to
+    take a snapshot of the root filesystem before installing all available updates.
+    After I reboot, and the updates take effect, I can either delete the snapshot
+    (if everything seems to be fine) or revert back to the snapshot if the updates
+    seem to be causing a problem. If nothing else, LVM snapshots are yet another trick
+    you can use when and if the need for it comes up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Efficiently managing the storage of your servers will ensure that things continue
+    to run smoothly, as a full filesystem can definitely cause your server to grind
+    to a halt. Thankfully, Linux servers feature a very expansive toolset for managing
+    your storage, some of which are a source of envy for other platforms. As Linux
+    server administrators, we benefit from technologies such as LVM and utilities
+    such as `ncdu`, as well as many others. In this chapter, we explored these tools
+    and how to manage our storage. We covered how to format, partition, mount, and
+    unmount volumes, as well as manage the `fstab` file, LVM, monitor disk usage,
+    and more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next episode of our Ubuntu Server saga, we’ll work through connecting
+    to networks. We’ll configure our server’s hostname, work through examples of connecting
+    to other servers via OpenSSH, and take a look at IP addressing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Relevant videos
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Linux Crash Course – fstab: [https://linux.video/fstab](https://linux.video/fstab)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Linux EssentialsCrash Course – Formatting and mounting storage volumes: [https://linux.video/format-mount](https://linux.video/format-mount)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'LVM deep dive: [https://linux.video/lvm](https://linux.video/lvm)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Ubuntu LVM documentation: [https://learnlinux.link/u-lvm](https://learnlinux.link/u-lvm)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Join our community on Discord
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Join our community’s Discord space for discussions with the author and other
+    readers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://packt.link/LWaZ0](https://packt.link/LWaZ0)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/QR_Code50046724-1955875156.png)'
+  prefs: []
+  type: TYPE_IMG

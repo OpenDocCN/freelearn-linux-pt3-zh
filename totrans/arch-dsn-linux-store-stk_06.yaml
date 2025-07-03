@@ -1,0 +1,1018 @@
+- en: '6'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Understanding I/O Handling and Scheduling in the Block Layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: “The key is not to prioritize what’s on your schedule, but to schedule your
+    priorities.” – Stephen Covey
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 4*](B19430_04.xhtml#_idTextAnchor072) and [*Chapter 5*](B19430_05.xhtml#_idTextAnchor090)
+    of this book focused on the role of the block layer in the kernel. We were able
+    to see what constitutes a block device, the major data structures in the block
+    layer, the multi-queue block I/O framework, and the device mapper. This chapter
+    will focus on another important function of the block layer – scheduling.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scheduling is an extremely critical component of any system, as the decisions
+    taken by a scheduler can have a major say in dictating the overall system performance.
+    The I/O scheduling in the block layer is no exception to this rule. The I/O scheduler
+    holds significant importance in deciding the manner and timing of delivery for
+    an I/O request to the lower layers. Given this, it becomes crucial to carefully
+    analyze the I/O patterns of an application, as certain requests require prioritization
+    over others.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will introduce us to the different I/O schedulers available in
+    the block layer and their modus operandi. Each scheduler uses a different set
+    of techniques to dispatch I/O requests to the lower layers. As we have mentioned
+    repeatedly, when working with block devices, performance is a key concern. The
+    block layer has gone through several enhancements so that maximum performance
+    can be extracted from disk drives. This includes the development of schedulers
+    to handle modern and high-performing storage devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll start by introducing the common techniques used by the different schedulers
+    to handle I/O requests more efficiently. Although these techniques were developed
+    for traditional spinning drives, they are still considered useful for modern flash
+    drives. The primary goal of these techniques was to reduce disk-seeking operations
+    for mechanical drives, as these have an adverse effect on their performance. Most
+    schedulers make use of these methods by default, regardless of the underlying
+    storage hardware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The major topic of discussion in this chapter will be the different I/O scheduling
+    flavors available in the kernel. The older disk schedulers were developed for
+    devices accessed using the single-queue mechanism and have become outdated, as
+    they cannot scale up to meet the performance of modern drives. In the last few
+    years, four multi-queue I/O schedulers have been integrated into the kernel. These
+    schedulers are able to map I/O requests to multiple queues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to discuss the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the I/O handling techniques in the block layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Explaining the I/O schedulers in Linux:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The MQ-deadline scheduler – guaranteeing a start service time
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Budget fair queuing – providing proportional disk share
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Kyber – prioritizing throughput
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: None – minimal scheduling overhead
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Discussing the scheduling conundrum
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It would be helpful to have some knowledge about disk I/O basics to understand
+    the concepts presented in this chapter. Having an idea about the different types
+    of storage media, and concepts such as disk seek time and rotational latency,
+    will help to comprehend the material presented in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The commands and examples presented in this chapter are distribution-agnostic
+    and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
+    and Fedora. There are quite a few references to the kernel source code. If you
+    want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
+    The code segments referred to in this chapter and book are from the `5.19.9` kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the I/O handling techniques in block layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While exploring the block layer in [*Chapter 4*](B19430_04.xhtml#_idTextAnchor072)
+    and [*Chapter 5*](B19430_05.xhtml#_idTextAnchor090), we often mentioned the performance
+    sensitivity of block devices and how the block layer has to make informed and
+    intelligent decisions to extract their maximum potential. So far, we haven’t really
+    discussed any of the techniques that help to enhance the performance of block
+    devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Going back to the era of spinning drives, the performance of storage drives
+    was a major bottleneck in the I/O stack. Mechanical drives offered decent performance
+    when doing sequential I/O operations. However, for random workloads, their performance
+    deteriorates quite drastically. This is understandable, as mechanical drives have
+    to *seek* requested locations on disk by spinning and positioning the read-write
+    head on specific locations. The greater the number of random seeks, the greater
+    the performance penalty. Filesystems created on top of block devices try to implement
+    some practices that attempt to optimize disk performance, but it is impossible
+    to avoid random operations altogether.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Given the enormous seek times of mechanical drives, it is imperative that some
+    sort of optimization is applied to reduce seeking, before I/O requests are handed
+    over to the underlying storage. Simply handing them down to the underlying physical
+    storage seems a primitive approach. This is where I/O schedulers come to the fore.
+    The I/O schedulers in the block layer employ some common methods to ensure that
+    the overhead caused by random access operations is minimized. These techniques
+    address some of the performance issues of spinning drives, although they might
+    not have a considerable effect when using flash drives, as they are not impacted
+    by random operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most schedulers employ a combination of the following techniques to optimize
+    disk performance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sorting
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Merging
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Coalescing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Plugging
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s discuss these in a bit more detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sorting
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s say that four I/O requests, A, B, C, and D, are received for sectors
+    2, 3, 1, and 4, respectively, in that particular order, as illustrated in *Figure
+    6**.1*. If the requests are delivered to the underlying spinning drive in this
+    manner, they will be completed in that order:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.1 – Disk seeking](img/B19430_06_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.1 – Disk seeking
+  prefs: []
+  type: TYPE_NORMAL
+- en: This means that after completing requests A and B in a sequential manner, for
+    request C, the read-write head of the drive will have to go back to sector 1\.
+    After completing request C, it will have to perform another *seek* and move forward
+    to sector D. It’s not difficult to see the inefficiency that results from such
+    an approach. If the requests are simply handed over in the received order, the
+    disk performance will suffer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For spinning drives, random access operations kill performance, as the disk
+    has to perform multiple *seek* operations. If incoming requests are simply inserted
+    at the end of a first-in-first-out queue, each request in the queue will involve
+    separate processing, and the overhead caused by random seeking will increase.
+    Therefore, most schedulers keep the request queues ordered and try to insert new
+    incoming requests in a sorted manner. The request queue is sorted sector by sector.
+    This ensures that requests operating on neighboring sectors can be performed sequentially.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Merging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Merging acts as a compliment to the sorting mechanism and further tries to
+    reduce random access. It can be performed in two ways, frontward and backward.
+    Two requests can be merged if they are intended for contiguous sectors. If an
+    I/O request enters the scheduler and it adjoins to an already enqueued request,
+    then it qualifies as a front or back merge candidate. If the incoming request
+    is merged with an existing request, it is called a back merge. The concept of
+    back merging is shown in *Figure 6**.2*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.2 – A back merge](img/B19430_06_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.2 – A back merge
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the same vein, when a newly generated request is combined with an existing
+    request, it is referred to as a front merge, as shown in *Figure 6**.3*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.3 – A front merge](img/B19430_06_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.3 – A front merge
+  prefs: []
+  type: TYPE_NORMAL
+- en: The idea is simple – avoid continuous trips to random locations. This is most
+    effective for spinning mechanical drives. By default, most block layer schedulers
+    attempt to merge an incoming request with an existing one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Coalescing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The coalescing operation includes both front and back merges. Coalescing happens
+    when a new I/O request closes the gap between two existing requests, as shown
+    in the following figure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.4 – Coalescing](img/B19430_06_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.4 – Coalescing
+  prefs: []
+  type: TYPE_NORMAL
+- en: Coalescing is employed to reduce the overhead associated with small and frequent
+    I/O operations, particularly for spinning hard disk drives. By coalescing multiple
+    requests, the disk can perform sequential reads and writes, resulting in faster
+    I/O operations and reduced disk head movement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Plugging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The kernel uses the concept of *plugging* to stop requests from being processed
+    in the queue. We’re talking about improving performance here, so how does putting
+    requests on hold help out? As we’ve learned, merging has a very positive effect
+    on the drive performance. However, for smaller I/O requests to merge into a larger
+    unified request, there must be existing requests for adjacent sectors in the queue.
+    Therefore, in order to perform merging, the kernel first has to build up the request
+    queue with a few requests so that there is a greater probability of merging. Plugging
+    the queue helps to batch requests in anticipation of opportunities for merge and
+    sort operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Plugging is a technique used to ensure that there are enough requests in the
+    queue for potential merging operations. It involves waiting for additional requests
+    to fill up the request queue and helps regulate the dispatch rate of requests
+    to the device queue. The purpose of plugging is to control the dispatch rate of
+    requests to the device queue. When there are no pending requests or a very small
+    number of them in the block device queue, incoming requests are not dispatched
+    to the device driver immediately. This results in the device being in a plugged
+    state. The following figure demonstrates this concept:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.5 – Plugging](img/B19430_06_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.5 – Plugging
+  prefs: []
+  type: TYPE_NORMAL
+- en: Plugging is executed at the process level rather than at the device level. The
+    kernel initiates a plug sequence when a process carries out I/O operations. After
+    the process has completed submitting its I/O requests to the queue, the requests
+    are forwarded to the block layer and then dispatched to the device driver. A device
+    is considered unplugged once the process has finished submitting I/O requests.
+    If an application is blocked during a plug sequence, the scheduler proceeds to
+    process the requests that are already in the queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Having discussed the most commonly used I/O scheduling techniques found in I/O
+    schedulers, let us now delve into the reasoning and principles behind the decision-making
+    process of the most widely used I/O schedulers in Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the Linux I/O schedulers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Disk schedulers are an interesting topic. They serve as a bridge between the
+    block layer and low-level device drivers. The requests issued to a block device
+    are altered by an I/O scheduler and handed over to the device drivers. It is the
+    job of the scheduler to perform operations such as merging, sorting, and plugging
+    on the I/O requests and divide the storage resources among the queued I/O requests.
+    One of the notable advantages of the disk schedulers in Linux is their Plug and
+    Play capability, allowing them to be switched in real time. Additionally, depending
+    on the characteristics of the storage hardware being used, a distinct scheduler
+    can be assigned to each block device in the system. The selection of a disk scheduler
+    is not something that frequently comes under the radar, unless you’re trying to
+    extract the maximum from your system. The I/O scheduler is in charge of deciding
+    the order in which I/O requests will be delivered to the device driver. The order
+    is decided with a priority on the following tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reducing disk seeking
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ensuring fairness among I/O requests
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Maximizing disk throughput
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Reducing latency for time-sensitive tasks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It’s a strenuous task to strike a balance among these goals. The different schedulers
+    make use of multiple queues to achieve these goals. Operations such as merging
+    and sorting are performed in request queues. The schedulers also perform additional
+    processing, as per their internal algorithms, in these queues. Once the requests
+    are ready, they are handed over to the dispatch queue managed by the device drivers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The major performance optimizations in earlier block layer designs were directed
+    toward hard disk drives. This is especially true for the disk scheduling algorithms.
+    Most of the I/O handling techniques that we’ve discussed so far are most useful
+    when the underlying storage media consists of rotating mechanical drives. As we’ll
+    see in [*Chapter 7*](B19430_07.xhtml#_idTextAnchor124), SSDs and NVMe drives are
+    different beasts of nature and are not impacted by the limitations that impede
+    a mechanical drive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The scheduler controls the behavior of the underlying disks and thus plays
+    a vital role in dictating the performance of an application. Just like the varying
+    natures of physical storage, every application is also built differently. It is
+    imperative to know the type of workload for the environment being tuned. There
+    is no single scheduler that can be deemed fit enough to match the varying I/O
+    characteristics of all applications. When choosing a scheduler, it is crucial
+    to ask the following questions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is the host system type – that is, is it a desktop, laptop, virtual machine,
+    or a server?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What sort of workload will be running? What type of application? Databases,
+    multi-user desktop interface, games, or videos?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Is the hosted application a processor or I/O-bound?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What is the backend storage media type? HDDs, SSDs, or NVMe?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Is the storage local to the host? Or is it provisioned from a large enterprise
+    storage area network?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The I/O requests generated by a real-time application should be completed within
+    a certain deadline. For instance, when streaming a video through a multimedia
+    player, it has to be guaranteed that the frames will be read in time so that the
+    video can be played without any glitches. On the other hand, interactive applications
+    have to wait for the completion of a task before proceeding to the next one. For
+    example, when writing in a document editor, the end user expects the editor to
+    respond immediately when a key is pressed. Plus, the text has to appear in the
+    same order in which it was typed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For individual systems, the choice of a scheduler may not matter much and default
+    settings might suffice. For servers running enterprise workloads, margins are
+    much finer, and how a scheduler handles I/O requests may well decide the overall
+    performance of the application. As we have repeatedly mentioned in this book,
+    disk I/O is much slower than the processor and memory subsystems. Therefore, any
+    decision regarding the choice of a disk scheduler should be accompanied by a lot
+    of consideration and performance benchmarking.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disk scheduling should not be confused with CPU scheduling. To process any request,
+    both I/O and CPU time are required. In simpler terms, a process requests time
+    from the CPU, after which it is able to run (if the time is allocated). The process
+    can issue read or write requests to the disk. It is then the job of the disk scheduler
+    to order and shepherd those requests to the underlying disks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I/O schedulers in Linux are also referred to as elevators. The elevator algorithm,
+    also called `SCAN`, compares the operation of legacy mechanical drives with elevators
+    or lifts. When elevators go either up or down, they keep going in that same direction
+    and stop to drop off people along the way. In disk scheduling, the read-write
+    head of the drive starts from one end of the disk and moves toward the other end,
+    while servicing requests along the way. To continue the analogy, mechanical drives
+    need to read (`pick up`) and write (`drop off`) requests (`people`) at different
+    disk locations (`floors`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The different types of I/O schedulers available in the kernel are suited to
+    particular use cases, some more than others. As we learned in [*Chapter 5*](B19430_05.xhtml#_idTextAnchor090),
+    the single-queue framework does not scale up to meet the performance levels of
+    modern storage devices. The advancements in drive technologies and multi-core
+    systems led to the development of the multi-queue block I/O framework. Even with
+    the implementation of this framework, the kernel still lacked an important ingredient
+    when dealing with modern drives – an I/O scheduler designed to work with multi-queue
+    devices. Schedulers that were designed for the single-queue framework and intended
+    to be used with single-queue devices do not function optimally with modern drives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 6**.6* highlights the various types of I/O schedulers available for
+    both single and multi-queue frameworks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.6 – Different I/O Scheduling options](img/B19430_06_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.6 – Different I/O Scheduling options
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Single-queue I/O schedulers are deprecated and have not been a part of the
+    kernel since version 5.0\. Although you can disable these and revert back to the
+    single-queue schedulers, the latest kernel releases default to the multi-queue
+    schedulers, and as such we will keep our focus on the multi-queue schedulers that
+    are a part of the kernel. There are four major players in this category. These
+    schedulers map I/O requests to multiple queues, which are handled by kernel threads
+    distributed across the multiple CPU cores:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: MQ-deadline
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Budget Fair** **Queuing** (**BFQ**)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Kyber
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: None
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s take a look at the operational logic of these schedulers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The MQ-deadline scheduler – guaranteeing a start service time
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The deadline scheduler, as the name suggests, imposes a deadline to service
+    I/O requests. Due to its latency-oriented design, it is often used for latency-sensitive
+    workloads. Because of its high performance, it has also been adopted for multi-queue
+    devices. Its implementation for multi-queue devices is known as *mq-deadline*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The primary objective of the deadline scheduler is to ensure that a request
+    has a designated start service time. This is accomplished by enforcing a deadline
+    on all I/O operations, which helps prevent requests from being neglected. The
+    deadline scheduler makes use of the following queues:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Sorted**: The read and write operations in this queue are sorted by the sector
+    numbers they are to access.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Deadline**: The deadline queue is a standard **First-In-First-Out** (**FIFO**)
+    queue that contains requests sorted by their deadlines. To prevent starvation
+    of requests, the deadline scheduler utilizes separate instances of the deadline
+    queue for read and write requests, assigning an expiration time to each I/O request.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The deadline scheduler places each I/O request in both the sorted and deadline
+    queues. Before deciding which request to serve, the deadline scheduler selects
+    a queue from which to choose a read or write request. If there are requests in
+    both the read and write queues, read queues are preferred. This is because write
+    requests can starve read operations. This makes the deadline scheduler extremely
+    effective for read-heavy workloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The operational logic of the deadline scheduler is depicted in the following
+    figure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.7 – The MQ-deadline I/O scheduler](img/B19430_06_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.7 – The MQ-deadline I/O scheduler
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The I/O requests to be served are decided as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s say that the scheduler has decided to serve read requests. It will check
+    the first request in the deadline queue. If the timer associated with that request
+    has expired, it will be handed over to the dispatch queue and inserted at its
+    tail end. The scheduler then turns its focus to the sorted queue and selects a
+    batch of requests (16 requests by default) following the chosen request. This
+    is done to increase the sequential operations. Think of how an elevator drops
+    off people on different floors along the way to its final destination. The number
+    of requests in a batch is a tunable parameter and can be changed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It can also happen that there are no requests with expired deadlines in the
+    deadline queue. In that case, the scheduler will examine the last request that
+    was serviced from the sorted queue and choose the subsequent request in the sequence.
+    The scheduler will then select a batch of 16 requests that follow the chosen request.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: After processing each batch of requests, the deadline scheduler checks to see
+    whether requests in the write deadline queue have been starved for too long, and
+    then decides whether to start a new batch of read or write operations.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The following figure explains this process. If a read request for sector number
+    19 on the disk is received, it is assigned a deadline and inserted at the tail
+    end of the deadline queue for read operations. Based on the sector number, this
+    request is also placed in the sorted sector queue, just behind the request for
+    sector 11\. The operational flow of the deadline scheduler, regarding how requests
+    are processed, is demonstrated in *Figure 6**.8*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.8 – Request handling in the MQ-deadline I/O scheduler](img/B19430_06_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.8 – Request handling in the MQ-deadline I/O scheduler
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following snippet code of mq-deadline in `block/mq-deadline` dictates some
+    of the behavior illustrated in the preceding figure. The expiry deadline for read
+    requests (HZ/2) is 500 milliseconds, whereas for writes, it is 5 seconds (5*HZ).
+    This ensures that read requests have higher precedence. The term `HZ` represents
+    the clock ticks generated per second. The definition of `writes_starved` indicates
+    that reads can starve writes. The writes are only serviced once against two rounds
+    of reads. `fifo_batch` sets the number of requests that can be batched together:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: To summarize, the deadline scheduler strives to reduce I/O latency by implementing
+    start service times for every incoming request. Each new request is assigned a
+    deadline timer. When the expiry time for a request is reached, the scheduler will
+    forcefully service that request to prevent request starvation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Budget fair queuing – providing proportional disk share
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The **Budget Fair Queuing** (**BFQ**) scheduler is a relative newcomer in the
+    world of disk schedulers, but it has gained considerable popularity. It is modeled
+    after the **Completely Fair Queuing** (**CFQ**) scheduler. It provides fairly
+    good response times and is considered particularly suitable for slower devices.
+    With its rich and comprehensive scheduling techniques, the BFQ is often thought
+    to be one of the most complete disk schedulers, although its sophisticated design
+    also makes it the most complex scheduler among the lot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: BFQ is a proportional share disk scheduler. The primary goal of BFQ is to be
+    fair to all I/O requests. To achieve this fairness, it makes use of some intricate
+    techniques. Internally, BFQ uses the `Worst-case Fair Weighted Fair Queuing+ (B-WF2Q+)`
+    algorithm to aid in scheduling decisions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The BFQ scheduler guarantees a proportional share of the disk resources to
+    every process in the system. It collects the I/O requests in the following two
+    queues:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Per-process queues**: The BFQ scheduler allocates a queue for every process.
+    Each per-process queue contains synchronous I/O requests.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Per-device queue**: All the asynchronous I/O requests are collected in a
+    per-device queue. This queue is shared among processes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Whenever a new queue is created, it is assigned a variable budget. Unlike most
+    schedulers, which allocate time slices, this budget is implemented as the number
+    of sectors that each process is allowed to transfer when it is next scheduled
+    to access the disk resources. The value of this budget is what ultimately determines
+    the share of disk throughput for each process. As such, its calculation is complex
+    and based on a multitude of factors. The major factors in this calculation are
+    the I/O weight and the recent I/O activity of the process. Based on these observations,
+    the scheduler assigns a budget that is proportional to a process’s I/O activity.
+    The I/O weight of a process has a default value, but it can be changed. The assignment
+    of the budget is such that a single process is not able to hog all the bandwidth
+    of available storage resources. *Figure 6**.9* shows the different queues used
+    by the BFQ scheduler:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.9 – The BFQ I/O scheduler](img/B19430_06_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.9 – The BFQ I/O scheduler
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When it comes to servicing I/O requests, some of the factors affecting scheduling
+    decisions are described as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The BFQ scheduler selects the queue to be served through the C-LOOK algorithm.
+    It picks up the first request from the selected queue and hands it to the driver.
+    The budget of the queue gets decremented by the size of the request This is explained
+    in a bit more detail at the end of this discussion. BFQ exclusively serves one
+    queue at a time.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The BFQ scheduler prioritizes scheduling processes that have smaller I/O budgets.
+    Normally, these are the processes that have a small but random set of I/O requests.
+    In contrast, I/O intensive processes with a large number of sequential I/O requests
+    are assigned a larger budget. When selecting a process queue for servicing, the
+    BFQ scheduler chooses the queue with the lowest I/O budget, granting exclusive
+    access to the disk resources. This approach achieves two objectives. First, processes
+    with smaller budgets receive prompt service and do not have to wait excessively.
+    Second, I/O-bound processes with larger budgets receive a proportionately greater
+    share of disk resources, promoting sequential I/O operations and thereby enhancing
+    disk performance. The BFQ scheduler makes use of a slightly unorthodox approach
+    to increase disk throughput – performing disk idling by checking for synchronous
+    I/O requests. When an application generates synchronous I/O requests, it enters
+    a blocking state and waits for the operation to complete. Mostly, these are read
+    requests, as write operations are asynchronous and can be directly performed in
+    cache. If the last request in the process queue is synchronous, the process goes
+    into a waiting state. This request is not dispatched immediately to the disk,
+    as the BFQ scheduler allows the process to generate another request. During this
+    time frame, the drive remains idle. More often than not, the process generates
+    another request, as it waits for the current synchronous request to complete before
+    issuing new requests. The new request is normally adjacent to the last request,
+    which improves the chance of sequential operations. At times, this approach can
+    backfire and might not always have a positive impact on performance.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If two processes work on neighboring areas on a disk, it makes sense to combine
+    their requests so that sequential operations can be increased. In this case, BFQ
+    merges the queues of both processes to enable the consolidation of requests. The
+    incoming requests are compared with the next request of the in-service process,
+    and if the two requests are close, the request queues for both processes are merged.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the event that an application executing read requests depletes its queue
+    while still having a surplus budget, the disk will be idled briefly to give that
+    process a chance to issue another I/O request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The scheduler continues to serve the queue until one of the following events
+    occurs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The queue budget is exhausted
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All queue requests have been completed
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The idling timer expires while waiting for a new request from the process
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Too much time has been spent while servicing the queue
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Upon examining the BFQ code found in `block/bfq-iosched.c`, you will discover
+    a notable concept known as the **charge factor** for asynchronous requests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: It was mentioned earlier that when a request to be serviced is selected from
+    a queue, the budget of the queue is decremented by the size of the request – that
+    is, the number of sectors in the request. This is true for synchronous requests,
+    but for asynchronous requests, this cost is much higher. This is also one of the
+    ways reads are prioritized over writes. For asynchronous requests, the queue is
+    charged with the number of sectors in the request, multiplied by the value of
+    `bfq_async_charge_factor`, which is three. According to the kernel documentation,
+    the current value for the charge factor parameter was determined by following
+    a tuning process that involved various hardware and software configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In summary, the BFQ scheduler employs equitable queuing approaches by apportioning
+    a proportion of the I/O throughput to each process. It makes use of per-process
+    queues for synchronous requests and a per-device queue for asynchronous requests.
+    It assigns a budget to each process. This budget is calculated based on the I/O
+    priority and the number of sectors transferred by the process when it was scheduled
+    the last time. Although the BFQ scheduler is complex and incurs a slightly larger
+    overhead compared to other schedulers, it is widely used, as it improves system
+    response times and minimizes latency for time-sensitive applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kyber – prioritizing throughput
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The Kyber scheduler is also a relatively newer entry in the disk scheduling
+    world. Although the BFQ scheduler is older than the Kyber scheduler, both officially
+    became a part of the kernel version 4.12\. The Kyber scheduler is specifically
+    designed for modern high-performing storage devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Historically, the ultimate goal of disk schedulers has been to reduce seek times
+    for mechanical drives so that the overhead caused by random access operations
+    can be decreased. Consequently, the different disk schedulers have used complex
+    and sophisticated techniques to achieve this common goal. Each scheduler prioritizes
+    certain aspects of performance in varying ways, which introduces an additional
+    overhead while processing I/O requests. As modern drives, such as SSDs and NVMe,
+    are not hampered by random access operations, some of the complicated techniques
+    used by certain schedulers might not apply to these devices. For instance, the
+    BFQ scheduler has a slightly high overhead for each request, so it is not considered
+    ideal for systems to have high throughput drives. This is where the Kyber scheduler
+    comes in handy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Kyber scheduler doesn’t have complex internal scheduling algorithms. It
+    is intended to be used in environments that comprise high-performing storage devices.
+    It uses a very straightforward approach and implements some basic policies to
+    marshal I/O requests. The Kyber scheduler splits the underlying device into multiple
+    domains. The idea is to maintain a queue for the different types of I/O requests.
+    Upon inspecting the code found in `block/kyber-iosched.c`, we can observe the
+    presence of the following request types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Kyber scheduler categorizes the requests as follows – reads, writes, discard,
+    and other requests. The Kyber scheduler maintains queues for these types of requests.
+    The discard request is used for devices such as SSDs. The filesystem on top of
+    the device can issue this request to discard blocks not in use by the filesystem.
+    For the type of request mentioned previously, the scheduler implements a limit
+    on the corresponding number of operations in the device queue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The crux of Kyber’s scheduling approach is to limit the size of dispatch queues.
+    This directly correlates with the time spent waiting for I/O requests in the request
+    queue. The scheduler only sends a limited number of operations to the dispatch
+    queue, which ensures that the dispatch queue is not too crowded. This results
+    in the swift processing of the requests in the dispatch queue. Consequently, the
+    I/O operations in the request queues don’t have to wait too long to be serviced.
+    This approach results in reduced latency. The following figure illustrates the
+    logic of the Kyber scheduler:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.10 – The Kyber I/O scheduler](img/B19430_06_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.10 – The Kyber I/O scheduler
+  prefs: []
+  type: TYPE_NORMAL
+- en: To determine the number of requests to be allowed in the dispatch queue, the
+    Kyber scheduler uses a simple but effective approach. It calculates the completion
+    time of each request, and based on this feedback, it adjusts the number of requests
+    in the dispatch queue. Further, the target latencies for reads and synchronous
+    writes are tunable parameters and can be changed. Based on their values, the scheduler
+    will throttle requests in order to meet these target latencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Kyber scheduler prioritizes requests in the read queue over those in the
+    write queue, unless a write request has been outstanding for too long, meaning
+    the target latency has been breached.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Kyber scheduler is a performance powerhouse when it comes to modern storage
+    devices. It is tailored for high-speed storage devices, such as SSDs and NVMe,
+    and prioritizes low-latency I/O operations. This scheduler dynamically adjusts
+    itself by scrutinizing I/O requests and enables the establishment of target latencies
+    for both synchronous writes and reads. Consequently, it regulates I/O requests
+    to meet the specified objectives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: None – minimal scheduling overhead
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The scheduling of I/O requests is a multifaceted problem. The scheduler has
+    to take care of several aspects, such as reordering requests in the queue, allocating
+    a portion of disk shares to each process, controlling the execution duration of
+    every request, and making sure that individual requests do not monopolize the
+    available storage resources. Each scheduler assumes that the host itself cannot
+    optimize requests. Therefore, it jumps in and applies complex techniques to try
+    and make the most of the available storage resources. The more sophisticated the
+    scheduling technique, the greater the processing overhead. While optimizing requests,
+    the schedulers generally make some assumptions about the underlying device. This
+    works well unless the lower layers in the stack have better visibility of the
+    available storage resources and can handle making scheduling decisions themselves,
+    such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In high-end storage settings, such as storage area networks, storage arrays
+    frequently include their own scheduling logic, since they possess deeper insight
+    into the nuances of the underlying devices. As a result, the scheduling of I/O
+    requests typically transpires at the lower layer. When using raid controllers,
+    the host system doesn’t have complete knowledge about the underlying disks. Even
+    if the scheduler applies some optimizations to I/O requests, it might not make
+    much of a difference, as the host system lacks the visibility to accurately re-order
+    the requests to lower seek time. In such cases, it makes sense to simply dispatch
+    the requests to the raid controller.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Most scheduler optimizations are directed toward slow mechanical drives. If
+    the environment consists of SSDs and NVMe drives, the processing overhead associated
+    with these scheduling optimizations may seem excessive.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In such cases, a unique but effective solution is to use the *none* scheduler.
+    The none scheduler is the multi-queue *no-op I/O scheduler*. For single-queue
+    devices, the same functionality was achieved through the *no-op* scheduler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The none scheduler is the most straightforward of all schedulers, as it performs
+    no scheduling optimizations. Every incoming I/O request is appended to a FIFO
+    queue and delegated to the block device for handling. This strategy proves beneficial
+    when it has been established that the host must not endeavor to rearrange requests
+    according to their included sector numbers. The none scheduler has a single request
+    queue that includes both read and write I/O requests. Due to its rudimentary approach,
+    Although the none I/O scheduler imposes minimal overhead, it does not ensure any
+    particular quality of service. The none scheduler also does not perform any reordering
+    of requests. It only does request merging to reduce seek time and improve throughput.
+    Unlike all the other schedulers, the none scheduler has no tunables or settings
+    for optimization. The request merging operation is the entire extent of its complexity.
+    Because of this, the none scheduler uses a minimal amount of CPU instructions
+    per I/O request. The operation of the none scheduler is based on the assumption
+    that devices at the lower layer, such as raid controllers or storage controllers,
+    will optimize I/O performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The simple operational logic of the none scheduler is shown in *Figure 6**.11*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.11 – The none I/O scheduler](img/B19430_06_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.11 – The none I/O scheduler
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although every environment has a lot of variables, based on the mode of operation,
+    the none scheduler seems to be the preferred scheduler for enterprise storage
+    area networks, as it does not make any assumptions about the underlying physical
+    devices, and it does not implement any scheduling decisions that can compete or
+    clash with the logic of the lower level I/O controllers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Given the profusion of options to choose from, it can be challenging to determine
+    which scheduler is most suitable for your needs. In the subsequent section, we
+    will outline common usage scenarios for the schedulers we have covered in this
+    chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discussing the scheduling conundrum
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We’ve discussed and explained how the different I/O scheduling flavors go about
+    their business, but the selection of a scheduler should always be accompanied
+    by benchmark results gathered through real application workloads. As mentioned
+    earlier, most of the time, default settings might be good enough. It’s only when
+    you try to achieve peak efficiency, you try and tinker with the default settings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The pluggable nature of these schedulers means that we can change the I/O scheduler
+    for a block device on the fly. There are two ways to do this. The currently active
+    scheduler for a particular disk device can be checked through `sysfs`. In the
+    following example, the active scheduler is set to `mq-deadline`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To change the active scheduler, write the name of the desired scheduler to
+    the scheduler file. For instance, to set the BFQ scheduler for `sda`, use the
+    following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding method will only set the scheduler temporarily and revert to default
+    settings after a reboot. To make this change permanent, edit the `/etc/default/grub`
+    file and add the `elevator=bfq` parameter to the `GRUB_CMDLINE_LINUX_DEFAULT`
+    line. Then, regenerate the `GRUB` configuration and reboot the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Merely changing the scheduler will not result in two-fold performance gains.
+    Usually, the improvement figure will be somewhere between 10–20%.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Although each environment is different and scheduler performance may vary depending
+    upon several variables, as a baseline, the following are some of the use cases
+    of the schedulers that we’ve discussed in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Use case** | **Recommended** **I/O scheduler** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| A desktop GUI, interactive applications, and soft real-time applications,
+    such as audio and video players | BFQ, as it guarantees good system responsiveness
+    and low latency for time-sensitive applications |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Traditional mechanical drives | BFQ or MQ-deadline – both are considered
+    suitable for slower drives. Kyber/none are biased in favor of faster disks. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| High-performing SSDs and NVMe drives as local storage | Preferably none,
+    but Kyber might also be a good alternative in some cases |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Enterprise storage arrays | None, as most storage arrays have built-in logic
+    to schedule I/Os more efficiently |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Virtualized environments | MQ-deadline is a good option. If the hypervisor
+    layer does its own I/O scheduling, then using the none scheduler might be beneficial.
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 6.1 – Typical use cases for I/O schedulers
+  prefs: []
+  type: TYPE_NORMAL
+- en: Please note that these are not strict use cases, as often, several conditions
+    might be overlapping. The type of application, workload, host system, and storage
+    media are just some of the factors that must be kept in mind before deciding on
+    a scheduler. Typically, the deadline scheduler is regarded as a versatile choice,
+    due to its modest CPU overhead. BFQ performs well in desktop environments, whereas
+    none and Kyber are better suited for high-end storage devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter provided an overview of I/O scheduling, which is a critical function
+    of the block layer. When a read or write request passes through all the layers
+    of the virtual filesystem, it eventually arrives at the block layer. The chapter
+    explored the various types of I/O schedulers and their characteristics, including
+    their advantages and disadvantages. The block layer includes multiple I/O schedulers
+    that are suitable for particular use cases. The choice of an I/O scheduler plays
+    a vital role in determining how I/O requests will be handled at the lower layer.
+    To make more performance-oriented decisions, most schedulers employ some common
+    techniques that aid in improving overall disk performance. The techniques that
+    we discussed in this chapter are merging, coalescing, sorting, and plugging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We also explained the different scheduling options available in the kernel.
+    The kernel has a separate set of I/O schedulers for single- and multi-queue devices.
+    The single-queue schedulers have been deprecated since kernel version 5.0\. The
+    multi-queue scheduling options include the multi-queue Deadline scheduler, BFQ,
+    Kyber, and the none scheduler. Each of these schedulers is suited to specific
+    use cases, and there is no single recommendation, which can be applied to all
+    situations. The MQ-deadline scheduler has good all-around performance. The BFQ
+    scheduler is more oriented toward interactive applications, while Kyber and None
+    are geared toward high-end storage devices. To choose a scheduler, it is imperative
+    to know details about the environment, which includes details such as the type
+    of workload, application, host system, and backend physical media.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter concludes part two of the book, in which we delved into the block
+    layer. In the next chapter, we’ll see the different types of storage media available
+    today and explain the differences between them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 3: Descending into the Physical Layer'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This part will introduce you to the architecture and major components of the
+    SCSI subsystem in the Linux kernel. You will also be introduced to the different
+    types of physical storage media available today and the differences in their implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part contains the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 7*](B19430_07.xhtml#_idTextAnchor124), *The SCSI Subsystem*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 8*](B19430_08.xhtml#_idTextAnchor134), *Illustrating the Layout of
+    Physical Media*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

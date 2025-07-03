@@ -1,0 +1,544 @@
+- en: '12'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Centralized Authentication
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: User access control is a critically important part of information security.
+    On a single machine, keeping track of users and making sure only authorized people
+    have access is simple, but as networks become larger, it becomes increasingly
+    difficult to keep user accounts in sync on all machines, which is why large networks
+    use centralized authentication mechanisms. Historically, UNIX-like systems usually
+    used **Network Information Service** (**NIS**), developed by Sun Microsystems
+    – a once widespread but now mostly unused protocol. These days, the choice is
+    wider and includes standalone LDAP directories, Kerberos realms, or authentication
+    solutions that provide a combination of a directory service for storing user information
+    and single sign-on protocols, such as FreeIPA and Microsoft Active Directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will learn about the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Authentication and user information lookup frameworks in Linux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The roles of the **Name Service Switch** (**NSS**) framework, **Pluggable Authentication
+    Modules** (**PAM**), and the **System Security Services** **Daemon** (**SSSD**)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to set up a domain controller that’s compatible with Microsoft Active Directory
+    and connect a client machine to it
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The AAA framework
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The access control framework is often referred to as *AAA* due to its three
+    components: *authentication*, *authorization*, and *accounting*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Authentication** is responsible for verifying the user’s identity – usually
+    by checking whether the user possesses certain knowledge (such as a password),
+    data (such as a cryptographic key or the correct seed for a time-based authentication
+    algorithm), a physical item (such as a hardware key storage), or an attribute
+    (such as a fingerprint).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Authorization** is the process of checking whether the user that attempts
+    to execute an action has permission to do so. Since in UNIX systems many entities,
+    such as hardware devices and sockets, are represented as files, a lot of the time,
+    file access permissions are used as an authorization framework.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the **accounting** process ensures that user actions are recorded so
+    that it is possible to attribute actions to users, monitor user activity for anomalies,
+    and investigate security incidents. Since, for a general-purpose OS, it is impossible
+    to give an exhaustive list of user actions, there cannot be a general accounting
+    framework. The syslog mechanism is a common way to record log messages, but the
+    log message format is different for each application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Among the user access control components, authentication in Linux is unique
+    in that there is a widely used and general framework for it that consists of three
+    parts: **NSS**, **PAM**, and, on newer Linux distributions, **SSSD**. The relationship
+    between them is somewhat complicated because their functionality is broad and
+    partially overlaps, and many tasks can be solved at different levels.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The two older parts of that framework, NSS and PAM, originated in the OS named
+    Solaris, which was developed by Sun Microsystems (later acquired by Oracle), and
+    were soon adopted by almost all UNIX-like systems. However, neither mechanism
+    became a part of the POSIX standard and its implementations in different OSs are
+    slightly different. SSSD was developed for Linux in the late 2000s and is now
+    widely used by Linux distributions, but not by other UNIX-like systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s examine the purpose and functionality of those subsystems in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Authentication mechanisms in Linux
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we learn about centralized authentication mechanisms, we need to learn
+    how authentication works in Linux in general. Before a system can check user credentials,
+    it needs to fetch user information first – let’s examine how information lookup
+    works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Information lookup
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Information about users and groups is necessary for authentication, but it has
+    many other uses. For example, file ownership information is usually displayed
+    in a human-readable fashion, but internally, filesystems store numeric user and
+    group identifiers, so even programs that have nothing to do with security, such
+    as `ls`, may need to have a way to look up information about users and groups
+    to map their identifiers to names.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The POSIX API standard includes multiple functions for querying information
+    about various entities such as users, groups, and hosts. For example, `gethostbyname(name)`
+    retrieves network addresses associated with a domain name, and `getgrpnam(name)`
+    retrieves information about a user group. For applications, those functions are
+    black boxes, and they have neither knowledge nor control of the process – where
+    and how the underlying system gets that data is not an application developer’s
+    concern. By keeping the process opaque to applications, OS developers can make
+    sure that all applications get consistent data from lookup calls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In GNU/Linux systems, those functions are implemented by the GNU C library (`glibc`).
+    That library, however, does not have a fixed set of supported lookup mechanisms
+    and data sources – instead, it uses the **NSS** mechanism as an abstraction layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Name Service Switch
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The NSS subsystem allows an administrator to map *databases* with different
+    types of information to *sources*. Let’s inspect its configuration file from a
+    Fedora installation to get a sense of what it is capable of:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'NSS is not limited to authentication data lookup and its functionality is much
+    broader. The concept of NSS databases and sources is easier to demonstrate on
+    a non-authentication example: hostname lookup. The `hosts` database, which is
+    responsible for network hostname resolution, is set to use multiple sources, including
+    `files` and `dns`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The order of sources determines the order of lookup. In this case, the entry
+    for `hosts` tells the system to look up names in local files first, and then turn
+    to network sources such as zero-configuration network discovery mechanisms (multicast
+    DNS), and finally to the global DNS system. In this particular case, the `files`
+    keyword refers to the `/etc/hosts` file, which was discussed in [*Chapter 6*](B18575_06.xhtml#_idTextAnchor109),
+    *Basic* *System Settings*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Sources generally come in order from the fastest and most reliable. Local sources
+    are placed first because they are always available even when the network is down
+    and reading a local file is a very fast operation. Remote sources come later because
+    accessing them always involves at least some latency and they may become inaccessible
+    due to network or server faults. Sometimes, like in the case of hostname lookup,
+    the order also has security implications: making the system look up names in `/etc/hosts`
+    before making a request to a DNS server ensures that traditional names such as
+    `localhost` will always point to the localhost (`127.0.0.1` for IPv4 or `::1`
+    for IPv6). If DNS were consulted first, a malicious or misconfigured server could
+    return a different address and redirect traffic from commands such as `ping localhost`
+    to an arbitrary address.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `passwd` database is used to look up user information. Its `files` source
+    is the familiar `/etc/passwd` – that is where its name comes from.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Lookup in different sources is implemented in dynamically loaded libraries (shared
+    objects) such as `/usr/lib/libnss_files.so.2` and `/usr/lib/libnss_dns.so.2`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s certainly possible to implement support for a different authentication
+    information database using NSS alone and reuse the oldest login-handling code
+    for it – the goal of NSS is to make such client code work with any source so that
+    the code will not even know that it now gets user information and password hashes
+    from a remote source such as a RADIUS or LDAP server rather than from `/etc/passwd`
+    and `/etc/shadow`. That was done in the past and NSS modules for LDAP can still
+    be found on the internet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, there are multiple reasons for a more flexible user identity-checking
+    framework and an abstraction layer that provides authentication and lookup functionality.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pluggable Authentication Modules
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: NSS helps programs retrieve various information, including usernames, group
+    membership information, and password hashes. However, the logic for authentication
+    still has to exist somewhere. For example, to conduct password-based authentication,
+    there must be code that calculates a hash sum from a plain text password that
+    the user enters and checks it against the hash stored in an authentication database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, there is more to authentication policies than just having passwords
+    and checking that they are correct. Administrators may want to enforce password-strength
+    rules or use multi-factor authentication to increase security, for example. Authentication
+    using remote databases also presents challenges, such as credential caching to
+    ensure that users are not locked out of their machines when the remote database
+    becomes temporarily unavailable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To allow developers and administrators to create and set up tools for flexible
+    authentication policies and add new authentication algorithms, Linux distributions
+    use a framework named **PAM**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PAM provides an API for applications to authenticate users and for security
+    tool developers to implement authentication mechanisms. PAM modules can either
+    rely on the NSS layer to look up the information they need to authenticate a user
+    or provide their own lookup mechanisms and configuration files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On Fedora and Red Hat systems, PAM modules can be found in `/usr/lib64/security/`,
+    while on Debian (for x86 machines), they can be found in `/usr/lib/x86_64-linux-gnu/security/`.
+    Modules typically come with their own manual pages, so it is possible to get a
+    brief description by running `man pam_unix` or `man pam_empty`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, `pam_empty` is the simplest possible module that always returns
+    an authentication failure – it is only useful as a sentinel module to ensure that
+    when none of the multiple fallback mechanisms succeed, the user is denied access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `pam_unix` module implements the usual password authentication that normally
+    uses the `/etc/passwd` and `/etc/shadow` files unless NSS is configured to use
+    anything else.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some modules do not implement any authentication mechanisms but rather perform
+    auxiliary actions. For example, `pam_motd` shows a message (commonly found in
+    `/etc/motd`) after login; `pam_mail` is what’s responsible for checking for local
+    email messages and displaying `pam_pwquality` and `pam_pwhistory` help ensure
+    that users do not use weak passwords and do not reuse their old passwords.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PAM configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: While configuring PAM by hand is rarely a good idea and most Linux distributions
+    discourage it and provide high-level configuration tools instead, it is still
+    important to understand how its configuration files work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First of all, PAM is not a program, but a framework and a set of APIs that are
+    used by other programs. There is no single login program in Linux, so there is
+    no one global authentication configuration file either. Instead, there are multiple
+    programs with login capabilities that share most but not all of the configurations.
+    These programs include the `/bin/login` executable, which handles local virtual
+    console login attempts, but PAM is also independently used by graphical login
+    managers (such as GDM or LightDM), screensavers, and network access services (such
+    as OpenSSH).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuration files are stored in `/etc/pam.d/`, but none of them have any special
+    meaning by themselves – they are all read and used by different programs. For
+    example, the file named `/etc/pam.d/login` is used by `/bin/login` and thus applied
+    only to local virtual consoles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The names of those application-specific files are hardcoded in the programs
+    that use them, but the shared configuration is stored in separate files whose
+    names vary from one distribution to another.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s compare default configuration files for the OpenSSH daemon’s use of PAM
+    on Fedora and Debian. If you don’t have OpenSSH installed, you can check out a
+    different file, such as `/etc/pam.d/login`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This file is from Fedora:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And this one is from a Debian system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, they are nearly identical in their functionality but organized
+    differently. For example, Debian makes extensive use of the `@include` directive,
+    which loads all lines from a different file. For example, `@include common-auth`
+    instructs PAM to load `/etc/pam.d/common-auth` – all such file references are
+    relative to `/etc/pam.d`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The authors of the Fedora file chose to use a module interface call instead:
+    `auth substack system-auth`. In such lines, the last option is either a module
+    name or a configuration file reference. If it ends with `.so` (the usual extension
+    of shared objects – dynamically loadable library files), then it is a module;
+    otherwise, it’s a configuration file in `/etc/pam.d`. So, when you see `substack
+    system-auth`, it means loading lines from `/etc/pam.d/system-auth` (the `include`
+    and `substack` options work similarly).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first part of all such lines is a module interface name. Some modules provide
+    only one interface type (for example, `pam_unix` only handles password authentication),
+    while others may provide more than one type. The `auth` interface is for performing
+    authentication. Other interface types show that *Pluggable Authentication Modules'*
+    name is partially a misnomer. The `account` interface handles authorization and
+    checks whether the user’s account is allowed to log in – for example, the `pam_time`
+    module can allow specific users to access the system only at certain hours or
+    on certain days. The `password` interface handles password changing. Finally,
+    the `session` interface handles auxiliary tasks unrelated to authentication, such
+    as creating home directories for users on their first login or mounting directories
+    over the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Limitations of PAM
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: PAM is only concerned with authentication and related activities; so, for example,
+    configuring a `pam_ldap` module with the correct LDAP server and options will
+    not automatically make user and group information from LDAP available to all applications
+    that need to map numeric identifiers to names. In that case, to provide a seamless
+    experience to users, an administrator also needs an NSS module. Configuring two
+    modules with the same information independently creates a significant maintenance
+    burden, and feeding information from remote sources to a simple module such as
+    `pam_unix` does not work for single sign-on protocols such as Kerberos that require
+    issuance and verification of session tokens rather than simple password hash sum
+    checking. Historically, that problem was solved with custom daemons such as `winbind`
+    for interaction with Microsoft Active Directory or Samba domains. These days,
+    most Linux distributions solve this with a general abstraction layer – the **SSSD**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: System Security Services Daemon
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The combination of NSS and PAM allows great flexibility but can also make common
+    scenarios hard to configure and maintain. The SSSD project strives to simplify
+    that process by coordinating the interaction of both PAM and NSS with remote databases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One source of configuration complexity for single sign-on schemes is that they
+    usually involve multiple components and protocols, such as LDAP for storing user
+    information and Kerberos for issuing and checking cryptographic authentication
+    tickets, plus a way to discover those services, typically via special DNS records.
+    SSSD has built-in support for popular SSO schemes such as Microsoft Active Directory
+    and FreeIPA, which greatly simplifies the process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this demonstration, we will set up a Microsoft Active Directory-compatible
+    domain controller on Linux using the Samba project and then make a client machine
+    join its domain. We will use Fedora Linux on both, but other distributions would
+    mostly differ just in package installation commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Active Directory authentication with Samba 4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Samba is an open source implementation of multiple protocols that are required
+    for interoperability with Microsoft Windows machines, including the SMB file-sharing
+    protocol (which is where the Samba name came from). Apart from file sharing, it
+    also implements authentication and user management – initially, it only supported
+    Windows NT domains, but since 4.0.0, it has full support for Active Directory
+    that’s compatible with Windows Server 2008 and also includes built-in LDAP and
+    DNS backends, which makes small installations very simple to deploy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up the domain controller
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'First, you will need to install the Samba domain controller package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, you may want to remove all configuration files for Samba and the Kerberos
+    daemon to ensure a clean state:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Samba includes a command for automatically provisioning domain controllers,
+    so there is no need to write configuration files by hand. This command supports
+    both interactive and non-interactive modes, and it is also possible to specify
+    some parameters through command-line options but enter the rest interactively.
+    For example, if you plan to run the client system in a VirtualBox VM, you can
+    set the controller to only listen on the VM network interface with `--option="interfaces=vboxnet0"
+    --option="bind interfaces only=yes"`. You may also want to include fields for
+    UNIX users in the LDAP schema that the controller will use – they are defined
+    by RFC2307, so that option is `--use-rfc2307`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The most important required parameter is the realm name, which must be a domain
+    name written in capital letters – this is a requirement of the Kerberos protocol,
+    and lowercase realm names will be rejected. We will use `AD.EXAMPLE.COM`, where
+    `example.com` is one of the domains reserved for examples and documentation that
+    is guaranteed not to belong to any real person or organization. Most modern client
+    software uses the realm name primarily or exclusively, but the provision utility
+    will also ask for the domain name (in the NetBIOS rather than DNS sense) – a string
+    up to 15 characters long. Since Active Directory and its compatible implementations
+    rely on DNS SRV records to find controllers and communicate with them, the controller
+    will also serve those DNS records, but we will limit it to listen on the VM network
+    interface – in this case, `192.168.56.1` (the default address for host-only network
+    adapters in VirtualBox). It will also require a domain administrator password
+    – you need to remember it to join that domain from client machines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that the provisioning script generates a configuration file for Kerberos
+    but does not deploy it – you need to copy it to its target location yourself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, all we need to do is start the Samba service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: We will also create a user named `testuser` to verify that authentication is
+    working as expected. The command to create a new user in our controller is `sudo
+    samba-tool user create test-user` (it will ask you to enter a password).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With `sudo samba-tool user show testuser`, you can see the LDAP fields for
+    that user account:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The server is now ready to receive authentication requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up the client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that the domain controller is ready, we can set up a client machine to authenticate
+    users against it. Since we are using Fedora for the client as well, it most likely
+    has both SSSD and `realmd` – a tool for configuring authentication realms – installed
+    by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can verify that the controller is working using a `realm discover` command,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'From this output, we can see that this machine has not joined that domain yet
+    (`configured: no`). It also shows a list of packages that need to be installed
+    to join it – if any are not installed yet, you can install them with a DNF command
+    such as `sudo dnf` `install samba-common-tools`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Joining the domain is also very simple. Once you run `sudo realm join ad.example.com`,
+    it will ask you for the domain administrator password (the one you entered on
+    the controller during the provisioning process) and generate configuration files
+    for SSSD:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: You will need to restart SSSD with `sudo systemctl restart sssd` to apply the
+    changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The generated SSSD configuration will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Since SSSD acts as an NSS provider and the default `nssswitch.conf` value for
+    `passwd` is `files sss` in Fedora, we can query information about the `testuser`
+    account using the usual `id` command, although in our configuration, we will need
+    to specify its fully qualified name with the domain:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is also immediately possible to log in to the console by entering `testuser@ad.example.com`
+    and the password we set on the controller earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, setting up a domain controller that’s compatible with Microsoft
+    Active Directory using Samba is a simple and mostly automated procedure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we learned how Linux-based systems implement authentication
+    processes and user information lookup using PAM, NSS, and SSSD. We also learned
+    about solutions for centralized authentication and demonstrated how to set up
+    a domain controller that’s compatible with Microsoft Active Directory using Samba
+    software and join that domain from another Linux machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will learn about high-availability mechanisms in Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To learn more about the topics that were covered in this chapter, take a look
+    at the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'SSSD documentation: [https://sssd.io/docs/introduction.xhtml](https://sssd.io/docs/introduction.xhtml%0D)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Samba project: [https://www.samba.org/](https://www.samba.org/%0D)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'FreeIPA project: [https://www.freeipa.org/](https://www.freeipa.org/%0D)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Kerberos: [https://en.wikipedia.org/wiki/Kerberos_(protocol)](https://en.wikipedia.org/wiki/Kerberos_(protocol)%0D)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'LDAP: [https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol](https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol%0D)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Microsoft Active Directory: [https://en.wikipedia.org/wiki/Active_Directory](https://en.wikipedia.org/wiki/Active_Directory)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

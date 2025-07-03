@@ -1,0 +1,823 @@
+- en: '8'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Illustrating the Layout of Physical Media
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: “If I had asked people what they wanted, they would have said faster horses.”
+    – Henry Ford
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first seven chapters of this book, we explored the organization of storage
+    hierarchy in the Linux kernel, the organization of different layers, the different
+    abstraction methods, and the representation of physical storage devices. We’re
+    now done with explaining the software side of things in the storage stack, which
+    means it’s time to take a look at the actual hardware and see what lies beneath.
+    I thought it would be best if we got to look at the different types of storage
+    media so that we could not only understand their operations but also see why the
+    Linux kernel uses different schedulers and techniques to handle the different
+    types of drives. In short, getting to know the internals of disk drives will make
+    the information presented earlier in this book a lot more relevant.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The choice of a hardware medium has evolved over the last few years, as there
+    are now considerable options available in the market, not only for enterprise
+    storage but also for personal use. These different storage options are suited
+    to specific environments and workload types. For instance, in some scenarios,
+    people look for capacity-oriented solutions, while in others, maximizing performance
+    is the ultimate concern. Either way, there is a solution available for every scenario.
+    For enterprise environments, vendors offer storage arrays that can implement a
+    hybrid solution and contain a mix of these options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most protocols and systems were built and designed with spinning hard drives
+    in mind. The storage stack in Linux is no exception to this rule. When discussing
+    scheduling in the block layer, we saw how techniques such as merging and coalescing
+    are geared toward mechanical drives so that the number of sequential operations
+    can be increased. As this chapter is all about the physical layout and structure
+    of different types of drives, we’ll see in detail why spinning drives are slower
+    than the rest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll start by introducing the traditional and oldest form of storage available
+    today, the rotating hard drive. We’ll discuss its physical structure, design,
+    and working principles. After that, we’ll move on to solid-state drives and see
+    what makes them different from mechanical drives. We’ll discuss their internal
+    structure and layout, and explain their operating principles. We’ll also briefly
+    discuss the concept of drive endurance and see how it differs for both mechanical
+    and solid-state drives. Finally, we’ll discuss the **Non-Volatile Memory Express**
+    (**NVMe**) interface, which has revolutionized the performance of solid-state
+    drives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We’re going to discuss the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding mechanical hard drives
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Explaining the architecture of solid-state drives
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding drive endurance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Reinventing SSDs with NVMe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The material presented in this chapter is operating system-agnostic. As such,
+    there aren’t any commands or concepts that are specifically tied to Linux. However,
+    it will help if you have some basic knowledge about the different types of storage
+    media options available today.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding mechanical hard drives
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Mechanical drives, also known as hard disks, magnetic disks, rotating disks,
+    or spinning disks, are the only mechanical component in a modern computer system.
+    We’ve often addressed them, or, as some might say, *degraded* them, in this book
+    by calling them slower or legacy drives. The truth is that even though the use
+    of mechanical drives has declined in recent years, they are still commonly seen
+    in today’s enterprise environments, in a slightly different role. Since there
+    are better storage options available for performance-sensitive applications, hard
+    drives are mostly used for cold data storage. Because of higher capacities and
+    lower costs, mechanical drives are still an integral part of any environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s briefly describe the major components of a mechanical drive:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Platter**: A hard disk consists of multiple thin circular disks, known as
+    platters. All data on a hard drive is recorded on these platters. To maximize
+    capacity, data can be read from and written to both the top and bottom sides of
+    the platter surface. The surface of the platter is magnetized from both ends.
+    The total number of these platters and their storage capacities determine the
+    total capacity of the hard disk.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Spindle**: The drive platters rotate under the power of the drive spindle
+    motor, which is designed to maintain constant speeds. The hard disk platter rotates
+    at a rate of several thousand **revolutions per minute** (**rpm**), with standard
+    spindle speeds being 5,400 rpm, 7,200 rpm, 10,000 rpm, and 15,000 rpm, as all
+    platters are connected to a single spindle motor. Therefore, they all spin at
+    the same time and rotate at the same speed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**R/W (R/W)** **head**: As a novice, I was under the impression that data is
+    etched on the hard drive in expressed or written form. Well, to burst that bubble,
+    data is expressed by the pattern of a magnetic signal on moving media. Drives
+    have two R/W heads per platter, one each for the top and bottom sides. During
+    data writing, the R/W head modifies the magnetic orientation on the platter’s
+    surface, while in data reading mode, the head detects the magnetic orientation
+    on the surface of the platter. It’s fascinating to note that the R/W head never
+    touches the surface of the platter.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Actuator arms**: The actuator arm assembly is responsible for mounting the
+    **R/W** heads. The actuator arms play a crucial role in the accurate positioning
+    of the R/W heads to the specific locations where data is to be read from or written
+    to.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Controller**: The disk controller is a vital component that oversees the
+    operation of the components mentioned earlier, and it interacts with the host
+    system. It carries out instructions from the host, manages the R/W heads, and
+    controls the actuator arms.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now that we’re familiar with the major components of a mechanical drive, let’s
+    take a look at the geometry of mechanical drives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at the physical layout and addressing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The geometry of a hard drive describes how data is organized on the platters.
+    This organization is based on dividing the platter surface into concentric rings
+    called tracks. A cylinder is a vertical section that intersects the corresponding
+    ring across all platters and is used to refer to specific locations on the disk.
+    A cylinder consists of the same track number on each platter. Each track is further
+    divided into smaller units known as sectors. The sector is the smallest addressable
+    unit on a hard drive. We discussed the concept of block sizes in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053).
+    A block is a group of sectors and is a property of a filesystem. A sector is the
+    physical property of the drive, and its structure is created by the drive manufacturer
+    during initial formatting. Initially, the most common sector size used was 512
+    bytes. However, some modern drives also use 4 KB sectors. The following is an
+    illustration of the physical arrangement of the mechanical drive:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.1 – The mechanical drive structure](img/B19430_08_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.1 – The mechanical drive structure
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are a couple of techniques used to address the physical locations on the
+    hard drive. One such technique is known as **cylinders, heads, and sectors** (**CHS**).
+    The physical geometry of a hard disk is usually expressed in terms of CHS. A combination
+    of the CHS numbers can be used to identify any location on the disk. To locate
+    an address on the drive, the host operating system had to be aware of the CHS
+    geometry of the disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CHS has now been replaced by **logical block addressing** (**LBA**). LBA is
+    another form of disk addressing that simplifies address management on the operating
+    system side. LBA uses a linear addressing scheme to access physical data blocks.
+    When using LBA, instead of addressing sectors through CHS, each sector is assigned
+    a unique logical number. Using it, the hard disk is simply addressed as a single,
+    large device, which simply counts the existing sectors starting at 0\. It is then
+    the job of the disk controller to translate LBA addresses into CHS addresses.
+    The host operating system needs to know only the size of the disk drive in terms
+    of the number of logical block addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at bad sectors
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Bad sectors or blocks are areas on the drive that can no longer be written to
+    or read from, either because they have been corrupted or become damaged. In such
+    cases, the drive controller will remap the logical sector to a different physical
+    sector. This can be done transparently, without the knowledge of the host operating
+    system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are two different types of bad sectors – hard bad sectors and soft bad
+    sectors. A **hard bad sector** will have suffered physical damage, such as from
+    a physical impact or a manufacturing defect. A hard error is usually uncorrectable,
+    and such a sector cannot be used for further storage of data. A **soft bad sector**
+    is a location on the hard drive that is identified as problematic by the host
+    operating system. Such a sector can be identified by the operating system if the
+    **error-correcting code** (**ECC**) of the sector does not match the information
+    that is written to that location. If an application attempts to retrieve data
+    from a sector and discovers that the ECC does not match the sector’s content,
+    this may indicate the presence of a soft sector error. These errors can be rectified
+    and resolved by using various methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at hard drive performance
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We’ve often used the term *seeking* or *seek time* while highlighting the performance
+    limitations of mechanical drives. The seek time of a drive refers to the time
+    taken to position the R/W head across the platter surface, over the correct track.
+    As repeatedly pointed out, random access operations are very costly for mechanical
+    drives. When accessing data on random tracks, the seek time will increase, as
+    the R/W head will have to be continuously moved. The lower the seek time of a
+    drive, the faster the servicing of the I/O requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the R/W head has been positioned over the correct track, the next task
+    is to position the required sector under the head. To achieve this, the platter
+    is spun to position the requested sector under the R/W head. The total time taken
+    to complete this task is known as rotational latency. This operation is dependent
+    on the speed of the spindle motor. The higher the RPM of the motor, the lower
+    will be the rotational latency. Again, if requests are for adjacent sectors on
+    a track, the rotational latency will be on the lower side. To read and write data
+    on random sectors, the rotational latency will be higher.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The drive heads require alignment over a specific area of the spinning disk
+    to read or write data, resulting in a delay before data can be accessed. To launch
+    a program or load a file, the drive may have to read from various locations, which
+    can lead to multiple delays as the platters need to spin into the correct position
+    each time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding where mechanical drives lag
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ever since their inception, it was quite clear that mechanical drives could
+    not possibly match the speeds at which CPUs operate. Response times for mechanical
+    drives are measured in milliseconds, as compared to nanoseconds for CPUs. The
+    presence of mechanical components in the design also limits the performance. It
+    is not that efforts were not made to improve the physical structure of hard drives.
+    For instance, hard drives were equipped with a small on-disk cache to improve
+    performance. Over the years, the speed of the spindle motor has increased from
+    a few hundred rpm to as high as 15,000 rpm. Smaller platter surfaces were also
+    designed for performance improvement. All these factors have contributed to significantly
+    improving the performance of mechanical drives. However, despite all this, even
+    the fastest rotating drives are still far too slow compared to a CPU. A major
+    portion of time is spent on the movement of mechanical parts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Because of the limitations in the speed of mechanical components, the performance
+    of hard drives falls short in comparison with some modern storage options. The
+    performance of a hard drive is deeply dependent on the read-and-write patterns
+    of the applications. For sequential operations, the performance is significantly
+    better. However, for random access operations, the hard drive performance deteriorates
+    as these operations involve the frequent movement of the R/W head and the continuous
+    rotation of the platter surface. However, despite these drawbacks, mechanical
+    drives are still considered an important part of any enterprise environment. The
+    lower per-gigabyte cost of mechanical drives makes them an excellent choice for
+    cases where capacity is the primary concern.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have a fundamental understanding of mechanical drives, let’s explore
+    solid-state drives and examine how they differ from traditional rotating media.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the architecture of solid-state drives
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The performance of enterprise storage took a huge leap with the introduction
+    of **SSDs**. SSDs are so-called since they are based on semiconductor materials.
+    Unlike rotating drives, SSDs do not have any mechanical parts and use non-volatile
+    memory chips to store data. Given the absence of moving components, it is no surprise
+    that SSDs are way faster than mechanical drives. They offer a significant upgrade
+    over traditional drives and have gradually replaced mechanical drives as the first-choice
+    storage media.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SSDs make use of flash memory chips for the permanent storage of data. There
+    are two options in this regard, NAND and NOR flash. Most SSDs use NAND flash chips,
+    as they offer faster write and erasure times. At the risk of diving too much into
+    electronics (my least favorite subject in college), a NAND flash is made up of
+    floating-gate transistors, and electrons are stored in a floating gate. When the
+    floating gate contains a charge, it is read as zero. This signifies that data
+    is stored in a cell, contrary to what we typically think (you can see why I didn’t
+    like electronics).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The primary components of an SSD are displayed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.2 – Architecture of an SSD](img/B19430_08_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.2 – Architecture of an SSD
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SSD controller performs a variety of functions and presents the raw storage
+    in the NAND flash to the host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at the physical layout and addressing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Each NAND flash memory in an SSD consists of the following components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Gates**: Floating-gate transistors are a crucial component of SSDs, responsible
+    for the conduction, retention, and release of the electrical charge in the cells,
+    using the electrons stored within the floating gate.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Cell**: A cell is a basic unit of storage that can contain a single piece
+    of data, with its electrical charge representing the value of the bit(s). As we
+    will see shortly, cells can hold either a single level or multiple levels of charge.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Byte**: A single byte comprises eight cells.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Page**: In SSDs, a page is comparable to a sector on a hard drive and represents
+    the smallest unit that can be written to and read from. Typically, a page has
+    a size of 4 KB, although it can be larger than this value.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Block**: A block is a collection of pages in an SSD. Erase operations in
+    SSDs are carried out in terms of blocks, which means that all pages within a block
+    must be erased together.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Internally, bits in an SSD are stored in cells, which are then organized into
+    pages. Pages are grouped into blocks, which are in turn encapsulated in a plane,
+    as illustrated in *Figure 8**.3*. A die chip typically consists of multiple planes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.3 – A die layout in SSDs](img/B19430_08_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.3 – A die layout in SSDs
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The terms *SLC* and *MLC* describe the number of bits that are stored per cell.
+    In addition to SLC and MLC, there are also `SLC NAND`, the flash controller only
+    needs to know whether the bit is 0 or 1\. With `MLC NAND`, the cell can have four
+    values – `00`, `01`, `10`, or `11`. Similarly, with `TLC NAND`, the cell can have
+    `8` values, and QLC can have `16` values. The following diagram displays the relationship
+    between various types of SSDs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.4 – A comparison of SLC, MLC, TLC, and QLC flash](img/B19430_08_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.4 – A comparison of SLC, MLC, TLC, and QLC flash
+  prefs: []
+  type: TYPE_NORMAL
+- en: Like a mechanical drive, SSDs also use LBA to address physical locations, but
+    there are some extra components involved in this process. A NAND flash uses a
+    **flash translation layer** (**FTL**) to map logical block addresses to physical
+    pages. The FTL hides the inner complexities of the NAND flash memory and only
+    exposes an array of logical block addresses to the host. This is deliberately
+    done to emulate a mechanical drive, as most of the stack on the operating system
+    side is optimized to work with mechanical drives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at reads and writes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Unlike a hard drive, where a sector is a fundamental unit for all operations,
+    SSDs use different units to perform different operations. The SSDs read and write
+    data at the page level, while all erase operations are performed at the block
+    level. The sectors in mechanical drives can be rewritten repeatedly, whereas pages
+    in SSDs can never be overwritten, and as we’ll see in the subsequent section,
+    there is a good reason for that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The equivalent of sectors in SSDs is pages. It is not possible to read a single
+    cell individually. Read operations align with the native page size of the device.
+    For instance, given a page size of 4 KB, if you want to read 2 KB of data, the
+    flash controller will fetch the full 4 KB page. Similarly, writes also follow
+    the same routine. The write operations align on a page and occur by page size.
+    Given a page size of 4 KB, writing 6 KB of data will use two 4 KB pages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Erasing, garbage collection, and the illusion of available space
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When an application writes to a NAND flash, the flash must allocate a new blank
+    page for the new data. Erasing NAND flash memory requires a high voltage, and
+    if performed at the page level, it can negatively impact neighboring cells and
+    limit their lifespan. Therefore, SSDs erase data at the block level to mitigate
+    this issue, though it increases the complexity of the erase operation. The erase
+    operation is a crucial factor in determining the lifespan of a NAND flash. The
+    term **Program and Erase Cycle** (**P/E**) reflects the life of an SSD, based
+    on the number of P/E cycles the NAND flash can endure. When a block is written
+    to and erased, that is counted as one cycle. This is important because blocks
+    can be written to a finite number of times, beyond which they cannot write new
+    data anymore.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, how does an SSD erase data? Let’s say that we write some data to an SSD.
+    The write operation, also called the program operation, takes place at the page
+    level. After some time, we realize that the previously written data needs to be
+    updated with some new content. There are two cases here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enough free pages are available in blocks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Enough free pages are available, but all blocks contain a mix of free, used,
+    and stale pages, or a mix of used and stale pages
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s say that there are free pages available. The flash controller will write
+    the updated data to any free empty pages, and the older pages will be marked as
+    stale. The pages that are marked as stale are part of a block. It is quite possible
+    that some of the other pages in the same block contain data that is in use. When
+    a page in a block needs to be updated, the flash controller reads the contents
+    of the entire block (which contains the said page) in its memory and computes
+    the updated value of the page. Then, it performs an erase operation on that block.
+    This block erase operation erases the contents of the entire block, including
+    the pages, other than the one that was to be updated. The flash controller then
+    writes the previous contents of the block and the updated value of said page.
+    This entire process is called write amplification. Write amplification refers
+    to a situation where the number of write operations performed by the storage device
+    is more than the number of operations performed by the host device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As all erase operations are performed at the block level, how can we reclaim
+    space occupied by stale pages? Surely, the controller will not wait for all pages
+    in a block to become stale before erasing them? If that’s the case, then the drive
+    will run out of free pages very soon. Clearly, this approach can have some dangerous
+    consequences. This brings us to the second point – how will an SSD cope with a
+    situation when there aren’t enough free pages available to accommodate new writes,
+    or all the blocks contain a combination of used and stale pages? To reclaim stale
+    pages, the erase operation needs to be applied at the block level, but where do
+    we put all the pages that are currently in use? The following figure highlights
+    this specific scenario:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.5 – Where do we write incoming data?](img/B19430_08_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.5 – Where do we write incoming data?
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s where the illusion of over-provisioning comes in. There’s a lot more
+    space in a flash drive than is visible to the end user. This unallocated space
+    is reserved by the SSD controller for operations such as wear leveling and garbage
+    collection. That extra space comes in handy in situations such as when there is
+    a need to free up stale blocks. The process of cleaning up stale blocks is known
+    as garbage collection. Usually, SSDs can have 20-40% extra capacity than advertised.
+    Flash drive vendors use this trick across the board, from SSDs used for personal
+    systems to SSDs used in enterprise storage arrays. This extra space contributes
+    to improving the endurance and write performance of the SSD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at wear leveling
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Given the limited number of P/E cycles, the purpose of the wear-leveling operation
+    is to increase an SSD lifespan by making sure that data is distributed evenly
+    across the pages. When data in a particular cell needs to be modified, the wear-leveling
+    process informs the FTL to remap the LBA to point to the new block. Wear-leveling
+    marks the old data as stale. As explained earlier, the current block does not
+    have to be erased. All these decisions are taken to extend the life of a cell.
+    For instance, if a host application frequently updates values in a single cell,
+    and the flash controller modifies the same block again and again, the insulators
+    of this cell will wear out more quickly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at bad block management
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As each cell can only go through a finite number of P/E cycles, it is important
+    to keep track of cells that have become defective and cannot be programmed or
+    erased anymore. From this point, the cell is considered to be a bad block. The
+    controller keeps a table of all the bad blocks. If pages in the block contain
+    valid data, then existing data in the block is copied over to a new block, and
+    the bad block table is updated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at SSD performance
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The use of NAND flash in SSDs makes SSDs really fast. Although the performance
+    is still nowhere near as fast as the main memory, it's multiple orders of magnitude
+    faster than a spinning hard drive. The absence of any mechanical components ensures
+    that an SSD is not pinned down by the factors that limit a mechanical drive’s
+    performance. Random access operations, which are the Achilles heel of a mechanical
+    drive, are no longer a worry when using SSDs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding where SSDs lag
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The thing with electronic devices is that they’re mostly designed to last for
+    a certain period of time. This is also the case with SSDs; there is a certain
+    life expectancy associated with them. Again, to keep the physics and electronics
+    stuff short and sweet, the write process in SSDs stores electrons, and the erase
+    process drains the voltage in the floating-gate transistor. This sequence of events
+    is known as the P/E cycle. Each NAND cell contains insulators that help to retain
+    voltage in a cell. Every time a cell goes through a P/E cycle, the insulator goes
+    through some damage. The extent of this damage is limited in nature, but over
+    time, this builds up, and eventually, the insulators will lose their capabilities.
+    This may result in voltage leakage, which can result in a change between voltage
+    states. After this, the cell will be considered defective and can no longer be
+    used for storage. If too many cells reach their fate, the drive will cease to
+    work properly. This is why mechanical hard drives have better endurance than SSDs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You’ll often see that the specification sheet for an SSD will contain the number
+    of P/E cycles that it can endure. However, this does not mean that SSDs cannot
+    be used for long-term storage. Although there is a limit associated with their
+    life expectancy, that limit is usually quite long. It can continue to be used
+    for years. There are a lot of tools out there that can check the health and wear
+    level of an SSD. *Table 8.1* highlights some common drive operations for mechanical
+    drives and SSDs, showing their fundamental units:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Drive** | **Operation** | **Unit** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Mechanical disk | Read | Sector |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Write | Sector |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Update | Sector |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Erase | Sector |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Bad block management | Sector |'
+  prefs: []
+  type: TYPE_TB
+- en: '| SSD | Read | Page |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Write | Page |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Update | Block |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Erase | Block |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Bad block management | Block |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 8.1 – The operational units of SSDs and HDDs
+  prefs: []
+  type: TYPE_NORMAL
+- en: In terms of performance, SSDs offer huge benefits compared to traditional mechanical
+    drives. They have far lower latencies, which has pushed applications toward new
+    performance thresholds. They have now become common not only in enterprise environments
+    but also in personal systems. They do not have any mechanical components, and
+    most drives make use of the NAND flash for persistent storage of data. They have
+    far more complex internal structures and policies than a rotating drive. They
+    are more expensive than mechanical drives but outperform them in almost every
+    other aspect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s briefly touch on the topic of drive endurance before we delve into the
+    world of NVMe drives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding drive endurance
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There is usually an endurance rating associated with both mechanical drives
+    and SSDs. The endurance of a drive defines multiple things, such as its maximum
+    performance, workload limits, and its **mean time between failures** (**MBTF**).
+    Owing to their contrasting natures, the endurance of mechanical drives and SSDs
+    is measured in differing ways.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The endurance ratings for both types of drives are expressed in different ways.
+    As explained earlier, cells in the NAND flash can go through a finite number of
+    P/E cycles. Once this limit is reached, the cell will become defective. The endurance
+    rating for SSDs is a function of the number of P/E cycles for which the NAND is
+    rated. It is important to note that NAND cells only wear out for write (program)
+    and erase operations. For read operations, this overhead is negligible. The metrics
+    to measure the endurance of SSDs are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Drive Writes per Day** (**DWPD**): The DWPD rating shows how many times you
+    can overwrite an entire SSD each day of its life'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Terabytes written** (**TBW**): The TBW rating represents how much data can
+    be written to a drive across its entire life, before you may need to replace it'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'If you have an SSD of 100 GB, with a warranty period of three years and a DWPD
+    rating of 1, that means you can write 100 GB of data to the drive every single
+    day, for the next three years, which means your TBW rating will be 109 TBW:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*100 GB x 365 days x 3 years ≈**109 TB*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Mechanical hard drives are different, as they are not impacted by P/E cycles.
+    The magnetic platter surface on mechanical drives supports the overwriting of
+    data. If there is already data in the physical location to be written, the existing
+    data can be directly overwritten with new data. However, while SSD ratings are
+    affected only by write operations and not by the number of read operations, mechanical
+    drives on the other hand are affected by both read and write operations. Hence,
+    the rating for mechanical drives is specified in terms of the number of bytes
+    written and/or read. This workload limit does not have an official term, but going
+    by the terms used for SSD, this can be unofficially called **Drive Writes/Read
+    per Day** (**DWRPD**). The impact of read and write operations on drive endurance
+    is illustrated in *Table 8.2*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Drive type** | **Workload rating** | **Operation** | **Effect** **on endurance**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Mechanical disk | DWPD | Read | Decreases |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Write | Decreases |'
+  prefs: []
+  type: TYPE_TB
+- en: '| SSD | DWRPD | Read | Negligible impact |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Write | Decreases |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 8.2 – Drive endurance
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Table 8.2* summarizes the effect of read and write operations on both types
+    of drives. The actual warranted values will differ across the different storage
+    vendors. The workload limits for mechanical drives are also expressed in terms
+    of the TB of data that can be read/written per year. When checking for endurance,
+    keep in mind that terms such as DWPD and TBW are just numbers. It is critical
+    to understand that the warranty period is the key to determining the actual endurance.
+    It’s best to use both the warranty period and DWPD when choosing a drive.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s explore how the NVMe interface has revolutionized traditional SSDs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reinventing SSDs with NVMe
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are several transport protocols that are used to access mechanical and
+    SSDs. Protocols such as SATA, SCSI, and SAS were originally designed for mechanical
+    drives. Hence, these are more geared toward leveraging the potential of rotating
+    drives. With the inception of SSDs, these protocols began to be used for these
+    types of drives as well. Most SSDs, especially in the earlier days, used SATA
+    and SAS ports, just like any other mechanical drive. They would easily fit into
+    existing mechanical drive slots and get connected to the system through a SATA
+    or SAS controller. Despite the major performance gains when using SSDs, the fact
+    that the interfaces, protocols, and command sets that were originally written
+    for mechanical drives were being used for SSDs was considered an overhead, and
+    it was widely thought that this somewhat restricted flash drives from unleashing
+    their full potential.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The NVMe interface was designed specifically for technologies such as the NAND
+    flash. NVMe is often confused as a new type of drive, but technically, it’s not.
+    The NVMe is a storage access and transport protocol for SSDs. It acts as a communication
+    interface that operates directly over a PCIe interface. A standard SSD is a drive
+    with SATA or SAS interfaces. These drives are accessed by the host operating system
+    through traditional SCSI protocols. An NVMe SSD uses the M2 physical form factor
+    and uses the NVMe logical interface, developed specifically for these types of
+    drives. The NVMe drive is accessed solely using a PCIe interface. On the host
+    operating system, separate drivers and protocols are used to access NVMe drives.
+    In short, remember the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Every NVMe drive is an SSD, but not every SSD is an* *NVMe drive.*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: NVMe skips the route taken by traditional SSDs and connects directly to the
+    CPU through the PCIe interface, utilizing PCIe slots on the motherboard. The smaller
+    the signal path between storage and CPU, the better the performance. Additionally,
+    PCIe uses four lanes for storage devices, resulting in data exchange that is four
+    times faster than a SATA connection, which only has one lane. When combined with
+    an NVMe SSD, there is an exponential increase in performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The performance boost doesn’t happen only because of the powerful hardware.
+    The software stack also needs optimization to take full advantage of the hardware.
+    Sometimes, a hardware component can only be as good as the software controlling
+    it. For instance, the SATA and SAS interfaces support a single queue with 32 and
+    256 commands respectively. On the other hand, NVMe has 64,000 queues and 64,000
+    commands per queue. That’s a difference of a staggering magnitude. There is a
+    separate command set written for the NVMe interface, which is entirely different
+    from all the older SATA and SCSI protocols. The older protocols were designed
+    specifically for mechanical drives and had a large software footprint. NVMe only
+    has a handful of commands, which ensures that a very small number of CPU cycles
+    are spent when processing I/O requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As NVMe defines both the communication interface and the method through which
+    storage is presented to the system, this allows for the use of a single driver
+    in the software stack to control the device. For legacy protocols, every vendor
+    is required to develop a driver for every single device to support the required
+    functionality. *Figure 8**.6* represents a summarized hierarchy of the storage
+    stack, while highlighting the overhead differences when using the NVMe and SCSI
+    protocols:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.6 – NVMe versus the SCSI stack](img/B19430_08_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.6 – NVMe versus the SCSI stack
+  prefs: []
+  type: TYPE_NORMAL
+- en: When it comes to performance, NVMe drives easily offer the fastest transfer
+    speeds for any available SSD. The read and write performance of NVMe SSDs are
+    far superior to any standard SSD. Due to their exceptional performance, NVMe SSDs
+    are priced significantly higher than standard SSDs, which is not unexpected, since
+    the NVMe interface and protocol were designed to fully utilize the capabilities
+    of SSDs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: After spending most of our time examining the software side of things, this
+    chapter focused solely on the actual physical hardware. Because of this, almost
+    all of the information presented in this chapter can be considered platform-agnostic.
+    The hardware capabilities are the same; it’s up to the software that drives the
+    hardware to make it reach its full potential.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We discussed the three most common storage options available on the market today
+    – rotating hard drives, SSDs, and NVMe drives. The spinning mechanical drive is
+    one of the oldest forms of storage media available on the market today. It has
+    gone through a few changes over the last few decades, which have improved its
+    performance to some extent. As it consists of several mechanical components, there
+    is a hard limit associated with its performance. After all, the spindle motor
+    that spins its platter surface can only spin so fast. Because of limitations in
+    the hard drive’s performance, SSDs came into existence. SSDs do not have any mechanical
+    parts and consist solely of electronic components. They use a NAND flash for permanent
+    storage of data, which makes them extremely fast compared to rotating drives.
+    As the write and erase processes apply and drain voltage from cells, SSDs can
+    endure a limited number of program and erase cycles, which somewhat limits their
+    life span.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Previously, SSDs were limited by the use of protocols and interfaces that were
+    originally designed for mechanical drives. However, with the emergence of NVMe,
+    this limitation was overcome. NVMe was specifically developed for the NAND flash
+    and serves as a storage access and transport protocol for SSDs. Unlike traditional
+    SSDs, NVMe operates directly over a PCIe interface, which makes it significantly
+    faster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have now reached the end of *Part 3* of this book. I hope you found the information
+    in it useful. In *Part 4*, we’ll discuss and explore some tools and techniques
+    for troubleshooting and analyzing storage performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 4: Analyzing and Troubleshooting Storage Performance'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This part will focus on the different criteria that can be used to evaluate
+    and gauge storage performance. We’ll present the different metrics for assessing
+    performance and discuss the different tools and techniques that can be used to
+    investigate performance in each layer of the storage stack. We’ll also present
+    some recommended practices that can help to improve storage performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part contains the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 9*](B19430_09.xhtml#_idTextAnchor160), *Analyzing Physical Storage
+    Performance*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 10*](B19430_10.xhtml#_idTextAnchor184), *Analyzing Filesystems and
+    the Block Layer*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 11*](B19430_11.xhtml#_idTextAnchor199), *Tuning the I/O Stack*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

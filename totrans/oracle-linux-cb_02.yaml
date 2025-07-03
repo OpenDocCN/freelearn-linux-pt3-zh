@@ -1,0 +1,1535 @@
+- en: '2'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Installing with and without Automation Magic
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While you can manually install Oracle Linux from a USB or an ISO image, at an
+    enterprise level, it is more common to automate the installation. The *Appendix
+    – kickstart options* at the end of this chapter covers the manual installation,
+    which is easier to do when you have occasional installs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most data center installs use an automated method, as this allows you to scale
+    quickly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter provides different recipes to help build an operational **Preboot
+    Execution** (**PXE**; pronounced *pixie*) system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'PXE booting is a technology developed by Intel. It allows systems with the
+    appropriate ISO (or OS RPMs) to boot from the network, downloading all the required
+    files from a server. While there are older methods, such as the **bootstrap protocol**
+    (**BOOTP**), the industry has rapidly adopted **PXE boot** as the most common
+    standard. While PXE booting started with Intel systems, ARM systems can also boot
+    using TFTP. For the PXE boot process to work, you would normally have a DHCP server
+    and a PXE server on the network. A high-level summary of the process can be seen
+    in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.1 – PXE boot process](img/B18349_02_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.1 – PXE boot process
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following are each of the steps described at a high level:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **PXE client** will request an IP address from an available **DHCP server**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The first DHCP server on the network to respond to the client will provide it
+    with an IP address, network mask, DNS information, default route, and other required
+    network parameters.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The **PXE client** will do a boot service discovery, looking for a **PXE server**.
+    Optionally, the DHCP server can be configured to point to the PXE server to boot
+    from.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The PXE server sends the client the network bootstrap program and IP information
+    on where to download the files. This enables the client to boot from the network
+    to install an OS.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The PXE client requests media (RPMs and control files) as needed from an **HTTPS
+    server**. HTTPS is not the only protocol required; NFS and FTP servers can also
+    be used, although HTTPS is the most common method. The PXE system also sends the
+    *kickstart* parameters to the client via the kickstart file. These parameters
+    contain the specifics to configure the system’s storage, network, and packages
+    to be installed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The media server sends the files requested to the PXE client, allowing an OS
+    to be installed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'When configuring the PXE server in this example, there are three components
+    required:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**DHCP server**: This assigns not only IP addresses to servers as they boot
+    but also important parameters that enable PXE boot.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Trivial File Transfer Protocol Daemon** (**TFTPD**): This service works as
+    a TFTP server, allowing the bootloader to run on the client, starting the OS installation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**HyperText Transfer Protocol Daemon** (**HTTPD**): This is a web server and
+    is used to host config files and RPMs used for the installation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are some other options, such as using `dnsmasq` as a combined server that
+    works as a DHCP server, a TFTP server (most commonly TFTPD), and a DNS forwarder.
+    However, in many enterprise environments, separate systems are needed. As an example,
+    a Microsoft DHCP server may already be used on the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this example, there are two logical servers running three different services,
+    a DHCP server, a TFTP server on the first system. The second system is the PXE
+    server and will also be the HTTP server used to serve up the **Red Hat Package
+    Manager** (**RPM**) files and control files required for the installation. Both
+    systems are multihomed and will be running DHCP and PXE on their secondary interface.
+    The systems also have static IP addresses on the secondary interfaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will cover the following main recipes, which make up the PXE feast, in this
+    chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating the OS install options with kickstart
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: DHCP server – more than just IPs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Setting up a web server – HTTPD
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Serving up the boot – TFTPD
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Back in the day – a manual installation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: A multihomed server is a system that is connected to multiple networks at the
+    same time. This is often done in enterprise data centers to isolate systems, while
+    at the same time allowing a controlled system that allows some data to pass. It
+    is possible to set up a PXE server on a single network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The easy way to create a new kickstart file requires building a new OS, as this
+    process will automatically create the file, which can later be modified as needed.
+    A PXE environment also requires additional systems or VMs for a DHCP server and
+    HTTPS server. Before you start, you will first need to download an ISO image.
+    Using a desktop virtualization product such as Oracle VM VirtualBox is recommended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The related configuration files for many of the recipes in this book are available
+    on GitHub, at [https://github.com/PacktPublishing/Oracle-Linux-Cookbook](https://github.com/PacktPublishing/Oracle-Linux-Cookbook).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating the OS install options with kickstart
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The **kickstart** file is one of the most important parts of the automated install
+    process. This file contains all the information required to automatically install
+    and configure the OS. The kickstart file is a simple text file that contains the
+    directions to allow an unattended installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In order to work with kickstart files, you will need somewhere to build the
+    system, such as Oracle VM VirtualBox. This system can be used to create your first
+    kickstart file, as well as testing new kickstart files before moving them into
+    the PXE environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Anaconda is the Oracle Linux installer. It can operate via an automated install
+    using a kickstart file, or interactively via a graphic or text install interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'While you can manually create a file from scratch, it is much easier to start
+    with the file that Anaconda creates on installation. This kickstart file is created
+    automatically when a manual is installed and saved on the new system in `/root/anaconda-ks.cfg`.
+    This file can be easily edited and reused for future builds. Let’s look at the
+    file by breaking it down into smaller sections. This system is a graphical installation.
+    Other options are text or cmdline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are many options for kickstart, and they are listed in *Appendix –* *kickstart
+    options*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The repo used to install Oracle Linux was a directory that was loopback mounted
+    from an ISO file. `baseurl` can also be an HTTPS server, an NFS location, or an
+    FTP server. For example, `--baseurl=https://pxe.m57.local/ol8` will tell kickstart
+    to pull the RPMs from a web server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The packages are the software packages selected. Names starting with an `@`
+    sign are package groups, and lines without `@` are individual packages. Also,
+    the `^` symbol is used to enable the installation of only the required packages
+    in a group. If `^` is not set, all packages in the group are installed. In this
+    example, the `graphical-server-environment` package group RPMs are installed as
+    well as the `kexec-tools` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is where the default keyboard and language are selected:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the hostname for the new server. Ideally, it should be the **Fully
+    Qualified Domain Name** (**FQDN**) for the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is used to select a CD-ROM or a CD-ROM mounted on a filesystem as the
+    installation media:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is used to run the setup agent on the first boot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, the install disk is selected, as well as the configuration of the logical
+    volume manager and filesystems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the time zone for the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'An encrypted root password can be set on the new system. Normally, the password
+    is encrypted, but optionally, you can use the `–-plaintext` option with a plaintext
+    password. You can also generate an encrypted password using the `python3 -c ''import
+    crypt,getpass;pw=getpass.getpass();print(crypt.crypt(pw) if (pw==getpass.getpass("Confirm:
+    ")) else exit())''` Python command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This enables kdump, allowing the kernel to save a crash dump to a device for
+    troubleshooting:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the password policy for root, users, and **Linux Unified Key Setup**
+    (**LUKS**) passphrases:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can edit the file as needed. Before using a new file, it can be tested with
+    the `ksvalidator` command. This command is part of the `pykickstart` package,
+    installed via `dnf install -``y pykickstart`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the package is installed, test a new kickstart file by running `ksvalidator
+    $FILE`. A sample with an error will look like the following, where line 3 defines
+    the install as `xgraphical`, which is an unknown option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Resolve the error and rerun the validation. In this example, `graphical` is
+    the correct parameter to use. A clean validation returns nothing and will look
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.2 – Clean ksvalidator](img/B18349_02_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.2 – Clean ksvalidator
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kickstart options!
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Now that you have a basic understanding of the kickstart file, you can start
+    adding new options. These options allow you to automate the installation and also
+    grant you more control. The options are covered in *Appendix –* *kickstart options*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: You can boot any system with kickstart manually by adding the `ks` parameter
+    to the `ks=PATH_TO_FILE`, where `PATH_TO_FILE` is a URL where the kickstart file
+    can be read from. This is usually placed on an HTTP server that is accessible
+    to clients.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DHCP server – more than just IPs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The DHCP server will be running a standard DHCP server that is available with
+    Oracle Linux 8\. Installation of DHCP is straightforward.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To set up a DHCP server, you will need an Oracle Linux 8 VM running on the same
+    subnet that VMs that will be installed are using.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Install the DHCP server with the `dnf install -y dhcp-sever` command. The following
+    screenshot shows the full process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.3 – DHCP server installation](img/B18349_02_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.3 – DHCP server installation
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once installed, enable DHCP traffic through the firewall (as seen in the following
+    screenshot) with the `firewall-cmd --add-service=dhcp --permanent` and `firewall-cmd
+    --``reload` commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.4 – DHCP firewall commands](img/B18349_02_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.4 – DHCP firewall commands
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The DHCP server has a sample DHCP config file installed in `/usr/share/doc/dhcp-server`.
+    This has sample config files for both IPv4 in `/usr/share/doc/dhcp-server/dhcpd.conf.example`
+    and IPv6 in `/usr/share/doc/dhcp-server/dhcpd6.conf.example`. For this DHCP server,
+    we will use IPv4 and copy the sample config file to `/etc/dhcp/dhcpd.conf`. There
+    is an existing config file, but by default, it is mostly empty with no configuration
+    and can be replaced as in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.5 – Copy dhcp.conf](img/B18349_02_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.5 – Copy dhcp.conf
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, the config file will need to be updated, changing the IP address range,
+    as well as adding an NTP server to the configuration with the option of `option
+    ntp-servers 192.168.200.1`, which sets the NTP server to `192.168.200.1`. While
+    configuring a NTP server is optional, it is highly recommended. Additionally,
+    when the PXE server is *not* the DHCP server, you will need to add the next server
+    parameter to the subnet. This will point DHCP clients to the TFTP boot from the
+    PXE server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you are using an existing DHCP server, make sure you add the `next-server`
+    parameter to point to the PXE server that has the TFTP server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since the TFTP server is running on the PXE server, the DHCP server will need
+    the next server option to be set to the IP address of the PXE server. A complete
+    sample config file is shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, we need to test the DHCP server. To do this, install the `nmap` program
+    with `dnf install -``y nmap`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Nmap is a powerful utility and can be used for many things. It is most well
+    known as a port scanning tool, letting the user scan networks looking for servers
+    that respond to a ping with `nmap -sP 192.168.200.1/28`, as seen in the following
+    screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.6 – Nmap ping scan](img/B18349_02_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.6 – Nmap ping scan
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It can also be used to identify the OS and open ports of a specific server,
+    with `nmap` `192.168.200.34 -O`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.7 – Nmap ID server](img/B18349_02_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.7 – Nmap ID server
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While Nmap is a powerful tool for scanning networks, it can also be used for
+    many additional tasks, including checking that a DHCP server is replying correctly.
+    This is done with the `broadcast-dhcp-discover` script and is used via the `nmnap
+    ––script` option. Additionally, if your system has multiple interfaces, you can
+    specify the network interface used by the scan with the `-e` option. In this environment,
+    the DHCP server is verified with the `nmap --script broadcast-dhcp-discover -e`
+    `enp0s8` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.8 – Nmap DHCP discovery](img/B18349_02_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.8 – Nmap DHCP discovery
+  prefs: []
+  type: TYPE_NORMAL
+- en: We now know how the DHCP server works, so next is the Apache HTTPD server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up the web server – HTTPD
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The next step for the PXE server is to install a web server. In this example,
+    we will use Apache. Other web servers will also work, but Apache is one of the
+    most common.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To set up an HTTP server, you will need an Oracle Linux 8 VM running in your
+    environment. The server’s IP address should be routable to the subnets the VMs
+    are using, and the firewall ports should allow HTTP/HTTPS traffic. Ideally, you
+    should also have enough space for several ISO files. Normally, 20-30 GB is enough
+    data space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Starting the install of the Apache HTTPD server is simple; just run `yum install
+    -``y httpd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the web server is installed, copy the full ISO file to the server into
+    a directory of your choice. In our example, `OracleLinux-R8-U5-x86_64-dvd.iso`
+    is copied into `/root`, as seen in *Figure 2**.9*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.9 – Oracle Linux ISO in /root](img/B18349_02_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.9 – Oracle Linux ISO in /root
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step is to mount the ISO file in a directory under `docroot`. With
+    the standard install of Apache, `docroot` is in `/var/www/html`, so a directory
+    named `OL8` is created. When the ISO is mounted, it is more efficient to use a
+    loopback mount method. This allows an ISO file to be mounted as a normal filesystem.
+    Next, using a loopback mount, mount the ISO file using `/var/www/html/OL8` as
+    the mount point using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once mounted, a `df` command will show the mounted filesystem. The entire chain
+    of commands can be seen in the following screenshot, *Figure 2**.10*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.10 – ISO mounted](img/B18349_02_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.10 – ISO mounted
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that the filesystem is mounted, let’s open up ports `80` and `443` in the
+    firewall. This is easily done with `firewall-cmd`, adding both the `http` and
+    `https` ports opened and saved as permanent changes to the firewall. Once the
+    ports are opened, the firewall rules are reloaded. The following three commands
+    are run to perform these tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that the firewall is opened, Apache is installed, and the ISO is mounted
+    via a loopback, we can start the Apache server with the `systemctl start` `httpd`
+    command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can verify that all is working as expected by pointing your browser to the
+    server’s IP address and the `OL8` directory, as seen in the following screenshot.
+    This will show the contents of the ISO, including the release notes and the RPMs
+    under the `BaseOS` directory, as seen in *Figure 2**.11*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.11 – ISO file accessible via httpd](img/B18349_02_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.11 – ISO file accessible via httpd
+  prefs: []
+  type: TYPE_NORMAL
+- en: Serving up the boot – TFTPD
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**TFTP** is used for simple file transfers over the network. This is most often
+    used to load the initial bootloader for an OS, or some firmware updates for embedded
+    devices and older hardware. In the context of the PXE server, the TFTP system
+    is used for the initial bootloader.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To set up a TFTP server, you will need an Oracle Linux 8 VM running in your
+    environment. The server should be on the same network subnet that the systems
+    being built are using. Ideally, you should also have enough space for several
+    boot files. Normally, 5 GB is enough data space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Installing TFTP is simple. Run the `dnf install -y tftp-server` command, as
+    seen in *Figure 2**.12*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.12 – TFTP installation](img/B18349_02_12.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.12 – TFTP installation
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the installation is complete, we need to open up the firewall for TFTP
+    and reload it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output of these commands is as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.13 – TFTP firewall](img/B18349_02_13.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.13 – TFTP firewall
+  prefs: []
+  type: TYPE_NORMAL
+- en: After installation and the firewall has opened, we need to prepare the system
+    by installing the bootloaders, preparing an Oracle Linux 8 TFTP location, and
+    creating a boot menu.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: This example is using a BIOS-based host. If you want to use a UEFI host, you
+    will need to install `grub2-efi` and configure UEFI-specific parameters. The Oracle
+    docs for this can be found at [https://docs.oracle.com/en/operating-systems/oracle-linux/8/install/install-CreatingaNetworkInstallationSetup.html#uefi-clients](https://docs.oracle.com/en/operating-systems/oracle-linux/8/install/install-CreatingaNetworkInstallationSetup.html#uefi-clients).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install the bootloaders for BIOS-based installs, we will install the `syslinux`
+    package. The `syslinux` package includes bootloaders for network booting (`PXELINUX`),
+    Linux (`ext2`/`ext3`/`ext4`) or `btrfs` filesystems (`EXTLINUX`), MS-DOS FAT filesystems
+    (`SYSLINUX`), and bootable El Torito CD-ROMs (`ISOLINUX`). For network booting,
+    we will be using `PXELINUX`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.14 – Syslinux installation](img/B18349_02_14.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.14 – Syslinux installation
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we will copy the boot image file, `pxelinux.0`, and copy the file into
+    `/``var/lib/tftpboot`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we will create an Oracle Linux 8 boot directory under `tftpboot`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we need to copy over the PXE boot files from the ISO we previously mounted
+    when installing the HTTP server to the new Oracle Linux 8 boot directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we need a boot menu. Luckily, we can copy over the samples and get things
+    moving quickly. We only need the menu files, so using the following command to
+    copy things works just fine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Almost done here. To make a directory for the PXS config files and build the
+    default menu, use the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can finally install a config file. Copy this sample configuration file into
+    `/var/lib/tftpboot/pxelinux.cfg/default`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this sample, the default install will be `linux-auto`, and that will start
+    in 60 seconds unless the user manually selects one of the following options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`linux-auto`: This is the default and will install Oracle Linux using the kickstart
+    parameters'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`linux-manual`: This will kick off a traditional install or Oracle Linux, prompting
+    the user to select all the options from Anaconda manually'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`rescue`: This will boot in rescue mode'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`local`: This will boot from the existing local disk'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can easily modify the menus as needed to meet your specific needs. PXE booting,
+    while daunting at first, provides a powerful tool to manage your Linux installations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When systems boot, they will load the bootloader based on the DHCP server config.
+    This will then have the system boot from the TFTP server, starting the PXE process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Back in the day – a manual installation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Automated installations are great, but for some admins, the complexity of configuring
+    and maintaining the infrastructure to support an automated installation is more
+    effort than doing a manual installation. This recipe will go over how the manual
+    installation works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting ready
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To do this, you will need a system to install from. In the example, Oracle VM
+    VirtualBox will be used, but it could just as easily be on a bare-metal server
+    or a different hypervisor. You will also need installation media. Normally, an
+    ISO works fine, but you can also use a boot ISO and an HTTP server, an FTP server,
+    or even a network file share.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Regardless of whether you boot from an ISO, a USB stick, or even a kickstart
+    file with a graphical installation option set, the process is the same!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you are booting from a boot-only image, you will need to enable the network
+    and then point to an installation source. This is shown in the next few steps.
+    If you are installing from an ISO or USB, skip to the *How it* *works…* section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When booting from a boot image, you will need to select **Install Oracle Linux
+    X** to start the process. When possible, use the latest version of Oracle Linux.
+    When doing an installation you will get the first screen where you can test the
+    boot image or continue:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.15 – Linux installer boot](img/B18349_02_15.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.15 – Linux installer boot
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, pick your language:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.16 – Install language](img/B18349_02_16.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.16 – Install language
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click on **Continue** once you have picked your language. Next, you should
+    see the **INSTALLATION** **SUMMARY** section:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure  2.17 – Installation Summary](img/B18349_02_17.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.17 – Installation Summary
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For now, we need to do two tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enable the network
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Set **Installation Source** to Oracle’s yum repo
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To enable the network, click on the **Network & Host** **Name** option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here, you will need to switch Ethernet on, and also update the hostname with
+    the name of the server. The network will automatically use DHCP to configure the
+    boot image. You can optionally manually configure the IP stack by clicking the
+    **Configure** option.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.18 – Network & Host Name](img/B18349_02_18.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.18 – Network & Host Name
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, click **Apply** and then **Done**. This will take you back to the **INSTALLATION
+    SUMMARY** page. From there, we will need to select **Installation Source** to
+    set where we will get the install files.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.19 – Installation Source](img/B18349_02_19.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.19 – Installation Source
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this example, we are using the Oracle Public YUM server as the installation
+    source. You can optionally add additional repositories if needed, as well as set
+    any proxy settings if required. You can also set an `FTP://` patch for an NFS
+    server path. Once you have a path, select **Done**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will take you back to the **INSTALLATION SUMMARY** page. Wait a few minutes
+    for the repo index to load. Once it loads, you should see the **Installation Source**
+    option, as well as the option for **Software Selection**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.20 – Selecting Installation Source](img/B18349_02_20.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.20 – Selecting Installation Source
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manually network booting is otherwise the same as an ISO or USB boot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How it works…
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'A manual boot process is fairly simple to do. Once booted, on the **INSTALLATION
+    SUMMARY** screen, you have many options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**LOCALIZATION**: This is where you can set settings for country-specific options
+    language, keyboard type, time, and more:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Keyboard**: This allows you to set what keyboard is used. You can use non-US
+    keyboards.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Language Support**: This sets the language used.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Time and Date**: This sets the system time, as well as the **Network Time
+    Protocol** (**NTP**) servers to be used to automatically synchronize the time.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**SOFTWARE**: This sets the software sources and what software groups or packages
+    will be installed:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Installation Source**: This sets the source and software being installed'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Software Selection**: This sets what software groups and packages are being
+    installed'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**SYSTEM**: These are system-level parameters:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Installation Destination**: This is the destination for the install. This
+    includes the initial filesystem layout.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**KDUMP**: This allows you to set up kdump, a kernel crash dump tool that writes
+    system information to disk for analysis later.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Network & Host Name**: This is where you set the hostname and network information.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Security Policy**: This enables a more secure installation, allowing you
+    to start with a system that meets popular security standards such as STIG and
+    PCI-DSS.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**USER SETTINGS**: This is where you can set users, groups, and passwords:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Root Password**: This sets the initial root password'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Generally, the first setting that is set is the network. This is key for not
+    only network installations but also setting up NTP for time synchronization:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To set up the network, select **Network &** **Host Name**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.21 – Setting hostname and IP info](img/B18349_02_21.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.21 – Setting hostname and IP info
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By default, the network port is not enabled and the hostname is not set. You
+    can manually set the hostname. Don’t forget to use an FQDN when setting the hostname.
+    This should include the name and the domain name. When you enable the network,
+    the system will automatically grab DHCP IP info. If you want to manually configure
+    this, click on **Configure…**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.22 – Accessing manual network settings](img/B18349_02_22.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.22 – Accessing manual network settings
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will take you to the network details, where you can manually set the MTU,
+    IP address, and other NIC-specific settings. You can also disable IPv6 if needed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.23 – Manual network settings](img/B18349_02_23.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.23 – Manual network settings
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the network is set, you can use network resources such as NTP servers
+    to synchronize the clock. To do this, under **TIME & DATE**, click on the gears:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.24 – Accessing NTP settings](img/B18349_02_24.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.24 – Accessing NTP settings
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, you can add NTP servers. By default, a public server is used, but if you
+    run local NTP servers, make sure you add those here.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.25 – NTP settings](img/B18349_02_25.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.25 – NTP settings
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, additional software sources can be added under **Installation Source**
+    as needed. This was done previously when doing a network install.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'You can also set what RPM groups are installed, along with any additional software.
+    This is done under **SOFTWARE SELECTION**:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![Figure 2.26 – Software Selection](img/B18349_02_26.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.26 – Software Selection
+  prefs: []
+  type: TYPE_NORMAL
+- en: After setting **Base Environment** and adding any additional software, the next
+    task is to set up the installation destination. This is done by clicking on **Installation
+    Destination**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: From here, you should see the physical and logical drives available to the system.
+    The default is to set **Storage Configuration** as **Automatic**, but let’s explore
+    a different boot disk structure by selecting a custom configuration. Once **Custom**
+    is selected, click on the **Done** button.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '![Figure 2.27 – Installation Destination](img/B18349_02_27.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.27 – Installation Destination
+  prefs: []
+  type: TYPE_NORMAL
+- en: From here, you can pick the default volume management strategy, as well as manually
+    creating a new layout. Most systems will use an LVM install, as this gives you
+    the flexibility to resize partitions down the road.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.28 – Manual Partitioning](img/B18349_02_28.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.28 – Manual Partitioning
+  prefs: []
+  type: TYPE_NORMAL
+- en: Don’t forget to click **Done** and accept all the changes to the layout.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a note, if you boot from a UEK-based install, you now have the option to
+    use Btrfs as the root filesystem.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.29 – Btfrs partitioning](img/B18349_02_29.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.29 – Btfrs partitioning
+  prefs: []
+  type: TYPE_NORMAL
+- en: Btrfs will look a little different, as the system combines the role of volume
+    manager and filesystem into one system. This means at the time of installation,
+    all of the filesystems will show all the space available. This can be updated
+    after the OS is installed and a quota is set for each directory that needs to
+    be limited. This is covered in the Btfrs recipes in [*Chapter 4*](B18349_04.xhtml#_idTextAnchor104).
+  prefs: []
+  type: TYPE_NORMAL
+- en: You could finish up now by just giving root a password… but there is one more
+    basic task, and that is to apply a security policy to the system. The security
+    policy allows the installer to preconfigure the system to follow the policy set.
+    This is very helpful when installing systems that support workloads such as HIPPA,
+    PCI DSS for credit card processing, or STIG for public sector workloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To set a policy, select **Security Policy** from **Installation Summary**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.30 – Security Policy](img/B18349_02_30.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.30 – Security Policy
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once you know the policy you want to use, select it and click on **Select profile**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 2.31 – Applying a security policy](img/B18349_02_31.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.31 – Applying a security policy
+  prefs: []
+  type: TYPE_NORMAL
+- en: You will now see the policy and a list of all the changes being made to the
+    system. You will also see some changes that may need to be made to the filesystem
+    layout. This is seen in policies such as STIG, where `/var` and `/var/log` need
+    to be separate filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once done, from the **Installation Summary**, click on **Begin Installation**
+    to start the install.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Appendix – kickstart options
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following table covers the most popular options that control the installation
+    and their syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option Name** | `authselect` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | It configures the authentication options for the system
+    using the `authselect` command. `authselect` options are the same as the `authselect`
+    command. They are passed directly to the command. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | See the `authselect` command. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `autostep` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | This option is not recommended for production use. It is
+    more of a troubleshooting command that makes the installer step through every
+    screen, displaying them for a short amount of time. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | `--autoscreenshot` will take an automated screenshot of every
+    install screen. The images are stored in `/tmp/anaconda-screenshots/` during the
+    installation and then moved over to `/root/anaconda-screenshots` when the installation
+    completes. This is helpful for troubleshooting because if you missed a required
+    kickstart option and the installation does not automatically run, you will be
+    at the screen with missing data, and can manually enter the missing configuration
+    data. Then, when you click to continue, the screen is automatically captured with
+    the data you manually entered. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `cmdline` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | When used, the install runs in a non-interactive command-line
+    mode. Any prompt from Anaconda for input stops the installation. Make sure to
+    test with the `autostep` option first. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | None |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `eula` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | If used, the `–-agreed` option is required. This option
+    allows you to automatically accept the **End User License Agreement** (**EULA**).
+    When this option is used, the installer will not prompt for acceptance of the
+    EULA on the first reboot of the system. This is very useful for environments that
+    use a PXE boot as part of the auto-scaling strategy. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | `--agreed` forces the EULA to be accepted and must be used.
+    If the option is not used, the EULA parameter is ignored. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `firewall` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | This configures the firewall on the installed system. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--enabled` or `–enable` is required. It enables or disables the firewall.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--disabled` or `–disable` is required. If disabled, `iptables` rules are not
+    configured.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--trust` sets a trusted network device, allowing all traffic to pass through
+    the firewall. To configure multiple devices, list each one as its own entry with
+    no commas, such as `–trust eth0 –``trust eth8`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--incoming` adds each of the following tags to allow incoming traffic for
+    these common services:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`–``ssh`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`–``smtp`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`–``http`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`–``ftp`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--port=` specifies a specific port to allow access to the server. You can
+    use ports from `/etc/service` for specific `port:protocol` combinations. Multiple
+    ports are comma delimited. An example is `ldap:tcp, 1521:tcp`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--service=` allows an easy way to enable specific services, such as CUPS,
+    or services that require multiple UDP/TCP ports to be opened. This enables an
+    easy way to open these ports in a readable format.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--use-system-defaults` does not configure the firewall. If other options are
+    specified, they are ignored.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option Name** | `firstboot` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | This option can disable the running of the setup application
+    when the system boots. If enabled, make sure you have `initial-setup.rpm` (`initial-setup-gui.rpm`
+    if a GUI is required) installed. This option is disabled by default. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--enable` or `–enabled` starts the setup the first time the system boots.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--disable` or `–disabled` does not start the setup the first time the system
+    boots.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--reconfig` enables the setup to start at boot time in reconfiguration mode.
+    This enables the networking configuration, root password, time zone, language,
+    mouse, and keyboard options to be set in addition to the default options.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option Name** | `graphical` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | The `graphical` command is the default, if not set. The
+    installation continues with a fully graphical install. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | `--non-interactive` performs the installation in a completely
+    non-interactive mode. This mode will terminate the installation when user interaction
+    is required. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `group` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | This option creates a user group on the system. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--name=` is required and sets the name of the group.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--gid=` is an optional parameter and will set the GID of the group.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option Name** | `halt` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | If used, the system with halt after the installation is
+    completed. This is the default completion method if no other method is set. Other
+    completion methods are `poweroff`, `reboot`, and `shutdown`. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | None |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `logging` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | This is useful for troubleshooting PXE installs. It controls
+    the logging from the installer during the installation. It does not configure
+    logging on the system being installed. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--host=` is the syslog host logs are sent to.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--port=` is the port used for syslog on the remote syslog host. If not set,
+    the default port (UDP 514) is used.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--level=` specifies the minimum level of messages sent to device `tty3`. Regardless
+    of this level, all messages are still sent to the log host and file. Valid values
+    are `critical`, `debug`, `error`, `info`, and `warning`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Syntax** | `logging [--host=host] [--``port=port] [--level=critical&#124;debug&#124;error&#124;info]`
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `poweroff` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | When used, a shutdown and power-off are performed on the
+    system after the installation completes. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | None |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `reboot` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | It reboots the system after the install completes. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | `--eject` ejects bootable media (DVD, USB, etc.) before rebooting
+    the system. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `repo` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | Enables additional DNF/YUM repos as installation sources.
+    Each repo will need its own line. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--name=` is required and sets both the repo name and URL. If a name conflicts
+    with an existing repo, it will be ignored. The format is `--name=repoid [--baseurl=url&#124;--mirrorlist=url&#124;--metalink=url]
+    [options]`. The following additional options can be added to the URL. As a warning,
+    variables that can be used in yum repository config files are not supported. However,
+    you can use `$releasever` and `$basearch`:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--baseurl`: This is the URL of the repo'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--mirrorlist`: This is a list of mirrors for a repo'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--metalink`: This is the URL with `metalink` for the repo'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--proxy=[protocol://][username[:password]@]host[:port]` sets the proxy for
+    the repo.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--noverifyssl` disables SSL verification of an HTTPS server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option Name** | `selinux` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | Used to configure the initial policy and state of `selinux`.
+    The default policy is enforcing. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--enforcing` enables SELinux with the policy set to enforcing. This is the
+    default setting.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--permissive` enables SELinux with the policy set to permissive. This allows
+    warnings to output to console of syslog without enforcing the policy.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--disabled` disables SELinux.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option Name** | `shutdown` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | Runs the `shutdown` command on the system after the installation
+    has completed. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | None |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `sshkey` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | This adds an SSH key to the authorized keys files for the
+    specified user. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | `--username` is mandatory. It is used with the following syntax:`sshkey
+    --``username=user KEY` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `text` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | When used, the installation runs in text mode. By default,
+    the installer runs the GUI install method. Only one of the text/graphical options
+    can be used. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** | `--non-interactive` does the install in a non-interactive mode.
+    If a user action is required, the mode will terminate the install. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Option Name** | `url` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | When used, it will use the URL specified for the install
+    files from an ISO. URLs can be formatted for FTP, HTTP, or HTTPS. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--url` is required. This is the URL used for the source files. An example
+    of the syntax is as follows:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[`http://server/direcort`](http://server/direcort)[`ftp://username:password@server/path`](ftp://username:password@server/path)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '`--mirrorlist` is an optional parameter that sets the mirror URL to install
+    from.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--proxy` is an optional parameter that sets a proxy to use while performing
+    the install from an HTTP/HTTPS or FTP server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--noverifyssl` is an optional parameter that disables SSL verification when
+    using an HTTPS server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--metalink` is an optional parameter that sets the ULN/metalink URL to install
+    from. Variable substitution is done for `$releasever` and `$basearch`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Option Name** | `user` |  |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Description** | Creates a new user on the system |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Options** |'
+  prefs: []
+  type: TYPE_TB
+- en: '`--name` is a required parameter and is the username.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--uid` is the user’s **User** **ID** (**UID**).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--gid` the user’s **Group** **ID** (**GID**).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--groups` is a comma-separated list of group names the user should belong
+    to.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--homedir` is the home directory for the user.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--lock` will, if used, lock a new user’s account by default.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--password` is the password for the new user.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--iscrypted`, if used, means that the password argument is the encrypted password.
+    You can get this from the `/etc/shadow` file on a running system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--plaintext`, if used, means that the password argument is the plain text
+    password.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--shell` is the path to the user’s default shell.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Table 2.1 – Kickstart options
+  prefs: []
+  type: TYPE_NORMAL

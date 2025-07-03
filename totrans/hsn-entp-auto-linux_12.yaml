@@ -1,0 +1,901 @@
+- en: Patching with Katello
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [Chapter 8](56007c92-a39b-4e56-9b01-a137eab2369d.xhtml), *Enterprise Repository
+    Management with Pulp*, we explored the Pulp software package and how it lends
+    itself to automated, repeatable, controllable patching in an enterprise setting.
+    In this chapter, we will build on this by taking a look at a product called **Katello**,
+    which is complementary to Pulp and lends itself to not just patching but complete
+    infrastructure management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Katello is a GUI-driven tool that provides advanced solutions for enterprise
+    infrastructure management, and in many ways can be considered to be the successor
+    to the venerable Spacewalk product that many are familiar with. We will explore
+    why you would choose Katello for this purpose and then proceed with hands-on examples
+    of how to build a Katello server and perform patching.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will specifically be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction to Katello
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing a Katello server
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Patching with Katello
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The minimum requirements for completing the hands-on exercises in this chapter
+    are a single CentOS 7 server with around 80 GB of disk space allocated, 2 CPU
+    cores (virtual or physical), and 8 GB of memory. Although we will only look at
+    a subset of the Katello features in this chapter, it should be noted that Foreman
+    in particular (which is installed under Katello) is capable of acting as a DHCP
+    server, DNS server, and PXE boot host and, as such, if configured incorrectly
+    could cause issues if deployed on a production network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this reason, it is recommended that all exercises are performed in an isolated
+    network suitable for testing. Where Ansible code is given, it will have been developed
+    and tested in Ansible 2.8\. For testing patching from Katello, you will need a
+    CentOS 7 virtual machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All example code discussed in this book is available from GitHub at: [https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction to Katello
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Katello is not actually a single product in isolation, but a union of several
+    open source infrastructure management products into one cohesive infrastructure
+    management solution. Where Pulp is solely focused on the efficient, controllable
+    storage of packages (and other important content for infrastructure management),
+    Katello brings together the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Foreman**: This is an open source product designed to handle the provisioning
+    and configuration of both physical and virtual servers. Foreman includes a rich
+    web-based GUI, a RESTful API, and a CLI tool called **Hammer**, providing a rich
+    and varied means of management. It also provides integration with several automation
+    tools, originally just Puppet but more recently also Ansible.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Katello**: Katello is actually a plugin for Foreman and provides additional
+    features such as the rich version control of content (more so than Pulp alone)
+    and subscription management.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Candlepin**: Provides software subscription management, especially integration
+    with environments such as the **Red Hat Subscription Management** (**RHSM**) model.
+    Although it is possible to mirror Red Hat repositories in Pulp, the process is
+    cumbersome, and you risk violating your license terms because there is no visibility
+    on the number of systems you are managing or their relationship to your Red Hat
+    subscriptions.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Pulp**: This is the very same Pulp software that we explored in the last
+    chapter, now integrated into one fully featured project.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Capsule**: A proxy service for distributing content and controlling updates
+    across a geographically diverse infrastructure while maintaining a single management
+    console.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The use of Katello hence provides several advantages over using Pulp alone,
+    and even if you use it just for patch management (as we will explore in this chapter,
+    in the section entitled *Patching with Katello*), the rich web GUI, CLI, and API
+    lend itself to integration with enterprise systems. Beyond this though, Katello
+    (and more specifically Foreman, which underpins it) provides many other benefits
+    such as being able to dynamically PXE boot servers and control both container
+    and virtualization systems, and it can even act as both the DNS and DHCP servers
+    for your network. Indeed, it is fair to say that the combination of Katello/Foreman
+    is designed to sit at the heart of your network, although it will only perform
+    the functions you ask of it, so those with existing DNS and DHCP infrastructures
+    need not fear.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is worth mentioning that Katello also features tight integration with the
+    Puppet automation tool. The original project was sponsored by Red Hat, and before
+    their acquisition of Ansible, Red Hat and Puppet had a strategic alliance, which
+    led to it becoming heavily featured in the Katello project (which is available
+    commercially as Red Hat Satellite 6). Given the Ansible acquisition, while the
+    Puppet integration still remains in Katello, support for integration with Ansible,
+    especially through Ansible Tower/AWX, has evolved rapidly and it is entirely up
+    to the user which automation tool they wish to use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this stage, the venerable **Spacewalk** software tool deserves an honorable
+    mention. Spacewalk is the upstream open source version of Red Hat Satellite 5
+    and is still being actively developed and maintained. There is a huge degree of
+    overlap between the two systems in terms of high-level functionality; however,
+    Katello/Satellite 6 is a complete from-the-ground-up rewrite of the platform and
+    so there is no clear upgrade path between the two. Given that Red Hat's contribution
+    to the Spacewalk program is likely to decrease when they end-of-life their Satellite
+    5 product, our focus in this book will be on Katello.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Indeed, it is fair to say that Katello deserves a book of its own, so rich is
+    its feature set. Our goal in this chapter is simply to raise awareness of the
+    Katello platform and to demonstrate how it lends itself to patching in an enterprise
+    environment. Many of the additional features, such as the PXE booting of servers,
+    require an understanding of the concepts we have already covered in this book,
+    and hence it is hoped that, should you decide upon Katello or Satellite 6 as a
+    platform for managing your infrastructure, then you will be able to build on the
+    foundation that this book provides and explore additional resources to take you
+    further.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's get started by taking a practical look in the next section at how to install
+    a simple standalone Katello server so that we can explore this more fully.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing a Katello server
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This is a hands-on book, so without further ado, let's get started and set up
+    our very own Katello server. Alongside the advantages of Katello already discussed,
+    another is the packaging of the product. When we set up our Pulp server, there
+    were many individual components where we had to make decisions (for example, RabbitMQ
+    versus Qpid) and then additional setup to perform (for example, SSL transport
+    for MongoDB). Katello has even more *moving parts* than Pulp (if Pulp is considered
+    as just a component of the Katello platform), and hence installing it by hand
+    would be a vast and complex task.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thankfully, Katello provides an installation system that can get you up and
+    running with just a few commands, which we will explore in the next section of
+    this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Preparing to install Katello
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Katello, as with Pulp, only installs (at the time of writing) on Enterprise
+    Linux 7 variants—so here, again, we will use the latest stable release of CentOS
+    7\. The requirements for Katello change from time to time as the product grows,
+    and it is always worth reviewing the installation documentation for yourself before
+    proceeding. At the time of writing, version 3.12 is the latest stable release,
+    and the installation documentation can be found here: [https://theforeman.org/plugins/katello/3.12/installation/index.html](https://theforeman.org/plugins/katello/3.12/installation/index.html).
+    Now, let''s follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As before, our biggest concern is ensuring we have sufficient disk space allocated,
+    and just as for a standalone Pulp installation, we must ensure that we have enough
+    disk space allocated in `/var/lib/pulp` and `/var/lib/mongodb` for all of the
+    Linux distributions we may wish to mirror. Again, as with Pulp, they should be
+    separate from the root volume to ensure that if one fills up, the entire server
+    does not die.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'With the filesystem set up, our first step is to install the required repositories
+    so that all required packages for installation can be downloaded—this requires
+    setting up several external repositories that provide packages not included by
+    default with CentOS 7\. The following commands set up the repositories for Katello,
+    Foreman, Puppet 6, and the EPEL repository before actually installing the Foreman
+    release package tree:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'From here, it is recommended to bring the base system fully up to date:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The final step before the actual installation is to install the Katello package
+    and its dependencies:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'From here on, all installation tasks are performed with the `foreman-installer` command—there
+    are a huge plethora of options that can be specified and, with most of them, if
+    you need to change your decision, you can run the installer again with the different
+    flags and it will perform the changes without any data loss. To see all possible
+    options, run the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To build our demo server, the defaults will mostly suffice—however, if you
+    explore the options, you will see that many will need to be specified in an enterprise
+    setting. For example, SSL certificates can be specified at install time (rather
+    than relying on self-signed ones that will be generated otherwise), default secrets
+    for underlying transports are set, and so on. It is highly recommended that you
+    review the output of the preceding command for yourself when installing in a production
+    setting. For now, we will issue the following installation command to initiate
+    the installation:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is probably the simplest possible installation case for a Katello server,
+    and it perfectly serves our examples in this book. However, in a `Production`
+    environment, I highly recommend that you explore the more advanced installation
+    features to ensure that the server will meet your requirements, especially where
+    security and availability are concerned. This is left as an exercise for you to
+    explore.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that, in this scenario, the installer checks several prerequisites, including
+    that the forward and reverse DNS lookups for the Katello server name resolve correctly
+    and that the machine has 8 GB of RAM available. The installer will refuse to proceed
+    if these prerequisites are not met.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Katello installation should run to completion provided all prerequisites
+    have been met, and once completed, you should be presented with a screen similar
+    to the one shown in the following screenshot, detailing the login details, as
+    well as other pertinent information such as how to set up a proxy server for another
+    network if required:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/7b0081da-0a67-47b5-83a7-eb956c158af3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The only task not completed by the installer is setting up the local firewall
+    on the CentOS 7 machine. Luckily, there is a FirewallD service definition included
+    with Katello that covers all of the services likely to be required—this derives
+    its named from the commercial Red Hat Satellite 6 product and can be enabled by
+    running the following commands as root:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With those steps completed, it will be possible to load the web interface of
+    Katello and log in with the details shown:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/2efc4b2c-99c0-4107-ac5f-32be6f56a440.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Technically speaking, Katello is a module that sits on top of Foreman and provides
+    important features that we will look at later in this chapter—for example, a web
+    UI for the Pulp repository management system that is also installed behind the
+    scenes. Hence, the Foreman branding of the code stands out, and you will find
+    the name comes up frequently. Once logged in, you should be presented with the
+    default dashboard page, and we can start to configure some repositories for patching
+    purposes, which we will commence in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Patching with Katello
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As Katello is built around technologies we have already explored, such as Pulp,
+    it carries with it the same limitations we have already seen regarding DEB packages.
+    For instance, although repositories of DEB packages can be built up easily in
+    Katello, and even the appropriate GPG public keys imported, the resulting published
+    repositories do not feature an `InRelease` or `Release.gpg` file and so must be
+    implicitly trusted by all hosts that use these. Similarly, although there is a
+    complete subscription management framework available for RPM-based hosts consisting
+    of the `subscription-manager` tool and the Pulp Consumer agent, again, no such
+    equivalent exists for DEB hosts and so these must be configured manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although it would be entirely possible to configure RPM-based hosts to use the
+    built-in technologies, DEB-based ones would have to be configured with Ansible,
+    just as for Pulp, and given the importance of commonality across environments
+    in an enterprise, configuring all servers in the same manner rather than using
+    two contrasting solutions for two different host types is advised.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the advantages that Katello brings over Pulp, other than the web user
+    interface, is the concept of lifecycle environments. This feature acknowledges
+    that most businesses will have separate technology environments for differing
+    purposes. For example, your enterprise may well have a `Development` environment
+    for developing new software and testing bleeding edge packages, then a `Testing`
+    environment for testing releases, and finally, a `Production` environment where
+    the most stable builds exist and services for customers and clients are run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's now explore some hands-on examples of building up repositories in Katello
+    for patching purposes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Patching RPM-based systems with Katello
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s consider the use of Katello to build repositories for our CentOS 7 system
+    across multiple lifecycle environments. As Katello supports the key-based validation
+    of RPMs, our first task is to install the GPG public key for the RPMs. A copy
+    of this is freely downloadable from the CentOS project and can be found on most
+    CentOS 7 systems in `/etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To add this public key to Katello, navigate to Content | Content Credentials from
+    the menu bar. Then, click Create Content Credential:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/297245cc-1c18-46cb-b391-c47095891413.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Give the key a suitable name and either upload the key file or copy and paste
+    the contents of it into the textbox on the screen. Click Save when done:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/a08c3782-45cf-4c7a-976c-9fb87a8dd655.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Next, we will create a product—in Katello, a product is a logical grouping
+    of repositories, and this is incredibly useful for creating manageable scalable
+    configurations. For our example here, we will only mirror the CentOS 7 OS repository,
+    but when you start mirroring the updates and any other related repositories, it
+    would make sense to group these together under a single product. Navigate to Content
+    | Products from the menu bar, and then click on the Create Product button:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/35a8669c-fb85-4020-a09d-a1c2e687ed71.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Now, define the high-level product definition—for a simple CentOS 7 repository
+    mirror, we simply need to create Name and Label and associate the GPG key we uploaded
+    previously. The various SSL options are for upstream repositories that feature
+    two-way SSL validation. Note also that all products can be synced according to
+    a Sync Plan (essentially a schedule)—however, for this example, we will simply
+    perform a manual sync. The screen should look something like the following screenshot
+    when completed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/26931f94-8f42-41be-9c41-d5328fbe124c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'With the high-level product definition completed, we can now create our CentOS
+    7 repository under it by clicking on the New Repository button:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/53cbc588-6d07-44f0-a1ec-ff3ce5e81332.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Complete the repository details on the screen provided. Set the Type field
+    as `yum` and enter the URL of the upstream repository in the appropriate field
+    (this is the same as the `--feed` parameter when using Pulp from the command line):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/6b7704b4-a791-4ba9-871e-4539265262f9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Scrolling down the same screen, ensure that Publish via HTTP is ticked and
+    associate the GPG uploaded previously, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/ea8ad6ad-0fce-4b3e-a56f-ddf7fa4a9ff8.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'For our example, we''ll immediately kick off a sync of this repository by putting
+    a tick against it in the table of repositories, and then clicking on the Sync
+    Now button, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/1006c286-cd1b-469c-af25-1546fbaa4dff.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The synchronization begins in the background immediately—you can always check
+    on its progress (and kick off further manual synchronizations) by navigating to
+    the Content | Sync Status page:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/dcefb4f6-f7b2-4545-9218-c0e984eebb2c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: While the sync process completes, let's go and create some lifecycle environments.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Note that while you can have discrete products and separate repositories within
+    them, lifecycle environments are global and apply to everything. In an enterprise
+    context, this makes sense, as you would most likely still have a `Development`,
+    `Test`, and `Production` environment regardless of which underlying technologies
+    you use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From the menu bar, navigate to Content | Lifecycle Environments Paths, and
+    then click the Create Environment Path button:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/bd7a5ecb-7368-4d01-9e73-ecfe76fa169d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Create an initial environment called `Development` by following the instructions
+    onscreen. You should be presented with a screen such as the one shown in the following
+    screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/d6ce37b6-e0e3-4a2f-af0d-07e59c850993.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Now, we''ll add `Testing` and `Production` environments so that our example
+    enterprise has a logical flow through these three environments. Click the Add
+    New Environment button, and then add each in turn, ensuring they have the correct Prior
+    Environment set to maintain the correct sequence. The following screenshot shows
+    an example of creating the `Production` environment as the next step from the
+    `Testing` one:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/df0d5feb-c081-4af8-8c3b-b6ff16887dfe.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The final configuration should look like the following example screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/d85fad6a-be3a-4d09-8015-c6600e48d68b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Once our sync process has completed and we have created our environments, we
+    can proceed to the final part of our RPM repository setup—`Content Views`. In
+    Katello, a content view is a user-defined amalgamation of the various content
+    forms that can be ingested, version-controlled, and distributed to a given environment.
+    This is best explained through a practical example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we used Pulp alone, we created a repository called `centos7-07aug19`. When
+    we wanted to test out an update released a day later, we then created a second
+    repository called `centos7-08aug19`. Although this works, and we demonstrated
+    how Pulp deduplicates packages and saves on disk space while neatly publishing
+    apparently separate repositories, you can quickly see how this mechanism for content
+    management could become unwieldy, especially at enterprise scale, with numerous
+    environments and some months (or years) worth of snapshots to manage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is where `Content Views` come to the rescue. Although we have mirrored
+    the CentOS 7 OS repository here, suppose we had mirrored the updates one. With `Content
+    Views`, we don''t need to create a new product or repository to test out updates.
+    Instead, the workflow is, at a high level, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a product and a corresponding repository and perform sync (for example,
+    on August 7, 2019).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create a content view containing the repository created in the previous step.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Publish the content view on August 7, 2019—this creates a version-numbered snapshot
+    of this repository on this date (for example, version `1.0`).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Promote the content view to the `Development` environment. Perform testing,
+    and when validated, promote it to testing. Repeat the cycle to reach `Production`.
+    This can all happen asynchronously to the next steps.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: On August 8, perform another sync of the repository created in *step 1* (if
+    you have an overnight sync happening automatically through `Sync Plan`, this will
+    already be done for you on the morning of the 8th).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Publish the content view on August 8, 2019, following the sync. This creates
+    a `+1` version of the repository for this date (for example, version 2.0).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Now, at this stage, you have snapshots of the CentOS 7 channel on both August
+    7 and 8\. However, all servers will still receive updates from the August 7 channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Promote the `Development` environment to version 2.0\. The machines in the `Development` environment
+    now receive (with no additional configuration required on them) the repository
+    snapshot of August 8.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `Testing` and `Production` environments, which were not promoted to this
+    version, still receive packages from the August 7 snapshot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In this way, Katello makes managing numerous versions (snapshots) of repositories
+    easy across differing environments, with the added bonus that the repository configuration
+    on each host always remains the same, removing the need to push new repository
+    information through Ansible as we did with Pulp.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s step through an example of the preceding process in our demo Katello
+    environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First of all, create a new content view for the preceding process.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Navigate to Content | Content Views and click on the Create New View button:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/b349a091-5436-4619-9626-6d551074b7de.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'For our purposes, the new content view only requires a Name and a Label, such
+    as those shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/40de9c68-22df-4e22-86ad-2779beea0b59.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Once you have clicked on the Save button, navigate to the Yum Content tab within
+    the new content view, and ensure the Add sub-tab is selected. Tick the repositories
+    you want to add to the content view (in our simple demo, we only have one CentOS
+    7 repository, so select that), and click on the Add Repositories button:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/f2e6291c-668a-4c9a-bddc-38ecf5fdde73.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Now, navigate back to the Versions tab and click the Publish New Version button.
+    This creates the hypothetical August 7 version we discussed earlier. Note that `Publish` and `Promote` operations
+    take an enormous amount of disk I/O and will be very slow, especially on slow
+    mechanically-backed storage arrays. Although there are no published requirements
+    for I/O performance for either Katello or Red Hat Satellite 6, they perform best
+    on flashbacked storage, or if this is not available, fast mechanical storage that
+    is not shared with other devices. The following screenshot shows the Publish New
+    Version button being clicked for the CentOS7-CV content view:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/18d3d821-672a-438b-a2d0-31eb509e2743.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The `Publish` operation is asynchronous and you can see it complete on this
+    screen, although if you navigate away, it will still complete. You can see that
+    it is automatically numbered `Version 1.0`—this numbering is, at the time of writing,
+    automatic and you cannot choose your own version numbering. You can, however,
+    add notes to each published version, which can be incredibly useful to track which
+    version is which and why they were created. This is highly recommended. The following
+    screenshot shows the promotion in progress on our Version 1.0 environment:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/a3085c99-6872-424c-85d1-6139960f698f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Once the `Publish` operation is completed, the Promote button (shown grayed
+    out in the preceding screenshot) will become active. You will note that this version
+    is automatically published to the `Library` environment—the latest version of
+    any content view is always automatically promoted to this environment.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'To simulate the August 8 snapshot we discussed earlier, let''s perform a second publish of
+    this content view. This will produce a `Version 2.0` environment, which can then
+    be promoted to the `Development` environment by clicking on the Promote button
+    and selecting the required environment. The following screenshot shows our two
+    versions, with `Version 1.0` available to only the `Production` environment and `Version
+    2.0` available to the `Development` environment (and the built-in `Library` one).
+    Note that as we have not promoted the `Testing` environment to either version
+    and that no packages are available to machines in the `Testing` environment. You
+    must promote it to all environments that require packages—the following screenshot
+    shows the two versions we have published and which environments are associated
+    with which versions:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/36dbb6a8-4951-4c14-9e87-23849b449769.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In the following screenshot, the promotion process is shown for reference—this
+    is how you would promote the `Production` environment to `Version 2.0`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/ac078f46-00c1-49c2-baae-24a7300a57c0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The one remaining piece of the puzzle here is to configure the clients to receive
+    packages from the Katello server. Here, we will perform a simple manual integration,
+    as this method is common to both DEB- and RPM-based packages and hence supports
+    a common approach across the enterprise. The process for distributing RPM packages
+    from Katello using the `subscription-manager` tool and the Katello agent is well
+    documented and is left as an exercise for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The official Katello documentation for Activation Keys is a good place to start: [https://theforeman.org/plugins/katello/3.12/user_guide/activation_keys/index.html](https://theforeman.org/plugins/katello/3.12/user_guide/activation_keys/index.html)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make use of the content we have published in this example, machines in the
+    `Development` environment would have a repository file with content such as this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Your base URL will surely vary—at the very least, your Katello hostname will
+    be different. RPM-based repositories published and promoted in Katello are generally
+    available at the following path:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`KATELLOHOSTNAME`: The hostname of your Katello server (or nearest Capsule/Proxy
+    if you are using them)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ORGNAME`: The name of the Katello organization in which your `Content View` lives—we
+    defined ours as `HandsOn` during the installation process'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`LIFECYCLENAME`: The name of the `Lifecycle Environment`, for example, `Development`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`CONTENTVIEWNAME`: The name you gave your `Content View`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`PRODUCT`: The name you gave your `Product`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`REPO`: The name you gave to your repository within the `Product`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This makes the URLs entirely predictable and easy to deploy to target machines
+    using Ansible, just as we did in the previous chapter regarding Pulp. Note that
+    accessing the repositories over HTTPS from Katello requires the installation of
+    SSL certificates for trust validation, which is beyond the scope of this chapter—instead,
+    we will simply make use of plain HTTP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the lifecycle environment name remains constant, no matter whether we sync,
+    publish, or promote an environment, the repository URL, as shown previously, remains
+    constant and hence we never have to perform client configuration work even when
+    a new package repository snapshot is published. This is a significant advantage
+    over Pulp, where we would have to push a new configuration using Ansible every
+    time a new version is created.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the repository configuration has been built as shown previously, you can
+    patch your systems in the normal manner. This can be done as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manually, using a command such as `yum update` on each machine
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Centrally, using an Ansible playbook
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: From the Katello user interface, if the `katello-agent` package is installed
+    on your target machines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Given the varied nature of the tools available, we won't go into any greater
+    depth in this chapter but will instead leave this as an exercise for you. Experience
+    has shown that central deployment using Ansible is the most robust method, but
+    you are welcome to experiment and find the path that best suits you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That concludes our brief tour of RPM-based patching with Katello, though it
+    is hoped that it has shown you enough to give you a taste of how it might prove
+    valuable in your enterprise. In the next section, we will look at the process
+    of patching DEB-based systems with Katello.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Patching DEB-based systems with Katello
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The patching of DEB-based systems such as Ubuntu through Katello is broadly
+    similar to the RPM-based process, save for a few changes in the GUI, and the limitations
+    around package signing discussed earlier in this chapter, in the section entitled
+    *Patching with Katello*. Let''s briefly walk through an example now for Ubuntu
+    Server 18.04:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, create a new product for our Ubuntu package repositories:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/8a9cd793-af6b-4363-bde9-1078af389a4a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: It is important to state here that importing the Ubuntu signing public key makes
+    no impact on the published repository and so can be specified or ignored as you
+    prefer. The resulting repository will not have a signed `Release` file and so
+    must be treated as implicitly trusted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the product is saved, create a new repository within it to contain the
+    packages—the package mirror creation requires the same parameters we used on the
+    command line with Pulp, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/fd1b6d35-33e7-467d-b114-97ceb2bad4cb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Sync the newly created repository as before, and ensure this has completed successfully
+    before proceeding to the content view creation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once it has, create a separate content view for our Ubuntu content—the following
+    screenshot shows the content view creation in progress:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/0d780fe5-028d-40bf-b06b-f3f149b67d91.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'This time, navigate to the Apt Repositories tab and select the appropriate
+    Ubuntu repositories—again, in our simple example here, we only have one, and the
+    following screenshot shows the process of our lone `Ubuntu 18.04 base` repository
+    being added to the Ubuntu1804-CV content view:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/2bc88f84-14e4-4c39-bbb2-575f236c5213.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'From here, our new content view is published and promoted just as we did for
+    the RPM-based one. The resulting repository is accessible again at a predictable
+    URL, this time being of the following pattern:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As can be seen, this is almost identical to the RPM-based example, save for
+    the initial path. An appropriate entry for `/etc/apt/sources.list` to match the content
+    view we just created in this example might look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: As before, this URL remains constant regardless of when we might sync, publish,
+    or promote this content view and so it need only be deployed once to target systems
+    to ensure they can receive packages from the Katello server. Again, you can perform
+    this patching manually through the `apt update` and `apt upgrade` commands on
+    the end systems, or centrally through Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that there is no `katello-agent` package for Debian/Ubuntu-based systems
+    at the time of writing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we have barely scratched the surface of all that Katello can
+    do, yet this example alone demonstrates how effective a tool it is for enterprise
+    patch management. It is highly recommended that you explore this further to establish
+    whether it meets your wider infrastructure needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It must be stressed that, in this chapter, we have really only scratched the
+    surface of what Katello can do—however, it is hoped that the work we have done
+    so far gives you enough to make an informed decision on whether to proceed with
+    this incredibly powerful and versatile platform as part of your Linux architecture.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Katello is actually an amalgamation of several incredibly powerful open source
+    infrastructure management tools, including Pulp, which we have already explored.
+    It is incredibly adept at patch management in an infrastructure setting, offering
+    numerous advantages over a standalone Pulp installation and can handle most build
+    and maintenance tasks from a single pane of glass—more than we have had space
+    to cover!
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, you gained an understanding of what the Katello project actually
+    is and the components that it is comprised of. You then learned how to perform
+    a standalone installation of Katello for patching purposes and then how to build
+    out repositories suitable for patching both RPM- and DEB-based Linux distributions
+    and the basics of integrating these two operating systems with Katello content
+    views.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will explore how Ansible can be effectively employed
+    in an enterprise for user management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Why would you want to use Katello over a product such as Pulp?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is a Product in Katello terms?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is a content view in Katello?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Can Foreman (which underpins Katello) assist with the PXE booting of bare-metal
+    servers?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you use lifecycle environments in Katello?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between the `Publish` and `Promote` operations on a content
+    view?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When would you want to perform a `Promote` operation on a previously published
+    content view?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For a greater understanding of Katello, please refer to the official Red Hat
+    Satellite 6 documentation as this is the commercial version of Katello and all
+    of the documentation is usually written for this platform—however, the features
+    and menu structure are almost identical ([https://access.redhat.com/documentation/en-us/red_hat_satellite/](https://access.redhat.com/documentation/en-us/red_hat_satellite/)).
+  prefs: []
+  type: TYPE_NORMAL

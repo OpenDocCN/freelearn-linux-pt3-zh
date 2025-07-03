@@ -1,0 +1,716 @@
+- en: '*Chapter 16*: Developing Policies with SELinux CIL'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While the reference policy is the most frequently used language and development
+    style for SELinux policies, the **Common Intermediate Language** (**CIL**) is
+    a powerful, but more low-level language construct to use to develop SELinux policies.
+    Low-level as it might be though, it is still very much readable and well supported,
+    as SELinux tools will use CIL under the hood when using other languages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since CIL is the main language used, we know it can be used to build entire
+    policies. Sadly, there are no supporting constructs available for developers to
+    use, unlike the reference policy. However, we can still learn how to customize
+    the current policy, creating specific definitions that are not possible with the
+    more common reference policy, and even build a complete application policy if
+    we choose.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing CIL
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating fine-grained definitions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building complete application policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/3dLYP2Q](https://bit.ly/3dLYP2Q)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing CIL
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: CIL has been designed to be the main language to have policies built in, and
+    is the lowest readable format. After CIL, the SELinux code is transformed in binary
+    to send off to the Linux kernel (and SELinux subsystem) for loading in memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Administrators might be inclined to think that the binary files, generated when
+    building a SELinux policy module using the reference policy method, are the final
+    binaries. However, as we've seen in [*Chapter 1*](B16276_01_Final_VK.xhtml#_idTextAnchor018),
+    *Fundamental SELinux Concepts*, the `semodule` command converts and translates
+    this into CIL before building the final format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's see how these translations work and what we can learn from them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Translating .pp files to CIL
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When a non-CIL SELinux policy module is loaded, the `semodule` command is designed
+    to first consider the module as an unknown format, and extract the `.pp` files
+    are supported as an HLL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As the HLL format of the SELinux policy modules built by reference policy (or
+    the other classic SELinux development) is the same as the module generated, this
+    phase often just involves creating a copy. We can see this when we compare an
+    HLL file with the original:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once it has converted or extracted the data, `semodule` will convert it to CIL
+    code. For each supported HLL, a convertor is available in `/usr/libexec/selinux/hll`.
+    Currently, only the `pp` command is available, which is used to convert this older
+    style into CIL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s see this in action:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, in essence, when we are developing reference policy style modules, they
+    will be converted into CIL anyway. The resulting CIL code, however, does not have
+    any facilitating constructions inside. For instance, all permissions are expanded,
+    and all interactions with other resources or types outside of the SELinux policy
+    module are listed as well. There are no longer any supporting macros or interfaces.
+    In the *Building complete application policies* section, we'll see that CIL does
+    support abstractions, so the current observation is only due to the translation
+    that the `pp` command performs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding CIL syntax
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When we develop CIL, the most obvious observation is that it likes brackets.
+    CIL uses S-expression syntax, popularized by Lisp, which results in tree-structured
+    data. The first identifier in an expression that tells CIL what the construction
+    is about.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the last statement we received when converting the `pgpool.pp`
+    binary into CIL, now formatted for convenience:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we look at this statement in detail, we can deduce the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have a `filecon` statement, which takes three arguments: the path expression,
+    the type of resources to which it applies, and the SELinux context to associate
+    with it.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The SELinux context has four fields associated with it: the SELinux user, the
+    SELinux role, the SELinux type, and the SELinux sensitivity range.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SELinux sensitivity range has two values, a low-end and a high-end value.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This statement is equivalent to what the reference policy would define in the
+    file context part of the policy module (the file with the `.fc` suffix) like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Luckily, we do not need to seek and interpret the code just to understand and
+    see what is going on. The SELinux project has extensive CIL documentation available,
+    explaining how the language works and what it all supports. The information is
+    available at [https://github.com/SELinuxProject/selinux/tree/master/secilc/docs](https://github.com/SELinuxProject/selinux/tree/master/secilc/docs).
+    Keep in mind though that CIL policy development is still in its infancy, so coverage
+    of the CIL constructs that are not used by the HLL conversion mechanics is very
+    low.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's now see what we can do with CIL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating fine-grained definitions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Throughout this book, most small SELinux policy adjustments have been made using
+    CIL. These are small, fine-grained definitions that require little development
+    effort, and have the benefit of being directly loadable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Depending on roles or types
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The CIL language requires some order in how types or roles are linked in the
+    policy. Sometimes, when we develop CIL policies, the order of the types might
+    not be addressed properly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To work around this issue, a default attribute called `cil_gen_require` is used.
+    When types or roles are assigned to the `cil_gen_require` attribute, they are
+    automatically linked correctly in the policy. This is not a CIL requirement though,
+    but a convention that the SELinux utilities use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The attribute actually exists twice, once as a type attribute and once as a
+    role attribute. They might have the same name, but are two different attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The functions used, `roleattributeset` and `typeattributeset`, assign the second
+    argument (which is the attribute name) to the third argument (which is the role
+    or type). Roles or types can be attributes themselves, as shown for the `direct_run_init`
+    attribute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For developers, it is recommended to always have the types or roles that you
+    are going to use made part of the `cil_gen_require` attribute, and to use attributes
+    as much as possible to simplify development activities. Rather than granting all
+    possible `allow` rules to each and every domain that can interact with your policy
+    resources, grant them to an attribute, and then assign this attribute to the domains.
+    This creates a much smaller policy and is easier to maintain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining a new port type
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When more intricate SELinux policies are developed, there are a few settings
+    that we cannot add in a SELinux module—at least not when using the traditional
+    or reference policy style coding. When we want to use these, we need to rebuild
+    the entire policy and make the adjustments in the so-called base policy; the main
+    and first policy loaded before the modules are added. This, however, requires
+    access to the full SELinux policy sources and a process to use them (as you will
+    overwrite the Linux distribution's SELinux policy and should make sure that any
+    system update does not overwrite your policy again).
+  prefs: []
+  type: TYPE_NORMAL
+- en: One way to establish whether a statement is supported in a SELinux module, besides
+    just testing it out, is to look at the online documentation. As an example, let's
+    take the port declaration statement `portcon`, which is part of the network-oriented
+    statements. This statement is documented on [https://selinuxproject.org/page/NetworkStatements](https://selinuxproject.org/page/NetworkStatements),
+    where we can see that `portcon` is not valid in a module policy, nor can it be
+    toggled through a SELinux Boolean.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Luckily, this is not the case when using CIL. Let''s create a custom port type,
+    for example, `pgpool_port_t`, and map it to a free port, say, TCP port `50123`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Before we load the policy, we can clearly see that this port is not an assigned
+    one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we''ve seen throughout this book, we can load this policy file immediately,
+    without having to build or compile it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After loading, the type is assigned to the port, and we can use it to fine-tune
+    our SELinux policies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Many of the constraints that policy developers had when using the traditional
+    SELinux style development no longer apply to CIL. As the SELinux utilities convert
+    all high-level constructs to CIL, it is possible that SELinux developers might
+    remove these constraints altogether, although this has to be carefully assessed
+    to make sure no unwanted side effects arise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding constraints to the policy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Another area that was not accessible for regular policy developers was to add
+    constraints to the policy. Constraints limit actions based on the entire SELinux
+    context (and not just types), and they are the closest thing we can find to negating
+    existing rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We do not recommend adding constraints to an existing policy just to work around
+    rules that we don't like. Constraints are not visible in regular policy queries,
+    as with `sesearch`. Administrators might be very confused when `sesearch` indicates
+    that an action is allowed while the system is refusing to allow it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With CIL, we can add constraints to a live policy to do exactly that. Keep in
+    mind though that constraints don't actually allow anything – they merely put limits
+    on what the SELinux subsystem will see as a valid action. A constraint statement
+    that supports reading any possible type does not actually allow this, as there
+    still need to be type enforcement rules in place to actually allow these actions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, if we want to remove the `staff_t` domain''s ability to read
+    the `/etc/passwd` file (which has the SELinux type, `passwd_file_t`), then we
+    can add in a constraint that supports the reading of all possible types, unless
+    the source domain is `staff_t`, in which case we support the reading of all possible
+    types except `passwd_file_t`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once loaded, we can confirm that the constraint is active:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And indeed, trying to read the `passwd` file is prohibited:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To show how the use of constraints is confusing for administrators, let''s
+    see what `sesearch` has to say on this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, while the policy has two rules that would allow it (one for the `nsswitch_domain`
+    attribute, and one explicitly for the `staff_t` domain), the constraint has limited
+    this action, but this is not obvious from the `sesearch` output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building complete application policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We can build complete application policies with CIL as well. However, keep in
+    mind that there are no interfaces or support macros out there that we can use
+    to rapidly develop policies. Furthermore, there are no templates or suchlike available
+    to jumpstart such initiatives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But that shouldn't stop us, and it will allow us to show a few more details
+    of the CIL language. We will also see that the CIL language does support interface
+    constructs (they are even recommended), but the community has not yet fully embraced
+    it through a reference policy-like project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using namespaces
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The CIL language supports namespaces, which allows for a higher flexibility
+    in developing policies. The generated CIL policies always use the main, global
+    namespace, so we will not find examples of namespaces in the generated policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can, however, show how this works easily. Let''s create a skeleton file
+    that will contain our CIL-developed `pgpool` policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The namespace created in the preceding code is the `pgpool` namespace, identified
+    through the `block` statement. Namespaces in CIL are hierarchical. If we want,
+    we could create a namespace within `pgpool` by nesting another `block` statement
+    within.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we encounter namespaces in general constructions, we need to use the dot
+    separator. In the example, we have defined a type called domain inside the `pgpool`
+    namespace. If we would want to query it later through `sesearch`, the full name
+    would be `pgpool.domain` (which would have the same purpose as the `pgpool_t`
+    name in a more classically developed policy).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Informational note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In subsequent code listings of the policy, we will only show the added and most
+    relevant statements rather than including all previously added statements. Without
+    supporting interfaces (which CIL calls macros), the policy file will quickly become
+    quite large, which does not aid readability. By focusing on the relevant and added
+    statements, the development pattern for CIL policies is easier to explain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As the main policy has all objects within the global namespace, we will need
+    to refer explicitly to this global namespace. This is done by prefixing the name
+    with a dot. For instance, if we want to assign the `pgpool.domain` type to the
+    `system_r` role, our policy needs to be adjusted with the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, the `roletype` statement is used to assign the `domain` type (defined
+    in the `pgpool` namespace) to the `system_r` role (defined in the `global` namespace).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extending the policy with attribute assignments
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When we develop a policy, it is recommended to use attributes as much as possible.
+    Many attributes will automatically grant the necessary privileges to jumpstart
+    a policy development, reducing the number of `allow` statements that need to take
+    part of the policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The main reference policy, which is still in use on the system as a whole,
+    defines quite a few attributes, as seen in all previous chapters. So, let''s assign
+    the `daemon` attribute to our domain:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: By assigning the `daemon` attribute, all existing policy rules for daemons are
+    automatically applied to the `pgpool.domain` SELinux domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To find out which attributes are sensible to add, we can take a peek at existing
+    daemon domains:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, we do not need to blindly take up all attributes, starting instead with
+    those we feel confident with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding entry point information
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Our next step is to add entry point information to the policy. This is a necessary
+    step before we can start testing out, because we want the domain to become active.
+    For that to happen, it has to be executable by the init system (or systemd) and
+    transition to the domain we've just declared.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s start by defining our `entrypoint` type (`pgpool.exec`) and associate
+    it with the right attributes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this code block, we''ve performed several steps to ensure that a transition
+    will occur:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We've associated the `pgpool.exec` type with the `file_type` attribute (which
+    is a generic attribute for files) and the `direct_init_entry` attribute (which
+    is for file types that are used to launch system services).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We've marked the `pgpool.exec` type as `entrypoint` for the `pgpool.domain`
+    type, as well as granted this domain the necessary privileges to read, open, and
+    execute the `pgpool.exec` labeled resources (as needed for a starting process).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We've declared a type transition so that any `initrc_domain` labeled process
+    that executes the `pgpool.exec` labeled resource will result in a domain transition
+    toward `pgpool.domain`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can now finish this step by adding a file context definition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With these changes made, we can load the policy and relabel the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can now attempt to start the `pgpool` service, and hope that it fails (as
+    that will show that the transition was successful, given that the `pgpool.domain`
+    SELinux domain hardly has sufficient privileges to successfully start the entire
+    service).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Gradually extending the policy further
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Once the domain transitions are successful, we can gradually extend the policy
+    further through trial and error, just like we would do when developing SELinux
+    policies using the reference policy style. However, rather than using `audit2allow`
+    to guide us, we will need to interpret the denials ourselves and see how to better
+    approach it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider the failures that appear after starting the service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, rather than immediately adding `allow` rules for these types, let''s see
+    how this is accomplished for other daemons on the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, this permission is based on the `domain` attribute, which we indeed forgot
+    to add to the policy. Let''s rectify this and retry:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, we can also see clearly what the impact is of the namespaces
+    within CIL. We assigned the (global namespace-hosted) `domain` attribute to the
+    (`pgpool` namespace-hosted) `domain` type. They are both named `domain`, but have
+    a different namespace. This also shows how important attributes are.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, not all privileges can be granted through attributes. By adding the
+    target types as a dependency, we can directly include `allow` statements in our
+    policy, like we did with the `entrypoint` declaration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, if we would want to explicitly allow our domain to signal the
+    `postgresql_t` domain, execute the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we are adding more and more privileges to the policy, we might want to optimize
+    some of the definitions. There are two optimizations supported by CIL, and they
+    are, not unsurprisingly, aligned with the reference policy's simplifications as
+    CIL was developed by the same community.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing permission sets
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The first simplification we can do is to simplify the permission sets we use.
+    Remember the `allow` rule we added to allow our domain to execute its entrypoint
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Were we to use a reference policy-style approach, we would combine many of these
+    permissions through the `exec_file_perms` macro. Well, CIL supports something
+    similar, through a statement called `classpermissionset`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we want to simulate the reference policy-style approach completely, we would
+    define `classpermissionset` in the global namespace, and use it, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, we've defined `classpermissionset` in the global namespace,
+    and then referred to it. Unlike the reference policy, however, we cannot just
+    add `exec_file_perms` inside the permissions together with `entrypoint`. The `classpermissionset`
+    statement has an explicit reference to the class associated with it. The `allow`
+    statement in CIL is therefore a separate one that does not contain a class reference
+    itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Furthermore, in the example, you will also notice that we did not prefix the
+    `exec_file_perms` name with a dot, to refer to the global namespace. While we
+    can prefix it perfectly to be consistent with the rest of the policy, using a
+    dot prefix is not mandatory if there is no possible collision. If no local definition
+    for a name exists within the current namespace, the policy will then check whether
+    the parent namespace (and, hence, also the global namespace) has the name defined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, while the preceding policy will work just fine, we do recommend to prefix
+    the global namespace-oriented names with a dot to make sure no local override
+    would confuse the policy later on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding macros
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The final simplification we can introduce is to add **macros**. CIL has an explicit
+    support for macros, which allows them to be part of the loaded policy, and not
+    just be referred to on the filesystem. With CIL macros, the code is part of the
+    policy itself. There is no need to refer to the CIL code while building policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this is a best practice that is aligned with object-oriented programming
+    (as we can add macros to our namespaces so that they remain within the same object),
+    the downside is that the current SELinux utilities are not able to quickly show
+    which macros (and which interface they require) are available in the policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s enhance our `pgpool` policy with a domain transition macro, similar
+    to the `pgpool_domtrans()` interface that would be created through a reference
+    policy-style development:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: The macro definition itself starts with a name (in our case, `domtrans`) followed
+    by the interface. This interface defines how many arguments are passed to the
+    macro, and which type they have. In our example, only one argument is passed,
+    and it is a SELinux type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The macro is then followed by the code that is applied. The argument itself
+    is referenced in the code (`SOURCEDOMAIN`) and will be substituted with the argument
+    that is given later on, when the macro is explicitly called. While our example
+    uses a capitalized variable name, this is not mandatory, and only serves as a
+    visual statement of what will be substituted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In another CIL policy, we can refer to this macro through the `call` statement.
+    For instance, to allow the `postgresql_t` domain to transition to the `pgpool.domain`
+    SELinux domain, we would add the following `call` statement to our policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: CIL macros provide all that is needed to generate the same simplicity in developing
+    SELinux policies as we have within the reference policy, and even more as there
+    are many constraints not applicable to CIL policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While it is possible that this will happen in the future, it is not planned
+    at this moment for a number of reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The current reference policy has a significant amount of code in it, which would
+    all need to be reworked. Furthermore, Linux distributions have extended this policy
+    with many of their own additions, so the work needed to rewrite the SELinux policy
+    code into CIL is significant. Not impossible, but not a feat to accomplish in
+    a few weeks.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Almost all of the information and documentation online that helps developers
+    in writing SELinux policies is based upon the current reference policy. This major
+    source of information would become stale the moment a switch occurs, and the amount
+    of documentation available online for CIL-based policy development is still pretty
+    slim.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The CIL policy, while very powerful, is also a bit more complex due to its S-expressions.
+    The design intention of CIL was not to replace SELinux policy development with
+    CIL, but to allow higher level languages to be developed that translate and convert
+    into CIL easily. Hence, if a rework is going to be done anyway, it is much more
+    likely that a user- and development-friendly language will be designed that can
+    be easily converted into CIL.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As the SELinux development progresses, both on the policy level as well as in
+    terms of user space and kernel support, we can expect more additions to be added
+    to CIL and to its supporting tools.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'CIL for SELinux is a powerful, lower-level syntax and language that is used
+    to express all possible SELinux policy code. The SELinux userspace utilities will
+    automatically convert existing policies into CIL code, but through this conversion,
+    a lot of CIL constructs are not used: the conversion only uses a smaller set of
+    CIL capabilities to establish a valid translation.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The more advanced CIL capabilities, such as namespace support, macros, and the
+    permission sets through the `classpermissionset` statement, are useful when developing
+    our own, CIL-based SELinux policies. In this chapter, we've learned how to use
+    CIL to build complete application policies. Because there is no reference policy-like
+    framework to simplify development, we had to write all of the necessary code constructs
+    ourselves.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this means that developing CIL-based policies is more resource intensive,
+    we did also see that CIL has a few benefits that reference policy-style development
+    cannot deal with, such as the ability to declare ports or add SELinux constraints
+    to an active policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We ended the chapter with a brief overview of why CIL-based development is not
+    more widely used, but we will notice continuous improvements within SELinux on
+    this matter in the foreseeable future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This concludes our book and the information we have to offer to you. However,
+    it is only the start of a journey, not the end. SELinux is a widely used technology,
+    and we hope that this book provides you with the right material and knowledge
+    to understand, grow, and contribute to the ecosystem. Thank you for your interest
+    and your dedication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: How do we know CIL is here to stay?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Is the `cil_gen_require` attribute mandatory for CIL development?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are examples of declarations that developers can do with CIL but not with
+    other SELinux language styles?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can we create similar support constructions such as interfaces in CIL?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

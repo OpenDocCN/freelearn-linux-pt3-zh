@@ -1,0 +1,1096 @@
+- en: '13'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Starting Up – The init Program
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We looked at how the kernel boots up to the point where it launches the first
+    program, `init`, in [*Chapter 4*](Chapter_04.xhtml#_idTextAnchor096). In *Chapters
+    5* and *6*, we looked at creating root filesystems of varying complexity, all
+    of which contained an `init` program. Now, it is time to look at the `init` program
+    itself in more detail and discover why it is so important to the rest of the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are many implementations of `init`. In this chapter, I will describe
+    the three main ones: BusyBox `init`, System V `init`, and `systemd`. I will explain
+    how they work and what types of systems are best suited for each. Part of this
+    is balancing the tradeoff between size, complexity, and flexibility. We will learn
+    how to launch a daemon using both BusyBox `init` and System V `init`. We will
+    also learn how to add a service to `systemd`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: After the kernel has booted
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introducing the `init` programs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: BusyBox `init`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: System V `init`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`systemd`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To follow along with the examples, make sure you have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An Ubuntu 24.04 or later LTS host system with at least 90 GB of free disk space
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Buildroot 2024.02.6 LTS release
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Yocto 5.0 (scarthgap) LTS release
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You should have already installed the 2024.02.6 LTS release of Buildroot for
+    [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110). If you have not, then refer
+    to the *System requirements* section of *The Buildroot user manual* ([https://buildroot.org/downloads/manual/manual.html)](https://buildroot.org/downloads/manual/manual.html))
+    before installing Buildroot on your Linux host according to the instructions from
+    [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110).
+  prefs: []
+  type: TYPE_NORMAL
+- en: You should have already built the 5.0 (scarthgap) LTS release of Yocto in [*Chapter
+    6*](Chapter_04.xhtml#_idTextAnchor110). If you have not, then please refer to
+    the *Compatible Linux Distribution* and *Build Host Packages* sections of the
+    *Yocto Project Quick Build* guide ([https://docs.yoctoproject.org/brief-yoctoprojectqs/](https://docs.yoctoproject.org/brief-yoctoprojectqs/))
+    before building Yocto on your Linux host according to the instructions in [*Chapter
+    6*](Chapter_04.xhtml#_idTextAnchor110).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code used in this chapter can be found in the chapter folder in this book’s
+    GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: After the kernel has booted
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [*Chapter 4*](Chapter_04.xhtml#_idTextAnchor096), we saw how the kernel bootstrap
+    code looks for a root filesystem, either `initramfs` or a filesystem specified
+    by `root=` on the kernel command line. The kernel bootstrap code then executes
+    a program, which, by default, is `/init` for `initramfs` and `/sbin/init` for
+    a regular filesystem. The `init` program has `root` privilege, and since it is
+    the first process to run, it has a **process ID** (**PID**) of 1\. If, for some
+    reason, `init` cannot be started, the kernel will panic and the system will fail
+    to boot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `init` program is the ancestor of all other processes, as shown here by
+    the `pstree` command running on a simple embedded Linux system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The job of the `init` program is to take control of the boot process in user
+    space and set it running. It may be as simple as a shell command running a shell
+    script—there is an example of this at the start of [*Chapter 5*](Chapter_05.xhtml#_idTextAnchor138)—but
+    in most cases, you will use a dedicated `init` daemon to perform the following
+    tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Start other daemons and configure system parameters and other things needed
+    to get the system into a working state.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Optionally, launch a login daemon, such as `getty`, on terminals that allow
+    a login shell.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Adopt processes that become orphaned due to their immediate parent terminating
+    and there being no other processes in the thread group.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Respond to any of its immediate children terminating by catching the `SIGCHLD`
+    signal and collecting the return value to prevent them from becoming zombie processes.
+    I will talk more about zombies in [*Chapter 17*](Chapter_17.xhtml#_idTextAnchor542).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Optionally, restart other daemons that have terminated.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Handle system shutdown.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In other words, `init` manages the life cycle of the system from bootup to shutdown.
+    There is a school of thought that says `init` is well placed to handle other runtime
+    events such as new hardware and the loading and unloading of modules. This is
+    what `systemd` does.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing the init programs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The three init programs you are most likely to encounter in embedded devices
+    are BusyBox `init`, System V `init`, and `systemd`. Buildroot offers all three
+    with BusyBox `init` as the default. The Yocto Project lets you choose between
+    System V `init` and `systemd` with System V `init` as the default. While Yocto’s
+    tiny distribution ships with BusyBox `init`, most other distro layers do not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following table gives some metrics to compare the three:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Metric** | **BusyBox init** | **System V init** | **systemd** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Complexity | Low | Medium | High |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Bootup speed | Fast | Slow | Medium |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Required shell | ash | dash or bash | None |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Number of executables | 1(*) | 4 | 50 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| libc | Any | Any | glibc |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Size (MB) | < 0.1(*) | 0.1 | 34(**) |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 13.1 – Comparison of BusyBox init, System V init, and systemd
+  prefs: []
+  type: TYPE_NORMAL
+- en: (*) BusyBox `init` is part of BusyBox’s single executable, which is optimized
+    for size on disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: (**) Based on the Buildroot configuration of `systemd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Broadly speaking, there is an increase in flexibility and complexity as you
+    go from BusyBox `init` to `systemd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: BusyBox init
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: BusyBox has a minimal `init` program that uses an `/etc/inittab` configuration
+    file to start programs at bootup and stop them at shutdown. The actual work is
+    done by shell scripts, which, by convention, are placed in the `/etc/init.d` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`init` begins by reading `/etc/inittab`. This file contains a list of programs
+    to run, one per line, in this format:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The roles of these parameters are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`id`: The controlling terminal for the command'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`action`: When and how to run the program'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`program`: The program to run along with all its command-line arguments'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The actions are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`sysinit`: Runs the program when `init` starts before any of the other types
+    of actions.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`respawn`: Runs the program and restarts it if it terminates. It is used to
+    run a program as a daemon.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`askfirst`: The same as `respawn`, but it prints the message **Please press
+    Enter to activate this console** to the console and runs the program after *Enter*
+    has been pressed. It is used to start an interactive shell on a terminal without
+    prompting for a username or password.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`once`: Runs the program once but does not attempt to restart it if it terminates.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`wait`: Runs the program and waits for it to complete.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`restart`: Runs the program when `init` receives the `SIGHUP` signal, indicating
+    that it should reload the `inittab` file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ctrlaltdel`: Runs the program when `init` receives the `SIGINT` signal, usually
+    as a result of pressing *Ctrl + Alt + Del* on the console.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`shutdown`: Runs the program when `init` shuts down.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Here is a small example that mounts `proc` and `sysfs` and then runs a shell
+    on a serial interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: For simple projects in which you want to launch a small number of daemons and
+    start a login shell on a serial terminal, it is easy to write the scripts manually.
+    This is appropriate if you are creating a **roll-your-own** (**RYO**) embedded
+    Linux. However, you will find that handwritten `init` scripts rapidly become unmaintainable
+    as the number of things to be configured increases. They are not very modular
+    and need updating each time a new component is added or removed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Buildroot init scripts
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Buildroot has been making effective use of BusyBox `init` for many years. Buildroot
+    has two scripts in `/etc/init.d/` named `rcS` and `rcK` (`rc` stands for “run
+    commands”). The `rcS` script runs at bootup. It iterates over all the scripts
+    in `/etc/init.d/` with names that begin with a capital `S` followed by two digits
+    and runs them in numerical order. These are the start scripts. The `rcK` script
+    is run at shutdown. It iterates over all the scripts beginning with a capital
+    `K` followed by two digits and runs them in numerical order. These are the kill
+    scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With this structure in place, it becomes easy for Buildroot packages to supply
+    their own start and kill scripts so that the system becomes extensible. The two-digit
+    number controls the order in which the `init` scripts are run. If you are using
+    Buildroot, this structure is transparent. If not, then you can use it as a model
+    for writing your own BusyBox `init` scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Like BusyBox `init`, System V `init` relies on shell scripts inside `/etc/init.d`
+    and an `/etc/inittab` configuration file. While the two `init` systems are similar
+    in many ways, System V `init` has more features and a much longer history.
+  prefs: []
+  type: TYPE_NORMAL
+- en: System V init
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This `init` program was inspired by the one from Unix System V and dates back
+    to the mid-1980s. The version most often found in Linux distributions was written
+    initially by Miquel van Smoorenburg. Until recently, it was the `init` daemon
+    for almost all desktop and server distributions and a fair number of embedded
+    systems as well. However, in recent years it has been replaced by `systemd`, which
+    we will describe in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The BusyBox `init` daemon is just a trimmed-down version of System V `init`.
+    System V `init` has two advantages compared to BusyBox `init`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Firstly, the boot scripts are written in a well-known modular format making
+    it easy to add new packages at build time or runtime.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Secondly, it has the concept of **runlevels**, which allow a collection of programs
+    to be started or stopped in one go when switching from one runlevel to another.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'There are eight runlevels numbered from `0` to `6` plus `S`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`S`: Runs startup tasks'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0`: Halts the system'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`1` to `5`: Available for general use'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`6`: Reboots the system'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Levels `1` to `5` can be used as desired. On most desktop Linux distributions,
+    they are assigned as:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`1`: Single user'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`2`: Multi-user without network configuration'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`3`: Multi-user with network configuration'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`4`: Not used'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`5`: Multi-user with graphical login'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `init` program starts the default runlevel given by the `initdefault` line
+    in `/etc/inittab`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can change the runlevel at runtime using the `telinit <runlevel>` command,
+    which sends a message to `init`. You can find the current runlevel and the previous
+    one using the `runlevel` command. Here is an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The initial output from the `runlevel` command is `N 5`. An `N` indicates that
+    there is no previous runlevel because the runlevel has not changed since booting.
+    The current runlevel is `5`. After changing the runlevel, the output is `5` `3`,
+    indicating that there has been a transition from `5` to `3`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `halt` and `reboot` commands switch to runlevels `0` and `6`, respectively.
+    You can override the default runlevel by giving a different one (a single digit
+    from `0` to `6`) on the kernel command line. For example, to force the default
+    runlevel to be single user, you append `1` to the kernel command line like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each runlevel has a number of kill scripts that stop things, and another group
+    of start scripts to get them going. When entering a new runlevel, `init` first
+    runs the kill scripts followed by the start scripts from the new level. Daemons
+    that are currently running and have neither a start script nor a kill script in
+    the new runlevel are sent a `SIGTERM` signal. In other words, the default action
+    when switching runlevels is to terminate daemons unless told otherwise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In truth, runlevels are not used much in embedded Linux. Most devices simply
+    boot to the default runlevel and stay there. I have a feeling this is partly because
+    most people are not aware of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Tip**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Runlevels are a simple and convenient way to switch between modes, for example,
+    from production to maintenance mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: System V `init` is an option in Buildroot and The Yocto Project. In both cases,
+    the `init` scripts have been stripped of any `bash` shell specifics, so they will
+    work with the BusyBox `ash` shell. However, Buildroot cheats somewhat by replacing
+    the BusyBox `init` program with System V `init` and adding an `inittab` that mimics
+    the behavior of BusyBox. Buildroot does not implement runlevels except for `0`
+    and `6`, which halt or reboot the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let’s look at some of the details. The following examples are taken from
+    The Yocto Project 5.0 release. Other Linux distributions may implement `init`
+    scripts a little differently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: inittab
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `init` program begins by reading entries that define what happens at each
+    runlevel from an `/etc/inittab` configuration file. The format is an extended
+    version of the BusyBox `inittab` described in the preceding section. This is no
+    surprise since BusyBox borrowed it from System V in the first place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The format of each entry in the `inittab` is:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The fields are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`id`: A unique identifier of up to four characters'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`runlevels`: The runlevels this entry belongs to'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`action`: When and how to run the command'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`process`: The command to run'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The actions are the same as for BusyBox `init`: `sysinit`, `respawn`, `once`,
+    `wait`, `restart`, `ctrlaltdel`, and `shutdown`. However, System V `init` does
+    not have `askfirst`, which is specific to BusyBox.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the complete `inittab` supplied by The Yocto Project when building
+    `core-image-minimal` for the `qemuarm` machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first `id:5:initdefault` entry sets the default runlevel to `5`. The next
+    `si::sysinit` entry runs the `/etc/init.d/rcS` script at bootup. All the `rcS`
+    script does is enter the `S` runlevel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Hence, the first runlevel entered is `S`, followed by the default runlevel of
+    `5`. Note that runlevel `S` is not recorded and is never displayed as a prior
+    runlevel by the `runlevel` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The seven entries beginning with `l0` to `l6` run the `/etc/init.d/rc` script
+    whenever there is a change to the runlevel. The `rc` script is responsible for
+    processing the start and kill scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Scan down a bit further for an entry that runs a `getty` daemon:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: This entry generates a login prompt on `/dev/ttyAMA0` when entering runlevels
+    `1` through `5` allowing you to log in and get an interactive shell. The `ttyAMA0`
+    device is the serial console on the Arm Versatile board emulated by QEMU. The
+    device name may be different for serial consoles on other development boards.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last entry runs another `getty` daemon on `/dev/tty1`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: This entry is triggered when entering runlevels `2` through `5`. The `tty1`
+    device is a virtual console that is mapped to a graphical screen when you build
+    your kernel with `CONFIG_FRAMEBUFFER_CONSOLE` or `VGA_CONSOLE`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Desktop Linux distributions usually spawn six `getty` daemons on virtual terminals
+    1 to 6, with `tty7` reserved for the graphical screen. Ubuntu and Arch Linux are
+    notable exceptions since they use `tty1` for graphics. You can switch between
+    virtual terminals with key combinations *Ctrl + Alt + F1* through *Ctrl + Alt
+    + F6*. Virtual terminals are seldom used on embedded devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The init.d scripts
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Each component that needs to respond to a runlevel change has a script in `/etc/init.d`
+    to perform the change. The script should expect two parameters: `start` and `stop`.
+    I will give an example of each in the *Adding a new daemon* section.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `/etc/init.d/rc` runlevel-handling script takes the runlevel it is switching
+    to as a parameter. There is a directory named `rc<runlevel>.d` for each runlevel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There you will find a set of scripts beginning with a capital `S` followed
+    by two digits. You may also find scripts beginning with a capital `K`. These are
+    the start and kill scripts. Here is an example of the scripts for runlevel `5`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: These are, in fact, symbolic links back to their corresponding scripts in `init.d`.
+    The `rc` script first runs all the scripts beginning with a `K` passing in the
+    `stop` parameter. Then it runs all the scripts beginning with an `S` passing in
+    the `start` parameter. Once again, the two-digit codes are there to impart the
+    order in which to execute the scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding a new daemon
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Imagine that you have a program named `simpleserver` that is written as a traditional
+    Unix daemon; in other words, it forks and runs in the background. The code for
+    this program is in `MELD/Chapter13/simpleserver`. The corresponding `init.d` script
+    (see below) is in `MELD/Chapter13/simpleserver-sysvinit/init.d`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`start-stop-daemon` is a program that makes it easier to manipulate background
+    processes. It originally came from the Debian installer package (`dpkg`) but most
+    embedded systems use the one from BusyBox. Running `start-stop-daemon` with the
+    `-S` parameter starts the daemon, making sure that there is never more than one
+    instance running at any one time. Running `start-stop-daemon` with the `-K` parameter
+    stops the daemon by sending it a signal, `SIGTERM` by default, to indicate to
+    the daemon that it is time to terminate.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make `simpleserver` operational, copy the `init.d` script to `/etc/init.d`
+    and make it executable. Then, add links from each of the runlevels that you want
+    to run this program from—in this case, only the default runlevel of `5`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The number `99` means that this will be one of the last programs to start.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Important note**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bear in mind that there may be other links beginning with `S99`, in which case
+    the `rc` script will just run them in lexical order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is rare in embedded devices to have to worry too much about shutdown operations,
+    but if there is something that needs to be done, add kill links to levels `0`
+    and `6`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can circumvent runlevels and ordering for more immediate testing and debugging
+    of `init.d` scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Starting and stopping services
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can interact with the scripts in `/etc/init.d` by calling them directly.
+    Here is an example using the `syslog` script that controls the `syslogd` and `klogd`
+    daemons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: All scripts implement `start` and `stop`, and they should also implement `help`.
+    Some implement `status` as well, which will tell you whether the service is running
+    or not. Mainstream distributions that still use System V `init` have a command
+    named `service` to start and stop services, which hides the details of calling
+    the scripts directly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: System V `init` is a simple `init` daemon that has served Linux admins for decades.
+    While runlevels offer a greater degree of sophistication than BusyBox `init`,
+    System V `init` still lacks the ability to monitor services and restart them if
+    needed. As System V `init` starts to show its age, most popular Linux distributions
+    have moved on to `systemd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: systemd
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`systemd` ([https://systemd.io/](https://systemd.io/)) defines itself as a
+    *system and service manager*. The project was initiated in 2010 by Lennart Poettering
+    and Kay Sievers to create an integrated set of tools for managing a Linux system
+    based around an `init` daemon. It also includes device management (`udev`) and
+    logging, among many other things. `systemd` is state of the art and is still evolving
+    rapidly. It is common on desktop and server Linux distributions and is becoming
+    increasingly popular on embedded Linux systems. So, how is it better than System
+    V `init`?'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuration is simpler and more logical (once you understand it). Instead
+    of convoluted shell scripts, `systemd` has unit configuration files that are written
+    in a well-defined format.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There are explicit dependencies between services. This is a huge improvement
+    over two-digit numbers that only control the order in which scripts are executed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It is easy to set the permissions and resource limits for each service in the
+    interest of security.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It can monitor services and restart them if needed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Services are started in parallel, reducing boot time.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A complete description of `systemd` is not possible here. As with System V `init`,
+    I will focus on the embedded use cases with examples based on The Yocto Project
+    5.0 release with `systemd` version 255.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building systemd with The Yocto Project and Buildroot
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The default `init` daemon in The Yocto Project is System V. To select `systemd`,
+    add this line to your `conf/local.conf`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Buildroot uses BusyBox `init` by default. You can select `systemd` through `menuconfig`
+    by looking in the **System configuration | Init system** menu. You will also have
+    to configure the toolchain to use `glibc` for the C library since `systemd` does
+    not officially support `uClibc-ng` or `musl`. In addition, there are restrictions
+    on the version and configuration of the kernel. There is a complete list of library
+    and kernel dependencies in the `README` file at the top level of the `systemd`
+    source code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing targets, services, and units
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Before I describe how `systemd` works, I need to introduce three key concepts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Unit**: A configuration file that describes a target, a service, or several
+    other things. Units are text files that contain properties and values.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Service**: A daemon that can be started and stopped, much like a System V
+    `init` service.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Target**: A group of services, similar to a System V `init` runlevel. There
+    is a default target consisting of all the services that are started at boot time.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can change states and find out what is going on using the `systemctl` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Units
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The basic item of configuration is the **unit** file. Unit files are found
+    in four different places:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`/etc/systemd/system`: Local configuration'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/run/systemd/system`: Runtime configuration'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/usr/lib/systemd/system:` Distribution-wide configuration (default location)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/lib/systemd/system`: Distribution-wide configuration (legacy default location)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When looking for a unit, `systemd` searches these directories in the preceding
+    order, stopping as soon as it finds a match. You can override the behavior of
+    a distribution-wide unit by placing a unit of the same name in `/etc/systemd/system`.
+    You can also disable a unit completely by creating a local file that is empty
+    or linked to `/dev/null`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All unit files begin with a section marked `[Unit]` that contains basic information
+    and dependencies. For example, here is the `Unit` section of the D-Bus service
+    `/lib/systemd/system/dbus.service`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: In addition to the description and a reference to the documentation, there is
+    a dependency on the `dbus.socket` unit expressed through the `Requires` keyword.
+    This tells `systemd` to create a local socket when the D-Bus service is started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Dependencies are expressed by the `Requires`, `Wants`, and `Conflicts` keywords:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Requires`: A list of units that this unit depends on; these are started when
+    this unit is started.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Wants`: A weaker form of `Requires`; this unit continues even when any of
+    these dependencies fails to start.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Conflicts`: A negative dependency; these units are stopped when this one is
+    started, and conversely, if one of them is subsequently restarted, then this one
+    is stopped.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These three keywords define **outgoing dependencies**. They are used to create
+    dependencies between *targets*. There is another set of dependencies called **incoming
+    dependencies**, which are used to create links between *services* and *targets*.
+    In other words, outgoing dependencies are used to create the list of targets that
+    need to be started as the system goes from one state to another, and incoming
+    dependencies are used to determine the services that should be started or stopped
+    when entering any state. Incoming dependencies are created by the `WantedBy` keyword,
+    which I will describe in the upcoming section, *Adding your own service*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Processing the dependencies produces a list of units that should be started
+    or stopped. The `Before` and `After` keywords determine the order in which they
+    are started. The stop order is simply the reverse of the start order:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Before`: Start this unit before the units listed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`After`: Start this unit after the units listed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For example, the `After` directive ensures that the following web server is
+    started after the network subsystem is started:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the absence of a `Before` or `After` directive, the units are started or
+    stopped in parallel with no ordering.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Services
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A **service** is a daemon that can be started and stopped like a System V `init`
+    service. A service has a unit file with a name ending in `.service`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A service unit has a `[Service]` section that describes how the service should
+    be run. Here is the `[Service]` section from `lighttpd.service`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: These are the commands to run when starting and restarting the service. There
+    are many more configuration points you can add here so refer to the manual page
+    for `systemd.service(5)`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Targets
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A **target** is a unit that groups services or other types of units together.
+    A target is a metaservice in that respect and serves as a synchronization point.
+    A target only has dependencies. Targets have names ending in `.target` like `multi-user.target`.
+    A target is a desired state that performs the same role as System V `init` runlevels.
+    Here is the complete `multi-user.target`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: This says that the basic target must be started before the multi-user target.
+    This also says that since it conflicts with the rescue target, starting the rescue
+    target will cause the multi-user target to be stopped first. The rescue and multi-user
+    targets cannot run simultaneously because the rescue target boots into single-user
+    mode. Activating the rescue target only makes sense during system recovery.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How systemd boots the system
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s see how `systemd` implements the bootstrap. The kernel starts `systemd`
+    because `/sbin/init` is symbolically linked to `/lib/systemd/systemd`. `systemd`
+    runs `default.target`, which is always a link to the desired target: either `multi-user.target`
+    for a text login or `graphical.target` for a graphical environment. If the default
+    target is `multi-user.target`, you will see this symbolic link:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Override the default target by passing `system.unit=<new target>` on the kernel
+    command line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To discover the default target:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Starting a target like `multi-user.target` creates a tree of dependencies that
+    bring the system into a working state. In a typical system, `multi-user.target`
+    depends on `basic.target`, which depends on `sysinit.target`, which depends on
+    the services that need to be started early.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To print a text graph of system dependencies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To list all services and their current states:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To list all targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that we’ve seen the dependency tree for the system, how do we insert an
+    additional service?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding your own service
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Here is a unit for our `simpleserver` service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: You will find this `simpleserver.service` file in `MELD/Chapter13/simpleserver-systemd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `[Unit]` section only contains a description that shows up under `systemctl`.
+    There are no dependencies since this service is very simple.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `[Service]` section points to the executable and has a flag to indicate
+    that it forks. If `simpleserver` was even simpler and ran in the foreground, `systemd`
+    would do the daemonizing for us and `Type=forking` would not be needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `[Install]` section creates an incoming dependency on `multi-user.target`
+    so that our server is started when the system enters multi-user mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once you place the `simpleserver.service` file in the `/etc/systemd/system`
+    directory, you can start and stop the service using the `systemctl start simpleserver`
+    and `sytemctl stop simpleserver` commands. You can also use `systemctl` to get
+    its current status:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, the service only starts and stops on command. To make it persistent,
+    you need to add a permanent dependency to a target. The `[Install]` section says
+    that when this service is enabled, it becomes dependent on `multi-user.target`
+    so that it starts at boot time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To enable the service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To update the `systemd` dependency tree without rebooting:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can also add dependencies to services without having to edit target unit
+    files. A target can have a directory named `<target_name>.target.wants` with links
+    to services. Creating a link inside this directory is the same as adding a unit
+    to the `[Wants]` list in the target. The `systemctl enable` `simpleserver` command
+    created the following link:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You might want to restart an important service if it crashes. To achieve that,
+    add the following flag to the `[Service]` section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: The other `Restart` options are `on-success`, `on-failure`, `on-abnormal`, `on-watchdog`,
+    and `always`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding a watchdog
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Many embedded systems require a watchdog: you need to act if a critical service
+    stops. This usually means rebooting the system. Most embedded SoCs have a hardware
+    watchdog that can be accessed via the `/dev/watchdog` device node. The **watchdog**
+    is initialized with a timeout at boot. If this timer is not reset within the timeout
+    period, the watchdog is triggered and the system reboots. The interface with the
+    watchdog driver is described in the kernel source under `Documentation/watchdog/`
+    and the code for the drivers is in `drivers/watchdog/`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A problem arises when there are two or more critical services that need to be
+    protected by a watchdog. `systemd` has a useful feature that distributes the watchdog
+    between multiple services. `systemd` can be configured to expect a regular keepalive
+    call from a service and act when no keepalive is received, creating a software
+    watchdog. For this to work, you need to add code to the daemon to send the keepalive
+    messages. The daemon reads the value of the `WATCHDOG_USEC` environment variable
+    and calls `sd_notify(false, "WATCHDOG=1")` within this time period. The period
+    should be set to about half the watchdog timeout. There are examples in the `systemd`
+    source code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To enable the software watchdog in a service unit, add something like this
+    to the `[Service]` section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, the service expects a keepalive call every 30 seconds. If the
+    keepalive fails to be delivered, the service is restarted, but if it is restarted
+    more than four times in 5 minutes, `systemd` immediately reboots the entire system.
+    There is a full description of these settings in the `systemd.service(5)` manual
+    page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A software watchdog takes care of individual services, but what if `systemd`
+    itself fails, the kernel crashes, or the hardware locks up? In those cases, we
+    need to tell `systemd` to use the hardware watchdog. Add `RuntimeWatchdogSec=<N>`
+    to `/etc/systemd/system.conf`. This will reset the watchdog within the given `N`
+    period so that the system reboots if `systemd` fails for some reason. This will
+    be an immediate hard reboot or “reset” of the system without any graceful shutdown.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implications for embedded Linux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`systemd` has a lot of features that are useful for embedded Linux. This chapter
+    only mentions some of them. The others include resource control (described in
+    the manual pages for `systemd.slice(5)` and `systemd.resource-control(5)`), device
+    management (`udev(7)`), system logging facilities (`journald(5)`), mount units
+    for auto-mounting filesystems, and timer units for `cron` jobs.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You need to balance these features with `systemd`'s size. Even a minimal build
+    of just the core components (`systemd`, `udevd`, and `journald`) approaches 10
+    MB of storage including shared libraries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You also need to keep in mind that `systemd` development follows the kernel
+    and `glibc` closely, so a `systemd` release won’t work on a kernel and `glibc`
+    more than a year or two older than itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Every Linux device needs an `init` program of some kind. If you are designing
+    a system that only needs to launch a small number of daemons at startup, then
+    BusyBox `init` is sufficient. BusyBox `init` is also usually a good choice if
+    you are using Buildroot as your build system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if you have a system with complex dependencies between services
+    at boot time or runtime, then `systemd` is the best choice. Even without such
+    complexity, `systemd` has some useful features like watchdogs, remote logging,
+    and so on. If you have the storage space, you should seriously consider `systemd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Meanwhile, System V `init` lives on. It is well understood and there are already
+    `init` scripts for every component that is important to us. System V remains the
+    default `init` for The Yocto Project reference distribution (Poky). In terms of
+    boot time, `systemd` is faster for similar workloads. However, if you are looking
+    for the fastest boot, neither beats simple BusyBox `init` with minimal boot scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further study
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*systemd System and Service Manager* – [https://systemd.io/](https://systemd.io/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

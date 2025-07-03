@@ -1,0 +1,1421 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Updating Software in the Field
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In previous chapters, we discussed various ways to build software for a Linux
+    device and how to create system images for various types of mass storage. When
+    you go into production, you just need to copy the system image to the flash memory,
+    and it is ready to be deployed. Now I want to consider the life of the device
+    beyond the first shipment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we move into the era of the *Internet of Things*, the devices that we create
+    are very likely to be connected to the internet. At the same time, software is
+    becoming exponentially more complex. More software means more bugs. Connection
+    to the internet means those bugs can be exploited from afar. Consequentially,
+    we have a common requirement to be able to update software *in the field*. By
+    “in the field,” we mean “outside of the factory.” Software updates bring more
+    advantages than fixing bugs. They open the door to adding value to existing hardware
+    by enabling new features and improving system performance over time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: From where do updates originate?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What to update
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Basics of software updates
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Types of update mechanism
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: OTA updates
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Mender for local updates
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Mender for OTA updates
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To follow along with the examples, make sure you have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An Ubuntu 24.04 or later LTS host system with at least 90 GB of free disk space
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Yocto 5.0 (scarthgap) LTS release
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You should have already built the 5.0 (scarthgap) LTS release of Yocto in [*Chapter
+    6*](Chapter_04.xhtml#_idTextAnchor110). If you have not, then please refer to
+    the *Compatible Linux Distributions* and *Build Host Packages* sections of the
+    *Yocto Project Quick Build* guide ([https://docs.yoctoproject.org/brief-yoctoprojectqs/)](https://docs.yoctoproject.org/brief-yoctoprojectqs/))
+    before building Yocto on your Linux host according to the instructions in [*Chapter
+    6*](Chapter_04.xhtml#_idTextAnchor110).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code used in this chapter can be found in the chapter folder in this book’s
+    GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter10](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter10).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: From where do updates originate?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are many approaches to software updates. Broadly, I characterize them
+    as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Local updates**: Performed by a technician who carries the update on a portable
+    medium such as a USB flash drive or an SD card and has to access each system individually.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Remote updates**: Initiated by the user or a technician locally, but downloaded
+    from a remote server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Over-the-air** (**OTA**) **updates**: Pushed and managed entirely remotely
+    without any need for local input.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: I will begin by describing several approaches to software updates, then I will
+    show an example using Mender.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What to update
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Embedded Linux devices are very diverse in their design and implementation.
+    However, they all have these basic components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bootloader
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Kernel
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Root filesystem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: System applications
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Device-specific data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Some components are harder to update than others, as summarized in this diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.1 – Components of an update](img/B18466_10_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.1 – Components of an update
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s look at each component in turn.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bootloader
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The bootloader is the first piece of code to run when the processor is powered
+    up. The way the processor locates the bootloader is very device-specific, but
+    in most cases, there is only one such location, so there can only be one bootloader.
+    If there is no backup, then updating the bootloader is risky: what happens if
+    the system powers down midway? Consequently, most update solutions leave the bootloader
+    alone. This is not a big problem, because the bootloader only runs for a short
+    time at power-on and is not normally a great source of runtime bugs.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kernel
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The Linux kernel is a critical component that will certainly need updating from
+    time to time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are several parts to the kernel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A binary image loaded by the bootloader, often stored in the root filesystem.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Many devices also have a **device tree binary** (**DTB**) that describes hardware
+    to the kernel, and so must be updated in tandem. The DTB is usually stored alongside
+    the kernel binary.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There may be kernel modules in the root filesystem.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The kernel and DTB may be stored in the root filesystem if the bootloader can
+    read the filesystem format, or it may be in a dedicated partition. In either case,
+    it is possible and safer to have redundant copies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Root filesystem
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The root filesystem contains the essential system libraries, utilities, and
+    scripts needed to make the system work. It is very desirable to be able to replace
+    and upgrade all of these. The mechanism depends on the filesystem implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Common formats for embedded root filesystems are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**RAM disk**: Loaded from raw flash memory or a disk image at boot. To update
+    it, simply overwrite the RAM disk image and reboot.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Read-only compressed filesystems (squashfs**): Stored in a flash partition.
+    Since these filesystems don’t have a write function, the only way to update them
+    is to write a complete filesystem image to the partition.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Normal filesystem types**: JFFS2 and UBIFS formats are common for raw flash
+    memory. For managed flash memory such as eMMC and SD cards, the format is likely
+    to be ext4 or F2FS. Since these are writable at runtime, it is possible to update
+    them file by file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: System applications
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The system applications are the main payload of the device; they implement its
+    primary function. As such, they are likely to be updated frequently to fix bugs
+    and add features. They may be bundled with the root filesystem, but it is also
+    common for them to be placed in a separate filesystem to make updating easier
+    and to maintain separation between the system files, which are usually open source,
+    and the application files, which are often proprietary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Device-specific data
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: This is the combination of files that are modified at runtime. Device-specific
+    data includes configuration settings, logs, user-supplied data, and similar files.
+    It is not often that they need to be updated, but they do need to be preserved
+    during an update. Such data needs to be stored in a partition of its own.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Components that need to be updated
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In summary, an update may include new versions of the kernel, root filesystem,
+    and system applications. The device will have other partitions that should not
+    be disturbed by an update, as is the case with the device runtime data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The cost of software updates failing can be catastrophic. Secure software updates
+    are also a major concern within both enterprise and home internet environments.
+    Before we can ship any hardware, we need to be able to update the software with
+    confidence.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Basics of software updates
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Updating software seems, at first sight, to be a simple task: you just need
+    to overwrite some files with new copies. But then your engineer training kicks
+    in as you begin to realize all the things that could go wrong. What if the power
+    goes down during the update? What if a bug missed during testing of the update
+    renders a percentage of the devices unbootable? What if a third party sends a
+    fake update that enlists your device as part of a botnet? At the very least, the
+    software update mechanism must be:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Robust** so that an update does not render the device unusable.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Fail-safe** so that there is a fallback mode if all else fails.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Secure** to prevent the device from being hijacked by people installing unauthorized
+    updates.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In other words, we need a system that is not susceptible to Murphy’s law. Murphy’s
+    law states that if something can go wrong, then it eventually will go wrong. Some
+    of these problems are non-trivial. Deploying software to a device in the field
+    is different from deploying software to the cloud. Embedded Linux systems need
+    to detect and respond to mishaps like kernel panics or boot loops without any
+    human intervention.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Making updates robust
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: You might think that the problem of updating Linux systems was solved a long
+    time ago − we all have Linux desktops that we update regularly (don’t we?). Also,
+    there are vast numbers of Linux servers running in data centers that are similarly
+    kept up to date. However, there is a difference between a server and a device.
+    The former operates in a protected environment. It is unlikely to suffer a sudden
+    loss of power or network connectivity. In the unlikely event that an update does
+    fail, it is always possible to get access to the server and use external mechanisms
+    to repeat the installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Devices, on the other hand, are often deployed at remote sites with intermittent
+    power and a poor network connection, making it much more likely that an update
+    will be interrupted. Therefore, consider that it may be very expensive to get
+    access to a device to take remedial action over a failed update. What if, for
+    example, the device is an environmental monitoring station at the top of a mountain
+    or controlling the valves of an oil well at the bottom of the sea? In consequence,
+    it is much more important for embedded devices to have a robust update mechanism
+    that will not result in the system becoming unusable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The key word here is **atomicity**. To be atomic, there should be no stage of
+    the update where only part of the system is updated. There must be a single, uninterruptible
+    change to the system that switches to the new version of the software.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This removes the most obvious update mechanism from consideration: that of
+    simply updating individual files by extracting an archive over parts of the filesystem.
+    There is just no way to ensure that there will be a consistent set of files if
+    the system is reset during the update. Even using a package manager such as `apt`,
+    `dnf`, or `pacman` does not help. If you look at the internals of all these package
+    managers, you will see that they do indeed work by extracting an archive over
+    the filesystem and running scripts to configure the package both before and after
+    the update. Package managers are fine for the protected world of the data center,
+    or even your desktop, but not for a device.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To achieve atomicity, the update must be installed alongside the running system,
+    and then a switch is thrown to move from the old to the new. In later sections,
+    we will describe two different approaches to achieving atomicity. The first is
+    to have two copies of the root filesystem and other major components. One copy
+    is live, while the other can receive updates. When the update is complete, the
+    switch is thrown so that, on reboot, the bootloader selects the updated copy.
+    This is known as a **symmetric image update** or an **A/B image update**. A variant
+    of this theme is to use a special **recovery mode** operating system that is responsible
+    for updating the main operating system. The guarantee of atomicity is shared between
+    the bootloader and the recovery operating system. This is known as an **asymmetric
+    image update**. It is the approach taken by Android prior to the Nougat 7.x version.
+    The second approach is to have two or more copies of the root filesystem in different
+    subdirectories of the system partition, and then use `chroot(8)` at boot time
+    to select one of them. Once Linux is running, the update client can install updates
+    into the other root filesystem, and then when everything is complete and checked,
+    it can throw the switch and reboot. This is known as an **atomic file update**
+    and is exemplified by **OSTree**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Making updates fail-safe
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The next problem to consider is that of recovering from an update that was installed
+    correctly but that contains code that stops the system from booting. Ideally,
+    we want the system to detect this case and revert to a previous working image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are several failure modes that can lead to a non-operational system. The
+    first is a kernel panic, typically caused by a bug in a kernel device driver or
+    being unable to run the `init` program. A sensible place to start is by configuring
+    the kernel to reboot a number of seconds after a panic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can do this either when you build the kernel by setting `CONFIG_PANIC_TIMEOUT`
+    or by setting the kernel command line to `panic`. For example, to reboot 5 seconds
+    after a panic, you would add `panic=5` to the kernel command line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may want to go further and configure the kernel to `panic` on an Oops. Remember
+    that an Oops is generated when the kernel encounters a fatal error. In some cases,
+    it will be able to recover from the error, in other cases not. But in all cases,
+    something has gone wrong and the system is not working as it should. To enable
+    panic on Oops in the kernel configuration, set `CONFIG_PANIC_ON_OOPS=y` or, on
+    the kernel command line, `oops=panic`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A second failure mode occurs when the kernel launches `init` successfully but
+    for some reason the main application fails to run. For this, you need a watchdog.
+    A **watchdog** is a hardware or software timer that restarts the system if the
+    timer is not reset before it expires. If you are using `systemd`, you can use
+    the built-in watchdog function, which I’ll describe in [*Chapter 13*](Chapter_13.xhtml#_idTextAnchor431).
+    If not, then you may want to enable the watchdog support built into Linux as described
+    in `Documentation/watchdog` from the kernel source code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Both failures result in **boot loops**: either a kernel panic or a watchdog
+    timeout causes the system to reboot. If the problem is persistent, the system
+    will reboot continually. To break out of the boot loop, we need some code in the
+    bootloader to detect the case and to revert to the previously known good version.
+    A typical approach is to use a **boot count** that is incremented by the bootloader
+    on each boot and that is reset to zero in user space once the system is up and
+    running. If the system enters a boot loop, the counter is not reset and so continues
+    to increase. The bootloader is then configured to take remedial action if the
+    counter exceeds a threshold.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In U-Boot this is handled by three variables:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bootcount`: Incremented each time the processor boots.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bootlimit`: If `bootcount` exceeds `bootlimit`, U-Boot runs the commands in
+    `altbootcmd` instead of `bootcmd`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`altbootcmd`: Contains the alternative boot commands, for example, to roll
+    back to a previous version of the software or to start the recovery-mode operating
+    system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For this to work, there must be a way for a user-space program to reset the
+    boot count. We can do that using U-Boot utilities that allow the U-Boot environment
+    to be accessed at runtime:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`fw_printenv`: Prints the value of a U-Boot variable'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`fw_setenv`: Sets the value of a U-Boot variable'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'These two commands need to know where the U-Boot environment block is stored,
+    for which there is a configuration file in `/etc/fw_env.config`. For example,
+    if the U-Boot environment is stored at offset `0x800000` from the start of the
+    eMMC memory with a backup copy at `0x1000000`, then the configuration would look
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is one final thing to cover in this section. Incrementing the boot count
+    on each boot and then resetting it when the application starts leads to unnecessary
+    writes to the environment block that wear out the flash memory. To prevent this
+    from happening on all reboots, U-Boot has an additional variable named `upgrade_available`.
+    If `upgrade_available` is `0`, then `bootcount` is not incremented since there
+    is no unproven upgrade to guard against. `upgrade_available` is set to `1` after
+    an update has been installed so that the boot count protection is only enabled
+    when needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Making updates secure
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The final problem relates to the potential misuse of the update mechanism itself.
+    Your prime intention when implementing an update mechanism is to provide a reliable
+    automated or semi-automated method to install security patches and new features.
+    However, others may use the same mechanism to install unauthorized versions of
+    software and hijack the device. We need to ensure that this does not happen.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The biggest vulnerability is that of a fake remote update. To prevent this,
+    we need to authenticate the update server before starting the download. We also
+    need a secure transfer channel, such as HTTPS, to guard against tampering with
+    the download stream. Checksums offer a second line of defense. A checksum is generated
+    for each update and published on the server. The update only gets applied if the
+    checksum validates against the download. I will return to the topic of server
+    authenticity when I describe OTA updates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is also the question of image authenticity. One way to detect a bogus
+    update is to use a Secure Boot protocol in the bootloader. If the kernel image
+    is signed at the factory with a digital key, the bootloader can check the signature
+    before it loads the kernel and refuse to load it if verification fails. As long
+    as the keys are kept private by the manufacturer, it will not be possible to load
+    a kernel that is not authorized. U-Boot implements such a mechanism, which is
+    described in the online documentation at [https://docs.u-boot.org/en/latest/usage/fit/verified-boot.html.](https://docs.u-boot.org/en/latest/usage/fit/verified-boot.html.%0D%0A)
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Secure Boot: good or bad?'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If I have purchased a device that has a software update feature, then I am trusting
+    the vendor of that device to deliver useful updates. I definitely do not want
+    a malicious third party to install software without my knowledge. But should I
+    be allowed to install the software myself? If I own the device outright, should
+    I not be entitled to modify it, including loading new software? Recall the TiVo
+    set-top box, which ultimately led to the creation of the GPL v3 license. Remember
+    the Linksys WRT54G Wi-Fi router. When access to the hardware became easy, it spawned
+    a whole new industry, including the OpenWrt project. This is a complex issue that
+    sits at the crossroads between freedom and control. It is my opinion that some
+    device manufacturers use security as an excuse to protect their (sometimes shoddy)
+    software.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating software may seem mundane but a bad update can do catastrophic damage
+    to your business. The CrowdStrike outage of July 2024 is a perfect example. For
+    that reason, it is important to roll out updates incrementally using safe techniques
+    like blue-green deployments. That way, if something goes bad, you can roll back
+    a software release without impacting many of your users. Now that we know what
+    is required, how do we go about updating software on embedded Linux systems?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Types of update mechanism
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this section, I will describe three approaches to applying software updates:
+    symmetric, or A/B, image update; asymmetric image update, also known as *recovery
+    mode update*; and finally, atomic file update.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Symmetric image update
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this scheme, there are two copies of the operating system, each comprising
+    the Linux kernel, root filesystem, and system applications. They are labeled as
+    **A** and **B** in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.2 – Symmetric image update](img/B18466_10_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.2 – Symmetric image update
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Symmetric image updates work as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The bootloader has a flag that indicates which image it should load. Initially,
+    the flag is set to **A**, so the bootloader loads OS image **A**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: To install an update, the updater application, which is part of the operating
+    system, overwrites OS image **B**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When complete, the updater changes the boot flag to **B** and reboots.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Now the bootloader will load the new operating system.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When a further update is installed, the updater overwrites image **A** and changes
+    the boot flag to **A**, so you ping-pong between the two copies.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If an update fails before the boot flag is changed, the bootloader continues
+    to load the good operating system.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There are several open-source projects that implement symmetric image updates.
+    One is the **Mender** client operating in standalone mode, which I will describe
+    in the *Using Mender for local updates* section. Another is **SWUpdate** ([https://github.com/sbabic/swupdate](https://github.com/sbabic/swupdate)),
+    which can receive multiple image updates in a CPIO format package and then deploy
+    those updates to different parts of the system. It allows you to write plugins
+    in the Lua language to do custom processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SWUpdate also has filesystem support for raw flash memory that is accessed as
+    MTD flash partitions, for storage organized into UBI volumes, and for SD/eMMC
+    storage with a disk partition table. A third example is **RAUC**, the **Robust
+    Auto-Update Controller** ([https://github.com/rauc/rauc](https://github.com/rauc/rauc)).
+    It too has support for raw flash storage, UBI volumes, and SD/eMMC devices. The
+    images can be signed and verified using OpenSSL keys. A fourth example is **fwup**
+    ([https://github.com/fwup-home/fwup)](https://github.com/fwup-home/fwup) by long-time
+    Buildroot contributor Frank Hunleth.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are some drawbacks to this scheme. One is that by updating an entire filesystem
+    image, the size of the update package is large, which can put a strain on the
+    network infrastructure connecting the devices. This can be mitigated by sending
+    only the filesystem blocks that have changed by performing a binary `diff` of
+    the new filesystem with the previous version. SWUpdate, RAUC, and fwup all have
+    support for such **delta updates**. So does the commercial edition of Mender.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A second drawback is the need to keep storage space for a redundant copy of
+    the root filesystem and other components. If the root filesystem is the largest
+    component, it comes close to doubling the amount of flash memory you need to fit
+    both copies. It is for this reason that the asymmetric update scheme is used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asymmetric image update
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can reduce storage requirements by keeping a minimal recovery operating
+    system purely for updating the main one as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.3 – Asymmetric image update](img/B18466_10_03.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.3 – Asymmetric image update
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install an asymmetric update, do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Set the boot flag to point to the recovery OS and reboot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the recovery OS is running, it can stream updates to the main operating
+    system image.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If the update is interrupted, the bootloader will again boot into the recovery
+    OS, which can resume the update.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Only when the update is complete and verified will the recovery OS clear the
+    boot flag and reboot again—this time, loading the new main operating system.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The fallback in the case of a correct but buggy update is to drop the system
+    back into recovery mode, which can attempt remedial actions, possibly by requesting
+    an earlier update version.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The recovery OS is usually a lot smaller than the main operating system, maybe
+    only a few megabytes, and so the storage overhead is not great. As a matter of
+    interest, this is the scheme that was adopted by Android prior to the Nougat release.
+    For open-source implementations of an asymmetric image update, consider SWUpdate
+    or RAUC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A major drawback of this scheme is that while the recovery OS is running, the
+    device is not operational. Such a scheme also does not allow for updates of the
+    recovery OS itself. That would require something like A/B image updates, thus
+    defeating the whole purpose.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Atomic file updates
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Another approach is to have redundant copies of a root filesystem present in
+    multiple directories of a single filesystem and then use the `chroot(8)` command
+    to choose one of them at boot time. This allows one directory tree to be updated
+    while another is mounted as the root directory. Furthermore, rather than making
+    copies of files that have not changed between versions of the root filesystem,
+    you could use links. That would save a lot of disk space and reduce the amount
+    of data to be downloaded in an update package. These are the basic ideas behind
+    atomic file updates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `chroot` command runs a program in an existing directory. The program sees
+    this directory as its root directory and so cannot access any files or directories
+    at a higher level. It is often used to run a program in a constrained environment,
+    which is sometimes referred to as **chroot jail**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **libostree** project ([https://github.com/ostreedev/ostree](https://github.com/ostreedev/ostree)),
+    formerly **OSTree**, is the most popular implementation of this idea. OSTree started
+    around 2011 as a means of deploying updates to the GNOME desktop developers and
+    improving their continuous integration testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It has since been adopted as an update solution for embedded devices. It is
+    one of the update methods available in **Automotive Grade Linux** (**AGL**), and
+    it is available in The Yocto Project through the `meta-updater` layer, which is
+    supported by **Advanced Telematic Systems** (**ATS**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With OSTree, the files are stored on the target in the `/ostree/repo/objects`
+    directory. They are given names such that several versions of the same file can
+    exist in the repository. Then, a given set of files is linked into a deployment
+    directory which has a name such as `/ostree/deploy/os/29ff9…/`. This is referred
+    to as *checking out* since it has some similarities to the way a branch is checked
+    out of a Git repository. Each deployment directory contains the files that make
+    up a root filesystem. There can be any number of them, but by default there are
+    only two. For example, here are two `deploy` directories, each with links back
+    into the `repo` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To boot from an OSTree directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The bootloader boots the kernel with an `initramfs` passing on the kernel command
+    line the path of the deployment to use:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The `initramfs` contains an `init` program named `ostree-init` that reads the
+    command line and executes the `chroot` to the path given.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When a system update is installed, the files that have changed are downloaded
+    into the `repo` directory by the OSTree install agent.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When complete, a new `deploy` directory is created with links to the collection
+    of files that will make up the new root filesystem. Some of these will be new
+    files. Some will be the same as before.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, the OSTree install agent will change the bootloader’s boot flag so
+    that on the next reboot, it will `chroot` to the new `deploy` directory.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The bootloader implements the check on the boot count and falls back to the
+    previous root if a boot loop is detected.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Even though a developer can operate the updater or install the client manually
+    on a target device, eventually software updates need to happen automatically OTA.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OTA updates
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Updating **OTA** means having the ability to push software to a device or group
+    of devices via a network, usually without any end user interaction with the device.
+    For this to happen, we need a central server to control the update process and
+    a protocol for downloading the update to the update client. In a typical implementation,
+    the client polls the update server from time to time to check if there are any
+    updates pending. The polling interval needs to be long enough that the poll traffic
+    does not take a significant portion of the network bandwidth, but short enough
+    that the updates can be delivered in a timely fashion. An interval of tens of
+    minutes to several hours is often a good compromise. The poll messages from the
+    device contain some sort of unique identifier, such as a serial number or MAC
+    address, and the current software version. From this the update server can see
+    if an update is needed. The poll messages may also contain other status information
+    such as uptime, environmental parameters, or anything that would be useful for
+    the central management of the devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The update server is usually linked to a management system that will assign
+    new versions of software to the various populations of devices under its control.
+    If the device population is large, it may send updates in batches to avoid overloading
+    the network. There will be some sort of status display where the current state
+    of the devices can be shown and problems highlighted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, the update mechanism must be secure so that fake updates cannot be
+    sent to the end devices. This involves the client and server being able to authenticate
+    each other by an exchange of certificates. Then the client can validate that the
+    packages downloaded are signed by the key that is expected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here are three examples of open-source projects that you can use for OTA updates:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mender in managed mode
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: balena
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Eclipse hawkBit ([https://github.com/eclipse/hawkbit)](https://github.com/eclipse/hawkbit)
+    in conjunction with an updater client such as SWUpdate or RAUC
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will walk through Mender in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Mender for local updates
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So much for the theory. In the remaining sections of this chapter, I will demonstrate
+    how these principles work in practice. The first set of examples involves Mender.
+    Mender uses a symmetric A/B image update mechanism with a fallback in the event
+    of a failed update. It can operate in *standalone mode* for local updates or in
+    *managed mode* for OTA updates. I will begin with standalone mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mender is written and supported by Northern.tech. There is much more information
+    about the software in the **Documentation** section of the website ([https://mender.io](https://mender.io)).
+    I will not delve deeply into the configuration of the software here since my aim
+    is to illustrate the principles of software updates. Let’s begin with the Mender
+    client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building the Mender client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The Mender client is available as a Yocto meta layer. These examples use the
+    scarthgap release of The Yocto Project, which is the same one that we used in
+    [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Start by fetching the `meta-mender` layer as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: You want to navigate one level above the `poky` directory before cloning the
+    `meta-mender` layer so that the two directories are located next to each other
+    at the same level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Mender client requires some changes to the configuration of U-Boot to handle
+    the boot flag and boot count variables. The stock Mender client layer has sub-layers
+    for sample implementations of this U-Boot integration that we can use straight
+    out of the box, such as `meta-mender-qemu` and `meta-mender-raspberrypi`. We will
+    use QEMU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step is to create a build directory and add the layers for this configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we need to set up the environment by adding some settings to `conf/local.conf`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Omit the line numbers (*1* to *5*) from `conf/local.conf`. *Line 2* includes
+    a BitBake class named `mender-full`, which is responsible for the special processing
+    of the image required to create the A/B image format. *Line 3* selects a machine
+    named `vexpress-qemu`, which uses QEMU to emulate an Arm Versatile Express board
+    instead of the Versatile PB that is the default for The Yocto Project. *Line 4*
+    selects `systemd` as the i`nit` daemon in place of the default System V `init`.
+    I describe `init` daemons in more detail in [*Chapter 13*](Chapter_13.xhtml#_idTextAnchor431).
+    *Line 5* causes the root filesystem images to be generated in `ext4` format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we can build an image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As usual, the results of the build are in `tmp/deploy/images/vexpress-qemu`.
+    You will notice some new things here compared to The Yocto Project builds we have
+    done in the past. There is a file named `core-image-full-cmdline-vexpress-qemu-grub-<timestamp>.mender`
+    and another similarly named file that ends with `.uefiimg`. The `.mender` file
+    is required for the next subsection: *Installing an update with Mender*. The `.uefiimg`
+    file is created using a tool from The Yocto Project known as `wic`. The output
+    is an image that contains a partition table and that is ready to be copied directly
+    to an SD card or eMMC chip.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can run the QEMU target using the script provided by the Mender layer, which
+    will first boot U-Boot and then load the Linux kernel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If, instead of a login prompt, you see an error like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then install `qemu-system-arm` on your system and rerun the script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Log on as `root` with no password. Looking at the layout of the partitions
+    on the target, we can see this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are four partitions in all:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Partition 1** contains the U-Boot boot files.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Partitions 2 and 3** contain the A/B root filesystems (identical at this
+    stage).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Partition 4** is just an extension partition that contains the remaining
+    space.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Running the `mount` command shows that the second partition is being used as
+    the root filesystem, leaving the third to receive updates:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: With the Mender client now on board, we can begin installing updates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing an update with Mender
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now we want to make a change to the root filesystem and then install it as
+    an update:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open another shell and put yourself back in the working build directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Make a copy of the image we just built. This will be the live image that we
+    are going to update:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: If we don’t do this, the QEMU script will just load the latest image generated
+    by BitBake including updates, which defeats the object of the demonstration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, change the hostname of the target, which will be easy to see when it
+    is installed. To do this, edit `conf/local.conf` and add this line:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now we can build the image in the same way as before:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This time we are not interested in the `.uefiimg` file, which contains a completely
+    new image. Instead, we want to take only the new root filesystem, which is in
+    `core-image-full-cmdline-vexpress-qemu-grub.mender`. The `.mender` file is in
+    a format that is recognizessssd by the Mender client. The `.mender` file format
+    consists of version information, a header, and the root filesystem image bundled
+    together in a compressed .`tar` archive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step is to deploy the new artifact to the target, initiating the update
+    locally on the device, but receiving the update from a server. Stop the emulator
+    you started in the previous Terminal session by pressing *Ctrl + A* then *x* to
+    terminate it. This extra step ensures that QEMU boots with the previous image
+    rather than the latest image. To boot QEMU with the previous image:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Check that the network is configured with QEMU at `10.0.2.15` and the host
+    at `10.0.2.2`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now, in another Terminal session, start a web server on the host that can serve
+    up the update:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: It is listening on port `8000`. When you are done with the web server, press
+    *Ctrl + C* to terminate it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Back on the target, issue this command to get the update:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The update was written to the third partition (`/dev/mmcblk0p3`) while our root
+    filesystem is still on the second partition (`/dev`/`mmcblk0p2`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Reboot QEMU by entering `reboot` from the QEMU command line. Note that now
+    the root filesystem is mounted on partition 3 and that the hostname has changed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Success!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is one more thing to do. We need to consider the issue of boot loops.
+    Use `grub-mender-grubenv-print` to look at the relevant U-Boot variables:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: If the system reboots without clearing `bootcount`, U-Boot should detect it
+    and fall back to the previous installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s test U-Boot’s fallback behavior:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reboot the QEMU target immediately.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'When the target comes up again, we see that U-Boot has reverted to the previous
+    installation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s repeat the update procedure:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'This time, after the reboot, commit the change:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Once `upgrade_available` is cleared, U-Boot will no longer check `bootcount`,
+    and so the device will continue to mount this updated root filesystem. When a
+    further update is loaded, the Mender client will clear `bootcount` and set `upgrade_available`
+    once again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This example uses the Mender client from the command line to initiate an update
+    locally. The update itself came from a server but could just as easily have been
+    provided on a USB flash drive or an SD card. In place of Mender we could have
+    used one of the other image update clients mentioned: SWUpdate, RAUC, or fwup.
+    They each have their advantages, but the basic technique is the same.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Mender for OTA updates
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once again, we will be using the Mender client on the device, but this time
+    operating it in managed mode. In addition, we will be configuring a server to
+    deploy the update so that no local interaction is needed. Mender provides an open-source
+    server for this. For documentation on how to set up this demo server, see [https://docs.mender.io/2.4/getting-started/on-premise-installation.](https://docs.mender.io/2.4/getting-started/on-premise-installation)
+  prefs: []
+  type: TYPE_NORMAL
+- en: The installation requires Docker Engine version 19.03 or later. It also requires
+    Docker Compose version 1.25 or later. Refer to the Docker website at [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
+    and [https://docs.docker.com/compose/install/](https://docs.docker.com/compose/install/)
+    for each.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To verify which versions of Docker and Docker Compose you have on your system,
+    use these commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Docker Compose started being bundled with Docker in 2022\. If the second command
+    fails, try invoking Docker Compose without the hyphen:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Mender server also requires a command-line JSON parser called `jq`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once all three are installed, install the Mender integration environment as
+    shown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you run `./demo up`, you will see that the script downloads several hundred
+    megabytes of Docker images, which may take some time depending on your internet
+    connection speed. After a while, you will see that it creates a new demo user
+    and password. This means that the server is up and running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the Mender web interface now running on `https://localhost/`, point a web
+    browser at that URL and accept the certificate warning that pops up. The warning
+    appears because the web service is using a self-signed certificate that the browser
+    will not recognize. Enter the username and password generated by the Mender server
+    into the login page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We now need to make a change to the configuration of the target so that it
+    will poll our local server for updates. For this demonstration, we map the `docker.mender.io`
+    and `s3.docker.mender.io` server URLs to the `10.0.2.2` localhost address by appending
+    a line to the `hosts` file. To make this change with The Yocto Project, do the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, navigate one level above the directory where you cloned Yocto.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Next, create a layer with a file that appends to the recipe that creates the
+    `hosts` file, which is `recipes-core/base-files/base-files_%.bbappend`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'There is already a suitable layer in `MELD/Chapter10/meta-ota` that you can
+    copy:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Source the working build directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Add the `meta-ota` layer:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Your layer structure should now contain eight layers including `meta-oe`, `meta-mender-core`,
+    `meta-mender-demo`, `meta-mender-qemu`, and `meta-ota`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Build the new image using the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Then, make a copy. This will be our live image for the session:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Stop any emulator you may have started by pressing *Ctrl + A* then *x* in that
+    Terminal session.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Boot up the live image:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: After a few seconds, you will see a new device appear on the dashboard of the
+    web interface. This happens so quickly because the Mender client has been configured
+    to poll the server every 5 seconds for the purpose of demonstrating the system.
+    A much longer polling interval would be used in production—30 minutes is recommended.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'See how this polling interval is configured by looking at the `/etc/mender/mender.conf`
+    file on the target:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Notice the server URL in there as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Back in the web UI, click on the green checkmark to authorize the new device:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 10.4 – Accept device](img/B18466_10_04.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.4 – Accept device
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, click on the entry for the device to see the details.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Once again, we can create an update and deploy it – this time OTA:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Update the following line in `conf/local.conf`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Build the image once again:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This will produce a new `core-image-full-cmdline-vexpress-qemu-grub.mender`
+    file in `tmp/deploy/images/vexpress-qemu`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Import this into the web interface by opening the **Releases** tab and clicking
+    on the purple **Upload** button.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Browse for the `core-image-full-cmdline-vexpress-qemu-grub.mender` file in
+    `tmp/deploy/images/vexpress-qemu` and upload it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 10.5 – Upload an Artifact](img/B18466_10_05.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.5 – Upload an Artifact
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Mender server should copy the file into the server data store, and a new
+    artifact with the name **OTA-update1** should appear under **Releases**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To deploy the update to our QEMU device, do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Click on the **Devices** tab and select the device.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click on the **Create deployment for this device** option at the bottom right
+    of the device information.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Select the **OTA-update1** artifact and click on the **CREATE DEPLOYMENT**
+    button:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 10.6 – Create a deployment](img/B18466_10_06.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.6 – Create a deployment
+  prefs: []
+  type: TYPE_NORMAL
+- en: The deployment should shortly transition from **Pending** to **In Progress**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Click on the **View details** button.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 10.7 – In Progress](img/B18466_10_07.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.7 – In Progress
+  prefs: []
+  type: TYPE_NORMAL
+- en: After about 13 minutes, the Mender client should finish writing the update to
+    the spare filesystem image. At that point, QEMU will reboot and commit the update.
+    The web UI should report **Finished** and now the client is running **OTA-update1**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Mender is neat and is used in many commercial products, but sometimes we just
+    want to deploy a software project to a small fleet of popular dev boards as quickly
+    as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**TIP**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After a few experiments with the Mender server, you may want to clear the state
+    and start all over again. You can do that with these two commands from the `integration-3.7.9`
+    directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: Containers are the quickest way to deploy software to edge devices. We will
+    revisit containerized software updates in [*Chapter 16*](Chapter_01.xhtml#_idTextAnchor030).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using SWUpdate for local updates
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Like Mender, SWUpdate uses a symmetric A/B image update mechanism with a fallback
+    in the event of a failed update. SWUpdate can receive multiple image updates in
+    a CPIO format package and then deploy those updates to different parts of the
+    system. It allows you to write plugins in the Lua language to do custom processing.
+    Lua is a powerful scripting language that is easy to embed in applications. SWUpdate
+    is a client-only solution, so unlike Mender there is no corresponding enterprise
+    hosting plan to pay for. Instead, you deploy your own OTA server using something
+    like hawkBit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SWUpdate project ([https://github.com/sbabic/swupdate)](https://github.com/sbabic/swupdate)
+    was started and is still maintained by Stefano Babic, an employee of DENX Software
+    Engineering, the same folks behind U-Boot. There is extensive documentation ([https://sbabic.github.io/swupdate/)](https://sbabic.github.io/swupdate/)
+    beginning with motives for robust and fail-safe updates followed by clear explanations
+    of various update strategies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Being able to update the software on devices in the field is at the very least
+    a useful attribute. If the device is connected to the internet, then updating
+    software in the field is an absolute must. And yet, all too often it is a feature
+    that is left until the last part of a project, on the assumption that it is not
+    a hard problem to solve. In this chapter, I hope that I have illustrated the various
+    problems associated with designing an effective and robust update mechanism. There
+    are also several open-source options readily available. You do not have to reinvent
+    the wheel anymore.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The two approaches used most often are the symmetric image (A/B) update or its
+    cousin, the asymmetric (recovery) image update. Here, you have the choice of SWUpdate,
+    RAUC, Mender, and fwup. A more recent innovation is the atomic file update in
+    the form of OSTree. Atomic file update reduces the amount of data that needs to
+    be downloaded and the amount of redundant storage that needs to be fitted on the
+    target. Lastly, with the proliferation of Docker came the desire for containerized
+    software updates. This is the approach that balena takes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is quite common to deploy updates on a small scale by visiting each site
+    and applying the update from a USB memory stick or SD card. However, if you want
+    to deploy to remote locations, or deploy at scale, an OTA update option will be
+    needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next chapter describes how you control the hardware components of your system
+    with device drivers, both in the conventional sense of drivers that are part of
+    the kernel and the extent to which you can control hardware from user space.
+  prefs: []
+  type: TYPE_NORMAL

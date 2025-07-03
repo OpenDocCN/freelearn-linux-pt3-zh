@@ -1,0 +1,898 @@
+- en: '1'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Where It All Starts From – The Virtual Filesystem
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Even with astronomical advances in software development, the Linux kernel remains
+    one of the most complex pieces of code. Developers, programmers, and would-be
+    kernel hackers constantly look to dive into kernel code and push for new features,
+    whereas hobbyists and enthusiasts try to understand and unravel those mysteries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Naturally, a lot has been written on Linux and its internal workings, from general
+    administration to kernel programming. Over the decades, hundreds of books have
+    been published, which cover a diverse range of important operating system topics,
+    such as process creation, threading, memory management, virtualization, filesystem
+    implementations, and CPU scheduling. This book that you’ve picked up (thank you!)
+    will focus on the storage stack in Linux and its multilayered organization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll start by introducing the Virtual Filesystem in the Linux kernel and its
+    pivotal role in allowing end user programs to access data on filesystems. Since
+    we intend to cover the entire storage stack in this book, from top to bottom,
+    getting a deeper understanding of the Virtual Filesystem is extremely important,
+    as it is the starting point of an I/O request in the kernel. We’ll introduce the
+    concept of user space and kernel space, understand system calls, and see how the
+    *Everything is a file* philosophy in Linux is tied to the Virtual Filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding storage in a modern-day data center
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Defining system calls
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Explaining the need for a Virtual Filesystem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Describing the Virtual Filesystem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Explaining the *Everything is a* *file* philosophy
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before going any further, I think is important to acknowledge here that certain
+    technical topics may be more challenging for beginners to comprehend than others.
+    Since the goal here is to comprehend the inner workings of the Linux kernel and
+    its major subsystems, it will be helpful to have a decent foundational understanding
+    of operating system concepts in general and Linux in particular. Above all, it
+    is important to approach these topics with patience, curiosity, and a willingness
+    to learn.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The commands and examples presented in this chapter are distribution-agnostic
+    and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
+    and Fedora. There are a few references to the kernel source code. If you want
+    to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
+    The operating system packages relevant to this chapter can be installed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For Ubuntu/Debian:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo apt` `install strace`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo apt` `install bcc`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For Fedora/CentOS/Red Hat-based systems:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo yum` `install strace`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo yum` `install bcc-tools`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding storage in a modern-day data center
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It is a capital mistake to theorize before one has data. Insensibly one begins
+    to twist facts to suit theories, instead of theories to suit facts. – Sir Arthur
+    Conan Doyle
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compute, storage, and networking are the basic building blocks of any infrastructure.
+    How well your applications do is often dependent on the combined performance of
+    these three layers. The workloads running in a modern data center vary from streaming
+    services to machine learning applications. With the meteoric rise and adoption
+    of cloud computing platforms, all the basic building blocks are now abstracted
+    from the end user. Adding more hardware resources to your application, as it becomes
+    resource-hungry, is the new normal. Troubleshooting performance issues is often
+    skipped in favor of migrating applications to better hardware platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of the three building blocks, compute, storage, and networking, storage is often
+    considered the bottleneck in most scenarios. For applications such as databases,
+    the performance of the underlying storage is of prime importance. In cases where
+    infrastructure hosts mission-critical and time-sensitive applications such as
+    **Online Transaction Processing** (**OLTP**), the performance of storage frequently
+    comes under the radar. The smallest of delays in servicing I/O requests can impact
+    the overall response of the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most common metric used to measure storage performance is latency. The response
+    times of storage devices are usually measured in milliseconds. Compare that with
+    your average processor or memory, where such measurements are measured in nanoseconds,
+    and you’ll see how the performance of the storage layer can impact the overall
+    working of your system. This results in a state of incongruity between the application
+    requirements and what the underlying storage can actually deliver. For the last
+    few years, most of the advancements in modern-day storage drives have been geared
+    toward sizing – the **capacity arena**. However, performance improvement of the
+    storage hardware has not progressed at the same rate. Compared to the compute
+    functions, the performance of storage pales in comparison. For these reasons,
+    it is often termed the *three-legged dog of the* *data center*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Having made a point about the choice of a storage medium, it’s pertinent to
+    note that no matter how powerful it is, the hardware will always have limitations
+    in its functionality. It’s equally important for the application and operating
+    system to tune themselves according to the hardware. Fine-tuning your application,
+    operating system, and filesystem parameters can give a major boost to the overall
+    performance. To utilize the underlying hardware to its full potential, all layers
+    of the I/O hierarchy need to function efficiently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Interacting with storage in Linux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The Linux kernel makes a clear distinction between the user space and kernel
+    space processes. All the hardware resources, such as CPU, memory, and storage,
+    lie in the kernel space. For any user space application wanting to access the
+    resources in kernel space, it has to generate a **system call**, as shown in *Figure
+    1**.1*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.1 – The interaction between user space and kernel space](img/B19430_01_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.1 – The interaction between user space and kernel space
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**User space** refers to all the applications and processes that live outside
+    of the kernel. The kernel space includes programs such as device drivers, which
+    have unrestricted access to the underlying hardware. The user space can be considered
+    a form of sandboxing to restrict the end user programs from modifying critical
+    kernel functions.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This concept of user and kernel space is deeply rooted in the design of modern
+    processors. A traditional x86 CPU uses the concept of protection domains, called
+    **rings**, to share and limit access to hardware resources. Processors offer four
+    rings or modes, which are numbered from 0 to 3\. Modern-day processors are designed
+    to operate in two of these modes, ring 0 and ring 3\. The user space applications
+    are handled in ring 3, which has limited access to kernel resources. The kernel
+    occupies ring 0\. This is where the kernel code executes and interacts with the
+    underlying hardware resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When processes need to read from or write to a file, they need to interact
+    with the filesystem structures on top of the physical disk. Every filesystem uses
+    different methods to organize data on the physical disk. The request from the
+    process doesn’t directly reach the filesystem or physical disk. In order for the
+    I/O request of the process to be served by the physical disk, it has to traverse
+    through the entire storage hierarchy in the kernel. The first layer in that hierarchy
+    is known as the **Virtual Filesystem**. The following figure, *Figure 1**.2*,
+    highlights the major components of the Virtual Filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.2 – The Virtual Filesystem (VFS) layer in the kernel](img/B19430_01_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.2 – The Virtual Filesystem (VFS) layer in the kernel
+  prefs: []
+  type: TYPE_NORMAL
+- en: The storage stack in Linux consists of a multitude of cohesive layers, all of
+    which ensure that the access to physical storage media is abstracted through a
+    unified interface. As we move forward, we’re going to build upon this structure
+    and add more layers. We’ll try to dig deep into each of them and see how they
+    all work in harmony.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter will focus solely on the Virtual Filesystem and its various features.
+    In the coming chapters, we’re going to explain and uncover some under-the-hood
+    workings of the more frequently used filesystems in Linux. However, bearing in
+    mind the number of times the word *filesystem* is going to be used here, I think
+    it’s prudent to briefly categorize the different filesystem types, just to avoid
+    any confusion:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Block filesystems**: Block- or disk-based filesystems are the most common
+    way to store user data. As a regular operating system user, these are the filesystems
+    that users mostly interact with. Filesystems such as **Extended filesystem version
+    2/3/4** (**Ext 2/3/4**), **Extent filesystem** (**XFS**), Btrfs, FAT, and NTFS
+    are all categorized as disk-based or block filesystems. These filesystems speak
+    in terms of **blocks**. The block size is a property of the filesystem, and it
+    can only be set when creating a filesystem on a device. The block size indicates
+    what size the filesystem will use when reading or writing data. We can refer to
+    it as the logical unit of storage allocation and retrieval for a filesystem. A
+    device that can be accessed in terms of blocks is, therefore, called a **block
+    device**. Any storage device attached to a computer, whether it is a hard drive
+    or an external USB, can be classified as a block device. Traditionally, block
+    filesystems are mounted on a single host and do not allow sharing between multiple
+    hosts.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Clustered filesystems**: Clustered filesystems are also block filesystems
+    and use block-based access methods to read and write data. The difference is that
+    they allow a single filesystem to be mounted and used simultaneously by multiple
+    hosts. Clustered filesystems are based on the concept of **shared storage**, meaning
+    that multiple hosts can concurrently access the same block device. Common clustered
+    filesystems used in Linux are Red Hat’s **Global File System 2** (**GFS2**) and
+    **Oracle Clustered File** **System** (**OCFS**).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Network filesystems (NFS)**: NFS is a protocol that allows for remote file
+    sharing. Unlike regular block filesystems, NFS is based on the concept of sharing
+    data between multiple hosts. NFS works with the concept of a client and a server.
+    The backend storage is provided by an NFS server. The host systems on which the
+    NFS filesystem is mounted are called **clients**. The connectivity between the
+    client and server is achieved using conventional Ethernet. All NFS clients share
+    a single copy of the file on the NFS server. NFS doesn’t offer the same performance
+    as block filesystems, but it is still used in enterprise environments, mostly
+    to store long-term backups and share common data.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/proc (procfs)` and `/sys (sysfs)` fall under this category. These directories
+    contain virtual or temporary files, which include information about the different
+    kernel subsystems. These pseudo filesystems are also a part of the Virtual Filesystem
+    landscape, as we’ll see in the *Everything is a* *file* section.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now that we have a basic idea about user space, kernel space, and the different
+    types of filesystems, let’s explain how an application can request resources in
+    kernel space through system calls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding system calls
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'While looking at the figure explaining the interaction between applications
+    and the Virtual Filesystem, you may have noticed the intermediary layer between
+    user space programs and the Virtual Filesystem; that layer is known as the **system
+    call interface**. To request some service from the kernel, user space programs
+    invoke the system call interface. These system calls provide the means for end
+    user applications to access the resources in the kernel space, such as the processor,
+    memory, and storage. The system call interface serves three main purposes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Ensuring security**: System calls prevent user space applications from directly
+    modifying resources in the kernel space'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Abstraction**: Applications do not need to concern themselves with the underlying
+    hardware specifications'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Portability**: User programs can be run correctly on all kernels that implement
+    the same set of interfaces'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There’s often some confusion about the differences between system calls and
+    an **application programming interface** (**API**). An API is a set of programming
+    interfaces used by a program. These interfaces define a method of communication
+    between two components. An API is implemented in user space and outlines how to
+    acquire a particular service. A system call is a much lower-level mechanism that
+    uses interrupts to make an explicit request to the kernel. The system call interface
+    is provided by the standard C library in Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the system call generated by the calling process succeeds, a file descriptor
+    is returned. A `open ()` system call, a file descriptor is returned to the calling
+    process. Once a file has been opened, programs use the file descriptor to perform
+    operations on the file. All read, write, and other operations are performed using
+    the file descriptor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Every process always has a minimum of three files opened – standard input,
+    standard output, and standard error – represented by the 0, 1, and 2 file descriptors,
+    respectively. The next file opened will be assigned the file descriptor value
+    of 3\. If we do some file listing through `ls` and run a simple `strace`, the
+    open system call will return a value of 3, which is the file descriptor representing
+    the file – `/etc/hosts`, in this case. After that, this file descriptor value
+    of 3 is used by the `fstat` and `close` calls to perform further operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On x86 systems, there are around 330 system calls. This number could be different
+    for other architectures. Each system call is represented by a unique integer number.
+    You can list the available system calls on your system using the `ausyscall` command.
+    This will list the system calls and their corresponding integer values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following table lists some common system calls:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **System call** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `open ()`, `close ()` | Open and close files |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `create ()` | Create a file |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `chroot ()` | Change the `root` directory |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `mount ()`, `umount ()` | Mount and unmount filesystems |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lseek ()` | Change the pointer position in a file |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `read ()`, `write ()` | Read and write in a file |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `stat ()`, `fstat ()` | Get a file status |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `statfs ()`, `fstatfs ()` | Get filesystem statistics |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `execve ()` | Execute the program referred to by pathname |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `access ()` | Checks whether the calling process can access the file pathname
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `mmap ()` | Creates a new mapping in the virtual address space of the calling
+    process |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 1.1 – Some common system calls
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, what role do the system calls play in interacting with filesystems? As we’ll
+    see in the succeeding section, when a user space process generates a system call
+    to access resources in the kernel space, the first component it interacts with
+    is the Virtual Filesystem. This system call is first handled by the corresponding
+    system call handler in the kernel, and after validating the operation requested,
+    the handler makes a call to the appropriate function in the VFS layer. The VFS
+    layer passes the request on to the appropriate filesystem driver module, which
+    performs the actual operations on the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We need to understand the *why* here – why would the process interact with the
+    Virtual Filesystem and not the actual filesystem on the disk? In the upcoming
+    section, we’ll try to figure this out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To summarize, the system calls interface in Linux implements generic methods
+    that can be used by the applications in user space to access resources in the
+    kernel space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the need for a Virtual Filesystem
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A **standard filesystem** is a set of data structures that determine how user
+    data is organized on a disk. End users are able to interact with this standard
+    filesystem through regular file access methods and perform common tasks. Every
+    operating system (Linux or non-Linux) provides at least one such filesystem, and
+    naturally, each of them claims to be *better, faster, and more secure* than the
+    other. A great majority of modern Linux distributions use **XFS or Ext4** as the
+    default filesystem. These filesystems have several features and are considered
+    stable and reliable for daily usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, the support for filesystems in Linux is not limited to only these two.
+    One of the great benefits of using Linux is that it offers support for multiple
+    filesystems, all of which can be considered perfectly acceptable alternatives
+    to Ext4 and XFS. Because of this, Linux can peacefully coexist with other operating
+    systems. Some of the more commonly used filesystems include older versions of
+    Ext4, such as Ext2 and Ext3, Btrfs, ReiserFS, OpenZFS, FAT, and NTFS. When using
+    multiple partitions, users can choose from a long list of available filesystems
+    and create a different one on every disk partition as per their needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The smallest addressable unit of a physical hard drive is a sector. For filesystems,
+    the smallest writable unit is called a block. A **block** can be considered a
+    group of consecutive sectors. All operations by a filesystem are performed in
+    terms of blocks. There is no singular way in which these blocks are addressed
+    and organized by different filesystems. Each filesystem may use a different set
+    of data structures to allocate and store data on these blocks. The presence of
+    a different filesystem on each storage partition can be difficult to manage. Given
+    the wide range of supported filesystems in Linux, imagine if applications needed
+    to understand the distinct details of every filesystem. In order to be compatible
+    with a filesystem, the application would need to implement a unique access method
+    for each filesystem it uses. This would make the design of an application almost
+    impractical.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Abstraction interfaces play a critical role in the Linux kernel. In Linux, regardless
+    of the filesystem being used, the end users or applications can interact with
+    the filesystem using uniform access methods. All this is achieved through the
+    Virtual Filesystem layer, which hides the filesystem implementations under an
+    all-inclusive interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Describing the VFS
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To ensure that applications do not face any such obstacles (as mentioned earlier)
+    when working with different filesystems, the Linux kernel implements a layer between
+    end user applications and the filesystem on which data is being stored. This layer
+    is known as the `mkfs.vfs` command!) For this reason, some prefer the term **Virtual**
+    **Filesystem Switch**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Think of the *magic wardrobe* from *The Chronicles of Narnia*. The wardrobe
+    is actually a portal to the magical world of Narnia. Once you step through the
+    wardrobe, you can explore the new world and interact with its inhabitants. The
+    wardrobe facilitates accessing the magical world. In a similar way, the VFS provides
+    a doorway to different filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The VFS defines a generic interface that allows multiple filesystems to coexist
+    in Linux. It’s worth mentioning again that with the VFS, we’re not talking about
+    a standard block-based filesystem. We’re talking about an abstraction layer that
+    provides a link between the end user application and the actual block filesystems.
+    Through the standardization implemented in the VFS, applications can perform read
+    and write operations, without worrying about the underlying filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As shown in *Figure 1**.3*, the VFS is interposed between the user space programs
+    and actual filesystems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.3 – The VFS acts as a bridge between user space programs and filesystems](img/B19430_01_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.3 – The VFS acts as a bridge between user space programs and filesystems
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the VFS to provide services to both parties, the following has to apply:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: All end user applications need to define their filesystem operations in terms
+    of the standard interface provided by the VFS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Every filesystem needs to provide an implementation of the common interface
+    provided by the VFS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We explained that applications in user space need to generate system calls when
+    they want to access resources in the kernel space. Through the abstraction provided
+    by the VFS, system calls such as `read()` and `write()` function properly, regardless
+    of the filesystem in use. These system calls work across filesystem boundaries.
+    We don’t need a special mechanism to move data to a different or non-native filesystem.
+    For instance, we can easily move data from an Ext4 filesystem to XFS, and vice
+    versa. At a very high level, when a process issues the `read()` or `write()` system
+    call to read or write a file, the VFS will search for the filesystem driver to
+    use and forward these system calls to that driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing a common filesystem interface through the VFS
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The primary goal of the VFS is to represent a diverse set of filesystems in
+    the kernel with minimum overhead. When a process requests a read or write operation
+    on a file, the kernel substitutes this with the filesystem-specific function on
+    which the file resides. In order to achieve this, every filesystem must adapt
+    itself in terms of the VFS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s go through the following example for a better understanding.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider the example of the `cp` (`copy`) command in Linux. Let’s suppose we’re
+    trying to copy a file from an Ext4 to an XFS filesystem. How does this copy operation
+    complete? How does the `cp` command interact with the two filesystems? Have a
+    look at *Figure 1**.4*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.4 – The VFS ensures interoperability between different filesystems](img/B19430_01_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.4 – The VFS ensures interoperability between different filesystems
+  prefs: []
+  type: TYPE_NORMAL
+- en: First off, the `cp` command doesn’t care about the filesystems being used. We’ve
+    defined the VFS as the layer that implements abstraction. So, the `cp` command
+    doesn’t need to concern itself about the filesystem details. It will interact
+    with the VFS layer through the standard system call interface. Specifically, it
+    will issue the `open ()` and `read ()` system calls to open and read the file
+    to be copied. An open file is represented by the file data structure in the kernel
+    (as we’ll learn in the next chapter, [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028),
+    *Explaining the Data Structures in* *a VFS*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When `cp` generates these generic system calls, the kernel will redirect these
+    calls to the appropriate function of the filesystem through a pointer, on which
+    the file resides. To copy the file to the XFS filesystem, the `write()` system
+    call is passed to the VFS. This will again be redirected to the particular function
+    of the XFS filesystem that implements this feature. Through system calls issued
+    to the VFS, the `cp` process can perform a copy operation using the `read ()`
+    method of Ext4 and the `write ()` method of XFS. Just like a *switch*, the VFS
+    will switch the common file access methods between their designated filesystem
+    implementations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The read, write, or any other function for that matter does not have a default
+    definition in the kernel – hence the name **virtual**. The interpretation of these
+    operations depends upon the underlying filesystem. Just like user programs that
+    take advantage of this abstraction offered by the VFS, filesystems also reap the
+    benefits of this approach. Common access methods for files do not need to be reimplemented
+    by filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That was pretty neat, right? But what if we want to copy something from Ext4
+    to a non-native filesystem? Filesystems such as Ext4, XFS, and Btrfs were specifically
+    designed for Linux. What if one of the filesystems involved in this operation
+    is FAT or NTFS?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Admittedly, the design of the VFS is biased toward filesystems that come from
+    the Linux tribe. To an end user, there is a clear distinction between a file and
+    a directory. In the Linux philosophy, everything is a file, including directories.
+    Filesystems native to Linux, such as Ext4 and XFS, were designed keeping these
+    nuances in mind. Because of the differences in the implementation, non-native
+    filesystems such as FAT and NTFS do not support all of the VFS operations. The
+    VFS in Linux uses structures such as inodes, superblocks, and directory entries
+    to represent a generic view of a filesystem. Non-native Linux filesystems do not
+    speak in terms of these structures. So how does Linux accommodate these filesystems?
+    Take the example of the FAT filesystem. The FAT filesystem comes from a different
+    world and doesn’t use these structures to represent files and directories. It
+    doesn’t treat directories as files. So, how does the VFS interact with the FAT
+    filesystem?
+  prefs: []
+  type: TYPE_NORMAL
+- en: All filesystem-related operations in the kernel are firmly integrated with the
+    VFS data structures. To accommodate non-native filesystems on Linux, the kernel
+    constructs the corresponding data structures dynamically. For instance, to satisfy
+    the common file model for filesystems such as FAT, files corresponding to directories
+    will be created in memory on the fly. These *files* are *virtual* and will only
+    exist in memory. This is an important concept to understand. On native filesystems,
+    structures such as inodes and superblocks are not only present in memory but also
+    stored on the physical medium itself. Conversely, non-Linux filesystems merely
+    have to perform the enactment of such structures in memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Peeking at the source code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'If we take a look at the kernel source code, the different functions provided
+    by the VFS are present in the `fs` directory. All source files ending in `.c`
+    contain implementations of the different VFS methods. The subdirectories contain
+    specific filesystem implementations, as shown in *Figure 1**.5*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.5 – The source for kernel 5.19.9](img/B19430_01_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.5 – The source for kernel 5.19.9
+  prefs: []
+  type: TYPE_NORMAL
+- en: You’ll notice source files such as `open.c` and `read_write.c`, which are the
+    functions invoked when a user space process generates `open ()`, `read ()`, and
+    `write ()` system calls. These files contain a lot of code, and since we won’t
+    create any new code here, this is merely a poking exercise. Nevertheless, there
+    are a few important pieces of code in these files that highlight what we explained
+    earlier. Let’s take a quick peek at the read and write functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `SYSCALL_DEFINE3` macro is the standard way to define a system call and
+    takes the name of the system call as one of the parameters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the `write` system call, this definition looks as follows. Note that one
+    of the parameters is the file descriptor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Similarly, this is the definition for the `read` system call:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Both call the `ksys_write ()` and `ksys_read ()` functions. Let’s see the code
+    for these two functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The presence of the `vfs_read ()` and `vfs_write ()` functions indicates that
+    we’re transitioning to the VFS. These functions look up the `file_operations`
+    structure for the underlying filesystem and invoke the appropriate `read ()` and
+    `write ()` methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each filesystem defines the `file_operations` structure of pointers for supporting
+    operations. There are multiple definitions of the `file_operations` structure
+    in the kernel source code, unique to each filesystem. The operations defined in
+    this structure describe how read or write functions will be performed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the `file_operations` structure is used for a wide range of
+    file types, including regular files, directories, device files, and network sockets.
+    In general, any type of file that can be opened and manipulated using standard
+    file I/O operations can be covered by this structure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tracing VFS functions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are quite a few tracing mechanisms available in Linux that can offer
+    a glance at how things work under the hood. One of them is the `funccount`. As
+    the name suggests, `funccount` counts the number of function calls:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Just to test and verify our understanding of what we stated earlier, we’re
+    going to run a simple copy process in the background and use the `funccount` program
+    to trace the VFS functions that are invoked as a result of the `cp` command. As
+    we’re going to count the VFS calls for the `cp` process only, we need to use the
+    `-p` flag to specify a process ID. The `vfs_*` parameter will trace all the VFS
+    functions for the process. You’ll see that the `vfs_read ()` and `vfs_write ()`
+    functions are invoked by the `cp` process. The `COUNT` column specifies the number
+    of times the function was called:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s run this again and see what system calls are used when doing a simple
+    copy operation. As expected, the most frequently used system calls when doing
+    `cp` are read and write:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let’s summarize what we covered in this section. Linux offers support for a
+    wide range of filesystems, and the VFS layer in the kernel ensures that this can
+    be achieved without any hassle. The VFS provides a standardized way for end user
+    processes to interact with the different filesystems. This standardization is
+    achieved by implementing a common file mode. The VFS defines several virtual functions
+    for common file operations. As a result of this approach, applications can universally
+    perform regular file operations. When a process generates a system call, the VFS
+    will redirect these calls to the appropriate function of the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the Everything is a file philosophy
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In Linux, all of the following are considered files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Directories
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Disk drives and their partitions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sockets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pipes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CD-ROM
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The phrase *everything is a file* implies that all the preceding entities in
+    Linux are represented by file descriptors, abstracted over the VFS. You could
+    also say that *everything has a file descriptor*, but let’s not indulge in that
+    debate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *everything is a file* ideology that characterizes the architecture of a
+    Linux system is also implemented courtesy of the VFS. Earlier, we defined pseudo
+    filesystems as filesystems that generate their content on the fly. These filesystems
+    are also referred to as VFSes and play a major role in implementing this concept.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can retrieve the list of filesystems currently registered with the kernel
+    through the `procfs` pseudo filesystem. When seeing this list, note `nodev` in
+    the first column against some filesystems. `nodev` indicates that this is a pseudo
+    filesystem and is not backed by a block device. Filesystems such as Ext2, 3, and
+    4 are created on a block device; hence, they do not have the `nodev` entry in
+    the first column:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can also use the `mount` command to find out about the currently mounted
+    pseudo filesystems in your system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take a tour of the `/proc` directory. You’ll see a long list of numbered
+    directories; these numbers represent the IDs of all the processes that currently
+    run on your system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `procfs` filesystem offers us a glimpse into the running state of the kernel.
+    The content in `/proc` is generated when we want to view this information. This
+    information is not persistently present on your disk drive. This all happens in
+    memory. As you can see from the `ls` command, the size of `/proc` on disk is zero
+    bytes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`/proc` provides an on-the-spot view of the processes running on the system.
+    Consider the `/proc/cpuinfo` file. This file displays the processor-related information
+    for your system. If we check this file, it will be shown as `empty`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'However, when the file contents are viewed through `cat`, they show a lot of
+    information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Linux abstracts all entities such as processes, directories, network sockets,
+    and storage devices into the VFS. Through the VFS, we can retrieve information
+    from the kernel. Most Linux distributions offer a variety of tools for monitoring
+    the consumption of storage, compute, and memory resources. All these tools gather
+    stats for various metrics through the data available in `procfs`. For instance,
+    the `mpstat` command, which provides stats about all the processors in a system,
+    retrieves data from the `/proc/stat` file. It then presents this data in a human-readable
+    format for a better understanding:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[The rest of the code is skipped for brevity.]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we use the `strace` utility on the `mpstat` command, it will show that under
+    the hood, `mpstat` uses the `/proc/stat` file to display processor stats:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Similarly, popular commands such as `top`, `ps`, and `free` gather memory-related
+    information from the `/``proc/meminfo` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Similar to `/proc`, another commonly used pseudo filesystem is `/sys`. The
+    **sysfs filesystem** mostly contains information about hardware devices on your
+    system. For example, to find information about the disk drive in your system,
+    such as its model, you can issue the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Even LEDs on a keyboard have a corresponding file in `/sys`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: The *everything is a file* philosophy is one of the defining features of the
+    Linux kernel. It signifies that everything in a system, including regular text
+    files, directories, and devices, can be abstracted over the VFS layer in the kernel.
+    As a result, all these entities can be represented as file-like objects through
+    the VFS layer. There are several pseudo filesystems in Linux that contain information
+    about the different kernel subsystems. The content of these pseudo filesystems
+    is only present in memory and generated dynamically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Linux storage stack is a complex design and consists of multiple layers,
+    all of which work in coordination. Like other hardware resources, storage lies
+    in the kernel space. When a user space program wants to access any of these resources,
+    it has to invoke a system call. The system call interface in Linux allows user
+    space programs to access resources in the kernel space. When a user space program
+    wants to access something on the disk, the first component it interacts with is
+    the VFS subsystem. The VFS provides an abstraction of filesystem-related interfaces
+    and is responsible for accommodating multiple filesystems in the kernel. Through
+    its common filesystem interface, the VFS intercepts the generic system calls (such
+    as `read()` and `write()`) from the user space programs and redirects them to
+    their appropriate interfaces in the filesystem layer. Because of this approach,
+    the user space programs do not need to worry about the underlying filesystems
+    being used, and they can uniformly perform filesystem operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter served as an introduction to the major Linux kernel subsystem Virtual
+    Filesystem and its primary functions in the Linux kernel. The VFS provides a common
+    interface for all filesystems through data structures, such as inodes, superblocks,
+    and directory entries. In the next chapter, we will take a look at these data
+    structures and explain how they all help the VFS to manage multiple filesystems.
+  prefs: []
+  type: TYPE_NORMAL

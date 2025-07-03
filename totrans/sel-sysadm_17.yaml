@@ -1,0 +1,1047 @@
+- en: '*Chapter 14*: Dealing with New Applications'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: New applications are often not yet supported through an application-specific
+    SELinux policy, as most application projects do not develop the SELinux policies
+    themselves, but rely on the community in general (or Linux distributions more
+    specifically) to create and maintain them. Some Linux distributions have implemented
+    fallbacks to allow these applications to run, even though they might not be isolated
+    properly. Administrators might not like the sound of having untrusted new applications
+    running without any SELinux enforcements active though.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hence, this chapter covers how administrators can run new applications in a
+    number of isolated environments, ranging from the (often default) unprotected
+    domains, to sandbox systems, and eventually by reusing existing SELinux domains
+    without having to develop completely new ones.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running applications without restrictions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using sandboxed applications
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Assigning common policies to new applications
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Extending generated policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/3dGG5Bu](https://bit.ly/3dGG5Bu)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running applications without restrictions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The default behavior in many Linux distributions is to run new applications
+    through unconfined domains. These are specially crafted domains that, while still
+    being controlled by SELinux, are designed to have very, very broad permissions
+    granted. You can compare such unconfined domains with a firewall that allows any
+    possible flow: while the firewall is running, it is hardly doing any enforcement.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is, however, another approach possible as well, namely, running an application
+    as a permissive domain. Unlike unconfined domains, permissive domains are not
+    enforced through SELinux: everything the domain does is allowed, even though SELinux
+    might log every violation. We briefly touched upon permissive domains in [*Chapter
+    3*](B16276_03_Final_VK.xhtml#_idTextAnchor071), *Understanding SELinux Decisions
+    and Logging*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's first look at unconfined domains and how administrators can modify system
+    configuration to apply unconfined domains to other applications, or remove applications
+    from being unconfined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding how unconfined domains work
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An **unconfined domain** is an SELinux domain that has broad permissions, restricting
+    only a very small amount of actions that a domain can do. Unconfined domains are
+    not really a concept that SELinux, as technology, supports. Instead, it is used
+    by SELinux policy developers who created a set of permissions they consider as
+    being unconfined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: End users on many Linux distributions will have noticed that their own context
+    is `unconfined_t`. While this is indeed a reference to being an unconfined domain,
+    there are more domains that are unconfined than `unconfined_t`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'SELinux policy developers have aggregated most of the permissions related to
+    unconfined domains either in the domains themselves (as is the case for the reference
+    policy) or in SELinux attributes, such as `unconfined_domain_type` and `unconfined_user_type`
+    (as is the case for CentOS and related Linux distributions). In the case of attributes,
+    these attributes are then assigned to one or more domains to effectively make
+    them unconfined in nature:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once a process is running as an unconfined domain, that does not imply that
+    every action of that domain remains unconfined. When an unconfined domain executes
+    a process that has a proper SELinux policy assigned, it is possible for this execution
+    to still invoke a domain transition, effectively running the executed command
+    in a (possibly confined) SELinux domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As the decision whether a domain transition is allowed or not falls within
+    the SELinux policy, it is recommended that administrators query which domain transitions
+    are allowed and which ones aren''t. We saw how to analyze domain transitions in
+    [*Chapter 13*](B16276_13_Final_VK.xhtml#_idTextAnchor330), *Analyzing Policy Behavior*.
+    Given that we are mostly interested in single-step analysis, we can use the `sesearch`
+    utility to have a quick overview of supported domain transitions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can see the (many) permissions related to an unconfined domain by either
+    checking them for a single domain, or for the attribute that represents unconfined
+    domains directly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using unconfined domains is preferred over making domains permissive, so let's
+    see how we can mark a new application to run as an unconfined domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Making new applications run as an unconfined domain
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'When applications are executed, there are a number of checks that need to pass
+    before this results in a domain transition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The source SELinux domain must be able to execute the application (implying
+    `execute` rights on the SELinux type associated with the application's binary
+    or script).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The source SELinux domain must be able to transition to the target domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The target domain must have its application binary or script labeled with an
+    SELinux type that is marked as an entrypoint for that domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The target domain must be allowed for the SELinux role that the source domain
+    is running with (or a role transition has to be allowed, but that is a corner
+    case).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All these checks are related to the SELinux policy and the labels. It comes
+    as no surprise then that, in order for us to enable applications to run in an
+    unconfined domain, we need to associate the right labels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's consider two examples in the following sections, one being a user-triggered
+    application, while the other is a daemonized service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running applications in an explicit unconfined domain
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: For applications that users execute, let's take the example of Jailkit, which
+    we introduced in [*Chapter 7*](B16276_07_Final_VK.xhtml#_idTextAnchor216), *Configuring
+    Application-Specific SELinux Controls*. By default, this application is not associated
+    with any domain, so it runs within the same domain as the parent process. If we
+    are logged in to the system through the `unconfined_u` user (in the `unconfined_t`
+    SELinux domain), then we have nothing to do. But suppose that our staff user is
+    confined, yet we want to have the command run in the `unconfined_t` domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is used as an example that shows how to have applications run in a target
+    domain – in our case, an unconfined domain. Allowing confined users to run unconfined
+    applications always has a risk associated with it, because they might use this
+    to break out of their confinement. Make sure that this is only done for applications
+    or users where you have confidence that they will not breach security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To allow the application to run in the `unconfined_t` domain, we will use `sudo`
+    and its SELinux support. While we could also extend the SELinux policy to allow
+    it transparently, this is not recommended. Updating the SELinux policy to allow
+    confined users to run unconfined commands implies that several principles listed
+    in the policy are overturned. You would need to allow the confined user to switch
+    to the `unconfined_r` role (which is often not allowed for security reasons) transparently,
+    for instance. It would require significant analysis to make sure that it cannot
+    be used to break out of the confined role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using `sudo` allows us to limit the methods through which such more privileged
+    commands are executed. SELinux-wise, the appropriate controls are put on the `staff_sudo_t`
+    domain, for instance, which is only assigned when executing the `sudo` command,
+    rather than the `staff_t` domain, which is where most of the user's interactions
+    are executed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s allow the `lisa` user to run the `jk_init` command as an unconfined
+    process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, check whether the SELinux user for which we want to execute the command
+    is allowed to do anything with the `unconfined_r` SELinux role (and if not, add
+    the role to the SELinux user configuration):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Allowing a role does not imply that the user domain automatically switches role
+    when needed though, but rather that it is an allowed role for the user.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Next, update the `/etc/sudoers` file to include a transition when executing
+    the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Our user can now run the command, prefixed by `sudo`, to have it execute in
+    the right domain and using the right role:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Using `sudo` for end user applications is common when the privileges of the
+    user also have to switch (from the user privilege to the root privilege). It is
+    less common to use it when staying within the Linux user context though.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running daemons in an explicit unconfined domain
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The second use case, and perhaps a more common one than for end user applications,
+    is to run daemonized services in an unconfined domain. Most Linux distributions
+    that use unconfined domains (such as CentOS) will by default have newly installed
+    software run as an unconfined domain as well. For instance, any service that is
+    enabled and activated through systemd (which runs as the `init_t` SELinux domain)
+    and that does not have an explicit labeling set (meaning the executable commands
+    are labeled as `bin_t`) will run in the `unconfined_service_t` domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But what if we have a confined application that we want to run in an unconfined
+    domain? Let's take PostgreSQL as an example. Suppose this is an isolated database
+    that has certain extensions active that are incompatible with the existing PostgreSQL
+    SELinux domain (`postgresql_t`). Administrators might not have the time to extend
+    the current SELinux policy using methods such as `audit2allow`, as seen in [*Chapter
+    12*](B16276_12_Final_VK.xhtml#_idTextAnchor312), *Tuning SELinux Policies*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Luckily, we can easily move PostgreSQL to work and run in an unconfined domain.
+    There are two ways to approach this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can remove the existing labels on its executable files (`postgresql_exec_t`)
+    and set it to `bin_t` instead. This will then trigger the default transition when
+    starting the PostgreSQL binary to the `unconfined_service_t` domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We can update the SELinux policy for `postgresql_t` to become an unconfined
+    domain itself.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Switching the labels is easy, but is the least recommended method. It is, however,
+    a quick and dirty way to see whether running the service in the `unconfined_service_t`
+    domain is sufficient to resolve the issue immediately:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If agreeable, make sure that the label change remains, even after a relabel
+    operation occurs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Updating the SELinux policy for the PostgreSQL daemon is recommended though,
+    as it retains the existing support within the policy (including the file transitions
+    and other integrations that the `postgresql_t` domain has with other domains and
+    resources). It also allows administrators to update the policy as needed later
+    on, when there is more time available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make the `postgresql_t` domain unconfined, we need to assign the `unconfined_domain_type`
+    attribute to the `postgresql_t` domain. This can be accomplished by loading in
+    the following CIL-based SELinux policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Save this in a file and load it using `semodule -i`, and from that point onward
+    the `postgresql_t` domain will be augmented with the privileges associated with
+    the `unconfined_domain_type` attribute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extending unconfined domains
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As unconfined domains are still enforced, it might be possible that SELinux
+    is still preventing some actions from occurring. We can adjust the SELinux policy
+    to extend unconfined domains with more privileges though. While the default `unconfined_service_t`
+    domain has almost all possible permissions set, more specifically, identified
+    domains might not be as expansive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The trick to adding more privileges to the domains is to assign the appropriate
+    attribute to them. The method is the same as seen in *Running daemons in an explicit
+    unconfined domain*, adding more attributes as needed. The list of attributes that
+    we can add is very significant (as you can see from `seinfo -a`), but the most
+    important ones, especially for the CentOS-based SELinux policy, are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`files_unconfined_type` allows the domain to manage any possible file- or filesystem-based
+    resource.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`devices_unconfined_type` allows the domain to interact and manage any device
+    resource.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`filesystem_unconfined_type` allows the domain to interact and manage all filesystems.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`selinux_unconfined_type` allows the domain to interact with and manage the
+    SELinux subsystem and configuration.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`storage_unconfined_type` allows the domain to interact with storage systems
+    and removable devices.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`dbusd_unconfined` allows the domain to interact with all possible D-Bus services.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`xserver_unconfined_type` allows the domain to interact with and manage all
+    X server resources.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Furthermore, there are several `can_*` attributes that fine-tune very specific,
+    security-sensitive actions. The names of these attributes nicely explain what
+    they allow. For instance, `can_write_shadow_passwords` allows the domain to write
+    to `/etc/shadow`, whereas `can_change_object_identity` means that the domain can
+    change the SELinux user of an object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Not all attributes have their privileges reflected in regular `allow` rules
+    or transitions that can be queried using `sesearch`. For instance, `can_change_object_identity`
+    is used in SELinux constraints instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Querying the constraints is an often forgotten method to see what or why a certain
+    privilege is or isn't assigned to a domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Suppose now that an application still fails to run correctly within an unconfined
+    domain, then we can use permissive domains to allow this application to run unprotected,
+    while having the rest of the system remain in enforcing mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Marking domains as permissive
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As we saw in [*Chapter 2*](B16276_02_Final_VK.xhtml#_idTextAnchor045), *Understanding
+    SELinux Decisions and Logging*, we can mark a domain as permissive using `semanage
+    permissive`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The same command can be used to query (`-l`) or remove (`-d`) permissive states.
+    However, administrators should take special care before marking domains as permissive:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First of all, if you mark a domain as permissive, then all processes running
+    with that SELinux domain will run without any active SELinux enforcements. As
+    an administrator, you really want to limit the number of processes that are running
+    through permissive domains, so do not mark broadly used SELinux domains as permissive.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A daemon that runs in an unconfined domain, yet still has problems, should not
+    result in the unconfined domain being marked as permissive. Instead, have the
+    daemon run as a different domain, and mark that domain as permissive.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Secondly, permissive domains will still trigger SELinux behavior by the SELinux
+    subsystem. Transition rules, including process transitions and file transitions,
+    are still executed. This is of course by design, as permissive domains are meant
+    to be short-lived, allowing administrators and developers to capture information
+    and adapt the policy as needed before they can remove the permissive flag again.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This also implies that, if the domain does not have proper transition rules
+    set, it might result in files being created on the system that have the wrong
+    SELinux types set. Because of this, using permissive domains should not be considered
+    for applications or daemons that have a wide impact on the system, but rather
+    for more isolated situations where you, as an administrator, feel confident that
+    you can easily fine-tune the policy if needed.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Consider the situation where we deploy pgpool-II, a load balancer for PostgreSQL
+    databases, and find that the application does not run properly in an unconfined
+    domain, even though it already runs in the `unconfined_service_t` SELinux domain.
+    While we can put this domain in permissive mode, this would also apply to various
+    other services running inside the `unconfined_service_t` domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What we can do is relabel its resources (executables mostly) so that the application
+    is run through a different SELinux domain, and then mark that domain as permissive.
+    We can either reuse an existing, unused domain or generate one, as we will see
+    in the *Generating policies with sepolicy generate* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we want to run an application in a (strictly) confined manner though, we
+    need to take a completely different route and seek out how to put such applications
+    in sandbox-like domains.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using sandboxed applications
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: New applications that should only have very limited privileges, and that are
+    untrusted by nature, should be confined completely. While we could look at custom
+    SELinux policies for these applications, this is hardly possible for each and
+    every application out there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead, we can consider sandboxing the applications, isolating their access
+    from the system. With the help of some other Linux primitives such as namespace
+    support, a utility has been created called the SELinux sandbox, which launches
+    applications in a tightly confined domain. This is mostly meant for end user applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SELinux sandbox, its SELinux policy, and the command associated with it,
+    is specific to Linux distributions that use or follow Red Hat packages, such as
+    CentOS. It might not be available for your Linux distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For service-oriented domains, using the container runtime and protection measures
+    are more suited. For more information about using container protections, see [*Chapter
+    11*](B16276_11_Final_VK.xhtml#_idTextAnchor293), *Enhancing the Security of Containerized
+    Workloads*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the SELinux sandbox
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The **SELinux sandbox** is a combination of a number of technologies and protection
+    measures. While the SELinux policy plays an important part, other isolation measures
+    are taken as well to really create a sandbox experience for applications and users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The purpose of the sandbox is to create a low-privilege environment that blocks
+    anything that could jeopardize the security of the system or the user's data.
+    This also means that network interaction is blocked by default (no data exfiltration),
+    and many system resources are hidden away from the sandboxed process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many of the access controls themselves are handled by the SELinux policy. The
+    sandbox SELinux domains, `sandbox_t`, and derivatives such as `sandbox_xserver_t`,
+    do not have many privileges for other resources. The sandbox utility will also
+    apply sVirt-like categories to differentiate one sandboxed process from another.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The isolation, however, is done using different means. `seunshare` application
+    is responsible for doing these isolation tasks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's see how the SELinux sandbox works in practice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the sandbox command
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The SELinux sandbox uses the `sandbox` command. Now, before we can use it,
+    we need to make sure that our SELinux user has multiple categories set as, otherwise,
+    the SELinux sandbox cannot randomly allocate two categories for isolation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once assigned, we can prepare for running an untrusted application in a sandbox.
+    For instance, we can download one of the International Obfuscated C Code Contest
+    applications from [https://www.ioccc.org](https://www.ioccc.org), compile it,
+    and then only run it in a sandbox mode just in case the code behaves maliciously:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Assuming we use the 2019 entry from `adamovsky`, we should have the `prog`
+    binary and the `advent.unl` file ready to use. Create a location in which to store
+    these files, and copy them over:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, run the `prog` command from within the sandbox:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'While the application runs, we can check its current context with `ps`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'If we exit the application, we can see that the sandbox location has been labeled
+    with an sVirt-like MCS pair:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The method we used here was to explicitly tell the sandbox to create an isolated
+    home directory based upon the `sandbox/` folder and run the `prog` binary from
+    within this location (and with `advent.unl` as an argument to the `prog` command).
+    However, this is not the sole approach.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If no explicit home directory is provided, then the sandbox will create a temporary
+    one (and clean it up afterward). However, in that case, we cannot execute commands
+    that are not already installed on the system, unless we allow the sandbox domain
+    to execute `user_home_t`-labeled resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this policy loaded, we can use the sandbox with the least number of options.
+    For instance, with the Burton contest submission (also from IOCCC''s 2019 contest),
+    we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: The use of a more known location, however, allows more flexibility, as well
+    as allowing the sandbox to keep data across multiple sessions (as the directory
+    pointed toward will not be cleaned up).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SELinux sandbox also supports running graphical applications in the sandbox.
+    To accomplish this, add the `-X` option to the `sandbox` command. The resulting
+    process will run in the `sandbox_xserver_t` domain rather than the `sandbox_t`
+    domain, as more privileges are needed to allow graphical applications to run.
+    Keep in mind though that the sandbox domain has very few privileges; connecting
+    to networked resources is not allowed, so it is not possible to use the sandbox
+    (without additional modifications and SELinux policy adjustments) to run a sandboxed
+    browser to interact with unsafe websites.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Assigning common policies to new applications
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In between the strong isolation of an SELinux sandbox and the broad permissions
+    of unconfined domains (or even permissive domains) sits the sufficiently privileged
+    application domain. For most administrators, having a proper SELinux domain for
+    applications is the best way forward, as it allows all the common behaviors and
+    restricts unwanted ones.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we start looking at application domains, however, we notice that there
+    is differentiation in complexity, and as an administrator, we need to understand
+    what the complexity is about before we can make the right choice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding domain complexity
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'SELinux is able to provide full system confinement: each and every application
+    runs in its own restricted environment that it cannot break out of. But that requires
+    fine-grained policies that are developed as quickly as the new releases of all
+    the applications they confine.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Developing fine-grained policies at this speed is not possible, so a balance
+    has to be struck between the maintainability of a policy and the security of the
+    domain. This balance is the policy design complexity or domain complexity, which
+    can be roughly categorized as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Fine-grained policies** have separate, individual domains for each sub component
+    of an application or service. Such policies have the advantage that they really
+    attempt to restrict applications as much as possible. Through fine-grained policies,
+    roles developed with users and administrators in mind become fine-grained as well,
+    for instance, by differentiating sub-roles in the application.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The disadvantage of such policies is that they are hard to maintain, requiring
+    frequent updates as the application itself evolves. The policies also need to
+    take into account the impact of the various configuration options that the application
+    supports.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Such fine-grained policies are not frequently found. An example is the policy
+    set provided for the Postfix mail infrastructure. Each sub-service of the Postfix
+    infrastructure has its own SELinux domain.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**Application-level policies** use a single domain for an application, regardless
+    of its sub-components. This balances the requirement for application confinement
+    versus the maintainability of the application and its SELinux policy.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Such application-level policies are the most common in SELinux policies. They
+    do still suffer from regular maintenance as applications expand their functionality,
+    but the complexity of this is limited and SELinux policy developers should not
+    have too many problems maintaining these policies.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**Category-wide policies** use a single domain definition for a set of applications
+    that implement the same functionality. This is popular for services that act very
+    similarly and whose user-role definitions can be described without really considering
+    the application-specific nature.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A good example of a category-wide policy is the policy for web servers. While
+    this policy was initially written for the Apache HTTP daemon, the policy has become
+    reusable for a number of web servers, such as the Cherokee, Hiawatha, Nginx, and
+    Lighttpd projects.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: While such policies are easier to maintain, the downside of category-wide policies
+    is that they often have more broad privileges than really needed. As more applications
+    are joined in the category-wide policy, additional rules and privileges are added
+    to support those specific functions.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**Coarse-grained policies** are used for applications or services whose behavior
+    is hard to define. End user domains are examples of coarse-grained policies, as
+    are unconfined domains.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When we are dealing with a new application, and we want to quickly assign a
+    decent-enough policy, the most common method is to see whether a category-wide
+    policy exists that we can reuse for the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running applications in a specific policy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Let's consider the situation for the pgpool-II application. When we install
+    it without any additional changes, it will run with the `unconfined_service_t`
+    domain, as mentioned in the *Marking domains as permissive* section. But perhaps
+    we can find a suitable policy to run the pgpool-II application with, through which
+    it is more confined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As the pgpool-II solution is a load balance-like application for PostgreSQL
+    databases, it is likely we can run it in the PostgreSQL domain. If there are no
+    PostgreSQL databases running on the same system, then lending this domain for
+    the pgpool-II application might not do much harm. Let''s see how well this goes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The PostgreSQL policy uses the `postgresql_exec_t` SELinux type for its executables,
+    so let''s assign that one to the `pgpool` binary:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'If we try to start the `pgpool` system service, we might get one or more failures:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'One of the failures mentioned is that the daemon cannot access its logs (in
+    `/var/log/pgpool`) while another complains about the process ID file (in `/var/run/pgpool`)
+    being unreachable. As these were previously created by an unconfined domain, it
+    is indeed likely that their context is wrong as well. Let''s apply the PostgreSQL-specific
+    types to these locations:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'After restarting `pgpool`, we notice it has a new failure:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Let''s create a small policy enhancement to allow `postgresql_t` to bind to
+    this port:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Load this policy and restart `pgpool`. With this in place, `pgpool` starts up
+    fine.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Of course, having the daemon launch without problems does not mean that it will
+    work without problems, so it is recommended to continue testing, using the service
+    as intended.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Finding out which policy can be reused for a process requires a bit of practice
+    and searching. For instance, you can query the policy for which domains are able
+    to bind to the port that the daemon needs. Or you can search for a domain that
+    has a behavior very similar to the application involved. In our example, we only
+    had to allow the domain to bind to port `9999`. We could also use this information
+    point to seek a different policy—one that is allowed to bind to this port (such
+    as the `httpd_t` domain) and see whether that one fits better.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this approach is trial and error, it could allow running the service in
+    a more confined domain than the unconfined domain would. A much better approach,
+    however, is to generate a new, custom policy and work from there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extending generated policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When we assign a different policy to a new application, we are reusing and possibly
+    extending existing policies. We can go a step further and generate new policies,
+    after which we can further extend those policies, effectively moving into the
+    realm of developing new policies ourselves.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 15*](B16276_15_Final_VK.xhtml#_idTextAnchor373), *Using the Reference
+    Policy*, and [*Chapter 16*](B16276_16_Final_VK.xhtml#_idTextAnchor391), *Developing
+    Policies with SELinux CIL*, we will expand further into the policy development
+    aspects for more fine-grained control. By using policy generation tools, however,
+    we can quickly create a first-draft policy and adapt as needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An important caveat is that policy generation tools often limit themselves to
+    a single-policy format, either being reference policy style or CIL style. Administrators
+    and organizations should try to focus on a single style and stick with that so
+    that the learning curve for new developers and administrators isn't too high.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the limitations of generated policies
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Policy generators, such as the `udica` tool we saw in [*Chapter 11*](B16276_11_Final_VK.xhtml#_idTextAnchor293),
+    *Enhancing the Security of Containerized Workloads*, often have a very specific
+    purpose. For instance, the `udica` tool focuses on generating new container SELinux
+    domains and is only useful for those containers. Generators will always have a
+    specific target in mind for what their policies should look like.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The generated policies are often application-level policies. Creating fine-grained
+    policies with generators is hard, and defining category-wide policies requires
+    multiple steps and occurrences, whereas generators often use single-step generations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Furthermore, most generated policies only generally support role-based access
+    controls within SELinux: either a user is allowed the target SELinux domain and
+    interacting with it, or the user isn''t allowed. Differentiating roles (such as
+    application administrator versus application user) are not often included in generated
+    policies.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Administrators should be aware that generators also have to make assumptions
+    about how applications work. While this allows generators to be used for the majority
+    of simple services and applications, they are definitely not ready yet to substitute
+    a knowledgeable team of SELinux policy developers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing sepolicy generate
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `sepolicy` command is able to generate initial SELinux policy modules, which
+    administrators and developers can then fine-tune further. This generator will
+    use some resources on the system (such as the package database of the distribution)
+    to better understand which resources to include, and generates a number of SELinux
+    policy files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As there are different types of applications around, the `sepolicy generate`
+    command also requires the user to inform it about the application type. The following
+    types are currently supported:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: User applications are identified with the `--application` option. Such applications
+    are meant for end users to launch and interact with.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: System service applications are identified with the `--init` option. Applications
+    that run in daemon mode or with their own user are most often system service applications.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: D-Bus system service applications are identified with the `--dbus` option. This
+    type of service is invoked by D-Bus.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--cgi` option. Using CGI-specific domains allows having CGI applications run
+    in their own domain, rather than extending the privileges of the web server domain
+    itself.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`--inetd` option.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sandbox applications are like user applications but much more confined, and
+    are supported through the `--sandbox` option.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Next to application-level policy generation, `sepolicy generate` also supports
+    generating user domains and roles:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Standard users with support for the graphical desktop can be generated using
+    the `--desktop_user` option. This is a common, non-administration-oriented user
+    role.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A more lightweight, minimal user role that still supports the graphical desktop
+    can be generated using the `--x_user` option. This domain focuses on minimal permissions
+    and thus requires further extensions before they can be better put to use.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If no graphical user interface needs to be supported, then you can use the `--term_user`
+    option. This generates a confined user domain without desktop support.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Administration-oriented user domains can be generated using the `--admin_user`
+    option. This is meant for broad administrative privileges.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: More confined administration domains can be generated using the `--confined_admin`
+    option. This allows you to generate user domains that have administrative roles
+    for a limited number of application domains, not to the system as a whole.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The generator also supports customizing existing domains further (using `--customize`)
+    or generating specific types (using `--newtype`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's use `sepolicy generate` to generate a policy for the pgpool-II application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Generating policies with sepolicy generate
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `sepolicy generate` command will create a skeleton SELinux policy, using
+    the reference policy code style. This policy can then be gradually extended with
+    the privileges the application needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create and adapt the policy for `pgool`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we tell `sepolicy` to generate a new policy, named `pgpool`, which is
+    intended for the `/usr/bin/pgpool` binary:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, build the generated SELinux policy:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Load the policy in memory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Relabel the filesystem, or at least the locations mentioned in the generated
+    `pgpool.fc` file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Start the `pgpool` service:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now, you might have the impression that this was too easy. Yes, it was. The
+    default SELinux policy that `sepolicy generate` provides is permissive, as you
+    can see from within the `pgpool.te` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we remove this statement, rebuild, and reload the policy, then we will notice
+    the failures coming up again, such as the process not being allowed to bind to
+    the selected ports. We can now use `audit2allow`, for instance, to help us extend
+    the policy as needed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: Gradually extend, rebuild, and reload the policy until the application works
+    without problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Linux administrators can use SELinux controls to prevent or confine access to
+    applications, but this is not always the requirement at hand. Being able to run
+    the application with the *right* set of permissions is, and what the right set
+    is depends on the user's intentions and the environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Within this chapter, we've learned how to apply the appropriate confinement
+    to application domains, ranging from very isolated container environments over
+    regular application domains, category-wide permission sets, and up to unconfined
+    domains and even permissive domains. We learned that this is done by first finding
+    the appropriate domain, understanding which labels the domain uses, and then assigning
+    the right labels to the files so that the application is executed in the right
+    domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We also learned how to generate new policies (using `sepolicy generate`) ourselves
+    without immediately having to dive into a full SELinux policy development approach,
+    which is what we will consider in the final two chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the difference between an unconfined domain and a permissive domain?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can we run applications in a very restricted domain?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can we easily switch the domain in which a service will run?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why do policies generated by `sepolicy` seemingly run without problems?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

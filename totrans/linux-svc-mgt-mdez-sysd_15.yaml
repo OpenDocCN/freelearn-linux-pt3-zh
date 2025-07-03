@@ -1,0 +1,850 @@
+- en: '*Chapter 13*: Understanding cgroup Version 2'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we'll look at **cgroup** **Version 2**. We'll see how it's
+    different from **cgroups** **Version 1**, and how it improves upon Version 1\.
+    After that, we'll take a brief look at how to work with it. We'll wrap up by converting
+    the **AlmaLinux** machine to use cgroup Version 2\. Learning how to use cgroup
+    Version 2 will be very helpful to developers of new software, as well as to **Linux**
+    administrators who want to be prepared for the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By the way, that's not a typo that you see in the chapter title. One of the
+    Version 2 changes is in the official name of the technology. So, we have *cgroups*
+    Version 1, and *cgroup* Version 2\. Strange, but true. (I didn't explain this
+    before, because I didn't want to create more confusion).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Specific topics in this chapter include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the need for Version 2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding the improvements in Version 2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Setting resource limits on rootless containers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding **cpuset**
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Converting RHEL 8-type distros to cgroup version 2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With the introduction out of the way, let's get started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This time, we'll use a **Fedora** **virtual machine** that's set to use as many
+    CPU cores and as much memory as you can spare. (I'll still have mine set to use
+    four CPU cores and eight GB of memory.) So, download your favorite spin of Fedora,
+    and create a virtual machine from it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the *Understanding cpuset* section, it would be helpful to have a host computer
+    with at least two physical CPUs. I realize that not many people will have access
+    to a machine like that, and that's okay. I do have such a machine, so I can show
+    you what you need to see.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We'll also use the AlmaLinux machine for a couple of brief demos.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, let's get with it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3xJNcDx](https://bit.ly/3xJNcDx)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the need for Version 2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As good as cgroups Version 1 is, it does have a few rather serious flaws. Let's
+    take a quick look.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Version 1 complexity
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To begin with, Version 1 has too many resource controllers and too many attributes
+    per controller. Very few people use more than just the *Big Three* controllers
+    that we covered in [*Chapter 12*](B17491_12_Final_NM_ePub.xhtml#_idTextAnchor164),
+    Controlling Resource Usage with cgroups Version 1\. Some unnecessary controllers
+    have been removed from Version 2.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There''s also too much complexity with the Version 1 hierarchy, which makes
+    it a bit confusing to use and can hurt performance. To see what I mean, think
+    back about what we saw in the Version 1 `cgroup` filesystem. You saw that each
+    resource controller has its own subdirectory, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_13.1_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.1 – The resource controllers for version 1 on Ubuntu
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 12*](B17491_12_Final_NM_ePub.xhtml#_idTextAnchor164), *Controlling
+    Resource Usage with cgroups Version 1*, we also saw that when we set a `CPUQuota`
+    for Vicky, it appeared in her `user-1001.slice` subdirectory that''s under the
+    `cpu/user.slice` subdirectory, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, when we set a `MemoryMax` restriction, it showed up under the `memory`
+    subdirectory, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, you''ll never guess what happened when we set Vicky''s `BlockIOReadBandwidth`
+    parameter. That''s right, it shows up under the `blkio` subdirectory, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: So you see, Vicky's settings are in three different places, which means that
+    the operating system has to look in all three places to get them all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: I accidentally used Vicky's login window instead of my own for these screenshots,
+    but that's okay. It shows you that Vicky can see the settings in her own cgroup
+    files. Of course, she can't change the settings, because she doesn't have the
+    correct root privileges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Version 1 attribute filenames
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Another problem with Version 1 is that there''s no consistent naming convention
+    for the attribute files of the different resource controllers. For example, setting
+    `MemoryMax` on Version 1 places a value in the `memory.max_usage_in_bytes` file,
+    as we see here for Vicky:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'However,Vicky''s `CPUQuota` setting shows up in the `cpu.cfs_quota_us` file,
+    as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we'll see in a few moments, naming conventions are a lot more consistent
+    with Version 2.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, let's get to the real root of the problem by talking about *rootless containers*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: No support for rootless containers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As you saw in [*Chapter 5*](B17491_05_Final_NM_ePub.xhtml#_idTextAnchor063),
+    *Creating and Editing Services*, we can use `podman` to create and run **Docker**
+    containers without either root privileges or membership in the docker group. However,
+    with cgroups Version 1, it''s not possible for a non-privileged user to set runtime
+    resource limits when creating a container. For example, let''s go to the AlmaLinux
+    machine and create a new user account for my buddy, Pogo, by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Look at what happens to the poor guy when he tries to create a container with
+    a 50% `CPUQuota`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Alas, poor Pogo doesn't have root privileges. So, he can create and run `podman`
+    containers, but he can't set any resource limits for them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Actually, with cgroups Version 1, it *is* possible for a non-privileged user
+    to set runtime resource limits on rootless `podman` containers. But, it requires
+    that you delegate this ability to non-root users. With cgroups Version 1, that
+    constitutes a security hazard because it could allow someone to create a container
+    that could freeze your system. So, we're not going to do it (We'll talk more about
+    delegation in just a bit).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let's contrast that with what we see on the Fedora machine, which is running
+    a pure cgroup Version 2 environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the improvements in cgroup Version 2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Version 2 is a bit more streamlined and simpler to understand. At the time of
+    writing, Fedora, **Arch**, and **Debian 11** are the only three Linux distros
+    of which I know that run cgroup Version 2 by default (that will likely change
+    by the time you read this).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is possible to convert RHEL 8-type distros, such as **Alma** and **Rocky**,
+    over to a pure Version 2 setup. Unfortunately, the RHEL-type distros use an older
+    implementation of Version 2 that still doesn't have all of the resource controllers
+    that we need enabled. So, to see everything that we need to see, we'll use Fedora.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To begin, let''s log in to the Fedora machine and create a user account for
+    my buddy Pogo (Pogo is the awesome opossum who comes in through my cat door at
+    night to chow down on the cat food – Yes,seriously.) Then,Then, have Pogo log
+    in from a remote terminal (Note that on Fedora, you might have to start and enable
+    the `sshd` service first.) On your own local terminal, look at the cgroup filesystem,
+    which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_13.2_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.2 – The cgroup filesystem on Fedora
+  prefs: []
+  type: TYPE_NORMAL
+- en: The attribute files that we see here are for the global settings, which we don't
+    really care about for now. What I really want you to see is under the `system.slice`
+    and `user.slice` subdirectories. Let's look at the `user.slice` subdirectory first.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Under the `user.slice` subdirectory, you''ll see lots of files for things that
+    can be set at the user slice level. At the bottom, we see the subdirectories for
+    both Pogo and me, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each of these user slice subdirectories contains attribute files for all of
+    the resource controllers, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_13.3_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.3 – Resource controllers for user-1001.slice
+  prefs: []
+  type: TYPE_NORMAL
+- en: So now, all of the applicable settings for a particular user would be contained
+    in the `user slice` directory for that user. The operating system now only has
+    to look in one place to get all of the settings for a user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, have Pogo log in from a remote terminal. Then, in your own terminal window,
+    set `CPUQuota` for Pogo. The good news is that the command to do that is exactly
+    the same as it was in Version 1\. If you don''t remember, the command is:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, do a `daemon-reload`. Once that''s done, look at the `cpu.max` file in
+    Pogo''s user slice directory, which should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `40000` figure represents the 40% `CPUShare`, and `100000` represents the
+    time interval over which `CPUShare` is measured. The default time setting, which
+    you see here, is 100 milliseconds (you can change that time interval, but you'll
+    likely never need to).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You would also set Pogo''s memory limit the same you did with Version 1, as
+    we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This time, the setting shows up in Pogo''s `memory.max` file, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, understand that this `MemoryMax` setting is a hard limit. In other words,
+    Pogo absolutely cannot use more memory than what `MemoryMax` allocates. If you
+    look in the `systemd.resource-control` man page, you'll see other options that
+    are available for Version 2 and that aren't available for Version 1\. (Note that
+    this man page always refers to cgroup Version 2 as the *unified control group
+    hierarchy*.) One such parameter is `MemoryHigh`, which is more of a soft limit.
+    `MemoryHigh` would allow Pogo to exceed his memory allocation if it's unavoidable,
+    but his processes would be throttled until his memory usage goes back down to
+    within his allocation. This makes it easier for a system to deal with temporary
+    spikes in memory usage for any given process or user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Version 2 also has the `MemoryLow` and `MemoryMin` parameters, which cause a
+    process to reclaim memory from unprotected processes if the amount of free memory
+    for the protected process drops to the specified threshold. If you want to control
+    swap memory usage, Version 2 lets you do that with the `MemorySwapMax` parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Setting limits on `block I/O` usage is a bit different, because the parameter
+    names have changed. To limit Pogo''s read bandwidth, we''ll first use `df` to
+    see what drive devices we have, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The desktop versions of Fedora now use the `btrfs` filesystem by default, which
+    is why we just see regular drive partitions instead of logical volumes. (There's
+    no need to use logical volumes with `btrfs` because it has its own built-in drive
+    pooling mechanism.) If you're using `ext4` and logical volumes. Anyway, we see
+    that the `/home/` directory is mounted on the `/dev/sda` drive, which of course
+    is where Pogo's home directory is. (As we saw with version 1, you can set a rate
+    limit on an entire drive, but not on a specific partition of that drive.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We''ll now use the `IOReadBandwidthMax` parameter to limit the rate at which
+    Pogo can transfer files, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that because there's a blank space in the `/dev/sda 1M` parameter, you
+    have to surround it with a pair of double-quotes (`""`) when you set this from
+    the command line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, look at the `io.max` file in Pogo''s user slice directory, which should
+    look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we see another benefit of using Version 2\. Instead of having four separate
+    attribute files for the four available parameter settings, as we had with Version
+    1, Version 2 places the `IOReadBandwidthMax`, `IOWriteBandwidthMax`, `IOReadIOPSMax`,
+    and `IOWriteIOPSMax` settings all in one file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Also, note that the `8:0` we see at the beginning of the line in this `io.max`
+    file represents the major and minor numbers of the entire `sda` drive, as we see
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, if you really want to, you can play around with `stress-ng` for Pogo as
+    you did for Vicky in [*Chapter 12*](B17491_12_Final_NM_ePub.xhtml#_idTextAnchor164),
+    *Controlling Resource Usage with cgroups Version 1*, but I'm not going to repeat
+    the directions for that here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The main thing to know about setting limits on services is that each system
+    service has its own subdirectory under the `/sys/fs/cgroup/system.slice/` directory,
+    as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Within each of these subdirectories, you'll see the same attribute files that
+    you saw for Pogo. Also, the procedure for setting limits on services is the same
+    as it was for Version 1, so I also won't repeat any of that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Be aware that certain parameters that you may be used to using under cgroups
+    Version 1 have been renamed for cgroup Version 2\. Specifically, the `CPUShares`,
+    `StartupCPUShares`, and `MemoryLimit` parameters in Version 1 have been replaced
+    by `CPUWeight`, `StartupCPUWeight`, and `MemoryMax`, respectively. Also, all Version
+    1 parameter names that have the `BlockIO` prefix have been replaced with parameter
+    names that have the `IO` prefix.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All righty, now that we know about the cgroup Version 2 filesystem, let's see
+    if we can let Pogo set some resource limits on a rootless container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting resource limits on rootless containers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A few moments ago, I told you about the concept of *delegation*. Normally, you
+    need root privileges in order to set any resource limits. However, you can delegate
+    this chore to non-privileged users. The best news is that unlike delegation under
+    cgroups Version 1, delegation under cgroup Version 2 is perfectly safe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see the default setting, open the `/lib/systemd/system/user@.service` file,
+    and look for the `Delegate=` line in the `[Service]` section. The applicable lines
+    should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'By default, Fedora only allows non-privileged users to set resource limits
+    for memory and for the maximum number of running processes. We need to edit that
+    to include the `cpu`, `cpuset`, and `io` resource controllers, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Edit the `Delegate=` line so that it will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Save the file and do a `daemon-reload`. Note that if any users are logged in,
+    they might have to log out and log back in again for this to take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Keep Pogo''s original login window open, and then open a second one for him.
+    He''ll create a container in one window, and look at the container information
+    in the second window. Have Pogo create an **Ubuntu** container, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Pogo is setting a `CPUQuota` of `50%` over a 100-millisecond time interval.
+    In Pogo''s other login window, have him view the information about his container.
+    He''ll first do a `podman ps`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Pogo didn''t assign a name to this container, so `podman` randomly assigned
+    the name `funny_zhukovsky`. (Remember that Pogo is a opossum, so don''t be too
+    hard on him for forgetting to assign a name.) Now, have Pogo inspect the inner
+    workings of this container, using whatever container name that came up for you:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There''s a lot of output here, but you only need to look at two lines. Keep
+    scrolling down, and you should find them. They should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So far, so good. But, here''s where things get a bit tricky. It''s just that
+    the attribute file for this container is buried deep within the cgroup filesystem
+    where it''s hard to find. Fortunately, Pogo is a more clever opossum than I thought
+    he was, so he found a way to cheat. He knew that the `50000` text string would
+    only show up in one of the attribute files under his user slice directory, so
+    he used `grep` to find it, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At last, Pogo found the attribute file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: That wraps it up for rootless containers. So now, let's get set to talk about
+    `cpuset`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding cpuset
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When you''re dealing with a server that''s running lots of containers and processes,
+    it''s sometimes beneficial to assign a container or a process to a certain CPU
+    core or set of CPU cores. On a machine with more than one physical CPU, it might
+    also be beneficial to assign a memory node, as well. To see what I''m talking
+    about, install `numactl` on your Fedora machine, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the `-H` option to look at the hardware list, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: There's one `NUMA` node, which is `node 0`, and which is associated with four
+    CPUs. Well, in reality, there's only *one CPU* that has *four CPU cores*. We also
+    see the amount of memory that is assigned to this node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, now you''re saying, *But Donnie, what is this NUMA business, and why should
+    I care?.* Okay, **NUMA** stands for **non-uniform memory access**. It has to do
+    with how the operating system deals with memory on machines with more than one
+    physical CPU. On systems with only a single CPU, such as your Fedora virtual machine,
+    NUMA doesn''t do anything for us, because there''s only one memory node. On machines
+    with more than one CPU, each CPU has its own associated memory node. For example,
+    check out this photo of one of my junk motherboards:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_13.4_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.4 – A dual-CPU motherboard
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are two CPU sockets, each with its own bank of memory sockets. Each bank
+    of memory constitutes a NUMA node. Now, let''s look at one of my running multi-CPU
+    systems, which is an old **Hewlett-Packard** workstation that''s running with
+    two quad-core **AMD** **Opterons** and **Fedora 34**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, we see two NUMA nodes this time. The even-number CPU cores are assigned
+    to `node 0`, and the odd-number CPU cores are assigned to `node 1`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, most processes run under a randomly chosen CPU core or set of CPU
+    cores upon startup. Sometimes, the operating system might move a running process
+    from one core or set of cores to another. On a normal workstation like I'm running
+    here, that doesn't matter. But, it might matter on a server that's running lots
+    of processes. You could possibly improve efficiency and performance by assigning
+    certain processes to their own dedicated CPU cores and NUMA nodes. If you're dealing
+    with cgroups Version 1, you'll need to jump through hoops and perform unnatural
+    acts to make this work, because the Version 1 `cpuset` controller doesn't directly
+    work with `systemd`. With cgroup Version 2, it's a breeze. It's just a matter
+    of either using `systemctl set-property` to set the `AllowedCPUs=` and `AllowedMemoryNodes=`
+    parameters, or setting them in the `[Service]` section of the service file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, even though you only have one CPU for your Fedora virtual machine, you
+    can still try this to see what it looks like. First, install the **Apache** web
+    server by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, assign the Apache service to CPU cores `0` and `2`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Reminder
+  prefs: []
+  type: TYPE_NORMAL
+- en: As before, remember to surround any set of parameters that contains a blank
+    space with a pair of double-quotes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, pretend that this virtual machine has more than one NUMA node, and assign
+    the Apache service to NUMA node `0`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These two commands will affect the `cpuset.cpus` and `cpuset.mems` attribute
+    files, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On my trusty dual-CPU Hewlett-Packard, I instead modified the `httpd.service`
+    file to add these two parameters. The two new lines look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, in both examples, I'm allowing Apache to use CPU cores 0 and 2, which are
+    both associated with NUMA `node 0`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pro Tip
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can separate the core numbers in your list with either a comma or a blank
+    space, or use a dash (-) to list a range of CPU cores. Also, note that you do
+    not surround the 0 2 in double-quotes when you add this AllowedCPUs= parameter
+    to the unit file.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After a `daemon-reload` and restart of the Apache service, we should see the
+    appropriate attribute files show up in the `/sys/fs/cgroup/system.slice/httpd.service/`
+    directory. Again, here''s what the `cpuset.cpus` file looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Cool. Apache is running on CPU cores `0` and `2`, just like we want. Now, let''s
+    look in the `cpuset.mems` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Again, it's just what we want to see. Apache can now only use NUMA `node 0`.
+    So, thanks to cgroup Version 2, we have achieved coolness with the bare minimum
+    of effort.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: NUMA doesn't mean that a process that's running on one CPU can't access memory
+    that's in the NUMA node for another CPU. By default, any process can access all
+    system memory on all NUMA nodes. You would use the `AllowedMemoryNodes` parameter
+    to change that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, now you're wondering, "*Can I use cgroup Version 2 on my RHEL 8-type machine?*".
+    Well, let's take a look.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Converting RHEL 8-type distros to cgroup version 2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It''s an easy matter to convert a Red Hat Enterprise Linux 8-type distro to
+    cgroup Version 2\. Step 1 is to edit the `/etc/default/grub` file on your AlmaLinux
+    machine. Find the line that starts with `GRUB_CMDLINE_LINUX=`. At the end of that
+    line, add `systemd.unified_cgroup_hierarchy=1`. The whole line should now look
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, rebuild the `GRUB` configuration, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Reboot the machine, and then look in the `/sys/fs/cgroup/` directory. You should
+    now see the same filesystem that you see on the Fedora machine. However, don't
+    be too disappointed if you can't get all of the previous labs to work. It's just
+    that the RHEL 8-type distros all use an older version of the Linux kernel, which
+    doesn't yet have all of the cgroup resource controllers enabled. Will they ever
+    be enabled in the RHEL 8 distros? Well, maybe. Red Hat's policy is to stick with
+    one certain kernel version for the whole ten-year lifespan of each major release
+    of RHEL. So, all of the RHEL 8-type distros will be stuck on the old kernel version
+    *4.18* until they reach end-of-life in 2029\. Sometimes, Red Hat will backport
+    features from newer kernels into their older RHEL kernel, but there's no guarantee
+    that they'll do this with any newer cgroup Version 2 code. At any rate, once you've
+    seen what you need to see on your AlmaLinux machine, feel free to delete the edit
+    that you made to the `grub` file, and rebuild the GRUB configuration. This will
+    convert the machine back to using cgroups Version 1.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, have you seen enough about cgroups? Hopefully not, because it's something
+    that's worthwhile learning in depth. But, there's lots more that we need to cover,
+    so let's go do that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we've learned a lot about cgroup Version 2\. We started with
+    a discussion about the deficiencies in cgroups Version 1, and how cgroup Version
+    2 is better. Then, we looked at how to allow non-privileged users to set resource
+    limits on their containers, and how to use the `cpuset` resource controller. Finally,
+    we took a brief look at how to convert a RHEL 8-type machine to use cgroup Version
+    2.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once again, I'm reading your mind, and you're wondering why cgroup Version 2
+    hasn't yet been universally adopted if it's so good. Well, it's just that certain
+    critical programs and services, especially containerization services, are still
+    hardcoded to use Version 1\. Fortunately, the situation is improving, and it's
+    a safe bet that Version 2 will become the standard within our lifetimes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, this concludes Part 2 of this tome. Let's start Part 3 with a discussion
+    of `journald`. I'll see you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Which of the following statements is true?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. You can safely use `podman` under cgroups Version 1 to set resource limits
+    on rootless containers.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. You can safely use `podman` under cgroup Version 2 to set resource limits
+    on rootless containers.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. You can't set resource limits on `podman` containers.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. No special privileges are required to set resource limits on rootless `podman`
+    containers.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What is the difference between `MemoryMax` and `MemoryHigh`?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `MemoryMax` is a hard limit, and `MemoryHigh` is a soft limit.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. `MemoryHigh` is a hard limit, and `MemoryMax` is a soft limit.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. They both do the same thing.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. Neither one does anything.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following statements is true about delegation?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. It's perfectly safe for both cgroups Version 1 and cgroup Version 2.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. It's only safe for cgroups Version 1.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. It's never safe to use delegation.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. It's only safe for cgroup Version 2.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What is the first step for converting a RHEL 8-type system to cgroup Version
+    2?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. Edit the `/etc/grub.cfg` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. Edit the `/etc/default/grub` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. Edit the `/boot/grub2/grub.cfg` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. Edit the `/boot/grub` file.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: D
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A Red Hat blog post about cgroup Version 2:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.redhat.com/en/blog/world-domination-cgroups-rhel-8-welcome-cgroups-v2](https://www.redhat.com/en/blog/world-domination-cgroups-rhel-8-welcome-cgroups-v2)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An **Oracle** blog post about why Version 2 is better than Version 1:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://blogs.oracle.com/linux/post/cgroup-v2-checkpoint](https://blogs.oracle.com/linux/post/cgroup-v2-checkpoint)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Comparing Version 1 and Version 2:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://chrisdown.name/talks/cgroupv2/cgroupv2-fosdem.pdf](https://chrisdown.name/talks/cgroupv2/cgroupv2-fosdem.pdf)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using cgroup Version 2 for rootless Docker containers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://rootlesscontaine.rs/getting-started/common/cgroup2/](https://rootlesscontaine.rs/getting-started/common/cgroup2/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The current adoption status of cgroup v2 in containers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://medium.com/nttlabs/cgroup-v2-596d035be4d7](https://medium.com/nttlabs/cgroup-v2-596d035be4d7)'
+  prefs: []
+  type: TYPE_NORMAL

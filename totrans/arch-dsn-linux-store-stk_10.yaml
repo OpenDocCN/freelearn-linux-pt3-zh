@@ -1,0 +1,911 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Analyzing Filesystems and the Block Layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Read or write access to storage devices usually happens after passing through
+    several intermediary layers, such as filesystems and the block layer. There is
+    also the page cache, where requested data is preserved before being lazily committed
+    to the underlying storage. So far, we’ve tried to understand the different factors
+    that can affect disk performance and examined the important metrics associated
+    with physical disks, but, as Sherlock Holmes would say, “*Perfectly sound analysis,
+    but I was hoping you’d* *go deeper.”*
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applications tend to interact with the filesystem, not with the physical storage.
+    It is the job of a filesystem to translate the application’s request and send
+    it down to the lower layers for further processing. The request will go through
+    further processing in the block layer and be eventually scheduled for dispatch
+    to the storage device. Each stage in this hierarchy will add its own processing
+    overhead. Therefore, it is extremely important to examine the behavior of the
+    filesystem and block layer to perform any performance analysis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will focus on the techniques that can be used to investigate
+    the filesystem and block layer. At this stage, I would like to think that the
+    first six chapters helped us to build a decent understanding of these layers (*I
+    certainly hope so*). Becoming acquainted with the relevant analysis methodologies
+    should not be a problem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here’s a summary of what we’ll be covering:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Investigating filesystems and the block layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The different types of filesystem I/O
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What causes filesystem latency?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Identifying the target layers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finding the right tools
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter will focus on the `root` or `sudo`) to run these tools.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The operating system packages relevant to this chapter can be installed as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For Ubuntu/Debian:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo apt` `install strace`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo apt` `install bpfcc-tools`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For Fedora/CentOS/Red Hat-based systems:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo yum` `install strace`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sudo yum` `install bcc-tools`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Investigating filesystems and the block layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Given that storage is a lot more sluggish than other components in a system,
+    it is no surprise that, very often, performance issues are related to I/O. However,
+    simply categorizing a performance issue as I/O-based is an oversimplification.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Filesystems are the first point of contact for an application and are considered
+    to be sandwiched between the application and physical storage. Traditionally,
+    physical storage has always been the center of attention while doing any performance
+    analysis. Most tools focus on the utilization, throughput, and latency of the
+    physical drives, while leaving out the other aspects of an I/O request. Scrutinizing
+    storage usually begins and ends with physical disks, making filesystems analysis
+    an oversight.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, the events happening in the block layer also tend to slip under
+    the radar when it comes to performance analysis. The tools that we discussed in
+    [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160) usually provide averaged-out values
+    over a specific interval, which can often be misleading. For instance, let’s say
+    an application generates the following number of I/O requests in a 10-second interval:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Second** | **Number** **of requests** | **Second** | **Number** **of requests**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1 | 10 | 6 | 20 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 2 | 15 | 7 | 5 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 3 | 500 | 8 | 15 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 4 | 20 | 9 | 8 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 5 | 5 | 10 | 2 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 10.1 – The averaged out stats for I/O requests
+  prefs: []
+  type: TYPE_NORMAL
+- en: If I collect I/O statistics after every 10 seconds, then the number of average
+    I/O requests issued per second will be 60 – that is, the total number of requests
+    divided by the interval. The mean value might be considered normal, but it completely
+    ignores the burst of I/O requests issued around the three-second mark. The tools
+    that provide disk-level statistics do not provide any insight on a per-I/O basis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The conventional approach has always been to gather information from the bottom
+    end of the filesystem – that is, physical disks. However, this a multifaceted
+    problem and involves analyzing the following layers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**System and library calls**: Applications use the generic system call interface
+    to request resources from the kernel space. When an application calls a function
+    that is provided by the kernel, then the execution time is spent inside the kernel
+    space. This function is known as a **system call**. Library calls, conversely,
+    are executed in user space. When an application wants to utilize functions defined
+    in a programming library, such as the GNU C-library, it sends a request known
+    as a **library call**. To accurately assess performance, it’s essential to measure
+    the time spent in both the kernel and user space. By tracing these calls, it’s
+    possible to gain valuable insights into how the application behaves and identify
+    any potential issues, such as resource contention or locking that may cause a
+    process to become stuck.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**VFS**: As we explained throughout this book, VFS acts as the interface between
+    the user and the backing filesystem. It decouples the application’s file operations
+    from the specific filesystem, masking the implementation details behind generic
+    system calls. The VFS also includes the page cache, inode, and dentry cache to
+    speed up disk access. Analyzing VFS can prove helpful for general workload characterization,
+    to identify an application’s operational patterns over time, and to pinpoint how
+    the application uses the different types of available cache.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Filesystems**: Every filesystem uses a different approach to organizing data
+    on disk. As we explained in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160), it
+    is important to characterize the type of workload that the filesystem will be
+    managing – for instance, access patterns of an application, synchronous and asynchronous
+    operations, the ratio of read and write requests, the cache hit and miss ratio,
+    and the size of I/O requests. Internally, filesystems perform operations such
+    as read-ahead, pre-fetching, locking, and journaling, which can affect overall
+    I/O performance in one way or another.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Block layer**: When an I/O request enters a block layer, it can be mapped
+    onto another device, such as LVM, software **Redundant Array of Independent Disks**
+    (**RAID**), or a multi-pathed device. It is commonplace to have a filesystem created
+    on top of these logical devices. In such cases, with any filesystem I/O, the corresponding
+    tasks for these techniques require resources that may be the source of an I/O
+    contention, such as RAID striping or multi-pathing I/O drivers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Scheduler**: The choice of a disk scheduler can also impact the I/O performance
+    of an application. A scheduler can use techniques such as merging and sorting,
+    which can change the eventual order in which a request lands on the disk. As we
+    learned in [*Chapter 6*](B19430_06.xhtml#_idTextAnchor101), the Linux kernel offers
+    different flavors of disk schedulers. Some I/O schedulers are only suited for
+    high-end storage devices, while others work well with slower drives. As each environment
+    is different, multiple factors need to be taken into account before deciding the
+    appropriate disk scheduler.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Physical storage**: The physical layer is usually the point of focus in any
+    troubleshooting scenario. We covered the part about analyzing the different physical
+    disk metrics in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Although not covered here, it’s important to know that it is possible to bypass
+    the filesystem and write data directly to the physical storage. This is known
+    as **raw access**, and a device accessed through such methods is known as a **raw
+    device**. Some applications, such as databases, are capable of writing to raw
+    devices. The primary reason for this approach is that any layer of abstraction,
+    such as a filesystem or a volume manager, adds processing overhead. Filesystems
+    make use of a buffer cache to cache read and write operations, deferring their
+    commitment to the disk until later. With the absence of a filesystem, large applications
+    such as databases are able to bypass the filesystem cache, which allows them to
+    manage their own cache. This approach provides more granular control over device
+    I/O and may aid in testing the raw speed of storage devices, as it bypasses any
+    additional processing overhead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 10**.1* highlights some factors that can affect the I/O performance
+    of an application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.1 – The factors affecting an application’s I/O performance](img/B19430_10_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.1 – The factors affecting an application’s I/O performance
+  prefs: []
+  type: TYPE_NORMAL
+- en: In summary, the different layers in the I/O stack can influence an application’s
+    I/O performance in various ways. Therefore, when troubleshooting any performance
+    problem, breaking it down into smaller pieces is the first step; simplify the
+    problem by removing as many layers as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The different types of filesystem I/O
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are too many different types of I/O requests that can be issued to a filesystem.
+    For the sake of clarity, we’ll consider an I/O request issued by a process as
+    logical I/O, while the actual operation that was performed on the disk will be
+    called physical I/O. As you can probably guess, the two are not equal. **Logical
+    I/O** refers to the process of reading or writing data at the logical level, meaning
+    at the level of the filesystem or application. Conversely, **physical I/O** involves
+    the transfer of data between the storage device and memory. It is during this
+    stage that the data is moved at the hardware level and managed by a hardware device
+    such as a disk controller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disk I/O can be inflated or deflated. A single logical I/O request may result
+    in multiple physical disk operations. Conversely, a logical request from a process
+    may not require any physical I/O from the disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To elaborate on the concept, let’s take a look at some of the factors that
+    make the two types of requests disproportionate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Caching**: The Linux kernel heavily uses available memory to cache data.
+    If data is loaded from the disk, it is kept in the cache so that any subsequent
+    access to the same data can be readily served. If a read request by an application
+    is served from the cache, it will not result in a physical operation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Writeback**: As filesystem writes are cached by default, this also contributes
+    to the difference in the number of physical and logical operations. The writeback
+    caching mechanism defers and coalesces write operations before eventually flushing
+    them to disks.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Prefetching**: Most filesystems have a pre-fetching mechanism through which
+    they can prefetch sequentially adjacent blocks in the cache while a block is read
+    from the disk. The filesystem anticipates the data that an application will need
+    and reads it into memory before the application actually requests it. The pre-fetching
+    operations make sequential reads very fast. If the data has already been pre-fetched
+    in the cache, the filesystem can avoid future trips to the physical storage, thereby
+    reducing the number of physical operations.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Journaling**: Depending upon the type of journaling technique being employed
+    by the filesystem, the number of write operations can be doubled. At first, they
+    will be written to the filesystem journal, and then flushed to disk.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Metadata**: Every time a file is accessed or modified, the filesystem will
+    need to update its timestamps. Similarly, when writing any new data, the filesystem
+    will also need to update its internal metadata, such as the number of used and
+    free blocks. All these changes require physical operations to be performed on
+    disk.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**RAID**: This can be often overlooked, but the type of RAID configuration
+    on the underlying storage can have a huge say in determining whether additional
+    writes are necessary. For instance, operations such as striping data across multiple
+    disks, writing parity information, creating mirrored copies, and rebuilding data
+    will incur additional writes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Scheduling**: I/O schedulers usually employ techniques such as merging and
+    reordering to minimize disk seeks and improve disk performance. Hence, multiple
+    requests can be consolidated into a single request in the scheduling layer.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Data reduction**: If any compression or deduplication is performed, the amount
+    of physical I/O requests performed on disks will be lower than the logical requests
+    initiated by an application.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What causes filesystem latency?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Latency, as we discussed in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160),
+    is the single most important metric in any performance measurement and analysis.
+    From the filesystem’s perspective, latency is measured as the time from which
+    a logical request was initiated to the time it was completed on the physical disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The latency endured because of the bottlenecks in physical storage is one factor
+    that adds to overall filesystem response time. However, to reiterate our discussion
+    from the previous section, as filesystems do not simply hand over an I/O request
+    to the physical disk, latency can be experienced in more than one way, such as
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Resource contention**: If multiple processes concurrently write to a single
+    file, then this can impact filesystem performance. File locking can be a significant
+    performance issue for large applications, such as databases. The purpose of locking
+    is to serialize access to files. Filesystems in Linux use the generic VFS methods
+    for locking.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Cache misses**: The purpose of caching data in memory is to avoid frequent
+    trips to disks. If an application is configured to avoid using the page cache,
+    then it can experience some delays.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Block size**: Most storage systems are designed to work with a specific block
+    size, such as 8 K, 32 K, or 64 K. If the issued I/O requests are of large sizes,
+    they will first need to be broken down into suitable sizes, which will involve
+    extra processing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Metadata updates**: Filesystem metadata updates can be a major source of
+    latency. Updating filesystem metadata involves performing several disk operations,
+    including seeking the appropriate disk location, writing the updated data, and
+    then synchronizing the disk cache with the disk. Depending on the size and location
+    of the metadata being updated, this sequence can take a significant amount of
+    time, especially if the filesystem is heavily used and the disk is busy with other
+    operations. This may result in a backlog of requests and an overall slowdown in
+    filesystem performance.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Breakdown of logical I/O**: As explained earlier in the previous section,
+    a logical I/O operation may need to be broken down into multiple physical I/O
+    operations. This may increase the filesystem latency, as each physical I/O operation
+    requires additional disk access time, which will result in additional processing
+    overhead.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Data alignment**: File system partitions must be correctly aligned with the
+    physical disk geometry. Incorrect partition alignment will cause reduced performance,
+    especially with regard to RAID volumes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Given the plethora of things that can affect the I/O performance of an application,
+    it is no surprise that most people are reluctant to explore this avenue and merely
+    focus on disk-level statistics, which are far easier to understand. We’ve so far
+    only covered some common issues that can impact the life of an I/O request. Troubleshooting
+    is a complex skill to master, and it can be a difficult decision to determine
+    a good starting point. Adding to the confusion is the wealth of tools that can
+    be used for performance analysis. Even though we’re only focusing on the storage
+    side of things here, it is impossible to cover the long list of tools that can
+    help us in our goal in one way or another.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifying the target layers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following table summarizes the different target layers for performance
+    analysis and presents the pros and cons of each approach:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Layer** | **Pros** | **Cons** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Application | Application logs, specific tools, or debugging techniques can
+    determine the scope of the problem, which can aid in subsequent steps. | Debugging
+    techniques are not common and vary for each application. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| System call interface | It’s easy to trace the calls generated by a process.
+    | It’s difficult to filter, as there are multiple system calls for the same function.
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| VFS | Generic calls are used for all filesystems. | There is a need to isolate
+    the filesystem in question, as tracing may include data for all filesystems, including
+    pseudo filesystems. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Filesystems | Filesystems are the first point of contact for an application,
+    which makes them an ideal candidate for analysis. | There are very few filesystem-specific
+    tracing mechanisms available. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Block layer | Multiple tracing mechanisms are available, which can be used
+    to identify how requests are handled. | Some components, such as schedulers, do
+    not offer a lot of tunables. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Disk | This is easier to analyze, as this does not require a deep understanding
+    of higher layers. | This does not paint a clear picture of an application’s behavior.
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 10.2 – Comparing the pros and cons of analyzing each layer
+  prefs: []
+  type: TYPE_NORMAL
+- en: The general consensus (and it definitely has some merit) is that investigating
+    each layer is way too laborious! Enterprises that have dedicated performance analysis
+    engineers make it a habit to go through every tiny detail and identify the potential
+    bottlenecks in a system. However, the more common approach in recent times has
+    been to add more compute power, especially for cloud-based workloads. Adding more
+    hardware resources to an application, as it becomes resource-hungry, is the new
+    normal. Troubleshooting performance issues is often skipped in favor of migrating
+    applications to better hardware platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finding the right tools
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Trying to dig deep into an application’s behavior can be a daunting task. The
+    abstraction layers in the I/O stack do not make our job easier in this regard.
+    To analyze each layer in the I/O hierarchy, you must have a decent grasp of the
+    concepts used in each layer. The job is made even tougher when you include the
+    application in this setup. Although the tracing mechanisms in Linux can help to
+    understand the patterns generated by an application, it is not possible for everyone
+    to have the same level of visibility about the design and implementation details
+    of the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you’re running a critical application, such as an **Online Transaction Processing**
+    (**OLTP**) database that processes millions of transactions every day, it can
+    be helpful to know where CPU cycles are wasted. For instance, there are several
+    service-level agreements associated with a transaction, and it has to be completed
+    within a few seconds. If a single transaction is required to be completed within
+    10 seconds, and only one second is spent processing the filesystem and disk I/O,
+    then clearly your storage is not a bottleneck, as only 10 percent of the total
+    time is being spent in the I/O stack. If the application was blocked at the filesystem
+    level for five seconds, then clearly some tweaking is required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s take a look at the available options that we have to analyze the I/O stack.
+    Note that this is not a complete list of tools by any means. The BCC itself contains
+    an abundance of such tools. The tools presented as follows have just been cherry-picked
+    based on personal experience.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tracing application calls
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `strace` command helps identify the kernel function on which a program
+    spends its time. For instance, the following command provides a summarized report
+    and shows the frequency and time spent on each system call. The `-c` switch displays
+    the count. Here, `myapp` is just a simple user space program:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.2 – Tracing system calls using strace](img/B19430_10_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.2 – Tracing system calls using strace
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This command can prove useful to pinpoint some types of process performance
+    bottlenecks. To filter the output and only show stats for a specific system call,
+    use the `-``e` flag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.3 – Filtering specific calls](img/B19430_10_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.3 – Filtering specific calls
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take it up a notch and see whether we can make something out of the actual
+    trace output. You can also print the timestamps and the time spent on each system
+    call. The trace output can be saved to a file using the `-``o` flag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Focusing only on the subset that corresponds to the I/O portion of the application,
+    note the number after the equal sign in the first write call. We can see that
+    the write call was able to buffer all data into a single write function call.
+    The application wrote 319,488 bytes in 156 microseconds:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.4 – Analyzing the strace output](img/B19430_10_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.4 – Analyzing the strace output
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `strace` command can also be attached to a running process. The strace output
+    is quite substantial, and you often have to laboriously look through a great deal
+    of information before you get somewhere. This is why it is a good idea to know
+    about the most frequently generated calls by an application. For I/O analysis,
+    focus on common system calls, such as `open`, `read`, and `write`. This can help
+    in understanding the I/O pattern of an application from the application’s perspective.
+    Although `strace` doesn’t tell you what the operating system did with the I/O
+    requests afterward, it does tell you what the application generates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To summarize, for a quick analysis, do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Generate a summary of the system calls being generated by the application.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Check the execution times of each call.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Isolate the calls you want information about. For I/O analysis, focus on read
+    and write calls.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tracing VFS calls
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: At the very beginning of your investigation, analyzing VFS can be beneficial
+    for general workload characterization. It can also be helpful to identify how
+    efficiently an application makes use of the different types of available caches
+    in VFS. The BCC program contains tools such as `vfsstat` and `vfscount`, which
+    can help to understand the events in VFS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `vfsstat` tool shows a statistics summary for some common VFS calls, such
+    as `read`, `write`, `open`, `create`, and `fsync`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.5 – The vfsstat output](img/B19430_10_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.5 – The vfsstat output
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to the **READ** and **WRITE** calls, keep an eye out for the **OPEN**
+    column. This shows the number of files opened per second. A sudden increase in
+    the number of open files can greatly increase the number of I/O requests, especially
+    for metadata operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running these tools alone might not offer much insight. A good use of these
+    is to run them in conjunction with some disk analysis tools, such as `iostat`.
+    This will allow you to compare logical I/O requests with physical I/O requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One limitation with `vfsstat` is that it doesn’t segregate the I/O activity
+    at the filesystem level. Another program, `fsrwstat`, traces the read and write
+    functions and breaks them down for the different available filesystems. The following
+    figure shows the breakdown of the number of read and write calls for the different
+    filesystems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.6 – The fsrwstat output](img/B19430_10_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.6 – The fsrwstat output
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Continuing with the output of `vfsstat`, if you notice a large number of files
+    are open, consider using `filetop`. This shows the most frequently accessed files
+    on your system and displays their read and write activity:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.7 – The filetop output](img/B19430_10_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.7 – The filetop output
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The requests issued to VFS constitute logical I/O requests. When analyzing
+    VFS, do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Try to get a picture of the general workload on the system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Check the frequency of common VFS calls
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Compare the obtained figures with the requests at the physical layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Analyzing cache usage
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The VFS includes multiple caches to speed up access to frequently used objects.
+    The default behavior in Linux is to complete all write operations in the cache
+    and flush the written data to disk later. Similarly, the kernel also tries to
+    serve the read operations from the cache and shows the page cache hit-and-miss
+    statistics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `cachestat` tool can be used to display statistics for the page cache hit-and-miss
+    ratios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.8 – Using cachestat](img/B19430_10_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.8 – Using cachestat
+  prefs: []
+  type: TYPE_NORMAL
+- en: From the preceding figure, we can see an excellent cache hit ratio, sometimes
+    even close to 100 percent. This indicates that the kernel is able to satisfy the
+    application’s I/O requests from the memory. The higher the percentage of cache
+    hits, the better the performance gains for the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, the `cachetop` tool provides process-wise statistics for the cache
+    hits and misses. The output is displayed on an interactive interface like the
+    `top` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.9 – Using cachetop](img/B19430_10_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.9 – Using cachetop
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using these tools to analyze cache usage, do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Look for the hits-and-misses ratio to understand what percentage of requests
+    are being served from memory
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If the ratio is on the lower side, the application or operating system parameters
+    might need to be tuned
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Analyzing filesystems
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Although there aren’t many tools that can trace filesystem-level operations,
+    BCC offers a few excellent scripts to observe filesystems. Two scripts, `ext4slower`
+    and `xfsslower`, are used to analyze the slow operations on the two most frequently
+    used filesystems, Ext4 and XFS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The output for both tools, `ext4slower` and `xfsslower`, is identical. By default,
+    both tools print operations that take more than 10 ms to complete, but you can
+    change that by passing the duration value as a parameter. Both tools can also
+    be attached to a specific process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.10 – Tracing the slow Ext4 operations](img/B19430_10_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.10 – Tracing the slow Ext4 operations
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **T** column shows the type of operation, which can be **R** for read, **W**
+    for write, and **O** for open. The **BYTES** column shows the size of the I/O
+    in bytes, while the **OFF_KB** column shows the file offset for the I/O, in KB.
+    The most important values come from the **LAT(ms)** column, which shows the duration
+    of an I/O request, measured from when it was issued by VFS to the filesystem to
+    when it was completed. This is a fairly accurate measure of the latency endured
+    by an application while performing filesystem I/O.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another couple of tools included in this set are `xfsdist` and `ext4dist`.
+    Both tools show the same information, just for different filesystems – that is,
+    XFS and Ext4, respectively. These tools summarize the time spent while performing
+    common filesystem operations and provide a breakdown of the distribution of the
+    experienced latencies as histograms. Both these tools can be attached to specific
+    processes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.11 – Using xfsdist](img/B19430_10_11.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.11 – Using xfsdist
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using filesystem-specific tools, remember the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `ext4dist`/`xfsdist` tools can help to establish a baseline – that is, whether
+    a workload is read- or write-oriented.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The two `ext4slower`/`xfsslower` scripts are extremely effective in determining
+    the actual latency experienced by a process when performing filesystem I/O. When
+    running these, check the latency column to determine the amount of delay being
+    endured by the application.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Analyzing block I/O
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we saw in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160), the standard disk
+    analysis tools such as `iostat` provide information pertaining to the number of
+    bytes read and written per second, disk utilization, and request queues associated
+    with specific devices. These metrics are averaged out over a period of time and
+    do not offer insights on a per-I/O basis. Extracting information about what happened
+    at a specific interval is not possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similar to VFS and filesystems, the BCC also includes several tools that can
+    help to analyze the events happening in the block layer. One of these tools is
+    `biotop`, which is like a `top` command for disks. By default, the `biotop` tool
+    traces the I/O operations on the block device and displays a summary of each process’s
+    activity every second. The summary is sorted based on the top disk consumers in
+    terms of throughput, measured in KB. The process ID and name displayed in the
+    summary represent the time when an I/O operation was initially created, which
+    helps to identify the responsible process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.12 – Using biotop](img/B19430_10_12.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.12 – Using biotop
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another BCC tool to analyze the block layer is `biolatency`. As the name suggests,
+    `biolatency` traces block device I/O and prints a histogram that shows the distribution
+    of I/O latency:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.13 – Using biolatency](img/B19430_10_13.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.13 – Using biolatency
+  prefs: []
+  type: TYPE_NORMAL
+- en: As evident from the preceding output, the bulk of I/O requests took 128–255
+    microseconds to complete. Depending on the workload, these figures can be much
+    higher.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `biosnoop` tool from the BCC traces block device I/O and prints the details,
+    including the process that initiated the request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.14 – Using biosnoop](img/B19430_10_14.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.14 – Using biosnoop
+  prefs: []
+  type: TYPE_NORMAL
+- en: The output from `biosnoop` includes the latency from the time the request was
+    issued to the device to its completion. The `biosnoop` output can be used to identify
+    the process responsible for excessive writes to a disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One final tool that I want to mention is `bitesize`, which is used to characterize
+    the distribution of block device I/O sizes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.15 – Using bitesize](img/B19430_10_15.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.15 – Using bitesize
+  prefs: []
+  type: TYPE_NORMAL
+- en: As shown in the preceding output, the **javaMyApp** process (a simple Java-based
+    application) generates requests between 16–32 KB, whereas **mysql** uses the 4–8
+    KB range.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When analyzing the block layer, remember the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To get a top-end view of disk activity in your system, use `biotop`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To trace application I/O sizes, use `bitesize`. If the application workload
+    is sequential, then using larger block sizes might result in better performance.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To observe block device latencies, use `biolatency`. This will summarize the
+    time ranges for the block I/O requests. If you see higher values, then further
+    digging is required.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To check further, use `biosnoop`. To find out the time spent between the creation
+    of an I/O request and being issued to a device, use the `-Q` flag with `biosnoop`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Summarizing the tools
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The following table shows a summary of the tools that can be used to analyze
+    the events in different layers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Layer** | **Analysis tools** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Application | Application-specific tools |'
+  prefs: []
+  type: TYPE_TB
+- en: '| System call interface | `strace` and `syscount` (BCC) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| VFS | `vfsstat`, `vfscount`, and `funccount` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Cache | `slabtop`, `cachestat`, `cachetop`, and `dcstat`, `dcsnoop` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Filesystems | `ext4slower`, `xfsslower`, `ext4dist`, `xfsdist`, `filetop`,
+    `fileslower`, `stackcount`, `funccount`, `nfsslower`, and `nfsdist` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Block layer | `biolatency`, `biosnoop`, `biotop`, `bitesize`, and `blktrace`
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Disk | `iostat`, `iotop`, `systemtap`, `vmstat`, and `PCP` |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 10.3 – A summary of tools
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that the tools are not limited to the ones mentioned in the table. The
+    BCC toolset alone includes several other tools that can be used for performance
+    analysis. Further, there are multiple arguments that can be passed to each tool
+    to get a more meaningful output. Considering the multiple layers involved in the
+    hierarchy, diagnosing I/O performance issues is a complex task, and as with any
+    other troubleshooting scenario, it will require the involvement of multiple teams.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we resumed our performance analysis and extended it to the
+    higher layers in the I/O stack. Most of the time, analyzing higher layers is skipped,
+    and focus is solely kept on the physical layer. However, for time-sensitive applications,
+    we need to broaden our approach and look for the potential source of delays in
+    application response times.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We started this chapter by explaining the different sources of delays that can
+    be observed by an application when reading from or writing to a filesystem. Filesystems
+    operations go beyond the I/O requests initiated by an application. In addition
+    to application I/O requests, a filesystem can spend time on tasks such as performing
+    metadata updates, journaling, or flushing existing cached data to disks. All these
+    result in extra operations, which incur extra I/O operations. The tools discussed
+    in [*Chapter 9*](B19430_09.xhtml#_idTextAnchor160) were centered around disks
+    and didn’t offer much visibility into the events happening in the VFS and the
+    block layer. The BCC offers a rich set of scripts that can trace the events in
+    the kernel and give us insight into individual I/O requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll take our analysis further and learn the different
+    tweaks that we can apply at different levels in the I/O hierarchy, improving performance.
+  prefs: []
+  type: TYPE_NORMAL

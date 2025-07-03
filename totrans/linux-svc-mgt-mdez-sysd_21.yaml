@@ -1,0 +1,926 @@
+- en: '*Chapter 18*: Understanding systemd-logind'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Yes, it''s true – there''s even a new way of managing user logins and user
+    sessions in systemd. In this chapter, we''ll delve into the mysteries of `systemd-logind`,
+    and show you some fairly nifty user management tricks. Knowing these tricks can
+    definitely help you out in a business environment. Specific topics in this chapter
+    include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the need for a new login service
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `systemd-logind.service`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `logind.conf`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `loginctl`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `polkit`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All right, let's get started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We won't need anything fancy for this chapter. Just use your normal `logind.conf`
+    demos, because restarting the `systemd-logind` service is problematic on graphical
+    mode machines (I'll explain more about that in a bit). At the end of the chapter,
+    there will be a couple of demos for which it will be handy to have a desktop interface,
+    so you'll want an Alma machine with the **Gnome 3** desktop for them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, let's begin by looking at the `systemd-logind.service` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3EiIHSD](https://bit.ly/3EiIHSD)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the need for a new login service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: I know, you're wondering, *Why do we even need a new login service?* One reason
+    is because of the tight integration between `systemd` and `cgroups`. The `systemd-logind`
+    service does several things for us, but its main job is to create cgroup slices
+    and scopes for everyone who logs into a system. As we go through this chapter,
+    we'll look at a few other things that `systemd-logind` also does for us. (To read
+    a short description about all of the things that `systemd-logind` does, see the
+    `systemd-logind` man page.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding systemd-logind.service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There's a considerable difference in how this unit file is set up on RHEL-type
+    systems and Ubuntu. Let's first look at the RHEL-type setup on the Alma machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Alma Linux systemd-logind.service file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'On the Alma machine, the `[Unit]` section of the `/lib/systemd/system/systemd-logind.service`
+    file looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here''s the breakdown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Wants=user.slice`: This makes total sense. Due to systemd''s tight integration
+    with cgroups, a user slice must be created for every user who logs in.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`After=nss-user-lookup.target`: The `/etc/nsswitch.conf` file, which we''ll
+    discuss next.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Wants=dbus.socket` and `After=dbus.socket`: There''s no `[Install]` section
+    of this service file, so this service won''t automatically start when we reach
+    either the multi-user or graphical target. Instead, a `dbus` message will get
+    generated when the first user logs in for the first time, which will automatically
+    start the service.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Okay, let''s look at the relevant lines of the `/etc/nsswitch.conf` file. Open
+    it and look for these four lines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the `passwd:`, `shadow:`, and `group:` lines of the file, the `sss` means
+    that user and group information will be pulled from the `sssd` allows you to use
+    `/etc/passwd`, `/etc/group`, `/etc/shadow`, and `/etc/gshadow` files. If the system
+    can't find information about the user who's logging in in either `sss` or `files`,
+    then it will go to `systemd`. The `systemd` setting allows the system to authenticate
+    a dynamic user that might be configured in a service unit file, and that wouldn't
+    have an entry in either the `/etc/passwd` or `/etc/shadow` files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Dynamic users*, to which I alluded in the preceding paragraph, aren''t for
+    normal human users who would log into a computer. They''re *system accounts* that
+    are used for running services with reduced privileges. A dynamic user gets created
+    on-the-fly whenever a service that uses one starts, and gets destroyed whenever
+    the service stops. You''ll never see an entry for a dynamic user in the `/etc/passwd`,
+    `/etc/group`, `/etc/gshadow`, or `/etc/shadow` files.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s get back to the `systemd-logind.service` file, and look at the
+    `[Service]` section. I can''t show it all to you at once, so here''s the top part:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It''s mainly the standard stuff that we''ve gone over before, so you should
+    have a good handle on it already. The main thing I want you to notice is the `CapabilityBoundingSet=`
+    line, which grants a lot of root-level capabilities to this service. The second
+    part of the `[Service]` section consists of a lot of security and resource control
+    directives:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: As always, I'll leave it to you to look these directives up in the `systemd.directives`
+    man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, that's it for the `systemd-logind.service` file on the Alma machine.
+    Let's look at the one on the Ubuntu machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Ubuntu Server systemd-logind.service file
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `systemd-logind.service` file on the Ubuntu machine is considerably different
+    from the one on the Alma machine. Let''s look at the `[Unit]` section first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first difference we see is that the `Wants=` line calls in the `modprobe@.service`
+    to load the `drm`) kernel module. I''m not sure why that is, because this seems
+    like something that should get loaded when you boot the machine. In fact, this
+    seems to be the case on the Alma machine, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: For some reason that I don't know, the Ubuntu developers decided to load the
+    `drm` module when the `systemd-logind` service starts, instead of at boot-up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `[Service]` section on the Ubuntu machine is much larger, because it contains
+    more security directives than what you saw on the Alma machine. Why? Well remember,
+    the Alma machine is running `systemd-logind.service` file give us some good *Mandatory
+    Access Control* protection that AppArmor doesn''t give us. Here''s a snippet of
+    the `[Service]` section, which shows some of the extra directives for Ubuntu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: As always, I'll let you read about these security directives in the man pages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's look at the configuration file for `systemd-logind.service`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding logind.conf
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `/etc/systemd/logind.conf` file is the configuration file for the `systemd-logind`
+    service. Now, before we get too far, I want to recommend that you use a text-mode
+    virtual machine for this section. The demos will have you make several changes
+    to the `logind.conf` file, and you'll need to restart the `systemd-logind` service
+    after each one. If you do that on a graphical mode machine, you'll get logged
+    out of the desktop, and will have to log back in. The desktop doesn't always come
+    back up correctly, and you'll end up having to restart the machine. With a text-mode
+    machine, that isn't a problem. So, since the Ubuntu Server machine is already
+    in text mode, we'll use it for the demos.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The good news is that the `logind.conf` file is identical on both the Ubuntu
+    machine and the Alma machine. Here''s what it looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B17491_Figure_18.1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 18.1 – The logind.conf file
+  prefs: []
+  type: TYPE_NORMAL
+- en: As is the case with all of the configuration files in `/etc/systemd/`, all directives
+    are commented out. The values shown are the default ones that are compiled into
+    the `systemd-logind` executable. You can probably figure out what many of these
+    directives do just by looking at their names, and you can consult the `logind.conf`
+    man page to read about the ones that aren't so obvious. So, rather than cover
+    each directive in detail, I just want to go over a few of the more interesting
+    ones. Let's start with the *virtual terminals* setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Virtual terminals
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'At the top, we see the `#NAutoVTs=6` line. This sets the number of available
+    *virtual terminals*. Virtual terminals don''t do much for you on a desktop machine,
+    because you can just open multiple terminal emulators from the `ssh` into my other
+    GPU mining rig from the **F4** terminal. On a graphical mode desktop machine,
+    one virtual terminal is reserved for the desktop. (It''s usually the **F1** terminal,
+    but that could vary with different distros.) You can try this on your virtual
+    machine, but there''s a bit of a trick to it. If your host machine is running
+    **Windows**, just do the *Ctrl-Alt-Function* key sequence from your normal keyboard,
+    as you''d do on a bare-metal Linux machine. But, if your host machine is running
+    Linux, you''ll need to open the **VirtualBox** **Input/Keyboard** menu and bring
+    up the **Soft Keyboard**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B17491_Figure_18.2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 18.2 – The VirtualBox Soft Keyboard
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, do your *Ctrl-Alt-Function* key sequence by clicking on the soft keyboard.
+    If you try to do it the normal way with your normal keyboard, the key sequence
+    will be intercepted by the host machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You''ll likely never edit this line, because six virtual terminals are enough
+    for most people. But if you ever do need more, you can add them here. For example,
+    let''s say that you need to have eight virtual terminals instead of just six.
+    Just change the `#NAutoVTs=6` line to `#NAutoVTs=8`. Then, restart the `systemd-logind`
+    service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can see the extra two virtual terminals by doing *Ctrl + Alt + F7* and *Ctrl
+    + Alt + F8*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's see how users can keep processes going after they log out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keeping user processes going after logout
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'These next three lines work together:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you''re an old-timer like me, you''ll likely remember how this worked in
+    the old SysV days. You''d log into a Linux server, start a process from the command
+    line, and then log out while the process was still going. The problem was that
+    the process would stop as soon as you logged out. If you logged in remotely and
+    started a process, it would stop if you accidentally closed the remote terminal
+    of your local machine or if the local machine were to reboot. In order to keep
+    the process on the remote machine going if any of those things happened, you''d
+    need to start the process with either `screen` or `nohup`. Now though, you don''t
+    have to worry about that as long as these three lines stay as you see them here.
+    To demonstrate, create an account on the text-mode Ubuntu machine for Frank, if
+    you haven''t done so already:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, have him remotely log in. Have him create the `loop.sh` shell script
+    in his own home directory, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It''s a silly little loop that does nothing but create an entry in a text file
+    every five seconds. That''s okay though, because it serves our purpose. (Also,
+    note that I didn''t upload this script to `loop.sh` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, have Frank start the script as a background process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Verify that the script is running by doing `tail -f number.txt`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Do a *Ctrl + C* to stop the `tail -f` process. Then, have Frank log out by typing
+    `exit`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, have Frank log in again, and again have him do `tail -f number.txt`.
+    You should see that the number list keeps incrementing, which means that the process
+    kept going after Frank logged out. To stop the process, use `ps aux` to get the
+    `PID` number, and then use that PID number in a `kill` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Then, have Frank log out by typing `exit`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that we don''t want Frank to keep his processes going after
+    he logs out. In your own terminal, open the `/etc/systemd/logind.conf` file in
+    your text editor. Change the `#KillOnlyUsers=` line so that it looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Save the file and restart the `systemd-logind` service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that there's no `reload` option for this service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go back to Frank's terminal, and have him log back in. Have him start the `loop.sh`
+    script in the background, as you did before. When you do a `tail -f number.txt`
+    command this time, you should see that the number list no longer increments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, we're through with Frank for now, so go ahead and have him log out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: A few days ago, the day that I started writing this chapter, Frank the cat decided
+    to help out. He pressed some keys on my keyboard and deleted a whole paragraph,
+    replacing it with a string of dashes. (Thank goodness for the **Undo** feature.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's look at a few *power management directives*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Power management directives
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Further down in the `/etc/systemd/logind.conf` file, you'll see the `HandlePowerKey=`,
+    `HandleSuspendKey=`, `HandleHibernateKey=`, `HandleLidSwitch=`, `HandleLidSwitchExternalPower=`,
+    and the `HandleLidSwitchDocked=` power management directives. You can probably
+    figure out what these directives do just by looking at their names, and you can
+    see the default settings in the `logind.conf` file. To see the other settings
+    that you can use for these directives, just consult the `logind.conf` man page.
+    It's a good write-up, so I won't repeat any of that here. But, I will offer one
+    example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s say you have a laptop, and you need it to keep running when you shut
+    the lid. Just look for this line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Change it to look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: I'm going to assume that you're running your laptop in graphical mode. (Doesn't
+    everyone?) Since restarting `systemd-logind.service` doesn't work well on graphical
+    mode machines, your best bet would be to just reboot the machine so that the new
+    setting can take effect. Now, instead of suspending the laptop when you close
+    the lid, it will continue running as merrily as it did with the lid open. (You
+    can try this on your virtual machine if you really want to. But, since your virtual
+    machine doesn't have a lid, you won't see anything happen.).
+  prefs: []
+  type: TYPE_NORMAL
+- en: For our last example, let's do some *Idle Action*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The IdleAction directives
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`IdleAction`, eh? Boy, if that isn''t an oxymoron, I don''t know what is. But
+    seriously, you can configure these next two directives to control what happens
+    when you leave the computer sitting idle for a specified period of time:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'By default, the machine will just keep running until you shut it down. Just
+    for fun, change these two lines so that they look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Restart `systemd-logind.service`, and then just wait, without touching the virtual
+    machine. After three minutes, you should see the machine automatically shut down.
+    Of course, you don't want to leave the virtual machine with this configuration,
+    so boot it up again and change these settings back to their default values. Then,
+    restart `systemd-logind.service`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are still a few directives that I didn't cover, but you can read about
+    them in the `logind.conf` man page. Let's move on to the `loginctl` management
+    utility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding loginctl
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Another bit of good news is that `loginctl` works identically on both Ubuntu
+    and Alma. You can use it to keep an eye on what other users are doing, change
+    certain settings for a user's login environment, or even as a security tool to
+    get rid of malicious users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this section, we'll continue with the Ubuntu Server machine. Create user
+    accounts for Pogo, Vicky, and Frank, if you haven't already done so. Log yourself
+    in from the local terminal, and again from a remote terminal. Do *Ctrl-Alt-F2*
+    on the virtual machine to get to the second virtual terminal, and have Vicky log
+    in there. Then, have Pogo and Frank log in from their own remote terminals.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we get into the real meat of the matter, we need to define a couple
+    of terms:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**session**: A *session* gets created whenever a user logs into the system.
+    Each session is assigned a decimal number as its ID.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`seat0` is the only seat that you will ever see. Creating new seats involves
+    configuring `udev` rules, which is beyond the scope of this book.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Doing either `loginctl` without any options or `loginctl list-sessions` shows
+    you who is logged in and where they''ve logged in from:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: You see that Vicky and I are the only ones with assigned seats, while Frank
+    and Pogo have to remain standing. (Yeah I know, bad joke.) But seriously, Vicky
+    and I were assigned to `seat0` because we're both logged in at the local terminal.
+    I logged in from `tty1`, which is the default virtual terminal. Then, I did *Ctrl-Alt-F2*
+    to get to the second virtual terminal (`tty2`), and had Vicky log in there. It's
+    probably not real likely that you'll have two people log into two different virtual
+    terminals of the same local machine, but it could happen. I did it now to show
+    you that more than one user can be assigned to the same seat. You also see that
+    I have two sessions going for myself, because I'm logged in from both the local
+    terminal and from a remote `ssh` session on the `pts/0` terminal. Frank and Pogo
+    are only logged in remotely, which is why they don't have seats. Also, note that
+    every session has its own assigned ID number in the first column.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: I've just shown you how the `list-sessions` option works on Ubuntu. On a RHEL
+    8-type distro such as Alma, the `SEAT` and `TTY` columns will both be empty for
+    any users who have logged in remotely. (I have no idea why.) However, you will
+    see the `pts` information for a user when you use either a `user-status` or a
+    `session-status` option, which I'll explain next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the `user-status` option to see detailed information about a user. If you
+    don''t specify a username, you''ll see information about your own user account.
+    Right now, let''s see what kind of mischief our intrepid opossum, Pogo, is up
+    to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To see slightly less information, we''ll look at Pogo''s `session-status`.
+    We see that he''s in session number `16`, so the command and output will look
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We''ve seen examples of how to get information about users and sessions. Let''s
+    look at how to get information about seats. A `list-seat` command shows you all
+    of the available seats:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Unless you''ve configured one or more `udev` rules, `seat0` is the only one
+    you''ll ever see. Now, use the `seat-status` option to see the hardware that this
+    seat includes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are several more options for getting information about users, sessions,
+    and seats, but you get the idea. Besides, you can get more information from the
+    `loginctl` man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let''s say that for whatever reason, you want to kick Frank out of his
+    session. Just use the `terminate-session` option, followed by Frank''s session
+    ID number, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, you see that Frank''s session really has been terminated:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If a user is logged into multiple sessions and you want to shut down all of
+    their sessions, use the `terminate-user` option, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are a few other management commands that you might find useful. They're
+    easy to understand, and there's a good write-up about them in the `loginctl` man
+    page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's cover a cool tool that can replace `sudo` in *some* instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding polkit
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`systemd-logind` does provide access to `polkit` functionality. PolicyKit was
+    a **Red Hat** innovation that came on the scene quite a few years ago, and it
+    could be used on various Unix-like operating systems. In 2012, a new version was
+    released with the brand new name, *polkit*. The developers changed the name as
+    a reminder that this is a whole new code base that isn''t compatible with the
+    older version.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `polkit` service is similar to `sudo` in that it allows a normally non-privileged
+    user to perform certain privileged tasks. There is, however, a big difference
+    between the two.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `sudo` utility is quite easy to configure, and you can easily grant pretty
+    much any admin privilege or privileges to any user. When you install the operating
+    system, you'll have full `sudo` privileges for yourself, and nobody else will
+    have any. On the other hand, `polkit` comes pre-configured with a set of administrative
+    tasks for which it can grant root privileges. You can add more tasks, and there
+    might be times when you'll want to. Keep in mind though, that writing rules and
+    actions for `polkit` is more complex than writing rules for `sudo`. So, you'll
+    want to study the examples that are already on the system and read the documentation
+    before you try to write your own. Before we look at these rules and actions, let's
+    see how `polkit` grants root privileges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We''ll start with the Alma Linux machine. We need root privileges to peek into
+    some of the `polkit` directories, so let''s just go to the `root` shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, look in the `/etc/polkit-1/rules.d/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The file we want is the `50-default.rules` file, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Take note of the final stanza:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means that if `polkit` detects someone trying to perform an administrative
+    task without using `sudo`, it will look in the wheel group to see if anyone is
+    there. If there is someone in the wheel group, then it will prompt the user to
+    enter the password of that person. If the wheel group has no members, that means
+    that the root user has an assigned password. If that's the case, `polkit` will
+    prompt for the root user password.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the Ubuntu machine, the files we need to see are in the `/etc/polkit-1/localauthority.conf.d/`
+    directory, and we don''t need root privileges to enter it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `50-localauthority.conf` file looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There''s only one important line here, which looks for the root user. (That''s
+    the `unix-user` with UID `0`.) The other file looks for members of the `sudo`
+    or `admin` groups:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: The biggest difference between the Red Hat and Ubuntu worlds so far is that
+    on Red Hat-type systems, members of the wheel group have full sudo privileges.
+    On Ubuntu systems, members of either the sudo group or the admin group have full
+    sudo privileges. Now, let's see how this works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the Ubuntu machine, try to reload the `ssh` service without using sudo:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you see, polkit asks for my password because I''m the only member of the
+    sudo group. Now, let''s try using polkit to look at the firewall configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: It failed, because polkit isn't configured to work with the `iptables` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let''s see what happens if Pogo tries to use polkit. For it to work though,
+    his password will need to be different from your own password. If it''s the same,
+    change it to something else:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let''s have Pogo try to reload `ssh`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: As before, polkit asks for my password, because I'm a member of the sudo group
+    and Pogo isn't. Pogo doesn't know my password, so he can't perform this command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While we''re still on the Ubuntu machine, let''s see what some of these rules
+    look like. We''ll `cd` into the `/usr/share/polkit-1/rules.d/` directory and peek
+    inside the `systemd-networkd.rules` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we're assigning root privileges to the `systemd-networkd` system user
+    account so that it can perform these three tasks without prompting for a password.
+    (The `return polkit.Result.YES;` line is what prevents it from asking for a password.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For something a bit more complex, let''s `cd` into the `/usr/share/polkit-1/actions/`
+    directory and peek inside one of its files. We''ll choose the `com.ubuntu.languageselector.policy`
+    file, since it''s the shortest. The only part that we need to look at is the `action
+    id=` section, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `<default>` stanza at the bottom is where we define who can perform this
+    action. Here''s the breakdown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`<allow_any>`: This tag sets authorizations for any client machine. The `auth_admin`
+    setting requires the user to enter the administrative password before the action
+    can be performed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`<allow_inactive>`: This tag sets authorizations for clients in inactive sessions
+    on the local console. It''s set to `no` here, which prevents these clients from
+    having any authorization.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`<allow_active>`: This is for clients in an active session on the local console.
+    The `auth_admin_keep` value requires that the user enter the admin password. It
+    also allows the user to maintain authorization for a short period of time.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The other action files are set up in a similar manner, and I'll leave it to
+    you to peruse through them. For more details on the rules and actions, see the
+    `polkit` man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The polkit service is activated by a `dbus` message whenever someone tries
+    to perform an administrative action that''s configured in `polkit`, as we see
+    by the `Type=dbus` line in its unit file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, that does it for the Ubuntu machine. Things are pretty much the same
+    on the Alma machine, except that you need root privileges to `cd` into the `rules.d/`
+    directory, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let''s shift over to the local graphical terminal of the Alma virtual
+    machine. If you''re still in the root shell, type `exit` to get back to your own
+    shell. Now, try to reload `sshd`, and you''ll see a dialog box pop up to ask for
+    the admin password:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/B17491_Figure_18.3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 18.3 – The graphical polkit password dialog box
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, I think that that's about it for polkit. Let's summarize what we've learned
+    and wrap things up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As always, we've seen some cool stuff in this chapter. We began with a discussion
+    about the `systemd-logind.service` file, and saw how it's set up differently on
+    the Ubuntu and Alma machines. We then looked at the `logind.conf` file, and played
+    with some of its configuration options. After that, we played with `loginctl`
+    and wrapped up with a discussion of polkit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And that, guys and gals, wraps things up not only for this chapter, but also
+    for the whole book. I hope that you've enjoyed our journey through the idyllic
+    *land of systemd* as much as I have. Take care, and I hope to see you again soon.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: How does the `systemd-logind` service get activated?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. As part of the multi-user target
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. As part of the graphical target
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. When it receives a `dbus` message
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. As part of the `sysinit` target
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What happens when two different users remotely log into a Linux server?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. They both get assigned to `seat0`.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. One gets assigned to `seat0` and the other gets assigned to `seat1`.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. They both get assigned to `seat1`.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. Neither of them gets an assigned seat.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: In which of the following files does `systemd-logind` look to find out how to
+    do user authentication?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `/etc/nsswitch.conf`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. `/etc/default/nsswitch.conf`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. `/etc/sysconfig/nsswitch.conf`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. `/etc/authenticate.conf`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following statements is true about polkit?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. In its default configuration, it works with only a pre-defined set of administrative
+    commands.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. In its default configuration, it works with all administrative commands,
+    just as sudo does.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. It only works with the root user password.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. It can only be used on text-mode machines.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: D
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The SSSD home page: [https://sssd.io/](https://sssd.io/ )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'An explanation of seats and sessions: [https://www.man7.org/linux/man-pages/man3/sd-login.3.html](https://www.man7.org/linux/man-pages/man3/sd-login.3.html
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The polkit reference manual: [https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html](https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

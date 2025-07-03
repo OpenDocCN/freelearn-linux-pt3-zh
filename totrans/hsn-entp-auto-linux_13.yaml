@@ -1,0 +1,926 @@
+- en: Managing Users on Linux
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: No Linux server is complete without a method for users to access it. Whether
+    administrators or end users, and whether using local or centralized credentials,
+    Linux servers need a mechanism for users (and even tools such as Ansible!) to
+    access them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: User management is, like all good server configuration and maintenance activities,
+    an ongoing job. Credentials need rotating on a regular basis, to ensure the security
+    and integrity of systems. Employees come and go, meaning access details must be
+    updated accordingly. Indeed, access management can, in a busy organization, be
+    a full-time job in itself!
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will explore, through hands-on examples, how to automate
+    your user and access management through Ansible, in a way that is consistent with
+    our **Standard Operating Environment** (**SOE**) model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing user account management tasks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Centralizing user account management with **Lightweight Directory Access Protocol**
+    (**LDAP**)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Enforcing and auditing configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This chapter includes examples, based on the following technologies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ubuntu Server 18.04 LTS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CentOS 7.6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ansible 2.8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To run through these examples, you will need access to two servers or virtual
+    machines running one each of the operating systems just listed, and also, Ansible.
+    Note that the examples given in this chapter may be destructive in nature (for
+    example, they add and remove user accounts, and make changes to server configuration)
+    and, if run as is, are only intended to be run in an isolated test environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once you are satisfied that you have a safe environment in which to operate,
+    let's get started on looking at the installation of new software packages with
+    Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All example code discussed in this chapter is available from GitHub, at the
+    following URL: [https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter10](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter10).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing user account management tasks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At the most fundamental level, every Linux server in your environment will require
+    some degree of access for users. In an enterprise setting where there could be
+    hundreds, if not thousands, of servers, a centralized user management system such
+    as LDAP or Active Directory would be an ideal solution as, taking the examples
+    of a user leaving or changing their password, they can do this in one place, and
+    it is applied across all servers. We will explore this aspect of Enterprise Linux
+    management and automation in the next section, *Centralizing user account management
+    with LDAP*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For now, though, let us concern ourselves with local account management—that
+    is, accounts that are created on each and every Linux server where access is required.
+    Even when a centralized solution such as LDAP is present, local accounts are still
+    a requirement—if for no other purpose than to serve as an emergency access solution,
+    should the directory service fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that, as with all Ansible examples in this book, they can be run equally
+    well on 1, 100, or even 1,000 servers. In fact, the use of Ansible reduces the
+    need for a centralized user management system, as user account changes can be
+    pushed out across the entire estate of servers with ease. However, there are good
+    reasons not to rely solely on this—for example, one server being down for maintenance
+    during an Ansible playbook run means it will not receive the account changes being
+    made. In the worst-case scenario, this server could then pose a security risk
+    once it is brought back into service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Starting in the next section, we will explore the ways in which Ansible can
+    assist with your local account management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding and modifying users with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Whether you are configuring a brand new server for the first time after it has
+    been built or making changes when a new employee joins the company, adding user
+    accounts to a server is a commonly required task. Thankfully, Ansible has a module
+    called `user`, which is designed to perform user account management tasks, and
+    we shall proceed to use exactly this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout our previous examples, we have been very careful to highlight the
+    differences between platforms such as Ubuntu and CentOS, and user account management
+    requires a little consideration here too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take, for example, the following shell command (which we will later automate
+    in Ansible):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This command could be run on either CentOS 7 or Ubuntu Server 18.04, and would
+    yield the same results, namely:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The user account `johndoe` would be added with the next free **user identification
+    number** (**UID**) for users.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The account comment would be set to `John Doe`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The shell would be set to `/bin/bash` .
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Indeed, you could run this command on just about any Linux system, and it would
+    work. The differences start, however, when you consider groups, especially built-in
+    ones. For example, if you wanted this account to be able to use sudo for root
+    access (that is, `johndoe` is a system administrator), you would want to put this
+    account into the `wheel` group on CentOS 7\. On Ubuntu Server, however, there
+    is no wheel group, and attempting to put the user into such a group would result
+    in an error. Instead, on Ubuntu, this user would go into the `sudo` group.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is subtle differences like this that could trip you up when it comes to automated
+    user account management across different Linux distributions—however, as long
+    as you remain mindful of such things, you can easily create Ansible playbooks
+    or roles, to manage your Linux users with ease.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s build on this example, to instead create the `johndoe` user in an Ansible
+    role, such that access for them can be rolled out on all Linux servers. The code
+    for `roles/addusers/tasks/main.yml` to perform the same function as the shell
+    of the preceding command should look something like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we run this role in the usual way, we can see that the user account gets
+    created on the first run, and that no action is taken if we run the playbook a
+    second time. This is denoted in the following screenshot, which shows the preceding
+    role being run twice—the `changed` and `ok` statuses show when a user account
+    is added, and when no action is taken because it already exists respectively:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/427e80b7-f5c6-4dbc-bd88-65995df713c9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: So far, so good—however, this example is rather skeletal in nature—our user
+    has no password set, no group membership, and no authorized SSH keys. We demonstrated
+    previously that we can run an Ansible role containing the user module more than
+    once and changes will only be made if required, and we can leverage this to our
+    advantage. Let's now expand our example role, to add these things.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we get into our next example, we will demonstrate how to generate a
+    password hash, using Ansible. Here, we will choose the word `secure123`. The `user`
+    module of Ansible is capable of setting and modifying user account passwords,
+    but it does not (for very good reasons) allow you to specify the password in plaintext.
+    Instead, you must create a password hash, to send to the machine being configured.
+    In [Chapter 6](0c3b40ef-5f31-4fd1-b05f-d549444db163.xhtml), *Custom Builds with
+    PXE Booting*, we looked at a way to do this with a small amount of Python code,
+    and you are welcome to reuse this method here. However, you can also make use
+    of Ansible''s vast array of filters, to generate a password hash from a string.
+    Run the following command from the shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running this produces a password hash that you can copy and paste into your
+    role, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e3ce49b6-a39d-4dac-aabc-1cd62186d762.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'This is very useful in itself—however, let''s bear something in mind: no password
+    hash is completely secure. Remember that once, MD5 hashes were considered secure,
+    but are now not. Ideally, you should not be storing the hash in plaintext either,
+    and should regenerate it on every system as it contains a unique salt. Luckily,
+    we can use the `password_hash` filter in a role directly to achieve this.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following example, we demonstrate how to store the password string in
+    a variable, and then, how to use the `password_hash` filter to generate the hash
+    for the remote system. In a real-world use case, you would replace the plaintext
+    variable file with an Ansible vault file so that at no point is either the original
+    password or hash stored unencrypted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, let''s create `roles/addusers/vars/main.yml`, and store John
+    Doe''s password in a variable, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, let''s create an SSH key pair for this user, in the directory `roles/addusers/files/`,
+    by running the following command in that directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Of course, it is likely in an enterprise setting that the user would generate
+    their own key pair and provide an administrator with the public key for distribution
+    to the systems they will use—however, for our example here, it is easier to demonstrate
+    with a newly generated key pair.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, let''s say that `johndoe` is going to administer Ubuntu systems, and
+    so, should be in the `sudo` group. Our resulting role should now look like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running the code yields `changed` results, as we would expect, and the following
+    screenshot shows the successful addition of the user and their corresponding SSH
+    public key:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/bcaecbf1-eaf7-4cbd-a592-6d20aab28cc3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Note that we have successfully modified the `johndoe` account here, as we created
+    it earlier in this section—however, we could also have run this most recent role
+    before the account creation, and the end result would have been the same. That
+    is the beauty of Ansible—you don't need to write different code for modifications
+    and additions. There are many other modifications possible with the `user` module,
+    and it should serve most of your needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Returning briefly to the `vars/main.yml` file we created earlier, we left this
+    in plaintext for simplicity in this example. However, we can very easily encrypt
+    our existing file, using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following screenshot shows this encryption process in action:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/75836cdd-818f-404d-9391-c9b353ec1667.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The data is now encrypted at rest! We can still run the playbook without decrypting
+    it—simply add the `--ask-vault-pass` parameter to the `ansible-playbook` command,
+    and enter your chosen vault password when prompted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before concluding this section, it is worth noting that we can also leverage
+    `loops`, to create multiple accounts at once. The following example creates two
+    new users with differing group membership, and with distinct username and matching
+    comments on their accounts. Expanding this example to address initial passwords
+    and/or SSH keys is left as an exercise for you, but you should have enough information
+    to build upon to achieve this. The code can be seen below:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Noting that we created `johndoe` earlier in this chapter, we can see that if
+    we run this role, the `janedoe` user is the only account created as they did not
+    already exist—the following screenshot shows exactly this. `janedoe` shows a `changed`
+    status, informing us that a change was made—in this case, the account was created.
+    The `ok` status against the `johndoe` user account tells us that no action was
+    performed, as can be seen in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e45a3d06-0bf6-4cfc-8e1a-83d531829a8b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this way, user accounts can be created and managed at scale, across a wide
+    number of Linux servers. As we can see in the preceding screenshot, in the usual
+    Ansible manner, only the required changes are made, with existing accounts left
+    unchanged. While adding accounts is straightforward, we must also consider that
+    employees also leave enterprises from time to time, and so, account cleanup is
+    also required in this instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will explore the ways in which Ansible can assist with removing user accounts
+    and tidying up after them, in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Removing users with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Although we have shown that it is easy to add and modify user accounts with
+    Ansible, we must consider removal as a separate case. The reason for this is simple—Ansible
+    assumes that, if we use the `user` module in conjunction with a `loop` to add
+    both `johndoe` and `janedoe`, it will add them if they do not exist; otherwise,
+    it will modify them. If, of course, they match the state described by the role
+    or playbook, then it will do nothing at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, Ansible assumes nothing about the state prior to it being run. Thus,
+    if we delete `johndoe` from the loop described previously and run the playbook
+    again, this account is not removed. As a direct result of this, we must handle
+    account removal separately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code will remove this user account:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, if we run this command, the output should look something like the following
+    screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/b4f2b703-028d-4ed1-bb20-4dca89fe2d5c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Running this role is the equivalent of using the `userdel` command in the shell—the
+    user account is removed, along with all group memberships. However, the `home`
+    directory is left intact. This is normally the safest route, as users might have
+    stored important code or other data in their `home` directory, and often, it is
+    best for someone to sanity-check that the directory is safe to remove, before
+    it is actually removed. If you are sure that you want to remove the directory
+    (which is best practice, for both security reasons and to free up disk space),
+    then add the following code to the role we just created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: This performs a recursive delete of the `path` specified, so use this with care!
+  prefs: []
+  type: TYPE_NORMAL
+- en: With these practical examples and a little additional detail from the documentation,
+    you should be in a good position to automate your local account tasks with Ansible.
+    In the next section, we will explore the use of centralized user account management
+    with LDAP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Centralizing user account management with LDAP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Although Ansible performs a fine job when it comes to managing user accounts
+    across an estate of servers, the best practice in an enterprise is to make use
+    of a centralized directory system. A centralized directory is able to perform
+    a number of tasks that Ansible can not—for example, enforcing password security
+    criteria, such as length and character types, password expiry, and account lockout
+    when too many incorrect passwords are tried. As such, it is highly recommended
+    that such a system be used in the enterprise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Indeed, many enterprises already have such a system in place, two common ones
+    being FreeIPA and Microsoft **Active Directory** (**AD**). In the following sections,
+    we will explore the integration of these two systems with your Linux servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Microsoft AD
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As this is a book on Linux automation, an in-depth discussion of Microsoft AD and
+    its setup and configuration is well beyond its scope. Suffice to say that in the
+    context of Linux, AD is best suited to centralized user account management, although,
+    of course, its capabilities are far greater than this. Most organizations that
+    need an AD server will already have one set up, and so, our concern is not with
+    this aspect, but with getting our Linux servers to authenticate against it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On most modern Linux distributions, the `realmd` tool is used to join the Linux
+    server in question to AD. Next, we consider a hypothetical example of joining
+    a CentOS 7 server to AD—however, every organization, their AD setup, organizational
+    units, and so on will be different, and so, there is no one-size-fits-all solution
+    here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you will no doubt be aware by now, performing this process on Ubuntu will
+    be very similar, except that you will use the `apt` module in place of `yum`,
+    and the package names could differ. Once `realmd` and its required packages are
+    installed, the process is identical.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is hoped, though, that the following code given provides you with a good
+    basis on which to develop your own Ansible role to join AD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before beginning the process of joining the directory, it is vital that the
+    Linux server is using the correct DNS servers that contain the appropriate **Service**
+    (**SRV**) records for the domain. Often, these DNS servers will be the AD servers
+    themselves, but that again will vary from organization to organization.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The `realmd` tool must be installed, along with a number of supporting packages.
+    Let''s create a role called `realmd`, using our familiar `roles` directory structure.
+    The `roles/realmd/tasks/main.yml` should begin with the following code, to install
+    the required packages:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Some of these packages offer supporting functions—for example, `openldap-clients`
+    is not directly required, but can be very useful in debugging directory issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once our prerequisite packages are installed, our next task is to join the
+    Active Directory itself. Here, we are assuming the presence of `roles/realmd/vars/main.yml`
+    with the `realm_join_password`, `realm_join_user`, and `realm_domain` variables
+    set. As this file might well contain a password with sufficient privileges to
+    join the AD domain, it is recommended that this variables file be encrypted with
+    `ansible-vault`. Run the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The use of the `shell` module to perform the `realm join` requires special
+    consideration, as running this task twice will not yield the normal clean behavior
+    of Ansible. Indeed, performing a second `realm join` when the server is already
+    a domain member results in an error. As a result, we set `ignore_errors: True`,
+    and `register` the result of the command so that we can later evaluate if it ran
+    successfully. We also notify a handler that we will define later, to restart the
+    `sssd` service. The aforementioned `vars` file should look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Be sure to substitute the variable values with ones appropriate to your own
+    environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We immediately follow this task with a check, to see if the `realm join` was
+    successful. If it was successful, we should either get a return code of `0` or
+    an error, informing us that the server is `Already joined to this domain`. If
+    we don''t get these expected results, then we will fail the entire play to ensure
+    that the issue can be rectified, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we create the handler, to restart `sssd` in `roles/realmd/handlers/main.yml`,
+    as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: These steps are all sufficient to perform the basic addition of a Linux server
+    to an AD domain. Although the example is given for CentOS 7, the process should
+    be broadly similar for operating systems like Ubuntu, as long as you take account
+    of the different package manager and package names.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are, of course, a vast number of enhancements that can be made to the
+    preceding procedure, most of which will be performed with the `realm` command.
+    Sadly, at the time of writing, there is no `realm` module for Ansible, so, all
+    `realm` commands must be issued with the `shell` module—though this still enables
+    automated rollouts of AD membership to Linux servers using Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Possible enhancements for you to consider to the preceding process (all of
+    which can easily be automated by extending the example playbook we have previously
+    suggested) are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Specify the **organizational unit** (**OU**) that the Linux server is to go
+    into when the join is complete. Without specifying this, it will go into the default
+    `Computers` OU. You can change this, by specifying something like `--computer-ou=OU=Linux,OU=Servers,OU=example,DC=example,DC=com`
+    within your `realm join` command. Be sure the OU has been created first, and adjust
+    the preceding parameter to match your environment.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'By default, all valid domain user accounts will be able to log in to the Linux
+    server. This may not be desirable and, if not, you will need to first of all deny
+    all access, using the command `realm deny --all`. Then, to say you wish to allow
+    all users in the `LinuxAdmins` AD group, you would then issue the following command:
+    `realm permit -g LinuxAdmins`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'It is unlikely you will have a group in your AD called `wheel` or `sudo`, and
+    as a result, AD users may find themselves unable to execute privileged commands.
+    This can be rectified by adding the appropriate users or groups into `/etc/sudoers` or,
+    better still, a unique file under `/etc/sudoers.d` that Ansible can manage. For
+    example, creating `/etc/sudoers.d/LinuxAdmins` with the following content would
+    enable all members of the `LinuxAdmins` AD group to perform sudo commands without
+    re-entering their passwords:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: All of these tasks are left as an exercise for you, though it is expected that
+    the information given in this chapter is sufficient for you to build up your own
+    playbook suited to your AD infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will look at the use of the FreeIPA directory service
+    that is native to Linux, and how to integrate this into your environment with
+    Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: FreeIPA
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: FreeIPA is a freely available open source directory service that is simple to
+    install and manage. It runs on Linux and runs primarily on CentOS or **Red Hat
+    Enterprise Linux** (**RHEL**), though client support is readily available on Ubuntu
+    and other Linux platforms. Integration with Windows AD is even possible, though
+    is in no way required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you are building a purely Linux environment, it makes sense to look at FreeIPA,
+    as opposed to putting in a proprietary solution such as Microsoft AD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: FreeIPA and Microsoft AD are by no means the only two options on the market
+    for directory services, and a number of cloud-based alternatives are now available,
+    including JumpCloud, AWS Directory Service, and many others. Always make your
+    own independent decisions regarding the best option for you as the field is fast
+    evolving, especially when it comes to cloud-based directory services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As with the previous section on Microsoft AD, the design and deployment of a
+    FreeIPA infrastructure are beyond the scope of this book. Directory services are
+    core services on your network—imagine if you only built a single directory server,
+    and then had to shut it down for maintenance. Even a simple reboot would leave
+    users unable to log in to all machines joined to it for the duration the services
+    were down. For these reasons, it is vitally important that you design your directory
+    service infrastructure to take account of redundancy and disaster recovery. It
+    is also important that you have well-secured local accounts in case your directory
+    infrastructure does fail, as discussed earlier in this chapter, in the section
+    entitled *Performing user account management tasks*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once you have designed a suitably redundant infrastructure for your FreeIPA
+    installation, there are a series of playbooks and roles available on GitHub, created
+    by the FreeIPA team, to install your server and clients, and you can explore these
+    further here: [https://github.com/freeipa/ansible-freeipa](https://github.com/freeipa/ansible-freeipa)
+  prefs: []
+  type: TYPE_NORMAL
+- en: This book leaves the task of installing your FreeIPA infrastructure to you—however,
+    let's take a look at the use of the freely available FreeIPA roles, to install
+    clients on your infrastructure. After all, this is one of the key benefits of
+    open source software—the sharing of knowledge, information, and code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, we clone the `ansible-freeipa` repository to our local machine,
+    and change into the directory to make use of it, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, create symbolic links to `roles` and `modules` we just cloned into our
+    local Ansible environment, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once that is done, we must create a simple inventory file that includes appropriate
+    variables, to define the FreeIPA realm and domain, and also, the password of the
+    `admin` user (which is required to join a new server to the IPA realm). The following
+    example is shown, but be sure to customize it to your requirements:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the appropriate variables set and the inventory compiled, we can then
+    run the playbooks provided, with the code downloaded from GitHub. An example of
+    this FreeIPA client installation playbook running is shown, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/1c9292a6-e540-45ff-8b5f-3a30be99d98b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The preceding output shown is truncated but shows the FreeIPA client installation
+    in process. As usual for examples in this book, we have kept it simple, but this
+    could just as easily be run against 100, or even 1,000, servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As these playbooks and roles are provided by the official FreeIPA project, they
+    are a trustworthy source for installing both servers and clients, and although
+    it is highly recommended to test and review any code you download, these should
+    serve well for building up your FreeIPA-based infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will take a look at the ways in which Ansible can help
+    with enforcing and auditing user accounts and configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enforcing and auditing configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When it comes to user account management, security is important. As we discussed
+    in the section entitled *Centralizing user account management with LDAP*, Ansible
+    is not designed specifically for enforcement or auditing— however, it can help
+    us greatly. Let's consider a few of the security risks around user management
+    that Ansible can help to mitigate, starting with the `sudoers` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing sudoers with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `/etc/sudoers` file is one of the most sensitive on most Linux systems,
+    as it defines which user accounts can run commands as the superuser. Needless
+    to say, this file being compromised or modified in an unauthorized way could pose
+    a huge security risk to not just the Linux server in question, but to the network
+    at large.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Thankfully, Ansible templates can help us to manage this file effectively.
+    Like other modern Linux configurations, the `sudoers` configuration is broken
+    up into several files, to make it more manageable. The files are, typically, as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`/etc/sudoers`: This is the master file, and references all other files that
+    might be considered.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/etc/sudoers.d/*`: These files are normally included by a reference in the
+    `/etc/sudoers` file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As we discussed in the chapter entitled *Configuration Management with Ansible*,
+    someone could potentially edit `/etc/sudoers` and tell it to include a completely
+    different path in addition to, or instead of, `/etc/sudoers.d/*`, meaning that
+    it is vital we deploy this file through a template. This ensures we maintain control
+    of which files provide `sudo` configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will not repeat our discussion on templates and their deployment with Ansible,
+    as the techniques discussed in [Chapter 7](200bea26-7066-4feb-a571-481a5f047ae4.xhtml),
+    *Configuration Management with Ansible* apply equally well here. However, we will
+    add an important caveat. If you break the `sudo` configuration by deploying a
+    file with (for example) a syntax error in it, you risk locking all users out of
+    privileged access. This would mean the only way to fix the problem would be to
+    log in to the server using the root account, and if this is disabled (as it is
+    by default on Ubuntu, and is recommended in many environments), then your path
+    to recovery becomes quite tricky.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As with so many scenarios, prevention is better than cure, and the `template`
+    module we used earlier has a trick up its sleeve, to help us out here. When you
+    edit the `sudoers` file using `visudo` on a Linux system, the file you have created
+    is checked automatically before it is written to disk. If there is an error, you
+    are warned and given the option to rectify it. Ansible can make use of this utility
+    through the addition of the `validate` parameter to the `template` module. Thus,
+    a very simple role, to deploy a new version of the `sudoers` file with Ansible,
+    might look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding example, the `template` module passes the name of the file
+    specified by `dest` to the command in the `validate` parameter—this is the significance
+    of the `%s`. If the validation is passed, the new file is written into place.
+    If the validation fails, then the new file is not written and the old one remains.
+    In addition, when validation fails, the task results in a `failed` status, thus
+    ending the play and alerting the user to rectify the condition.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This isn't the only task that the `validate` parameter can be used to complete—it
+    can be used to check the results of any template operation, provided you can define
+    a shell command that will perform a suitable check on the template operation.
+    This might be as simple as using `grep` to check for a line in a file, or a check
+    to see that a service restarts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will take a look at how Ansible can assist with enforcing
+    and auditing user accounts across a large number of servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Auditing user accounts with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Say your enterprise has 1,000 Linux servers, all using directory services for
+    authentication, as we have discussed so far. Now, suppose an errant user, wishing
+    to bypass this privilege management, manages to create a local account called
+    `john` on a single server. This might happen when privileges are temporarily granted
+    for a change request but then revoked—unscrupulous individuals can easily create
+    their own access methods, to bypass the security provided by your directory service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How would you find this had happened? Although Ansible is not technically a
+    tool for auditing, it has the benefit of being able to run a command (or set of
+    commands) on 1,000 servers at once and returning the results to you for processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As all your server builds should be to a given standard (see [Chapter 1](c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml),
+    *Building a Standard Operating Environment on Linux*), then you should know which
+    accounts are supposed to be on each Linux server. It is possible that there will
+    be some variance—for example, if you install the PostgreSQL database server, this
+    normally creates a local user account called `postgres`. However, these cases
+    are well understood, and can quickly and easily be filtered out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We don't even need to write a complete playbook for Ansible to help us out here—once
+    you have an inventory file with your Linux server (or servers) in, you can run
+    what is called an ad hoc command. This is simply a single-line command that can
+    run any single Ansible module with a set of arguments—much like a playbook with
+    just one task in it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Thus, to obtain a list of all user accounts on all my servers, I could run
+    the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: That's all there is to it—Ansible will faithfully connect to all servers in
+    the inventory file specified by the `-i` parameter, and dump the `/etc/passwd`
+    file contents to the screen. You could pipe this output to a file for further
+    processing and analysis, rather than having to log on to each box. Although Ansible
+    is not actually doing any analysis, it makes for a very powerful and easy tool
+    to perform the data gathering for the purposes of auditing, and, as is the beauty
+    of Ansible, no agent is required on the remote machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following screenshot shows an example of Ansible obtaining the local user
+    accounts from one of our test systems, using a simple `grep` command to filter
+    out two commonly present accounts. Naturally, you can expand this example as you
+    wish, to improve the data processing and hence make your task easier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/489357b7-290b-414f-98ce-e73458b19955.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this manner, you can make good use of Ansible, to gather useful information
+    from a large number of systems for further processing—as the results are returned
+    directly to the Terminal, it is easy to pipe them to a file and then process them
+    with your favorite tools (for example, AWK) to establish whether there are any
+    systems queried that violate enterprise policies. While this example has been
+    performed with the local user account list, it could just as effectively be performed
+    on any given text file on the remote systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This, as you can see, is a very simple example, but it is a fundamental building
+    block, on top of which you can build other playbooks. Here are some ideas for
+    you to explore further by yourself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Change the ad hoc command we ran previously, and run it as a playbook instead.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Schedule the preceding playbook to run on a regular basis in AWX.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Modify the playbook to check for certain key user accounts.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Your ability to audit users doesn''t stop there, though—although centralized
+    logging should (and probably will) be part of your infrastructure, you can also
+    interrogate log files with Ansible. Using the ad hoc command structure previously
+    shown, you could run the following command against a group of Ubuntu servers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: On CentOS, these log messages would appear in `/var/log/secure` instead, so
+    you would alter the path accordingly for these systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `grep` command returns code `1` if the string you specify is not found,
+    and Ansible, in turn, interprets this as a failure, reporting the task as failed.
+    As a result, we pipe the output of `grep` into the `cat` command, which always
+    returns zero, and hence, the task does not fail, even if the string we are searching
+    for is not found.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As I'm sure you have realized by now, these commands would be far better run
+    as a playbook, with some detection for the operating system and the appropriate
+    paths used in each case—however, the goal of this section is not to provide you
+    with an exhaustive set of solutions, but rather, to inspire you to go and build
+    your own code based on these examples, to help you audit your infrastructure with
+    Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The fact that Ansible can perform such a wide variety of commands, and that
+    it has agentless access across your infrastructure, means that it can be an effective
+    solution in your toolbox, both for configuring your Linux servers and for maintaining
+    the integrity of the configuration, and, even, auditing them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: User account and access management is an integral part of any Enterprise Linux
+    environment, and Ansible can be a key component in both configuring this and rolling
+    it out across a wide number of servers. Indeed, in the case of FreeIPA, there
+    are already freely available Ansible roles and playbooks that can set up not only
+    the Linux clients, but even your server architecture as well. Thus, automation
+    of all key components within your Linux infrastructure can be achieved.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, you learned how to effectively manage user accounts with Ansible
+    across a large number of Linux servers. You then learned how to integrate logins
+    with common directory servers such as FreeIPA and Microsoft AD using Ansible,
+    and finally, you learned how Ansible can be used to enforce configuration and
+    audit its state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will explore the use of Ansible in database management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What are the benefits of local user accounts, even when a directory service
+    is employed?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which module is used to create and manipulate user accounts in Ansible?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you generate an encrypted password hash, using just Ansible?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which package is used to integrate Linux servers with AD?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can you use Ansible to audit configuration from a group of servers?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the purpose of validating the `sudoers` file when deploying it from
+    a template?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What additional benefits does a directory service bring that Ansible could not
+    provide, even though it can deploy user accounts across all your servers?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you make the choice between FreeIPA and AD?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For an in-depth understanding of Ansible, please refer to *Mastering Ansible,
+    Third Edition—James Freeman* and *Jesse Keating* ([https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition](https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition)[).](https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To explore the setup and use of AD in greater depth, readers may refer to *Mastering
+    Active Directory, Second Edition—Dishan Francis* ([https://www.packtpub.com/cloud-networking/mastering-active-directory-second-edition](https://www.packtpub.com/cloud-networking/mastering-active-directory-second-edition)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

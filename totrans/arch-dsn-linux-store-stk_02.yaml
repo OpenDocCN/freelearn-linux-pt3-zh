@@ -1,0 +1,1520 @@
+- en: '2'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Explaining the Data Structures in a VFS
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the first chapter of this book, we got a good look at the **virtual filesystem**
+    (**VFS**), its most common functions, why it is necessary, and how it plays a
+    pivotal role in implementing the *everything is a file* concept in Linux. We also
+    explained the system call interface in Linux and how user-space applications can
+    use generic system calls and interact with the VFS. The VFS is sandwiched between
+    user-space programs and actual filesystems and implements a common file model
+    so that applications can use uniform access methods to perform their operations,
+    regardless of the filesystems being used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While talking about the different filesystems, we mentioned that the VFS uses
+    structures such as inodes, superblocks, and directory entries to represent a generic
+    view of the filesystems. These structures are crucial as they ensure a clear distinction
+    between the metadata and the actual data of a file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will introduce you to the different data structures in the kernel’s
+    VFS. You will get to know how the kernel uses structures such as inodes and directory
+    entries to store metadata about files. You will also learn how the kernel is able
+    to record the filesystem characteristics through the superblock structure. At
+    the end, we’ll explain the caching mechanisms in VFS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Superblocks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Directory entries
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: File objects
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Page cache
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It would be helpful to have a decent understanding of Linux operating system
+    concepts. This includes knowledge of filesystems, processes, and memory management.
+    We’re not going to create any new code in this book but if you want to explore
+    the Linux kernel in more detail, understanding C programming concepts is crucial
+    for comprehending VFS data structures. As a general rule, you should make it a
+    habit to refer to the official kernel documentation as it can provide in-depth
+    information about the kernel’s internal workings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The commands and examples presented in this chapter are distribution agnostic
+    and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
+    Fedora, and so on. There are a few references to the kernel source code. If you
+    want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
+    The code segments referred to in this chapter and book are from kernel `5.19.9`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data structures in VFS
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: VFS uses several data structures to implement generic abstraction methods for
+    all filesystems and provides the filesystem interface to user-space programs.
+    These structures ensure a certain amount of commonality between the design and
+    operations of filesystems. One important point to remember is that all the methods
+    defined by VFS are not enforced upon filesystems. Yes, the filesystems should
+    adhere to the structures defined in VFS and build upon them to ensure commonality
+    among them. But there might be a lot of methods and fields in these structures
+    that are not applicable to a particular filesystem. In such cases, filesystems
+    stick to the relevant fields as per their design and leave out the surplus information.
+    As we’re going to explain common VFS data structures, it is imperative that we
+    look at the relevant code segments in the kernel for some clarification. Nevertheless,
+    I’ve tried my best to present the material in a generic way so that most concepts
+    can be understood even without developing an understanding of the code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ancient Greeks believed that four elements made up everything: earth, water,
+    air, and fire. Likewise, the following structures make up VFS – well, most of
+    it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Directory entries
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: File objects
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Superblocks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Inodes – indexing files and directories
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When storing data on disk, Linux follows one strict rule: *all the outside-of-the-envelope
+    information must be kept apart from the contents inside the envelope*. In other
+    words, the data describing a file is isolated from the actual data in the file.
+    The structure that holds this metadata is called the **index node**, shortened
+    as **inode**. The inode structure contains metadata for files and directories
+    in Linux. The name of a file or directory is merely a pointer to an inode, and
+    each file or directory has exactly one inode.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consider the Marauder’s Map as an analogy (*Harry Potter*, anyone?). The map
+    shows the location of every person in the school. Each person is represented by
+    a dot on the map, and when you click on the dot, it reveals information about
+    the person, such as their name, location, and status. Think of the Marauder’s
+    Map as the filesystem, and the dots representing people as the inodes showing
+    metadata.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But what constitutes the metadata for a file? When you do a simple listing of
+    a file through the `ls` command, you see a bunch of information, such as file
+    permissions, ownership, time stamps, and so on. All these details constitute the
+    metadata of the file since they are describing some properties of the file, not
+    its actual contents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of the file metadata can be checked through a simple `ls` command. Although
+    a slightly better command for displaying the metadata of a file is `stat`, as
+    it provides a lot more information about the file attributes. For instance, it
+    shows the access, modification, change timestamps, the device where the file is
+    located, the number of blocks reserved on the drive for the file, and the inode
+    number of the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If want to get detailed information about a file’s metadata, such as `/etc/hosts`,
+    we can use the `stat` command as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note the inode number (`67118958`) of `/etc/hosts` in the output of the `stat`
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'An inode number works as a unique identifier for a file. Consider the example
+    of the `find` command provides the `inum` argument to search for a file through
+    its inode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we search for the inode number we retrieved from the `stat` command, we
+    can retrieve the corresponding file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Inodes are only unique within a filesystem boundary. If directories on your
+    system (such as `/home` and `/tmp`) are on separate disk partitions and filesystems,
+    the same inode number could be assigned to a different file on each filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The uniqueness of inode numbers within filesystem boundaries ties to the concept
+    of **linking**. As the same inode number can be used by different filesystems,
+    hard links do not cross filesystem boundaries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining an inode in the kernel
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In the kernel source code, the definition of an inode is present in `linux/fs.h`.
+    There are an innumerable number of fields in this definition. Please note that
+    this definition of **struct inode** is general and all-encompassing. An inode
+    is a filesystem-specific property. It is not obligatory for a filesystem to define
+    all these fields in its inode definition. The definition for the inode structure
+    is fairly long and, as such, we’re going to limit ourselves to some basic fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some fields of interest are defined here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`i_mapping`: This is a pointer to the address space structure that holds the
+    mappings for the inode’s data blocks. This field is initialized by the filesystem
+    when an inode is created or when it is read from disk. For instance, when a process
+    writes data to a file, the kernel uses this field to map the appropriate memory
+    pages to the file’s data blocks. (The data blocks are explained in the next sections.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_uid` and `i_gid`: These are for the user and group owner, respectively.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_flags`: This defines filesystem-specific flags.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_acl`: This is for access control lists for filesystems.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_op`: This points to the inode operations structure, which defines all the
+    operations that can be performed on an inode, such as creating, reading, writing,
+    and modifying the file attributes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_sb`: This is pointing to the superblock structure of the underlying filesystem
+    where the inode resides. (There’s a separate topic for explaining the superblock
+    structure.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_rdev`: This field stores the device number for some special files. For instance,
+    the kernel creates special files to represent hard disks and other devices in
+    the system. When a special file is created, the kernel assigns it a unique device
+    number, creates an inode for the device, and sets this field to point to the device’s
+    identifier.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_atime`, `i_mtime`, and `i_ctime`: These are the access, modified, and change
+    timestamps, respectively.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_bytes`: This is the number of bytes in the file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_blkbits`: This field stores the number of bits needed to represent the block
+    size of the filesystem to which the inode belongs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_blocks`: This field stores the total number of disk blocks used by the file
+    represented by the inode.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_fop`: This is a pointer to the file operations structure associated with
+    the inode. For instance, when a process opens a file, the kernel uses this field
+    to obtain a pointer to the file operations structure for that file. It can then
+    use the functions defined in the file operations structure to perform operations
+    on the file, such as reading or writing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_count`: This is used to keep track of the number of active references to
+    the inode. Whenever a new process accesses a file, this counter is incremented
+    for that file. If this field reaches a value of zero, it means that there are
+    no more references to the inode, and it can be safely deallocated.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_nlink`: This field references the number of hard links to the inode.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_io_list`: This is a list used to track inodes that have pending I/O requests.
+    When the kernel adds an I/O request to the queue for an inode, that inode is added
+    to this list. When the I/O request has been completed, the inode is removed from
+    this list.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There are around 50 fields in the definition for the inode structure, so we’ve
+    barely scratched the surface here. But this should give us an idea that the inode
+    defines much more than surface-level information for a file. Don’t worry if you’re
+    confused. We’re going to explain inodes in a lot more detail. There are two types
+    of operations applicable to an inode structure, which are defined by `file_operations`
+    and `inode_operations` structures. We’ll go through the `file_operation` structure
+    a bit later when we cover file objects in the *File objects – representing open*
+    *files* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining inode operations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The inode operations structure contains a set of function pointers that define
+    how the filesystem interacts with inodes. Each filesystem has its own inode operations
+    structure, which is registered with the VFS when the filesystem is mounted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `inode_operations` struct is referred to by the `i_op` pointer. Remember
+    when we explained the *everything is a file* concept in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015),
+    *Where It All Starts From – The Virtual Filesystem* Since everything is a file,
+    albeit of a different type, an inode is assigned to each of them. Disk drives,
+    disk partitions, regular text files, documents, pipes, and sockets all have an
+    inode assigned to them. There’s an inode for every directory as well. But all
+    these *files* are of a different nature and represent different entities in your
+    system. For instance, the inode operations applicable to a directory are different
+    than a regular text file. The `inode_operations` structure provides all the functions
+    that an inode needs to implement for each type of file, for managing inode data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Each inode is associated with an instance of the `inode_operations` structure,
+    which provides a set of operations that can be performed on the inode. This structure
+    contains pointers to different functions that are used to manipulate inodes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some of the important operations that can be performed using this structure
+    are described here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`lookup`: This is used for searching an inode entry in a directory. It takes
+    a directory inode and a filename as arguments, and it returns a pointer to the
+    inode that corresponds to the filename.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`create`: This function is called when a new file or directory is created,
+    and it is responsible for initializing the inode with the appropriate metadata,
+    such as ownership and permissions. This is used for constructing an inode object
+    in response to an `open ()` system call.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`get_link`: This is used for working with symbolic links. A symbolic link is
+    pointing to another inode.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`permission`: When a file is to be accessed, VFS invokes this function to check
+    for access rights on the file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`link`: This is invoked in response to the `link ()` system call, which creates
+    a new hard link. It increments the link count of the inode and updates its metadata.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`symlink`: This is invoked in response to the `symlink ()` system call, which
+    creates a new soft link.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`unlink`: This is invoked in response to the `unlink ()` system call and deletes
+    the file link. It decrements the link count of the inode and deletes the inode
+    from the disk if the link count reaches zero.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mkdir` and `rmdir`: These are invoked in response to `mkdir ()` and `rmdir
+    ()` system calls for creating and deleting directories, respectively.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tracking file data on disk through inodes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Since every file in the system is going to have some metadata, it will always
+    have exactly one inode associated with it. As every inode is storing some information,
+    filesystems need to reserve some space for them, typically just a few bytes. For
+    instance, the `Ext4` filesystem by default uses 256 bytes for a single inode.
+    Filesystems maintain an **inode table** to keep track of used and free inodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The fields present in an inode structure provide the following two types of
+    information about a file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**File attributes**: Details about file ownership, permissions, timestamps,
+    links, and the number of blocks used'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Data blocks**: Pointers to data blocks on disk, where the actual file content
+    is stored'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In addition to file permissions, ownership, and timestamps, another important
+    piece of information provided by the inode is the location of actual data on the
+    disk. A file can span across multiple disk blocks, depending on its size. The
+    inode structure uses pointers to track this information. Why is this necessary?
+    This tracking of disk blocks is required as there is no guarantee that the data
+    in a file will be stored and accessed in a sequential or contiguous manner. The
+    pointers used by an inode are typically 4 bytes in size and can be classified
+    as direct and indirect pointers. For smaller files, an inode contains direct pointers
+    to the data blocks of a file. Each direct pointer points to the disk address that
+    is storing file data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using direct pointers for referring to disk addresses was always going to have
+    a major limitation. The question was: how many direct pointers are enough? File
+    sizes can vary from a few bytes to terabytes. Using 15 direct pointers in the
+    structure meant that for a block size of 4 KB, we could only point to 60 KB of
+    data. Of course, this wouldn’t work in any dimension, as even small text files
+    tend to be larger than 60 KB. This is depicted in *Figure 2**.1*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.1 – Limitation when using direct pointers: for a block size of 4
+    KB, only 60 KB of data can be addressed](img/B19430_02_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 2.1 – Limitation when using direct pointers: for a block size of 4 KB,
+    only 60 KB of data can be addressed'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To cope with this problem, indirect pointers are used. An inode structure contains
+    12 direct and 3 indirect pointers. Unlike a direct pointer, an **indirect pointer**
+    is a pointer to a block of pointers. When all direct pointers have been exhausted,
+    the filesystem uses a data block to store additional pointers. The unlucky 13th
+    or single indirect pointer in an inode points to this data block. The pointers
+    inside this block point to the data blocks, which actually contain the file data.
+    When the file size cannot be addressed using the single indirect pointer, double
+    indirect pointers are used. **Double indirect pointers** point to a block that
+    contains pointers to indirect blocks, each of which contains pointers to on-disk
+    addresses. Similarly, when the file grows beyond the limits of a double indirect
+    pointer—yes, you guessed it—**triple indirect pointers** are used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, you’re probably off your head, and you’re thinking there is no
+    point(-er). Needless to say, this entire hierarchy is pretty complex. Some modern
+    filesystems make use of a concept called **extents** for storing even larger files.
+    We’re going to cover that when we cover block filesystems in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053),
+    *Exploring the Actual Filesystems Under* *the VFS*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For now, let us simplify this and point ourselves in the right direction. We’re
+    going to make use of some basic math to explain how indirect pointers help in
+    storing larger files. We’re going to consider a block size of 4 KB, as this is
+    the default used by most filesystems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Total pointers in an inode = 15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Number of direct pointers = 12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Number of indirect pointers = 1
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Number of double indirect pointers = 1
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Number of triple indirect pointers = 1
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Size of each pointer (direct or indirect) = 4 bytes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Number of pointers per block = (block size) / (pointer size) = (4 KB / 4) =
+    1,024 pointers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Maximum file size that can be referred by using direct pointers = 12 x 4 KB
+    = 48 KB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Maximum file size that can be referred by using 12 direct and 1 indirect pointer
+    = [(12 x 4 KB) + (1,024 x 4 KB)] ≈ 4 MB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Maximum file size that can be referred by using 12 direct, 1 indirect, and one
+    double indirect pointer = [(12 x 4 KB) + (1,024 x 4 KB) + (1,024 x 1,024 x 4 KB)]
+    ≈ 4 GB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Maximum file size that can be referred by using 12 direct pointers, 1 single
+    indirect, 1 double indirect, and 1 triple indirect pointer = (12 x 4 KB) + (1,024
+    x 4 KB) + (1,024 x 1,024 x 4 KB) + (1 x 1,024 x 1,024 x 1,024 x 4 KB) ≈ 4 TB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following figure shows how the use of indirect pointers can help in addressing
+    larger files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.2 – Visual representation of an inode structure](img/B19430_02_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.2 – Visual representation of an inode structure
+  prefs: []
+  type: TYPE_NORMAL
+- en: As shown in *Figure 2**.2*, filesystems might use a single-level indirect block
+    for smaller files, and then switch to a double-level indirect block for larger
+    files. Using indirect inode pointers offers multiple advantages. First, it eliminates
+    the need for contiguous storage allocation to accommodate large files, thereby
+    enabling the filesystem to handle such files effectively. Second, it facilitates
+    efficient space utilization since blocks can be allocated for a file on an as-needed
+    basis rather than the upfront reservation of a significant amount of space. Each
+    inode typically has 12 direct block pointers, 1 single indirect block pointer,
+    1 double indirect block pointer, and 1 triple indirect block pointer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Can a filesystem run out of inodes?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'When managing storage, keeping space available is a major concern. Running
+    out of disk space is a common scenario. An inode is assigned to every file and
+    directory on the filesystem, but what if all inode numbers have been assigned?
+    It’s highly unlikely, as filesystems usually have several millions of inodes available.
+    But yes, it is possible for a filesystem to run out of inodes. And if it does,
+    the amount of free space on the disk won’t be of any use as the filesystem won’t
+    be able to create any new file. The number of inodes in a filesystem cannot be
+    expanded once the filesystem has been created, so a backup will be the only option.
+    You can check the inode usage of mounted filesystems using the `df` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This situation is illustrated in *Figure 2**.3*. The filesystem mounted on
+    `/ford` has close to 40% of free space, but since all the 6.3 million inodes have
+    been exhausted, it is not possible to create any new file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.3 – A filesystem can run out of inodes ](img/B19430_02_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.3 – A filesystem can run out of inodes
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us wrap up our discussion with a few key inode pointers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to metadata, inodes also save information about where a file is
+    stored on the physical disk. In order to keep track of a file’s physical whereabouts,
+    inodes use several direct and indirect pointers.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Inodes are stored in on-disk filesystem structures in an inode table. When a
+    file needs to be opened, its corresponding inode is loaded into memory.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For filesystems that only generate their content in memory, such as `procfs`
+    and `sysfs`, their inodes are only present in memory.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: While inodes store a lot of metadata about a file, they do not store the name
+    of the file. So, two things that are not part of the inode structure are the file
+    contents and the filename.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Inodes use 15 pointers to keep track of a file’s data blocks on a disk. The
+    first 12 pointers are direct pointers and can only address a maximum file size
+    of 48 KB. The remaining three pointers provide a single, double, and triple level
+    of indirection. Through the use of these indirect pointers, large files can be
+    addressed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If a filesystem runs out of inodes, no new file can be created on it. This is
+    very rare, as a filesystem usually has a large number of inodes, amounting to
+    millions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Directory entries – mapping inodes to filenames
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A directory acts as a catalog or a container for user files. The operations
+    that are applicable to a directory are different than regular files. There are
+    different commands for working with directories. A file is always going to be
+    *inside* a directory, and to access that file, you need to specify the absolute
+    or relative path in terms of directories. But like most things in Linux, directories
+    are also treated as files. So, how does this all work?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Native Linux filesystems treat directories as files and store them like files.
+    Like all regular files, a directory is also assigned an inode. There is one difference
+    between the inode of a directory and a file. In the case of a directory, the **type**
+    field in an inode is a **directory**. Remember, from our discussion about inodes,
+    that an inode contains a lot of metadata about a file, but it doesn’t contain
+    the name of the file. The filename is present in a directory. A directory can
+    be thought of as a special file that contains a table. This table consists of
+    filenames and their corresponding inode numbers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When trying to access a file, a process has to traverse the hierarchical directory
+    structure. Each level in that structure defines a path that can either be absolute
+    or relative. `/etc/ssh/sshd_config`. In contrast, `ssh/sshd_config`. There is
+    no leading `/` in the relative pathnames.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Fully qualified*, *mapping of names to numbers*, notice how this sounds a
+    bit familiar to the concept of name resolution. While describing inodes, we used
+    the analogy of the DNS, and we’ll use it here as well. Just as regular DNS records
+    map website names to IP addresses, a directory maps all filenames to their corresponding
+    inode numbers. This combination of filenames to inodes is known as **linking**.
+    The concept of linking is explained toward the end of this chapter.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you prefer a pop culture reference, think of the star maps in the *Star Wars*
+    franchise. In order to travel to a specific planet, the characters consult the
+    star map to find the right location. Think of the star map as a directory, and
+    each planet as a file or a subdirectory. The map lists the exact location and
+    coordinates of each planet, much like a directory that lists the inode number
+    and location of each file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This mapping comes in handy when performing lookup operations. Looking up pathnames
+    is a directory-centric operation as files are always present inside a directory.
+    For looking up pathnames, VFS uses directory entries, also known as `dentry objects`.
+    The `dentry objects` are responsible for depicting a directory in memory. When
+    traversing a path, each component is considered a `dentry object`. If we take
+    the example of the `/etc/hosts` file, the `/etc` directory and `hosts` file are
+    both considered `dentry objects` and are mapped in memory. This helps in caching
+    results of `lookup` operations, which in turn speeds up the overall performance
+    when looking up pathnames.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider the following example: there is a `/cars` directory in the `/` partition,
+    which contains three files: `McLaren`, `Porsche`, and `Lamborghini`. The following
+    steps provide an oversimplified version of events that take place when a process
+    wants to access the McLaren file in the `/``cars` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The VFS will remodel the path as a `dentry object`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `dentry object` will be created for each component in the pathname. The VFS
+    will follow each directory entry for path resolution. For looking up `/cars/McLaren`,
+    separate `dentry objects` will be created for `/`, `cars`, and `McLaren`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As our process has specified the absolute path, the VFS will start with the
+    first component in the pathname, that is, `/`, and then proceed to the child objects.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The VFS will check the relevant permissions on the inode to see whether the
+    calling process has the required privileges.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The VFS also calculates a hash value for `dentry objects` and compares it to
+    the values in the hash table.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `/` directory contains the mapping of files and subdirectories to their
+    respective inode numbers. Once the inode of `/cars` has been retrieved, the kernel
+    can use the block pointers to view the on-disk contents of the directory.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `/cars` directory will contain the mapping of the three files (`McLaren`,
+    `Porsche`, and `Lamborghini`) to their inode numbers. From here, we can use the
+    inode of `McLaren`, which will point us to the on-disk data blocks that contain
+    the file data.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'It’s important to know that the representation of a directory through `dentry
+    objects` only exists in memory. They’re not stored on disk. These objects are
+    created by VFS on the fly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.4 – The exchange between directories and inodes](img/B19430_02_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.4 – The exchange between directories and inodes
+  prefs: []
+  type: TYPE_NORMAL
+- en: The eagle-eyed reader might be wondering, how did we know the inode of the `/`
+    directory? Most filesystems start assigning inode values from `2`. The inode number
+    `0` is not used. Inode number `1` is used to keep track of bad and defective blocks
+    on the physical disk. So, inode allocation in filesystems starts from `2`, and
+    the root directory of a filesystem is always assigned inode number `2`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dentry cache
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In terms of performance, pathname traversals and directory lookups can be expensive
+    operations, especially if there are multiple recursive paths that need to be resolved.
+    Once a path has been resolved, and a process wants to access the same path once
+    again, the VFS will have to perform the entire operation again, which is excessive.
+    There’s also a dependency on the underlying storage media: how quickly it can
+    retrieve the required information. This puts brakes on the operation.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’re once again going to use our go-to analogy here, the DNS. When a DNS client
+    performs the same DNS query, the client’s local DNS server caches the results
+    of the query. This is done so that for any identical request, the DNS server wouldn’t
+    have to travel across the entire hierarchy of DNS servers. On similar lines, to
+    speed up the lookup process of pathnames, the kernel uses the **directory entry
+    cache**. Frequently accessed pathnames are kept in the memory to accelerate the
+    lookup process. This saves a lot of unnecessary I/O requests to the underlying
+    filesystem. The dentry cache plays a pivotal role in the filename lookup operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A directory maps filenames to inodes. You have to ask: if the dentry object
+    is creating an in-memory representation of directories and results of lookup operations
+    are being cached, that means corresponding inodes are also being cached? The answer
+    is in the affirmative. There’s no point in caching one without the other. If a
+    directory entry is cached, the corresponding inode is also cached. The dentry
+    objects pin corresponding inodes in memory, and they remain in memory as long
+    as the dentry objects.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Dentry objects are defined in the `include/linux/dcache.h` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some commonly used terms are described here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`d_name`: This field contains a pointer to a `struct qstr` object, which represents
+    the name of the file or directory. The `qstr` object is a structure used by the
+    kernel to represent a string or sequence of characters.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_parent`: This field contains a pointer to the parent directory of the file
+    or directory associated with the directory entry.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_inode`: This field is a pointer to the `struct inode` object of the file
+    or directory.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_lock`: This field contains a spinlock used to protect access to the `struct
+    dentry` object. It is quite common that the `dentry` and `inode` objects are shared
+    among multiple processes that open the same file or directory. The `d_lock` field
+    protects these objects from concurrent modifications that could lead to inconsistent
+    or corrupt filesystem data.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_op`: This field contains a pointer to the `struct dentry_operations` structure,
+    which contains a set of function pointers that define the operations that can
+    be performed on the `dentry` object.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_sb`: This is a pointer to the `struct super_block` structure, which defines
+    the superblock of the filesystem that the directory entry belongs to.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The cache is represented in memory using a hash table. Each entry in the hash
+    table structure points to a list of directory cache entries, having the same hash
+    value. When a process attempts to access a file or a directory, the kernel searches
+    the dentry cache for the corresponding directory entry, using the file or directory
+    name as a key. If the entry is found in the cache, it is returned to the calling
+    process. If the entry is not found, the kernel must go to disk and perform an
+    I/O operation to read the directory entry from the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dentry states
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Dentry objects tend to be in one of the following three states:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Used**: A used dentry indicates a dentry object that is currently being used
+    by the VFS and shows that there is a valid inode structure associated with it.
+    This means that a process is actively using this entry.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Unused**: An unused entry also has a valid inode associated with it, but
+    it is not being used by the VFS. If a pathname lookup operation (related to this
+    entry) is performed again, that operation can be completed using this cached entry.
+    If a need arises to reclaim memory, then this entry can be disposed of.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Negative**: A negative state is a bit unique in that it is a representation
+    of a lookup operation that failed. For instance, if the file to be accessed has
+    already been deleted or if the pathname doesn’t exist to begin with, a typical
+    **No such file or directory** message is returned to the calling process. As a
+    result of this failed lookup, the VFS will create a negative dentry. Too many
+    failed lookup operations can create unnecessary negative dentries and can adversely
+    affect performance.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Dentry operations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The various filesystem-related operations that can be performed on dentry objects
+    are defined in the `dentry_operations` structure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A few important operations are described as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`d_revalidate`: It can often happen that the dentry objects in the cache can
+    become out of sync with the on-disk data. This is often true in the case of network
+    filesystems. The kernel is dependent on the network to gather information about
+    the on-disk structures. In such cases, VFS uses the `d_revalidate` operation to
+    revalidate a dentry.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_weak_revalidate`: When a path lookup operation ends at a dentry that was
+    not obtained after a lookup in the parent directory, VFS calls the `d_weak_revalidate`
+    operation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_hash`: This is used to calculate the hash value of a dentry. It takes a
+    dentry as input and returns a hash value, which is used to look up the dentry
+    in the directory cache.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_compare`: This is used to compare the filenames of two dentries. It takes
+    two dentries as arguments and returns `true` if they refer to the same file or
+    directory, or `false` if they are different.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_init`: This is called when initializing a `dentry object`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_release`: This is called when a dentry has to be deallocated. It frees the
+    memory used by the dentry and any associated resources, such as cached data.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_iput`: This is invoked when a dentry object loses its inode. This is called
+    just before `d_release`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`d_dname`: This is used for generating pathnames for pseudo filesystems, such
+    as `procfs` and `sysfs`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let us summarize our discussion about directory entries:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux treats directories as files. Directories also have an inode assigned to
+    them. The name of a file is stored in the directory.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The difference between the inode of a file and a directory lies in the contents
+    of their corresponding disk blocks. The on-disk data of a directory contains a
+    mapping of filenames and their inode numbers.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Directories are represented in memory through dentry objects. The dentry objects
+    are created by VFS in memory and are not stored on the physical disk.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To optimize lookup operations, a dentry cache is used. The dentry cache keeps
+    the recently accessed pathnames and their inodes in memory.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: File objects – representing open files
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Similar to dentry objects, `read` and `write`. The idea behind all this is to
+    ensure that user-space programs don’t have to worry about filesystems and their
+    data structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When applications generate a system call to access a file, such as `open ()`,
+    a file object gets created in memory. Similarly, when the application no longer
+    needs access to the file and decides to close it using `close ()`, the file object
+    is discarded. It’s important to note that VFS can create multiple file objects
+    for a particular file. This is because access to a particular file is not limited
+    to a single process; a file can be opened concurrently by multiple processes.
+    Because of this, the file object is used privately by every process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following are some of the differences in the way an inode and a file object
+    are used by the kernel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: File objects along with inodes are used when a process needs to access a file.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To access the inode of the file, the process would need a file object pointing
+    to the file inode. File objects belong to a single process, whereas an inode can
+    be used by multiple processes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A file object is created whenever a file is to be opened. When another process
+    wants to access the same file, a new file object, private to that process, will
+    be created. Hence, we can say that a file object exists for every instance of
+    an open file. But every file will always have a single inode.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When a process closes the file, its corresponding file object is destroyed,
+    but its inode might still be kept in the cache.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'There can be some confusion between file objects and another similar entity
+    that is used for accessing files, the `open ()` system call by a process often
+    returns a file descriptor, which is used by the process for accessing a file.
+    In a way, a file descriptor also illustrates the relationship between a process
+    and a file. So, what is the difference? To play with words, a file object provides
+    an **open file description**. A file object will contain all data related to a
+    file descriptor. File descriptors are user-space references to kernel objects.
+    A file object will contain information such as a file pointer representing the
+    current position in the file and how the file was opened:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.5 – A file object is created as a result of open ()](img/B19430_02_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.5 – A file object is created as a result of open ()
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The definition for a file object is present in `include/linux/fs.h`. This structure
+    stores information about the relationship of the process to the open file. The
+    `f_inode` pointer points to the inode of the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some important fields are described here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`f_path`: This field represents the directory path of the file associated with
+    the open file. When a file is opened, the VFS creates a new `struct file` object
+    and initializes its `f_path` field to point to the directory path of the file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`f_inode`: This is a pointer to the `struct inode` object that represents the
+    file associated with the `struct` `file` object.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`f_op`: This is a pointer to the `struct file_operations` object that contains
+    a set of function pointers for file operations on the associated file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`f_lock`: This field is used to ensure synchronization between different threads
+    that are accessing the same file object.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Defining file operations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Like other structures, the filesystem methods applicable to file objects are
+    defined in the `file_operations` table. The `f_op` pointer is pointing to the
+    `file_operations` table. The VFS implements a common interface for all filesystems
+    that hooks up with the actual mechanisms of the underlying filesystems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The operations defined here look a lot similar to the generic system calls
+    we described in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`llseek`: This is called when the VFS needs to move the file position index'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`read`: This is called by `read()` and related system calls'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`open`: This is called when a file (inode) needs to be opened'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`write`: This is called by `write()` and related system calls'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`release`: This is called when an open file is being closed'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`map`: This is called when a process wants to map a file in memory using the
+    `mmap()` system call'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These are generic operations. Not all of them can be applied to a single file.
+    At the end of the day, it’s up to the individual filesystem to pick and choose
+    from this set of operations. If a particular method is not applicable to a filesystem,
+    that can be simply set to `NULL`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Can a process run out of file descriptors?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The kernel enforces limits for the maximum number of processes that can be
+    opened at a time. These limits can be applied at the user, group, or global system
+    level. If all the file descriptors have been allocated, the process won’t be able
+    to open any more files. Many large applications require a lot more than the default
+    number of descriptors allowed for a process. In such cases, the limits for individual
+    users can be set in the `/etc/security/limits.conf` file. For system-wide settings,
+    the `sysctl` command can be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.6 – Too many open files spoil the application](img/B19430_02_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.6 – Too many open files spoil the application
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s summarize our discussion before we reach our open file limit:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A file object is an in-memory representation of an open file and does not have
+    any corresponding on-disk image.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A file object is created in response to an `open()` system call by a process.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A file object is private for a process. As more than one process can access
+    a particular file, the VFS will create multiple file objects for a particular
+    file.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Superblocks – describing filesystem metadata
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you’ve ever created a filesystem by running `mkfs` on a block device, chances
+    are you must have seen the term **superblock** in the output. Superblock is one
+    of the more familiar structures to the casual Linux user. You might have noticed
+    that the structures used in VFS bear a close resemblance to each other. Dentry
+    and file objects store in-memory representations of directories and open files,
+    respectively. Both structures do not have an on-disk image and only exist in memory.
+    On a similar note, the superblock structure has a lot in common with inodes. Inodes
+    store metadata about files, whereas superblocks store metadata about filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consider the example of a library catalog system that keeps track of the books,
+    including their titles, authors, and locations on the shelves. If the catalog
+    system is lost or damaged, it can be difficult to find and retrieve specific books
+    in the library. Similarly, if the superblock structure in the kernel is corrupted
+    or damaged, it can lead to data loss or filesystem errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just as every file has an inode number assigned to it, every filesystem has
+    a corresponding superblock structure. Like inodes, a superblock also has an on-disk
+    image. For filesystems that generate their content on the fly, such as `procfs`
+    and `sysfs`, their superblock structures are stored in memory only. When a filesystem
+    is to be mounted, the superblock is the first structure that is read. Similarly,
+    when the filesystem has been mounted, the information regarding the mounted filesystem
+    is stored in the superblock.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The superblock of a filesystem contains intricate information about the filesystem,
+    such as the total number of blocks, number of used, unused, and free blocks, filesystem
+    state and type, inodes, and a lot more. As changes are made to the filesystem,
+    the information stored in the superblock is updated. Since the superblock is read
+    while mounting a filesystem, we have to ask what would happen if the information
+    stored in the superblock gets erased or corrupted. To put it simply, a filesystem
+    cannot be mounted without a superblock. Given its critical nature, several copies
+    of the superblock are saved in multiple disk locations. In the case that the primary
+    superblock is corrupted, a filesystem can be mounted using any of the backup superblocks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The superblock structure is defined in `include/linux/fs.h`. The `s_list` contains
+    pointers to mounted superblocks and `s_dev` identifies the device. The superblock
+    operations are defined in the `super_operations` table, pointed at by the `s_op`
+    pointer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some important fields of the superblock structure are explained as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`s_list`: This field is used to maintain the list of all the currently mounted
+    filesystems.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`s_dev`: This field specifies the device number that corresponds to the filesystem’s
+    root directory inode. This is used to identify the device on which the filesystem
+    resides.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`s_type`: This field points to the definition of the specific filesystem that
+    is used to interpret the data stored on the filesystem. For instance, if this
+    points to the XFS filesystem, the kernel knows that it needs to use XFS-specific
+    functions to interact with the filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`s_root`: This field is used by the kernel to locate the root directory of
+    the filesystem when it is mounted. Once the root directory has been identified,
+    the directory tree can be traversed to access the other files and directories
+    in the filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`s_magic`: This field is used to identify the filesystem type on a particular
+    device or partition.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Again, there are a considerable number of fields, so it’s not possible to explain
+    all of them. Some fields are simple integers, while others have far more complex
+    data structures and function pointers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Superblock operations in the kernel
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As with all VFS structures, all the superblock operations in `include/linux/fs.h`
+    are not mandatory for a filesystem. The kernel keeps a copy of the filesystem
+    superblock in the memory. When changes are made in the filesystem, the information
+    in the superblock is updated in memory. The superblock copy in memory is thus
+    marked `dirty` as the kernel needs to update the on-disk superblock with the updated
+    information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some important methods are defined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`alloc_inode`: This method is called to initialize and allocate memory for
+    `struct inode`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`destroy_inode`: This method is called by `destroy_inode()` to release resources
+    allocated for `struct inode`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`dirty_inode`: This method is called by the VFS to mark an inode as `dirty`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`write_inode`: This method is called when the VFS needs to write an inode to
+    disk'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`delete_inode`: This is called when the VFS wants to delete an inode'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sync_fs`: This is called when VFS is writing out all `dirty` data associated
+    with a superblock'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`statfs`: This is called when the VFS needs to get filesystem statistics, such
+    as its size, free space, and number of inodes'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`umount_begin`: This is called when the VFS is unmounting a filesystem'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let’s summarize:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The superblock structure records all filesystem characteristics.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The superblock structure is read when mounting and unmounting a filesystem.
+    Filesystems maintain copies of superblocks in multiple disk locations.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Linking
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In our discussion regarding directory entries, we mentioned the **linking**
+    operation. Links are of two types: symbolic (or soft) links and hard links, as
+    most users would know. Symbolic (soft) links behave as shortcuts, although there
+    are subtle differences. **Soft links** point to the path that contains the data,
+    while **hard links** refer to the data itself.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Going back a bit, the inode doesn’t contain the name of the file. The name
+    of the file is contained within the directory. That means there can be multiple
+    filenames in a directory list, all of which point to the same inode. Hard links
+    use this logic. A hard link points to the inode of the file. This means that the
+    link and file are indistinguishable as both are pointing to the same inode. After
+    a while, you might not even know which was the original file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.7 – It’s impossible to tell which is the original file as both have
+    the same inode](img/B19430_02_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.7 – It’s impossible to tell which is the original file as both have
+    the same inode
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In contrast, a symbolic link has a different inode number than the original
+    file. Note how this symbolic link is pointing to the original file and indicates
+    the `l` in the permission section of the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.8 – For soft links, the first character in the file permissions
+    is “l”](img/B19430_02_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.8 – For soft links, the first character in the file permissions is
+    “l”
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the same inode number for multiple files results in some limitations.
+    As inode numbers are only unique within a filesystem, hard links cannot span across
+    filesystem boundaries. They can only exist within a filesystem. Hard links can
+    only be used for regular files, not directories. This is to prevent breaking the
+    filesystem structure. A hard link to a directory could create an endless loop
+    structure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summarizing the four structures
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Some of the concepts that we’ve discussed here might become a lot more clear
+    when we discuss block filesystems in [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053),
+    *Exploring the Actual Filesystems Under the VFS*. But we have gotten some understanding
+    of how VFS goes about spinning that web of abstraction.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As discussed in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015), the design
+    of VFS is biased toward filesystems that originate from the Linux tribe. Most
+    non-native filesystems do not speak in terms of inodes, superblocks, files, and
+    directory objects. To implement the common file model for them, VFS creates these
+    structures in memory. So, objects such as inodes and superblocks, which have an
+    on-disk and in-memory presence for native filesystems, might only be present in
+    memory for non-native filesystems. Because of the difference in the design of
+    non-native filesystems, they might not support some common filesystem operations
+    in Linux, such as symbolic links.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following table provides a brief summary of the major VFS structures:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Structure** | **Description** | **Stored on** **disk/in memory** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Inode | Contains all file metadata except the filename | On disk and in memory
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Dentry | Represents the relationship between a directory entry and files
+    | Only in memory |'
+  prefs: []
+  type: TYPE_TB
+- en: '| File Object | Stores information about the relationship of the process to
+    an open file | Only in memory |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Superblock | Holds filesystem characteristics and metadata | On disk and
+    in memory |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 2.1 – Summarizing major VFS data structures
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following figure represents how a process will go about opening a file
+    stored on disk:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.9 – Relationship between common VFS structures](img/B19430_02_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.9 – Relationship between common VFS structures
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember that the superblock structure is created and initialized during the
+    filesystem mount process and it contains a pointer to the root dentry, which,
+    in turn, contains a pointer to the inode that represents the root directory of
+    the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When a process calls the `open()` system call to open a file, the VFS creates
+    a `struct file` object to represent the file in the process’s address space and
+    initializes its `f_path` field to point to the directory path of the file. The
+    `struct dentry` object contains a pointer to a `struct inode` object, which represents
+    the on-disk inode for the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `struct inode` object is associated with the `struct super_block` object,
+    which represents the on-disk filesystem. The `struct super_block` object contains
+    pointers to the filesystem-specific functions defined in the `struct super_operations`
+    structure, which is used by the VFS to interact with the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Page cache
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The nomenclature used for defining different concepts and terms in Linux is
+    a bit odd. The system call for creating a file is known as `creat`. Ken Thompson,
+    the creator of Unix, once jokingly said that the missing *e* in `creat` was his
+    greatest regret in the Unix design. While explaining a few operations of VFS structures,
+    the word *dirty* has been used. How and why this term has been used in Linux is
+    anybody’s guess. The term *dirty* here refers to pages in memory that have been
+    modified but have not yet been *flushed* to disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Caching is a common practice used in both hardware and software applications
+    to improve performance. In terms of hardware, the speed and performance of the
+    CPU, memory subsystem, and physical disks are interconnected. The CPU is much
+    faster than the memory subsystem, which, in turn, is faster than physical disks.
+    This discrepancy in speed can result in wasted CPU cycles when waiting for a response
+    from memory or disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To address this issue, cache layers were added to the CPU to store frequently
+    accessed data from the main memory. This allows the CPU to operate at its natural
+    speed as long as the required data is available in the cache. Similarly, software
+    applications also use caching to store frequently accessed data or instructions
+    in a faster and more accessible location to improve performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Linux design is geared toward performance, and the page cache plays a vital
+    role in ensuring this. The primary purpose of the page cache is to improve the
+    latency of `read` and `write` operations by ensuring that data is kept in memory
+    (provided there is enough available) so that frequent trips to the underlying
+    physical disks can be avoided. All this contributes toward performance improvement
+    as disk access is far slower than memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Operating systems interact with hardware at a lower level and use different
+    units for managing and utilizing the available resources. For example, filesystems
+    break down the disk space into blocks, which is a higher-level abstraction than
+    individual bytes or bits. The reason for this is that managing data at a byte
+    or bit level can be complex and time-consuming. A page is the fundamental unit
+    of memory in the kernel and is 4 KB by default. This is significant because all
+    I/O operations are aligned to some number of pages. The following figure summarizes
+    how data is read from and written to disk, using the page cache:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.10 – Improving I/O performance through Page Cache](img/B19430_02_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.10 – Improving I/O performance through Page Cache
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 2**.10* highlights how the page cache aids in improving read and write
+    performance by caching frequently accessed file data in memory, thereby reducing
+    disk access and improving system performance.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reading
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The following points provide a brief summary of what happens when a process
+    running in user space requests data to be read from disk:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The kernel first checks whether the required data is already available in the
+    cache. If the data is found in the cache, the kernel can avoid performing any
+    disk operation and directly provide the requested data to the process. This scenario
+    is known as a **cache hit**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If the requested data cannot be found in the cache, the kernel must go to the
+    underlying disk. This is known as a `read` operation, retrieve the requested data
+    from the disk, save it to the cache, and then hand it over to the calling process.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If any further requests are made to access this page, they can be fulfilled
+    from the page cache.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the case where the requested data is found in the cache but has already been
+    marked as `dirty`, the kernel will first write it back to disk before proceeding
+    with the procedure mentioned earlier.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Similarly, when a process needs to write data to disk, the following happens:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The kernel updates the page cache that is mapped to the file and marks the data
+    as `dirty`. The pages that are yet to be written to the disk are known as **dirty
+    pages**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The kernel will not immediately write all dirty data to disk. Depending upon
+    the configuration of the kernel’s flusher thread, the dirty data will be flushed
+    to the disk.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'After a `write` request is completed, the kernel sends an acknowledgment to
+    the calling process. However, it doesn’t inform the process about when the corresponding
+    dirty page will actually be written to disk. It is interesting to note that this
+    asynchronous approach makes write operations much faster than read operations,
+    as the kernel dodges a trip to the underlying physical disk. This also begs the
+    question: *If my I/O requests are served from memory, what happens to my data
+    in case of abrupt power loss?* The dirty pages in memory do get flushed to the
+    physical disks after a certain interval; this is called `sysctl`), which can be
+    used for controlling this behavior of the page cache.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Despite the risks associated with page caching, there is no doubt that it improves
+    performance. The size of the page cache is not fixed; it is dynamic in nature.
+    The page cache can use the available memory resources. However, when the free
+    memory available in the system goes below a threshold, the flushing schedulers
+    will kick in and start to unload data from the page cache onto disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The flexibility of support for Linux filesystems is a direct result of an abstracted
+    set of interfaces implemented by the VFS. In this chapter, we learned about the
+    major data structures in the VFS and how they are all working together. The VFS
+    uses several data structures to implement generic abstraction methods for the
+    different native and non-native filesystems. The four most common structures are
+    inodes, directory entries, file objects, and superblocks. These structures ensure
+    commonality between the design and operations of different filesystems. Since
+    the methods defined by the VFS are generic, it is not compulsory for filesystems
+    to implement all of them, although the filesystems should adhere to the structures
+    defined in the VFS and build upon them to ensure a generic interface is maintained.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to filesystem abstractions, the VFS also provides a number of caches
+    to improve the performance of filesystem operations, such as dentry and inode
+    cache. We also explained the mechanism of the page cache in the kernel and saw
+    how it can speed up read and write requests issued by the user-space programs.
+    In [*Chapter 3*](B19430_03.xhtml#_idTextAnchor053), we’re going to explore the
+    actual filesystems under the VFS layer. We’ll cover some popular Linux filesystems,
+    primarily the extended filesystem and how it organizes user data on disk. We’ll
+    also explain some common concepts associated with the different filesystems in
+    Linux, such as journaling, copy-on-write, and filesystems in user space.
+  prefs: []
+  type: TYPE_NORMAL

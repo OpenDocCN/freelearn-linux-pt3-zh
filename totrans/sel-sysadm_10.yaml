@@ -1,0 +1,922 @@
+- en: '*Chapter 8*: SEPostgreSQL – Extending PostgreSQL with SELinux'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the previous chapter, we covered a few example SELinux-aware applications:
+    applications that know and interact with the SELinux subsystem to further enhance
+    security within the application context. Some of these use existing policy constructs,
+    such as Apache''s `mod_selinux`, whereas others enhance the policy with custom
+    classes to further fine-tune their behavior (as with D-Bus and the `acquire_svc`
+    permission).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With **Security-Enhanced PostgreSQL** (**SEPostgreSQL**), we get a more elaborate
+    example of an SELinux-aware application, which uses multiple additional classes
+    within SELinux, as well as labeling its internal database objects to further enforce
+    security rules. In this chapter, we will learn how to apply labels within PostgreSQL,
+    debug its enforcement rules, associate the right labels with the PostgreSQL resources,
+    and show how this label-based security method can be used to augment specific
+    security practices within a relational database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing PostgreSQL and `sepgsql`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding SELinux's database-specific object classes and permissions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using MCS and MLS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Integrating SEPostgreSQL into a network
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/3dDcg4Z](https://bit.ly/3dDcg4Z)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing PostgreSQL and sepgsql
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: PostgreSQL is a popular, featureful, and mature relational database management
+    system. Like Apache, it also enables a modular extension of its functionalities
+    through loadable modules. The module we will investigate is called `sepgsql`,
+    PostgreSQL enhances itself with SELinux support for additional access controls,
+    offering fine-grained data flow controls based on SELinux policy rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Please be aware though that `sepgsql` does not implement a full mandatory access
+    control system within PostgreSQL, as not all PostgreSQL statements will result
+    in a policy check. While it augments the security posture of the PostgreSQL database,
+    the module has a few limitations listed in its online documentation, available
+    at [https://www.postgresql.org/docs/10/sepgsql.html](https://www.postgresql.org/docs/10/sepgsql.html)
+    (adjust the version number in the URL as needed; the referenced document at this
+    URL is for PostgreSQL 10, which is the version currently used within CentOS 8
+    and used throughout this chapter).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reconfiguring PostgreSQL with sepgsql
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Before we can install `sepgsql`, we need to have a working PostgreSQL system
+    at our disposal. Most Linux distributions have readily available tutorials on
+    how to deploy PostgreSQL, which often involves creating the databases associated
+    with it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will assume that the database itself is available inside
+    `/var/lib/pgsql/data`, the default location for a CentOS-based PostgreSQL installation.
+    The PostgreSQL configuration files are also located inside this location.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install `sepgsql`, the following steps should be executed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s first see whether the database is functioning properly by logging in
+    as the (default) `postgres` superuser, and listing the currently available databases:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Assuming PostgreSQL is working properly, let's configure it to use the `sepgsql`
+    module. This module is part of the contributed modules within PostgreSQL, and
+    is maintained by the PostgreSQL community. In CentOS, the `sepgsql` module is
+    part of the `postgresql-contrib` package, which can be easily added to the system
+    using `yum install postgresql-contrib` if it is not present yet.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Edit the `postgresql.conf` file inside `/var/lib/pgsql/data` and search for
+    the `shared_preload_libraries` statement. By default, it will be commented out,
+    so uncomment it and add `sepgsql` inside:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'As mentioned, changing this parameter requires restarting the database. We
+    will do that later, but first, we will shut down the database as our next steps
+    will require an offline database:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, we need to reconfigure all databases and enable the `sepgsql`-related
+    functions. We will cover these functions in the *Using sepgsql specific functions*
+    section. To enable the functions, we have to become the `postgres` superuser again,
+    and for each database available, we load a specific SQL file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Let''s validate whether `sepgsql` is working by starting the PostgreSQL database,
+    logging in to PostgreSQL, and asking for our current context:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Let's further configure the database with a test account that we can use to
+    validate the `sepgsql` controls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a test account
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To validate whether the `sepgsql` controls are working, we should have a test
+    account outside of the `postgres` superuser, and a local user that we can map
+    to different SELinux contexts. As the SELinux context will heavily decide which
+    privileges are associated with a session, we want to be able to show the impact
+    of one context compared to the others.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, inside PostgreSQL (with the `postgres` superuser), create a test account
+    called `testuser`, and allow the account to authenticate with a given password:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We also need to configure the database to allow password-based authentication
+    (as the default PostgreSQL setup will use system trust or another means of authentication).
+    To accomplish that, edit the `pg_hba.conf` file inside `/var/lib/pgsql/data` with
+    the following settings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `pg_hba.conf` file manages the host-based authentication rules for PostgreSQL.
+    We update it to allow password-based authentication for the `testuser` account
+    (which uses `md5` as an identifier) while allowing the `postgres` superuser to
+    continue to authenticate using peer trust.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With these changes in place, PostgreSQL allows password-based authentication
+    of the `testuser` account both when the user initiates the communication over
+    a local, socket-based interaction, as well as when a network-based communication
+    is used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We also need to tell the SELinux policy that regular users will be allowed
+    to connect to the PostgreSQL service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: While this would be sufficient for accessing the PostgreSQL service, it is not
+    adequate to allow the regular user domain (`user_t`) to interact with `sepgsql`.
+    To accomplish that, we need to adjust the SELinux policy so that the `user_t`
+    domain is also associated with the `sepgsql_client_type` attribute, and that the
+    `user_r` role can have the `sepgsql`-related types active.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We do this through a small CIL policy, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It is also possible to accomplish this with a reference policy style module,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Assuming we stick with the CIL-based policy, let''s load the file (that is,
+    `local_sepgsql.cil`) as an SELinux policy module:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Don't forget to restart the PostgreSQL service after changing the `pg_hba.conf`
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning sepgsql inside PostgreSQL
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `sepgsql` module introduces two configuration parameters that can be used
+    to tweak `sepgsql` inside PostgreSQL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `sepgsql.permissive` parameter tells PostgreSQL not to enforce the SELinux
+    policy rules inside PostgreSQL. This is similar to the permissive state of SELinux
+    on the system, but covers the `sepgsql`-related functionality inside PostgreSQL
+    alone.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `sepgsql.debug_audit` parameter tells PostgreSQL to always log the SELinux-related
+    decisions, even when they are to allow a statement to be processed. This is similar
+    to the `auditallow` statements for SELinux on the system.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'It is very important however to understand that `sepgsql` is a user-space object
+    manager, as explained in [*Chapter 7*](B16276_07_Final_VK.xhtml#_idTextAnchor216),
+    *Configuring Application-Specific SELinux Controls*: the SELinux subsystem in
+    the Linux kernel is not used for enforcing the access controls, only `sepgsql`
+    is. The only purpose that the SELinux subsystem has is to allow PostgreSQL to
+    query the active SELinux policy or obtain current SELinux context information.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hence, the previous configuration parameters work mostly independently of the
+    configuration of the system. While SELinux must be active on the system, it does
+    not need to be in enforcing mode to have `sepgsql` enforce the rules inside PostgreSQL,
+    nor does a permissive SELinux system make the enforcement of `sepgsql` permissive
+    as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `sepgsql.debug_audit` parameter does have some relationship with the system
+    policy. We can add `auditallow` statements to the SELinux policy to force the
+    logging of events even when they are allowed. What the `sepgsql.debug_audit` parameter
+    does is force all events to be logged, something useful for troubleshooting `sepgsql`,
+    as we will see next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Troubleshooting sepgsql
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let''s enable the debug statements for an individual session and reinvoke the
+    `sepgsql_getcon` function again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you want to enable the configuration for the entire system, you can place
+    the configuration inside the `postgresql.conf` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Inside the PostgreSQL logs, we will notice the following information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first two lines log the statements that we have executed within the session,
+    whereas the third line is the SELinux log event related to the execution of `sepgsql_getcon`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The event tells us that the `unconfined_t` domain (source context) has attempted
+    (and succeeded) to execute the database procedure (as indicated by the `db_procedure`
+    class) labeled with the `sepgsql_proc_exec_t` type. The in-database function is
+    the `sepgsql_getcon` function within the `pg_catalog` schema.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If a denial occurs, this will result in a similar event in the logs, but will
+    also be made visible to the end user that triggered the denial, as PostgreSQL
+    will show an error message like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Unlike the audit logging executed by, for instance, D-Bus (which results in
+    `USER_AVC` events in the regular audit log), `sepgsql` will follow the log configuration
+    of the PostgreSQL database itself, so keep a close eye out on this log file (or
+    other log targets configured in PostgreSQL) when trying to troubleshoot `sepgsql`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this simple example, you might already have noticed that the event references
+    a database-specific class (`db_procedure`). In the next section, we will look
+    into the various classes, permissions, and types associated with `sepgsql` and
+    thus supported by the SELinux policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding SELinux's database-specific object classes and permissions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `sepgsql` module uses several database-specific SELinux classes to fine-tune
+    the policies and access controls. The supported classes can be listed through
+    `/sys/fs/selinux/class` or the `seinfo` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These classes have an obvious relational database meaning: `db_database` is
+    for database-related permissions, `db_table` for table permissions, `db_procedure`
+    for database procedures, and so on. While not all classes are still supported
+    by `sepgsql` (the `db_database` class has no immediate support anymore), most
+    do have their usual mapping within the PostgreSQL database.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's see what permissions are supported by `sepgsql` and how this can be used
+    to fine-tune access controls within the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding sepgsql permissions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The access controls that `sepgsql` enforces are on top of the discretionary
+    access controls already supported by PostgreSQL. Rather than using the privileges
+    of the role or user currently acting within the database, the `sepgsql` module
+    will use the context associated with the session.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we can use different SELinux contexts for sessions that are authenticated
+    using the same database role, we can create distinct access controls within the
+    database without associating this with the user account itself. We can, for instance,
+    differentiate based on the initialization of the database session: a remote session
+    might have a separate context compared to a locally launched session, or the authorizations
+    might be unique across different Linux users even when they share the same account
+    within the database.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: As remote connections require the peer context to be accessible, `sepgsql` requires
+    either the use of labeled IPSec, or we need to introduce fallback labeling using
+    NetLabel and CIPSO, as seen in [*Chapter 5*](B16276_05_Final_VK.xhtml#_idTextAnchor138),
+    *Controlling Network Communications*. We will establish such a mapping in the
+    *Integrating SEPostgreSQL in the network* section, after explaining the various
+    permission mappings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once logged in, a query on a table will trigger a few checks against the SELinux
+    policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Any `SELECT`, `INSERT`, `UPDATE`, or `DELETE` statement on a table results in
+    a permission check against the `select`, `insert`, `update`, or `delete` permissions
+    within the `db_table` class.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When the `WHERE` clause lists one or more different tables, then the `select`
+    privilege for those different tables is checked as well.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Furthermore, column-level permissions are checked for each referenced column,
+    and this is checked against the permissions within the `db_column` class. Again,
+    permission checks against the `select` permission validate the read access, whereas
+    the `update` or `insert` permissions reflect the controls to check when the values
+    are changed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A more elaborate overview of the supported permissions is available in the PostgreSQL
+    `sepgsql` documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the default supported types
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The default SELinux policy has several types readily available for use within
+    a `sepgsql` setup. Most of the SEPostgreSQL configurations will not deviate from
+    these default types, and instead rely on the category- and sensitivity-oriented
+    controls that we touched upon in [*Chapter 3*](B16276_03_Final_VK.xhtml#_idTextAnchor071),
+    *Managing User Logins*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see what these default types are, what they are used for, and how to assign
+    these labels within PostgreSQL, let''s start with creating a new database called
+    `db_test`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we connect to this newly created database and create a simple table,
+    called `tb_users`, which has the following columns:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The user's ID, named `uid`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The user's name, named `name`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The user's email address, named `mail`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The user's mailing address, named `address`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The user's password salt and hash, named `salt` and `phash`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Important note
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: The example used is merely an example, meant to show how to approach SELinux
+    labels and `sepgsql`. Proper database design and best practices for addressing
+    password hashes and other sensitive data are well beyond the scope of this book!
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'As you can imagine, we will be securing some of these columns further: while
+    the password hash should obviously be considered very sensitive, we should also
+    make sure to properly protect the mail and address fields as this is **Personally
+    Identifiable Information** (**PII**), which in many areas of the world is governed
+    by specific privacy laws:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'What is now the label associated with this table? For that, we need to query
+    the PostgreSQL internal tables/views, more specifically the `pg_seclabels` one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the table has received the `sepgsql_table_t` type and default
+    sensitivity (`s0`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`sepgsql_table_t` is the default type for tables. We usually find this type
+    used for general table support and columns. Alongside the `sepgsql_table_t` type,
+    the policy has a few other table- and column-oriented types that administrators
+    can use to differentiate the controls that `sepgsql` enforces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `sepgsql_fixed_table_t` type can be used for tables or columns that can
+    only be appended to (inserted into) but not updated. This could be for log-related
+    tables or audit events where we want to use the `sepgsql` controls to further
+    enforce this (beyond the in-database controls that could be used for this as well).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `sepgsql_ro_table_t` type can be used for tables or columns that should
+    only be read from (read-only).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `sepgsql_secret_table_t` type can be used for tables or columns that cannot
+    be accessed by regular users or sessions, and only by administrative ones. This
+    is generally used for tables or columns that are only used through protected and/or
+    privileged procedures.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `unpriv_sepgsql_table_t` type is like the `sepgsql_table_t` type, but specific
+    to tables or columns managed by admins or unconfined users that cannot be accessed
+    by confined users.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `user_sepgsql_table_t` type on the other hand is specifically constructed
+    for tables or columns managed by confined users. This allows administrators to
+    differentiate between user-specific tables and general tables.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s grant the `testuser` account (full) access to this table and database,
+    and add some data to the table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we query the data through our test user, we can see all data added to the
+    table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s change the type of the `phash` column to `sepgsql_secret_table_t`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This alone however will not prevent the `testuser` user from accessing the
+    data. It will depend on how the `testuser` logs in to the database—from which
+    context the session will be initiated. If we launch the session from an unconfined
+    domain, then the session will still allow access to the data. Let''s instead log
+    in from a regular user session (`user_t`), and try to access the data again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Even though the user has all the privileges within the database, we notice
+    that the policy has prevented access. We can, however, query the columns not marked
+    as `sepgsql_secret_table_t`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: As the `phash` column is now marked as `sepgsql_secret_table_t`, we would still
+    want the regular database user to be able to query if a hash matches the hash
+    in the database, or set a new hash. This allows the database user to manage the
+    accounts without easily leaking the password hashes. We do this through functions,
+    which we will describe next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating trusted procedures
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: PostgreSQL supports functions and procedures to facilitate isolating or combining
+    actions within the database or on the data in a more structured and managed way.
+    Procedures are allowed to do transactional updates in the database, but do not
+    return a value by themselves. Functions return a value, but are not allowed to
+    do transactional updates. In our example, we will create two functions, one to
+    compare a hash with the stored hash (but without showing the stored hash to the
+    database user) and another to update the stored hash.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Informational note
+  prefs: []
+  type: TYPE_NORMAL
+- en: While we should be using procedures for the second function, not all PostgreSQL
+    versions in use today support them. Support for procedures has only been included
+    from PostgreSQL version 11 onward, whereas our examples use PostgreSQL 10.6, as
+    that is the current version supported by CentOS 8.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s first create the two functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: We introduce a regular expression in the function to sanitize the input as we
+    will be marking these functions as trusted later, and we do not want the functions
+    to be a jumping ground for activities such as SQL injection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the functions are defined, authorized users can use them to access the
+    more protected data. Of course, we need to properly label these functions. In
+    the default SELinux policy, the following types are available to deal with procedures
+    and functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`sepgsql_proc_exec_t` is the type to assign to regular functions or procedures.
+    Once executed, the procedure will run within the current context of the user,
+    so no transition will occur.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sepgsql_trusted_proc_exec_t` is the type to assign to trusted procedures or
+    functions. Once executed, these functions will run in the `sepgsql_trusted_proc_t`
+    domain, which has access to more privileged types such as `sepgsql_secret_table_t`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sepgsql_ranged_proc_exec_t` is the type to assign to a trusted procedure or
+    function, but with an additional privilege: ranged procedures are allowed to change
+    the current sensitivity. Ranged procedure privileges are useful to assign to a
+    function or procedure that can access columns labeled with a category that the
+    current context would not be able to access otherwise. Once executed, these functions
+    and procedures will run in the `sepgsql_ranged_proc_t` domain.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: User-managed procedures can be labeled with `unpriv_sepgsql_proc_exec_t` (for
+    unconfined users) and `user_sepgsql_proc_t` (for confined users). These procedures
+    and functions will continue to run in the user domain itself.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To get the currently assigned label for the function, use the `LIKE` statement
+    as the functions are defined (in the `objname` column) with variables in their
+    name. As such, they are not always that obvious to immediately select:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s mark these functions as trusted:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With these labels in place, the database user can execute the appropriate checks
+    and changes even though the user has no access to the `phash` column itself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Of course, preventing unauthorized users from accessing sensitive data is not
+    something that PostgreSQL cannot do without `sepgsql`. PostgreSQL can have procedures
+    and functions marked as running with the privileges of the owner of the function
+    or procedure, rather than the executing session. What `sepgsql` provides is another
+    means to accomplish this, or offer data protection through other security models.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For instance, in our example, the in-database permissions of the `testuser`
+    account are still applicable, we are not granting the `testuser` account other
+    privileges or escalating its privileges to a higher set – instead, we are using
+    the SELinux labels and context information to additionally filter privileges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using sepgsql-specific functions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `sepgsql` PostgreSQL module adds a handful of functions that we can use
+    to interact with the labeling within the database:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With `sepgsql_getcon()`, we can obtain the current context for the session.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `sepgsql_setcon()`, we can change the context of the current session, provided
+    that the current context has the permissions to do so, of course.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `sepgsql_restorecon()`, all objects within the current database are relabeled
+    back to the default setup. The function supports a single argument, which can
+    be `NULL`, or be a reference to a file that defines the new defaults.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `sepgsql_mcstrans_in()` and `sepgsql_mcstrans_out()`, we can interact with
+    the `mcstrans` daemon (if it is running), translating from a human-readable sensitivity
+    range to raw (`_in()`) or vice versa (`_out()`).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These functions are useful when maintaining labels or defining functions that
+    have logic included that depends on the context information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using MCS and MLS
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The most common use case for enabling the `sepgsql` module is to use **Multi-Category
+    Support** (**MCS**) and **Multi-Level Security** (**MLS**) support within SELinux
+    to fine-tune access to resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Limiting access to columns based on categories
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Suppose we use the range of category numbers from `c900` to `c909` to address
+    specific PII datasets, and grant users access to these categories either by granting
+    them direct access, or by using specific SELinux contexts to consult this data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Within the database, we could mark the PII-sensitive data with a category number
+    within that range:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the labels applied, a user that does not have access to this category
+    will not be able to access the data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the category range for the user set correctly, access to the data is granted:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It is important to understand though that most domains will be allowed to switch
+    their category set, as long as it remains within the allowed range:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This means that, even when a user session for this user launches with a more
+    limited category set (for instance, using the `runcon` command), the user will
+    still be able to call `runcon` again to extend the category range, or use the
+    `sepgsql_setcon()` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: To remediate this, we need to have the target domain be MCS-constrained.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Constraining the user domain for sensitivity range manipulation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The SELinux policy always allows reducing the category range, so a range that
+    initially includes the `c900` category can always switch to a category range that
+    excludes this category. The rules within SELinux that grant domains the privilege
+    to reduce their category range use dominance rules, which are basically algorithms
+    running mathematical set expressions on the source and target set: if the target
+    set is fully enclosed within the source set, then SELinux will allow the range
+    transition to occur.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The policy however also allows for extending the category range (if the range
+    remains within the allowed range as defined by the SELinux configuration for the
+    user), unless the domain itself is marked as **MCS-constrained**. The default
+    MCS-constrained domains are generally those domains used for sandbox usage or
+    virtualization, as we will see in [*Chapter 9*](B16276_09_Final_VK.xhtml#_idTextAnchor257),
+    *Secure Virtualization*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, we can easily add more domains. For instance, to mark the user domain
+    as MCS-constrained, load the following CIL policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: This will prevent the `user_t` domain from growing its category range again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Integrating SEPostgreSQL into the network
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When we use the `sepgsql` module in PostgreSQL, all database sessions need to
+    have a security context associated with them. While for local communications (which
+    use Unix domain sockets) this context is readily available, networked sessions
+    (which are the most common) do not automatically have a context set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the system does not participate in a labeled networking setup, as we saw
+    in [*Chapter 5*](B16276_05_Final_VK.xhtml#_idTextAnchor138), *Controlling Network
+    Communications*, interaction with the database will fail:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: To resolve this, the recommended approach is to start using labeled IPSec. However,
+    we can also use NetLabel to introduce fallback labeling where needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a fallback label for remote sessions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: With Linux's NetLabel and CIPSO support (as seen in [*Chapter 5*](B16276_05_Final_VK.xhtml#_idTextAnchor138),
+    *Controlling Network Communications*) we can introduce both fallback labeling
+    (associating a label based on the source address), as well as use full labeling
+    for localhost communication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With full, local label support, NetLabel can pass the source context to the
+    target if all this communication solely traverses over the loopback device (as
+    such communication does not leave the system, allowing NetLabel to trace and support
+    the flow from end to end and provide context information to the receiving service).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create the CIPSO definition for local labeling:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We now create a default context for communication coming from the network (over
+    the `eth0` interface and the `192.168.100.1/24` network). It is this context that
+    we will see when connecting to the PostgreSQL server over the network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now remove the default mapping rules, and add mapping rules for the
+    different communication types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: The mappings we created will allow unlabeled communication for everything (but
+    keep in mind that we have a specific label defined for communication coming from
+    `192.168.100.0/24`) and loopback-based full labeling on the localhost.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning the SELinux policy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Next to the labeling configuration, we might also need to further fine-tune
+    the SELinux policy for PostgreSQL. A couple of SELinux booleans are worth mentioning
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `postgresql_selinux_transmit_client_label` SELinux boolean (disabled by
+    default) allows the `postgresql_t` domain to set its own session contexts. The
+    PostgreSQL server might want to set its own session context when the server itself
+    has database connections to other, remote databases (for instance, using PostgreSQL's
+    **Foreign Data Wrapper** (**FDW**) support). When enabled, the client context
+    will be passed on to the remote databases as well.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `postgresql_selinux_unconfined_dbadm` SELinux boolean (enabled by default)
+    grants administrative database privileges in `sepgsql` to any unconfined user
+    domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `postgresql_selinux_users_ddl` SELinux boolean (enabled by default) allows
+    unprivileged users to run `user_sepgsql_table_t` being used.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `selinuxuser_postgresql_connect_enabled` SELinux boolean (disabled by default)
+    allows user domains to connect to the PostgreSQL daemon over the Unix domain sockets.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Don't forget to persist the boolean changes (using `setsebool -P`) as otherwise,
+    a system reboot will revert the settings back to their default values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The PostgreSQL database can be extended with SELinux support using the `sepgsql`
+    module. The module adds label support to the various objects within a database,
+    and checks access permissions between the session context and the target label.
+    To obtain the session context, `sepgsql` relies either on purely socket-based
+    communication, or labeled networking.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we learned how to enable the `sepgsql` module and how to troubleshoot
+    possible policy issues. We then used the various default types within an example
+    database and used these types to show how the access controls in `sepgsql` work.
+    We then used SELinux's MCS support to further handle category-based access controls.
+    Finally, we integrated PostgreSQL in a network using fallback labeling support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will examine secure virtualization within Linux and
+    see how SELinux contributes to the isolation of virtual guests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Is SEPostgreSQL part of the default PostgreSQL technology?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What else needs to be additionally enabled before `sepgsql` can be used properly?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How do you set or query the labels on database objects?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why are the `sepgsql` decision events not available in the system audit log?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

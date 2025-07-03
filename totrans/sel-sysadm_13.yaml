@@ -1,0 +1,896 @@
+- en: '*Chapter 11*: Enhancing the Security of Containerized Workloads'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Container platforms and management frameworks provide application-level abstraction
+    to administrators and developers. Lightweight container frameworks allow for rapid
+    development and deployment of new applications, whereas heavier container platforms
+    allow for optimal resource consumption and highly resilient hosting platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SELinux plays a vital role in many of these frameworks and platforms, ensuring
+    that untrusted containers cannot escape or interact with resources they are not
+    supported to interact with. In this chapter, we look at how SELinux is supported,
+    ranging from `systemd-nspawn` to `podman` (and Docker), and finally in larger
+    environments with Kubernetes. We also learn how to create custom SELinux domains
+    for containers using the `udica` utility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using SELinux with systemd's container support
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring podman
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Leveraging Kubernetes' SELinux support
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/34aHOfl](https://bit.ly/34aHOfl)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using SELinux with systemd's container support
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [*Chapter 7*](B16276_07_Final_VK.xhtml#_idTextAnchor216), *Configuring Application-Specific
+    SELinux Controls*, we introduced systemd as an SELinux-aware application suite,
+    capable of launching different services with configurable SELinux contexts. Besides
+    service support, systemd has quite a few other features up its sleeve. One of
+    these features is `systemd-nspawn`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With `systemd-nspawn`, systemd provides container capabilities, allowing administrators
+    to interact with systemd-managed containers in an integrated way, almost as if
+    these containers were services themselves. It uses the same primitives as LXC
+    from the Linux Containers project (which was the predecessor of the modern container
+    frameworks) and Docker, based upon namespaces (hence the `n` in `nspawn`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Informational note
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**The Linux Containers project** has a product called **LXC** that combines
+    several isolation and resource management services within the Linux kernel, such
+    as **control groups** (**cgroups**) and namespace isolation. cgroups allow for
+    capping or throttling resource consumption in the CPU, memory, and I/O, whereas
+    namespaces allow for hiding information and limiting the view on system resources.
+    Early versions of Docker were built upon LXC, although Docker has since embraced
+    the Linux services itself directly without using LXC.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: SELinux-wise, the software running inside the container might not have a correct
+    view on the SELinux state (depending on the container configuration) as the container
+    is isolated from the host itself. SELinux does not yet have namespace support
+    to allow containers or other isolated processes to have their own SELinux view,
+    so if a container has a view on the SELinux state, it should never be allowed
+    to modify it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, unlike Docker, `podman`, and Kubernetes, which can use the sVirt approach
+    we saw in [*Chapter 9*](B16276_09_Final_VK.xhtml#_idTextAnchor257), *Secure Virtualization*,
+    the `systemd-nspawn` approach does not support this technology.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Informational note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `systemd-nspawn` command might not be installed by default. On CentOS, Debian,
+    and related distributions, the package that provides this tool is called `systemd-container`.
+    Other distributions such as Gentoo and Arch Linux have it installed as part of
+    the default systemd installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's see how `systemd-nspawn` works and what its SELinux support looks like.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Initializing a systemd container
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To create a systemd container, we need to create a place on the filesystem
+    where its files will be stored, and then call `systemd-nspawn` with the correct
+    arguments. To prepare the filesystem, we can download prebuilt container images,
+    or create one ourselves. Let''s use the Jailkit software, as used in [*Chapter
+    7*](B16276_07_Final_VK.xhtml#_idTextAnchor216), *Configuring Application-Specific
+    SELinux Controls*, and build a container from it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, create the directory the container runtimes will be hosted in:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Edit the `/etc/jailkit/jk_init.ini` file and include the following section:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This section tells Jailkit what it should copy into the directory, and which
+    users to support.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Execute the `jk_init` command to populate the directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Finally, start the container using `systemd-nspawn`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: As Nginx will by default attempt to run as a daemon, the container would immediately
+    stop as it no longer has an active process. By launching with the `daemon off`
+    option, `nginx` will remain in the foreground, and the container can continue
+    to work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using a specific SELinux context
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'When we launch a container directly, this container will run with the SELinux
+    context of the user. We can, however, pass on the target context for the container
+    using command-line arguments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `--selinux-context=` option (`-Z` for short) allows the administrator to
+    define the SELinux context for the runtime processes of the container.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `--selinux-apifs-context=` option (`-L` for short) allows the administrator
+    to define the SELinux context for the files and filesystem of the container.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SELinux types that can be used here, however, need to be carefully selected.
+    The processes running inside a container cannot perform any type of transitions,
+    so regular SELinux domains are often not feasible to use. Taking our Nginx example
+    again, the `httpd_t` domain cannot be used for this container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can use the SELinux types that the distribution provides for container workloads.
+    Recent CentOS versions will use a domain such as `container_t` (which was previously
+    known as `svirt_lxc_net_t`) and a file-oriented SELinux type, `container_file_t`.
+    While this domain does not hold all possible privileges needed for any container,
+    it provides a good baseline for containers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s use this type for our container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we need to extend the `container_t` privileges with some additional
+    rights for the `nginx` daemon. Create a CIL policy file with the following content:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Load this file as a new SELinux module:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Relabel the files of the container with the `container_file_t` SELinux type:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Launch the container with the appropriate labels:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Whenever a container is launched, it remains attached to the current session.
+    We can of course create service files that launch the containers in the background,
+    or use session management services such as `screen` or `tmux`. A more user-friendly
+    approach, however, is to use `machinectl`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Facilitating container management with machinectl
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `machinectl` command allows administrators to manage containers or even
+    virtual machines more easily through systemd. For containers, `machinectl` will
+    use `systemd-nspawn`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s use this `machinectl` command to download, start, and stop a container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, download a ready-to-go container image with the `pull-tar` argument
+    and prepare it on the system:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'List the available images with the `list-images` argument:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We can now clone this image and launch the container:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'To access the container environment, use the `shell` argument:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We can shut down the container using the `poweroff` argument:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: When we use `machinectl`, the containers will run in the `unconfined_service_t`
+    SELinux domain. There is currently no way to override this. Luckily, we have other
+    tools available to facilitate container management that do have more significant
+    built-in SELinux support, such as Docker and `podman`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring podman
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `podman` utility is the default container management utility on CentOS 8
+    and other distributions derived from Red Hat Enterprise Linux. Other distributions
+    such as Gentoo can also easily get access to `podman` by installing `libpod`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Selecting podman over Docker
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When we compare `podman` with Docker, we might not see a big difference when
+    we are simply using it for basic container management operations. The commands
+    are very similar, and `podman` even has a Docker compatibility layer that facilitates
+    the usage of `podman` for administrators who are used to working with Docker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Under the hood though, there are quite a few differences. For one, `podman`
+    is a daemon-less container management system, which allows end users to easily
+    run containers within their confined space. The `libpod` project also uses different
+    design principles and supports a different container runtime, which supports the
+    **Open Container Initiative** (**OCI**)-based definitions, called the **Container
+    Runtime Interface for OCI** (**CRI-O**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s use `podman` to deploy a PostgreSQL container on the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we need to find the appropriate container. We can use the `podman search`
+    command for this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Of the various PostgreSQL containers listed, we pick the Bitnami one:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'We can now launch a container, assign a password to the PostgreSQL superuser
+    (`postgres`), and make sure that the PostgreSQL port (`5432`) is made available
+    to the system:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This command will create a container definition, based on the container base
+    we've just downloaded, and start it on the system.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We can use `psql` to validate that the database runs:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'When we''re done with the container, we can stop it (using `podman stop`),
+    which keeps the current container information, allowing us to revive it again
+    later (using `podman start`) or remove the container from the system completely:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Removing the container removes the container runtime, but the base container
+    image remains on the system:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This allows us to quickly start another container without having to download
+    the files again.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Using containers is a fast and effective way to quickly install and deploy software
+    on the system. Additionally, SELinux provides some additional protections to make
+    sure that these containers do not misbehave.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using containers with SELinux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'When we look at the active runtime, we will notice that SELinux is already
+    confining these containers in a way we understand:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The running processes have two categories assigned and are executing in the
+    `container_t` SELinux domain. This is the sVirt approach we saw in [*Chapter 9*](B16276_09_Final_VK.xhtml#_idTextAnchor257),
+    *Secure Virtualization*. Unlike virtual machines though, containers are often
+    used in a more transient way: when a new version of the container base is released,
+    the containers are scrapped, and new ones are started. Virtual machines often
+    undergo in-system upgrades, and thus have a longer lifespan.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The transient approach with containers also means that we need to provide data
+    persistence in a different way. The approach that most containers use is to allow
+    mapping locations from the host into the container environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s use `podman` to map a location outside the container to the `/bitnami/postgresql`
+    location inside the container, as needed by the PostgreSQL container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, create the location where we want to store the PostgreSQL data(base)
+    on the host:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, change the ownership of this location to the user with user ID `1001`
+    (the user ID that the container uses internally):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Now start the container, creating a mapping from this location to the container:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The mapping itself contains an SELinux-specific variable, namely the trailing
+    `:Z`. If we were to omit this from the mapping, then the location would still
+    be made accessible inside the container. However, the PostgreSQL runtime would
+    not be able to use it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of `:Z` in directory mappings (or `:Z` (or `:z`, as we will see shortly)
+    than not!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Containers are still part of the host operating system. When we create the `/srv/db/postgresql-test`
+    location, it will receive the `var_t` SELinux type by default. Containers that
+    want to use this location would require write privileges to `var_t`. However,
+    this privilege is not one we want to provide. After all, the containers should
+    be isolated as much as possible from the host—this isolation is what the sVirt
+    technology is about after all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Hence, we need to relabel this location accordingly. The SELinux type to use
+    for generic containers is `container_file_t`. Moreover, we want to make sure that
+    only the right container can access this location. Restricting and isolating access
+    is what the `:Z` (with a capitalized `Z`) does in the command: labeling the directory
+    with the `container_file_t` type and associating the right categories with it.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we want to have a location accessible by *multiple containers*, we can tell
+    `podman` to *share* the location, yet still be labeled with the `container_file_t`
+    SELinux type. To accomplish that, we would use the `:z` argument (with a lowercase
+    `z`), like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Creating appropriate mappings is not the only approach where SELinux configuration
+    comes into play. If we want, we can also tell `podman` to use different SELinux
+    domains for the container as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Changing a container's SELinux domain
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To control the SELinux context under which a container is launched, we use
+    the `--security-opt` argument to the `podman` command. For instance, to run an
+    Nginx container with the `container_logreader_t` SELinux domain, we use the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: This domain is slightly more privileged than the default `container_t` domain,
+    as it also has read privileges on log files. We could use this to have a web server
+    expose the log files, for instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Other labeling options that we can pass on are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SELinux user, with the `label=user:<SELinux user>` argument.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SELinux role, with the `label=role:<SELinux role>` argument.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SELinux sensitivity level, with the `label=level:<SELinux level>` argument.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SELinux type for the files, with the `label=filetype:<SELinux type>` argument.
+    This sets the SELinux context for the location mappings that have the `:Z` and
+    `:z` suffixes set. The selected type must be an entry point for the container's
+    SELinux domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'There is also another option that we can use, namely `label=disable`. With
+    this argument set, a container will run without any SELinux isolation. Now, it
+    does not disable SELinux for the container, but associates an unconfined domain
+    called `spc_t` with the container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: While for most use cases, the default `container_t` domain is sufficiently privileged,
+    it might be too privileged for some. Luckily, we can easily create new SELinux
+    domains specific to our use case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating custom domains with udica
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `container_t` domain is configured to be widely reusable, which implies
+    that it has many privileges for common use cases, which you might not want to
+    give to each container. Furthermore, if we would launch a container but need to
+    associate more privileges with it, then we would have to extend `container_t`
+    with more privileges, resulting in all containers receiving this privilege extension.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To quickly build up new policies, a tool called `udica` can be used. The `udica`
+    tool reads the container definition and creates a custom SELinux policy from it.
+    We can then use this custom policy for this particular container, allowing other
+    containers to remain untouched.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s use this for a Jupyter Notebook, which we want to grant read/write privileges
+    to a (shared) user home directory location:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we create the definition of the container:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Next, inspect this container using `podman inspect` and store the results in
+    a file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Use `udica` to generate an SELinux policy for it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Load the custom policy as mentioned by the `udica` output:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Stop and remove the container, and then recreate it with the parameter as mentioned
+    in the `udica` output:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The custom SELinux policy has the privileges to write to the home directory,
+    as the container had a mapping from `/home/lisa/work`, and `udica` automatically
+    created the permissions for it. If we wanted the container to only have read-only
+    privileges, we could use a mapping with a trailing `:ro` (rather than `:Z` or
+    `:z` for SELinux-specific changes). This would map the location inside the container
+    with read-only access, and `udica` would only create read privileges for the associated
+    SELinux type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If creating custom policies is a bit too specific, we can also fine-tune the
+    privileges of the `container_t` domain with the appropriate SELinux booleans.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Toggling container_t privileges with SELinux booleans
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `container_t` SELinux domain is associated with the `svirt_sandbox_domain`
+    attribute, and through that association, will automatically be managed by several
+    of the `virt_*` SELinux booleans that we saw in [*Chapter 9*](B16276_09_Final_VK.xhtml#_idTextAnchor257),
+    *Secure Virtualization*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are a few container-specific SELinux booleans as well:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With `container_use_cephfs`, containers can use CephFS-based storage. This is
+    predominantly used when the containers are managed by larger container-cluster
+    software such as Kubernetes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `container_manage_cgroup`, containers can manage cgroups. This is needed
+    when the container hosts systemd inside, which is often the case for full-blown
+    container runtimes (rather than process-specific containers). Such containers
+    host almost complete Linux systems.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With `container_connect_any`, the `container_t` SELinux domain can connect to
+    any TCP port.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Keep in mind though that these booleans influence the privileges of the `container_t`
+    domain, and thus are in effect for all containers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning the container hosting environment
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `podman` utility will by default store its container volumes and base images
+    in `/var/lib/containers`. Administrators can add more locations through the `storage.conf`
+    configuration file available in `/etc/containers`. However, you need to adjust
+    the SELinux configuration accordingly as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Suppose that the `/srv/containers` location will be used, then we need to create
+    an equivalence rule to make sure that this location is labeled appropriately:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the location is a network mount, you might need to change the appropriate
+    SELinux booleans as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Leveraging Kubernetes' SELinux support
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When containers are used in a larger environment, they are often managed through
+    container orchestration frameworks that allow scaling container deployment and
+    management across multiple systems. Kubernetes is a popular container orchestration
+    framework with a good community, as well as commercial support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes uses the container software found on the machines under the hood.
+    When, for instance, we install Kubernetes on Fedora's CoreOS, it will detect that
+    Docker is available and use the Docker engine for managing the containers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Kubernetes with SELinux support
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Installing Kubernetes can be a daunting task, and several methods exist, ranging
+    from single-node playground deployments up to commercially supported installations.
+    One of the well-documented installation methods on the Kubernetes website is to
+    use `kubeadm` for bootstrapping Kubernetes clusters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The installation of Kubernetes is documented on the Kubernetes website at [https://kubernetes.io/docs/setup/production-environment/tools/kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm).
+    In this section, we will not go through the individual steps to set up a working
+    Kubernetes instance, but give pointers as to which changes are needed for having
+    proper SELinux support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `kubeadm` command, when initializing the Kubernetes cluster, will download
+    and run the various Kubernetes services as containers. Unfortunately, Kubernetes'
+    services use several mappings from the host system into the container to facilitate
+    their operations. These mappings are not done using the `:Z` or `:z` options—it
+    would even be wrong to do so, as the locations are system-wide locations that
+    should retain their current SELinux labels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a result, Kubernetes' services will be running with the default `container_t`
+    SELinux domain (as Docker will happily apply the sVirt protections), which does
+    not have access to these locations. The most obvious change we can apply is to
+    have the services run with the highly privileged `spc_t` domain for now. Applying
+    this change however during the installation is hard, as we would need to change
+    the domain sufficiently quickly before the installation fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While we can create deployment configuration information for Kubernetes that
+    immediately configures the services with `spc_t`, another method can be pursued:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Mark the `container_t` type as a permissive domain before the installation
+    starts. While this will prevent any SELinux controls on the container, we can
+    argue that the installation of Kubernetes is done in a contained and supervised
+    manner:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run `kubeadm init`, which will install the services on the system:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'When the services are installed, go to `/etc/kubernetes/manifests`. Inside
+    this directory, you will find four manifests, each one representing a Kubernetes
+    service:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Edit each manifest file (`etcd.yaml`, `kube-apiserver.yml`, `kube-controller-manager.yml`,
+    and `kube-scheduler.yml`) and add a security context definition that configures
+    the service to run with the `spc_t` domain. This is done as a configuration directive
+    under the `containers` section:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'During the Kubernetes installation, the `kubelet` service will be installed,
+    which will detect that these files have been changed, and will automatically restart
+    the containers. If not, you can shut down and remove the container definitions
+    within Docker, and `kubelet` will automatically recreate them:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Verify that the services are now running with the privileged `spc_t` domain:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Remove the permissive state of `container_t` so that it is back to enforcing
+    mode:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: With these slight adjustments during the installation, Kubernetes is now running
+    fine with SELinux support enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting SELinux contexts for pods
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Within Kubernetes, containers are part of pods. A `podman` utility is also
+    able to use the pods concept (hence the name). For instance, we could put the
+    Nginx container in a pod called `webserver` like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: Unlike `podman`, Kubernetes does not rely on command-line interaction to create
+    and manage resources such as pods. Instead, it uses manifest files (as we've briefly
+    touched upon in the *Configuring Kubernetes with SELinux support* section). Kubernetes
+    administrators or DevOps teams will create manifest files and apply those to the
+    environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to have the Nginx containers run on Kubernetes, the following
+    manifest could be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This manifest is a Kubernetes deployment, and tells Kubernetes that we want
+    to run two Nginx containers. To apply this to the environment, use `kubectl apply`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As with the manifests for the Kubernetes services, we can tell Kubernetes to
+    use a specific SELinux type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `seLinuxOptions` block can contain `user`, `role`, `type`, and `level` to
+    define the SELinux user, SELinux role, SELinux type and SELinux sensitivity level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Unlike the regular container management services (such as Docker or CRI-O),
+    Kubernetes does not allow changing SELinux labels on mapped volumes (except on
+    single-node deployments): when we map volumes into containers, they retain their
+    current SELinux label on the system. Hence, if you want to make sure that the
+    resources are accessible from a regular `container_t` domain, you need to make
+    sure these locations are labeled with `container_file_t`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes does offer advanced access controls itself. Enabling volumes within
+    the containers is also handled by a plugin architecture, with several plugins
+    already available. When the plugin enables SELinux labeling, then Kubernetes will
+    attempt to relabel the resource and assign the categories (as with sVirt). However,
+    this support is currently only made available on single-node deployments (using
+    the local host storage plugin)—and for such deployments, using `podman` is much
+    simpler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Containerized workloads allow administrators to add capabilities quickly and
+    easily to a system, while retaining possible dependencies within a container.
+    Each container hosts its own dependencies, allowing containers to be removed and
+    added from the system without affecting others. With SELinux, this workload is
+    further isolated from the host and, in case of sVirt protections, also from each
+    other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We've seen how systemd has container support but lacks sVirt-based protections,
+    and how `podman` can apply sVirt protections on its own container environments.
+    We learned that Docker and `podman` are very similar in usage, yet different under
+    the hood. Both frameworks allow us to apply different SELinux types to the containers
+    and resources, and with `udica` we've learned how to create custom policies without
+    much development effort. Finally, we've seen how Kubernetes can be configured
+    to use SELinux labeling as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With all these SELinux-capable technologies behind us, we are ready to tackle
+    the SELinux policy development itself. In the next chapter, we'll learn to work
+    with SELinux policies in depth and tune the policies to our needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Why is Docker or `podman` preferred over `machinectl` for SELinux?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How do we ensure host data is properly mapped within a container?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can we create a custom policy from a container definition?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Where in Kubernetes' manifests can we place SELinux settings?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

@@ -1,0 +1,1467 @@
+- en: '*Chapter 2*: Understanding SELinux Decisions and Logging'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once we enable SELinux on the system, it starts its access control functionality,
+    as described in the previous chapter. Once it starts, administrators need to keep
+    a close eye on its actions, and often need to deal with unexpected behavior if
+    one or more applications are not acting according to the SELinux policy. Through
+    SELinux logging, we learn how SELinux enforces its policies toward the applications
+    on the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Administrators have to know how to switch between SELinux in full-enforcement
+    mode (resembling a host-based intrusion prevention system) versus its permissive,
+    logging-only mode, and use its various methods to toggle the SELinux state (enabled
+    or disabled; permissive or enforcing). Furthermore, we should know how to disable
+    SELinux's enforcement for a single domain rather than an entire system, and learn
+    to interpret the SELinux log events that describe which activities SELinux has
+    prevented. We will finish with an overview of common methods for analyzing these
+    logging events in day-to-day operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Switching SELinux on and off
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: SELinux logging and auditing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Getting help with denials
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/3dFaUXm](https://bit.ly/3dFaUXm)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Switching SELinux on and off
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This is perhaps a weird section to begin with, but disabling SELinux is a commonly
+    requested activity. Some vendors do not support their application running on a
+    platform that has SELinux enabled, as those vendors do not have the expertise
+    to develop SELinux policies for their own applications, or are not able to educate
+    their own support lines to deal with SELinux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Furthermore, system administrators are generally reluctant to use security controls
+    they do not understand or find too complex to maintain. Luckily, SELinux is becoming
+    a de facto standard technology in several Linux distributions, which is increasing
+    its exposure and understanding among administrators. SELinux is also capable of
+    selectively disabling its access controls for a part of a system rather than requiring
+    us to disable it for a complete system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting the global SELinux state
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'SELinux supports three major states that it can be in: `disabled`, `permissive`,
+    and `enforcing`. These states are set in the `/etc/selinux/config` file, through
+    the `SELINUX` variable, as illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When the `init` system process loads the SELinux policy, the SELinux code checks
+    the state that the administrator has configured. The states are described as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the state is `disabled`, then the SELinux code disables further support,
+    booting the system further without activating SELinux.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If the state is `permissive`, then SELinux is active but will not enforce its
+    policy on the system. Instead, SELinux will report any violation against the policy,
+    but will not prevent the action itself. This is sometimes called **host intrusion
+    detection** as it works in reporting-only mode.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If the state is `enforcing`, then SELinux is active and will enforce its policy
+    on the system. Violations are reported and denied. This is sometimes called **host
+    intrusion prevention**, as it enforces the rules while logging the actions it
+    takes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can use the `getenforce` command or the `sestatus` command to get information
+    about the current state of SELinux, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It is also possible to query the `/sys/fs/selinux/enforce` pseudo-file to get
+    similar information. If the file returns `1`, then SELinux is in enforcing mode.
+    If it returns `0`, then it is in permissive mode. The following code snippet shows
+    SELinux in enforcing mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we change the `/etc/selinux/config` file, then we need to reboot the system
+    for the changes to take effect. However, if we boot a system without SELinux support
+    (`disabled`), re-enabling SELinux support alone will not suffice: the administrator
+    will need to make sure that all files on the system are relabeled (the context
+    of all files needs to be set). Without SELinux support, Linux will create and
+    update files without updating or setting the SELinux labels on those files. When
+    the system is later rebooted with SELinux support, SELinux will not have any knowledge
+    of the context of a file unless the labels are reset.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Relabeling the filesystem is covered in [*Chapter 4*](B16276_04_Final_VK.xhtml#_idTextAnchor095),
+    *Using File Contexts and Process Domains*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In many situations, administrators often want to disable SELinux when it starts
+    preventing certain tasks. This is careless to say the least, and here''s why:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: SELinux is a security component—part of the operating system. Disabling SELinux
+    is like disabling a firewall because it is blocking some communication. It might
+    help because it's a faster way of getting something to work again, but you're
+    removing measures that were enabled to protect you.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Just as with a firewall, SELinux is configurable by rules. If an application
+    is prevented from working correctly, we need to update the rules for that application,
+    just as with additional firewall rules that enable a particular network flow.
+    We will start updating SELinux policy rules from [*Chapter 5*](B16276_05_Final_VK.xhtml#_idTextAnchor138),
+    *Controlling Network Communications,* onward.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the worst case, when we want to allow every action an application performs
+    unconditionally, we can still leave SELinux on and just run this application in
+    an unrestricted SELinux domain, called a *permissive* domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Distributions put significant effort in the integration of SELinux within their
+    products, and they have awesome support channels to help you out if all things
+    fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Switching to permissive or enforcing mode
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Most distribution-provided Linux kernels allow switching between enforcing and
+    permissive mode through a simple administrative command. This feature is called
+    the `CONFIG_SECURITY_SELINUX_DEVELOP` kernel configuration parameter. This kernel
+    parameter, if set, also has the Linux kernel boot in permissive mode first, unless
+    a specific boot option (`enforcing=1`) is set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although we could consider this development mode a risk (all a malicious person
+    would need to do is switch SELinux to permissive mode to disable its access controls),
+    switching the mode requires strong administrative privileges (like the `root`
+    user has), which most application domains don't have.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The command to switch between permissive mode and enforcing mode is the `setenforce`
+    command. It takes a single argument: `0` (permissive) or `1` (enforcing). The
+    `permissive` and `enforcing` strings are allowed by the command as well.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The change takes effect immediately. For instance, we can use the following
+    command to switch to permissive mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The effect of `setenforce` is the same as writing the right integer value into
+    the `/sys/fs/selinux/enforce` pseudo-file, as illustrated in the following code
+    snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Switching between permissive and enforcing mode can be of interest for policy
+    developers or system administrators who are modifying the system to use SELinux
+    properly. We can also use it to quickly verify whether an application warning
+    or error is due to SELinux access controls or not—assuming the application is
+    not SELinux-aware, which we will talk about in the *Understanding SELinux-aware
+    applications* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On production systems, it might be of interest to disable the ability to switch
+    to permissive mode. Disabling this feature usually requires the Linux kernel to
+    be rebuilt, but SELinux policy developers have also thought of a different way
+    to disallow users from toggling the SELinux state. The privileges that users need
+    to switch to permissive mode are conditional, and system administrators can easily
+    toggle this to disable switching back from enforcing mode to permissive mode.
+    The condition is implemented through an SELinux Boolean called `secure_mode_policyload`
+    whose default value is `off` (meaning switching SELinux state is allowed).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`on` or `off`, although `true`/`false` and `1`/`0` are valid values as well)
+    and manipulate parts of the active SELinux policy. The value of the conditionals
+    can be persisted (meaning they survive reboots) or be kept only during the current
+    boot session. We can persist the value across reboots by adding `-P` to the `setsebool`
+    command, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: SELinux Booleans are covered in more depth in [*Chapter 12*](B16276_12_Final_VK.xhtml#_idTextAnchor312),
+    *Tuning SELinux Policies*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of the `secure_mode_policyload` SELinux Boolean allows administrators
+    to restrict switching from enforcing mode back to permissive mode. This does not
+    disable SELinux completely, but only toggles whether it will act upon its policies
+    or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Switching from a disabled state to a running state is not supported. However,
+    the reverse is possible, but only under the following condition: if the Linux
+    kernel is built with the `SECURITY_SELINUX_DISABLE` kernel configuration parameter,
+    then services such as `init` can effectively disable SELinux at runtime, but only
+    if no SELinux policy is loaded yet. This functionality, however, is not recommended
+    to be actively used, and was only introduced for platforms where boot options
+    are hard to use. The feature is marked as deprecated in recent kernels as such
+    platforms are few in number.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using kernel boot parameters
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Using the `setenforce` command makes sense when we want to switch to permissive
+    or enforcing mode at a point in time when we have interactive access to the system.
+    But what if we need this on system boot? If the system refuses to boot properly
+    due to SELinux access controls, we cannot edit the `/etc/selinux/config` file.
+    Luckily, we can change the SELinux state through other means as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The solution is to use kernel boot parameters. We can boot a Linux system with
+    one or two parameters that take precedence over the `/etc/selinux/config` setting,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`selinux=0`: This informs the system to disable SELinux completely, and has
+    the same effect as setting `SELINUX=disabled` in the configuration file. When
+    set, the other parameter (`enforcing`) is not consulted. Please remember that
+    booting a system with SELinux disabled means that to enable it again, we need
+    to relabel all files and resources on the filesystem. The `selinux=` parameter
+    is supported through the `CONFIG_SECURITY_SELINUX_BOOTPARAM` kernel configuration.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`enforcing=0`: This informs the system to run SELinux in permissive mode, and
+    has the same effect as setting `SELINUX=permissive` in the configuration file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`enforcing=1`: This informs the system to run SELinux in enforcing mode, and
+    has the same effect as setting `SELINUX=enforcing` in the configuration file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Consider a Linux system that uses GRUB2 as its boot loader, and we want to
+    add `enforcing=0` to the boot entry. To accomplish this, we execute the following
+    steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reboot the system until the GRUB2 boot screen comes up.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Navigate with the arrow keys to the boot entry for which the SELinux state must
+    be altered. This is usually the default boot entry and should be already selected.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Press the *E* key to edit the boot entry line. Do this before the GRUB2 timer
+    reaches zero; otherwise, the system will continue to boot.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Use the arrow keys to go to the end of the line that starts with `options`.
+    If no such line exists, go to the end of the line that starts with `linux`, `linux16`,
+    or `linuxefi`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Add `enforcing=0` to the end of this line.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Press *Ctrl* + *X* or *F10* to boot the entry.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Other boot loaders have similar approaches to changing the boot line without
+    persisting it for every reboot. Consult your distribution documentation for more
+    details.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alongside the SELinux-specific parameters, there are a few **Linux Security
+    Module** (**LSM**)-related boot parameters that can be useful to know, especially
+    when you are combining multiple LSM modules on the same system. These are detailed
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `lsm.debug` boot parameter enables LSM initialization debugging output,
+    showing which LSM modules it effectively enables or ignores, and which LSM modules
+    are considered as exclusive.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `lsm=lsm1,…,lsmN` option chooses the order of LSM initialization. For instance,
+    to initialize SELinux before lockdown, use `lsm=selinux,lockdown`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `security=` boot parameter enables selection of the active, major/exclusive
+    LSM module. This parameter, however, is deprecated, favoring the `lsm=` parameter.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When using SELinux in production, it might be wise to properly protect the boot
+    menu—for instance, by password-protecting the menu and regularly verifying the
+    integrity of the boot menu files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disabling SELinux protections for a single service
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Since policy version 23 (which came with Linux 2.6.26), SELinux also supports
+    a more granular approach to switching between permissive and enforcing mode: the
+    use of permissive domains. As mentioned before, a domain is a term that SELinux
+    uses for types (labels) assigned to processes. With **permissive domains**, we
+    can mark one or more domains as permissive (and, as such, not enforced by SELinux
+    rules), even though the rest of the system is still running in enforcing mode.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make a domain permissive, we use the `semanage` command, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the same `semanage` command, we can list the currently defined permissive
+    domains, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the previous example, you will notice that there is also room for *built-in*
+    permissive types. These are domains that have been marked as permissive by the
+    policy developers of the Linux distribution itself. Some distributions opt to
+    introduce new application policies in permissive mode first, allowing users to
+    test out the policies before enforcing them. When that is the case, you can find
+    these permissive domains under `Builtin Permissive Types`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another method for listing the custom permissive types (those not marked as
+    permissive through the distribution) is to use the `semodule` command. In the
+    previous chapter, we briefly touched on this command when talking about SELinux
+    policy modules. We can use it to list the SELinux policy modules that have `permissive_`
+    in their name because the `semanage permissive` command generates a small SELinux
+    policy module to mark the domain as permissive, as illustrated in the following
+    code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To remove the permissive mode from the domain, pass the `-d` argument to the
+    `semanage` command. This is only possible for domains that the system administrator
+    marked as permissive, though—distribution-provided permissive domains cannot be
+    switched to enforcing mode through this approach. This is illustrated in the following
+    code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: When a domain is marked as permissive, the application should behave as if SELinux
+    is not enabled on the system (SELinux will not be enforcing anything that particular
+    application/domain does), making it easier for us to discover whether SELinux
+    is really causing a permission issue. Note, though, that other domains (including
+    those that interact with a permissive domain) are themselves still governed and
+    enforced through the SELinux access controls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding SELinux-aware applications
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Most applications themselves do not have knowledge that they are running on
+    an SELinux-enabled system. Without this knowledge, permissive mode truly means
+    that the application behaves as if SELinux were not enabled to begin with. However,
+    some applications actively rely on the SELinux policy to make access control decisions,
+    or interact with SELinux for further information gathering. We call these applications
+    **SELinux-aware** because they change their behavior based on the SELinux-related
+    information available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sadly, many of these SELinux-aware applications do not properly validate whether
+    they are running in permissive mode or not. As a result, running these applications
+    in a permissive domain (or the entire system in permissive mode) will generally
+    not result in the application running as if SELinux were not active.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Examples of such applications are the `init` system, and some cron daemons,
+    as well as several core Linux utilities (such as `ls` and `id`). They might show
+    permission failures or different behavior based on the SELinux policy, even if
+    SELinux is not in enforcing mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can find out whether an application is SELinux-aware by checking whether
+    the application is dynamically linked with the `libselinux` library. Such checks
+    are possible with `readelf`, `ldd`, or `objdump`, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Knowing whether an application is SELinux-aware or not can help in troubleshooting
+    failures, as the application's behavior might still be different between a disabled
+    SELinux state and a permissive SELinux state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Up until now, we've focused on enabling or disabling SELinux, and thus on a
+    granular or coarse-grained matter. Once it is enabled though, its interaction
+    with the administrator will be through policy enforcement and logging. So, let's
+    look at how SELinux handles logging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SELinux logging and auditing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: SELinux developers understand that a security-oriented subsystem such as SELinux
+    can only succeed if it is capable of enhanced logging and—even—debugging. Every
+    action that SELinux takes, as part of the LSM hooks that it implements, should
+    be auditable. Denials (actions that SELinux prevents) should always be logged
+    so that administrators can take due action. SELinux tuning and changes, such as
+    loading new policies or altering SELinux Booleans, should always result in an
+    audit event.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Following audit events
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: By default, SELinux will send its messages to the Linux audit subsystem (assuming
+    the Linux kernel is configured with the audit subsystem enabled through the `CONFIG_AUDIT`
+    kernel configuration). There, the messages are picked up by the Linux audit daemon
+    (`auditd`) and logged in the `/var/log/audit/audit.log` file. Distributions and
+    administrators can define additional handling rules by configuring the audit dispatcher
+    process (`audisp`), which picks up audit events and dispatches them to one or
+    more separate processes. The SELinux troubleshooting daemon (`setroubleshootd`),
+    an optional service to provide help with troubleshooting SELinux events, uses
+    this to get access to audit events.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The audit event flow is shown in this diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 2.1 – Flow of audit events generated by SELinux ](img/B16276_02_001.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2.1 – Flow of audit events generated by SELinux
+  prefs: []
+  type: TYPE_NORMAL
+- en: With SELinux enabled, (almost) every permission check that results in a denial
+    is logged. When Linux auditing is enabled, these denials are logged by the audit
+    daemon in the `audit.log` file by default. If the audit daemon is unavailable,
+    the events are stored in the Linux kernel message buffer, which we can consult
+    using the `dmesg` command. The events in the kernel message buffer are also often
+    captured through the system logger.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the SELinux troubleshooting daemon is installed, then the audit daemon will,
+    alongside its logging, also dispatch the events through the audit dispatch system
+    toward the `sedispatch` command. This command will further handle the event and
+    send it through D-Bus (a system bus implementation popular on Linux systems) to
+    the SELinux troubleshooting daemon. This daemon will analyze the event and might
+    suggest one or more fixes to the administrator. We will cover the SELinux troubleshooting
+    daemon in the *Getting help with denials* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Whenever SELinux verifies a particular access, it does not always go over the
+    entire policy. Instead, it has an **access vector cache** (**AVC**), in which
+    it stores the results of previous access attempts. This cache ensures that SELinux
+    can quickly react to activities without having a huge impact on performance. We
+    notice the abbreviation of this cache as the message type for most SELinux events,
+    as shown at the beginning of the following example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: When the Linux kernel checks a permission request, this request is represented
+    as an *access vector*, and the cache is then consulted to quickly find the appropriate
+    response. If the cache has the right access vector, then the decision is taken
+    from the cache; otherwise, the SELinux subsystem consults the policy itself and
+    updates the cache. Of course, SELinux invalidates the cache when a new policy
+    is loaded or the policy is dynamically adjusted. This ensures that all permission
+    checks are in line with the active policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This inner working of SELinux is less relevant to most administrators, but at
+    least now we know where the term *AVC* comes from.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning the AVC
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The AVC can be slightly tuned, by setting the size of the cache or its related
+    tables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can configure the cache size itself through the `/sys/fs/selinux/avc/cache_threshold`
+    pseudo-file (available if the `CONFIG_SECURITY_SELINUX_AVC_STATS` kernel configuration
+    is set). For instance, to increase the cache size to 768 entries (the default
+    is 512), the following command would be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To confirm the cache threshold, read the file, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The AVC hash statistics are available through the `hash_stats` pseudo-file,
+    as illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you suspect that lower system performance is due to SELinux, then we advise
+    you to look at the `longest chain` output in `hash_stats`. If it is longer than
+    10, then some performance impact can be expected, and updating the cache size
+    might help.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `avcstat` command shows the evolution of the cache over time (the first
+    number is the total since boot). When the number of cache misses is high or volatile,
+    or the number of reclaims (obsoleting oldest cache entries and reusing them for
+    new ones) is volatile, then the cache size might need to be increased. The command
+    is illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Recent kernels also allow the number of buckets used through a kernel configuration
+    parameter to be set (`CONFIG_SECURITY_SELINUX_SIDTAB_HASH_BITS`), and its cache
+    statistics can be viewed through the `/sys/fs/selinux/ss/sidtab_hash_stats` pseudo-file,
+    as illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Another performance parameter is the size of the internal `CONFIG_SECURITY_SELINUX_SID2STR_CACHE_SIZE`
+    setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Uncovering more logging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: There is an important SELinux policy directive that provides control over what
+    is (not) audited, and that is `dontaudit`. A `dontaudit` rule in the SELinux policy
+    tells SELinux that an access denial should not be logged. This is the only example
+    where SELinux won't log a denial—the SELinux policy writer has explicitly disabled
+    the auditing of events. This is usually done to remove clutter from the logs and
+    hide cosmetic denials that have no influence on the security of the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `seinfo` utility can tell us how many of these rules, as well as its sibling
+    rule `auditallow` (log events, even though they are allowed by the policy), are
+    currently active, as illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Luckily, we can disable these `dontaudit` rules at will. Through the following
+    `semodule` command, these rules are removed from the active policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The arguments can also be abbreviated to `-D` and `-B`, respectively. To re-enable
+    the `dontaudit` rules, just rebuild the policy like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Disabling the `dontaudit` rules can sometimes help in troubleshooting failures
+    that do not result in any useful audit event. Generally speaking, though, audit
+    events that policy writers mark as cosmetic are not the cause of a failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring Linux auditing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: SELinux will try to use the audit subsystem when available and will fall back
+    to regular system logging when it isn't. This can either be because the Linux
+    kernel audit subsystem is not configured or because the Linux audit daemon itself
+    is not running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For a Linux audit, we usually do not need to configure anything as SELinux
+    AVC denials are logged by default. You will find the denials in the audit log
+    file (`/var/log/audit/audit.log`), usually together with the system call and other
+    event messages related to the same action, as illustrated in the following code
+    snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: To configure the target log file for the audit system, use the `log_file` parameter
+    in `/etc/audit/auditd.conf`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To enable remote audit logging (to centralize audit events from multiple hosts
+    on a single system), you have the option of either enabling syslog forwarding
+    or enabling the `audisp-remote` plugin.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With syslog forwarding, the audit dispatch daemon is configured to send audit
+    events to the local system logger as well. It is then up to the administrator
+    to configure the local system logger to pass on events toward a remote system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Informational note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of syslog forwarding has the advantage that no additional software deployments
+    and daemons are needed on the servers to centralize their log events. The setup
+    is hence also reusable in case hardened appliances are introduced to the environment.
+    Of course, other log management solutions exist that can watch for log events
+    and send those to the central server. These, however, require more configuration,
+    and introduce an additional software agent to install.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Edit the `/etc/audit/plugins.d/syslog.conf` file and set `active` to `yes`,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using the system logger to centralize audit events might not be the best option
+    though, as system loggers generally use unencrypted—and often not even guaranteed—data
+    delivery. With the `audisp-remote` plugin, we can even use an encrypted channel
+    to send the audit events, and provide guaranteed delivery to a remote `auditd`
+    server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, configure the audit daemon on the target (log) server to accept audit
+    logs from remote hosts by enabling the audit daemon to listen on port `60`. We
+    also change the event formatting to an enriched value and add hostnames to the
+    events so that we can distinguish events from multiple hosts, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, enable the `audisp-remote` plugin, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Don't forget to restart the audit daemon so that the changes take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can only recommend you always use the Linux audit subsystem. Not only does
+    it integrate nicely with troubleshooting utilities; it also allows administrators
+    to use the audit tools to query the audit logs or even generate reports, such
+    as with `aureport`, as illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The Linux audit system is an important aide for Linux administrators, and not
+    just for SELinux troubleshooting. But next to the Linux audit system, events can
+    also be directed toward the local system logger, as explained next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the local system logger
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When auditing is not enabled, or the Linux audit daemon is not running, then
+    the system logger is responsible for capturing SELinux events. The system logger
+    will log these events through the kernel logging facility (`kern.*`). Most system
+    loggers will save these kernel log events in a general log file, such as `/var/log/messages`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can configure the system logger to direct SELinux AVC messages into its
+    own log file, such as `/var/log/avc.log`. For instance, for the `rsyslog` system
+    logger, we can add in a configuration entry under `/etc/rsyslog.d` named `99-selinux.conf`,
+    with the following content:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: After restarting the system logger, the AVC-related messages will show up in
+    the `/var/log/avc.log` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the local system logger handles SELinux logging, an easy method to quickly
+    obtain the latest AVC denials (or other messages) is through the `dmesg` command,
+    as illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Be aware, though, that unlike the audit logs, many systems allow the `dmesg`
+    content to be read by regular users. This might result in some information leakage
+    to untrusted users. For this reason, some SELinux policies do not allow regular
+    users to access the kernel ring buffer (and, as such, use `dmesg`) unless the
+    `user_dmesg` SELinux Boolean is set to `on`, as illustrated in the following code
+    snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `user_dmesg` SELinux Boolean is not available on CentOS, though. There,
+    only the standard unconfined user type and the administrative user type have access
+    to the kernel ring buffer. To prevent other users from reading this information,
+    you need to map these users to non-administrative SELinux users, such as `user_u`
+    or `(x)guest_u`, which is something described further on in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reading SELinux denials
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The one thing every one of us will have to do several times with SELinux systems
+    is to read and interpret SELinux denial information. When SELinux prohibits access
+    and there is no `dontaudit` rule in place to hide it, SELinux will log it. If
+    nothing is logged, it was probably not SELinux that was responsible for the failure.
+    Remember: SELinux comes after Linux **discretionary access control** (**DAC**)
+    checks, so if a regular permission doesn''t allow a certain activity then SELinux
+    is never consulted.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'SELinux denial messages are logged the moment SELinux prevents some access
+    from occurring. When SELinux is in enforcing mode, the application usually returns
+    a **Permission denied** error, although sometimes it might be a bit more obscure.
+    An example of this can be seen in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, what does a denial message look like? The following command output shows
+    a denial from the audit subsystem, which we can query through the `ausearch` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s break up this denial into its individual components. The following list
+    gives more information about each part of the preceding denials. As an administrator,
+    knowing how to read denials is extremely important, so take enough time for this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`enforcing` mode. This is usually `denied`, although some actions are explicitly
+    marked to be audited as well and would result in `granted`. Example: `denied`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`{ read }`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`pid=12569`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`comm="dmesg"`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`name="xterm-256color"`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`dev="sdb2"`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ino=131523`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scontext=sysadm_u:sysadm_r:dmesg_t:s0-s0:c0.c1023`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`tcontext=system_u:object_r:etc_t:s0`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`tclass=file`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0`, then SELinux was in enforcing mode; otherwise, it was permissive (either
+    for the system or for the given domain).Example: `permissive=0`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can interpret the previous denial like so: SELinux has denied the `dmesg`
+    command to read a file named "`xterm-256color`". The file has inode number `131523`
+    on device `/dev/sdb2` and is labeled as `etc_t`. The `dmesg` command has PID `12569`
+    and is labeled as `dmesg_t`. The `dmesg_t` domain was not in permissive mode.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Depending on the action and the target class, SELinux uses different fields
+    to give all the information we need to troubleshoot a problem. Consider the following
+    denial:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding denial came up because the nginx web server was configured to
+    listen on a non-default port (89 instead of the default 80).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifying the problem is a matter of understanding how the operations work
+    and properly reading the denials. The denial logs give us enough to get us started,
+    giving a clear idea of what was denied.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Administrators might want to update the SELinux policy to allow a specific
+    action (by adding an `allow` rule to the SELinux policy, as described further
+    on in this book). This is, however, not always the right approach because other
+    options exist and are usually better, such as these:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Providing the right label on the target resource (usually the case when the
+    target is a non-default port, non-default location, and so on)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Switching Booleans (flags that manipulate the SELinux policy) to allow additional
+    privileges
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Providing the right label on the source process (often the case when the acting
+    application is not installed by the distribution package manager)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the application as intended instead of through other means (as SELinux
+    only allows expected behavior), such as starting a daemon through a service (`init`
+    script or systemd unit) instead of through a command-line operation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If the preceding nginx example were a wanted configuration (using a non-default
+    port), then we should label this port as a `httpd_t` domain to bind on (many)
+    other ports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Other SELinux-related event types
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Although most SELinux log events are AVC-related, they aren't the sole event
+    types an administrator will have to deal with. Most audit events will show SELinux
+    information as part of the event, even though SELinux has little to do with the
+    event itself, but a few audit event types are directly concerned with SELinux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs: []
+  type: TYPE_NORMAL
+- en: A full list of all possible audit events is available in the `linux/audit.h`
+    header file, located in `/usr/include`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: USER_AVC
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A `USER_AVC` event resembles regular AVC audit events, but now the source is
+    a user space object manager. These are applications that use SELinux policy rules,
+    but they enforce these rules themselves rather than through the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following example is such an event, generated by D-Bus:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: The event has two parts. Everything up to the `msg=` string is information about
+    the user space object manager that generated the event, and is the first part
+    of the event. The true event itself (which is the second part) is stored within
+    the `msg=` part and includes similar fields, as we already know from regular AVCs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SELINUX_ERR
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'An `SELINUX_ERR` event comes up when SELinux detects a general policy violation
+    rather than an access control violation. It cannot be resolved by SELinux policy
+    writers by just allowing the operation. These events usually point to a misuse
+    of applications and services that the policy is not tailored to accomplish, and
+    an example is shown in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding example, a user (running in the `sysadm_t` domain) was executing
+    `rpc.nfsd` (with `nfsd_exec_t` as the label), and the policy wanted to transition
+    to the `nfsd_t` domain. However, that resulted in a full context of `sysadm_u:sysadm_r:nfsd_t:s0-s0:c0.c1023`,
+    which is not a valid context. The `sysadm_r` SELinux role does not support the
+    `nfsd_t` domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: MAC_POLICY_LOAD
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A `MAC_POLICY_LOAD` event occurs whenever the system loads a new SELinux policy
+    in memory. This occurs when the administrator loads a new or updated SELinux policy
+    module, rebuilds the policy with the `dontaudit` rules disabled, or toggles an
+    SELinux Boolean that the administrator wants to persist across reboots. Such an
+    event is illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When a `MAC_POLICY_LOAD` event occurs, you might notice a subsequent `USER_MAC_POLICY_LOAD`
+    event. This occurs when a user space object manager detects an update on the SELinux
+    policy and takes action. Note that not all user space object managers will send
+    out this event: some object managers will query the live policy and, as such,
+    do not need to act when a new policy loads.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: MAC_CONFIG_CHANGE
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'When an SELinux Boolean changes but doesn''t persist, then a `MAC_CONFIG_CHANGE`
+    event will be dispatched. This tells the administrator that the active policy
+    has been instructed to change its behavior slightly, but within the bounds of
+    the existing loaded policy. Such an event is illustrated in the following code
+    snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding example, the `virt_use_nfs` SELinux Boolean was changed from
+    the value 1 (on) to 0 (off).
+  prefs: []
+  type: TYPE_NORMAL
+- en: MAC_STATUS
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A `MAC_STATUS` event shows up when the SELinux enforcement state has been changed.
+    For instance, when an administrator uses `setenforce 0` to put SELinux in permissive
+    mode, then the following event occurs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`MAC_STATUS` is also used to inform administrators when the SELinux state itself
+    (enabled or disabled) is altered.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: NetLabel events
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: NetLabel is a Linux kernel project to support labeled network packets, allowing
+    security contexts such as SELinux contexts to be passed on between hosts. One
+    of the protocols that the NetLabel implementation supports in Linux is **Common
+    IP Security Option** (**CIPSO**) labeling, which we will cover in [*Chapter 5*](B16276_05_Final_VK.xhtml#_idTextAnchor138),
+    *Controlling Network Communications*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following audit events are related to the NetLabel capability:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`MAC_UNLBL_STCADD` and `MAC_UNLBL_STCDEL` events are triggered when a static
+    label is added or removed. Static labeling means that if a packet is received
+    or sent and it does not have a label, then this "default" static label is assigned.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`MAC_MAP_ADD` and `MAC_MAP_DEL` events are triggered when a mapping between
+    a labeling protocol (such as CIPSO) and its parameters against an LSM (SELinux)
+    domain is added or removed from the configuration.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`MAC_CIPSOV4_ADD` and `MAC_CIPSOV4_DEL` events are triggered when a CIPSO (IPv4)
+    configuration is added or removed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Labeled IPsec events
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Another labeled network protocol that Linux supports is **labeled IPsec**, where
+    **IPsec** is short for **Information Protocol Security**. Through this, the SELinux
+    context of the source process (which is communicating over the IPsec tunnel toward
+    a target resource) is known by the IPsec daemons at both ends of the tunnel. Furthermore,
+    SELinux will contain rules about which domains can communicate over an IPsec tunnel
+    and which domains can communicate with each other network-wise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following audit events are related to IPsec:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`MAC_IPSEC_ADDSA` and `MAC_IPSEC_DELSA` events are used when a security association
+    is added or removed (new IPsec tunnels are defined or deleted).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`MAC_IPSEC_ADDSPD` and `MAC_IPSEC_DELSPD` events are used when a security policy
+    definition is added or removed. Security policies generally describe whether network
+    packets need to be handled by IPsec and, if so, through which security association.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `MAC_IPSEC_EVENT` event is a generic event for IPsec audit messages.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: SELinux support for labeled IPsec is described further on in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using ausearch
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `ausearch` command, part of the Linux audit framework, is a frequently used
+    command for querying audit events stored on the system. We already briefly covered
+    it when taking a first look at an AVC denial, but only briefly mentioning it won't
+    do it justice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With `ausearch`, we can search for events that originated during or after a
+    selected time period. We used the `-ts recent` (time start) option in the past,
+    which displays events that occurred during the past 10 minutes. The argument can
+    also be a timestamp. Other supported shorthand values are listed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`today`, meaning starting at 1 second past midnight on the current day'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`yesterday`, meaning starting at 1 second past midnight the previous day'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`this-week`, `this-month`, or `this-year`, meaning starting at 1 second past
+    midnight on the first day of the current week, current month, or current year'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`checkpoint`, which uses the timestamp mentioned in a checkpoint file created
+    in a previous run'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`boot`, which implies only events since the system booted should be shown'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`week-ago`, meaning starting at 1 second after midnight exactly 7 days ago'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The use of `checkpoint` is particularly useful when troubleshooting SELinux
+    issues as it allows us to show denials (and other SELinux events) since the last
+    invocation of the `ausearch` command. This is illustrated in the following code
+    snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: This allows administrators to perform minor tweaks and reproduce the problem
+    and only see the events since then, instead of going through all events over and
+    over again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, the `ausearch` command displays all events stored in the audit log.
+    On busy systems, this can be very verbose and may result in unwanted events being
+    displayed as well. Luckily, users can limit the type of events queried through
+    the `ausearch` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For SELinux troubleshooting, using `avc,user_avc,selinux_err` limits the events
+    nicely to those needed for the job, as illustrated in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the numeric display of fields such as user IDs and timestamps is too confusing,
+    then it is possible for `ausearch` to look up and translate user IDs to usernames
+    and timestamps to formatted time fields. Add the `-i` option to `ausearch` to
+    have it interpret these fields and display the interpreted values instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we've seen how SELinux notifies the system about its actions
+    through log events, and where these log events are stored. In the next section,
+    we'll look at how to act upon these events.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting help with denials
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: On some distributions, additional support tools are available that help us identify
+    the cause of a denial. These tools have some knowledge of common mistakes (for
+    instance, setting the right context on files to allow the web server to read them).
+    Other distributions require us to use our experience to make proper decisions,
+    supporting us through the distribution mailing lists, bug tracking sites, and
+    other cooperation locations—for example, **Internet Relay Chat** (**IRC**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Troubleshooting with setroubleshoot
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In CentOS (and other **Red Hat Enterprise Linux** (**RHEL**)-related distributions
+    such as Fedora), additional tools are present that help us troubleshoot denials.
+    The tools work together to catch a denial, look for a plausible solution, and
+    inform the administrator about the denial and its suggested resolutions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When used on a graphical workstation, denials can even result in popups that
+    ask the administrator to review them immediately. Install the `setroubleshoot`
+    package to get this support. On servers without a graphical environment, administrators
+    can see the information in the system logs or can even configure the system to
+    send out SELinux denial messages via email. Install the `setroubleshoot-server`
+    package to get this support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Under the hood, it is the audit daemon that triggers its audit event dispatcher
+    application (`audispd`). This application supports plugins, something the SELinux
+    folks gratefully implemented. They built an application called `sedispatch` that
+    will act as a plugin for `audispd`. The `sedispatch` application checks whether
+    the audit event is an SELinux denial and, if so, forwards the events to D-Bus.
+    D-Bus then forwards the events to the `setroubleshootd` application (or launches
+    the application if it isn't running yet), which analyzes the denial and prepares
+    feedback for the administrator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When running on a workstation, `seapplet` is triggered to show a popup on the
+    administrator workstation. The administrator can then select **Show** to view
+    more details. Administrators don''t need a graphical user interface to be informed
+    about SELinux issues, though. You can find analyzed feedback on the filesystem,
+    and in the system logs you can read how to easily reach this information, as illustrated
+    in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can look at a complete explanation through the `sealert` command (as mentioned
+    in the log), as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `sealert` application is a command-line application that parses the information
+    stored by the `setroubleshoot` daemon (in `/var/lib/setroubleshoot`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will provide us with a set of options to resolve the denial. In the case
+    of the Apache-related denial shown earlier, `sealert` gives us one option with
+    a certain confidence score. Depending on the problem, this tool might show multiple
+    options, each with its own confidence figure (that is, how certain `sealert` is
+    that this is the right resolution).
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can see from this example, the `setroubleshoot` application itself uses
+    plugins to analyze denials. These plugins (offered through the `setroubleshoot-plugins`
+    package) look at a denial to check whether they match a particular, well-known
+    use case (for example, when to change an SELinux Boolean or when a target resource
+    has a wrong context) and give feedback to `setroubleshoot` about how certain the
+    plugin is so that this denial can be resolved through its recommended method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sending emails when SELinux denials occur
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Once a system is fine-tuned and denials no longer occur regularly, administrators
+    can opt to have `setroubleshootd` send emails whenever a new denial comes up.
+    This truly brings SELinux's host intrusion detection/prevention capabilities on
+    top, as administrators do not need to constantly watch their logs for information.
+    However, keep in mind that this could lead to a sudden burst in emails, which
+    might result in **Denial of Service** (**DoS**)-like behavior, if many denials
+    are triggered. Administrators should only implement this if their email infrastructure
+    has rate limiting or other **Quality of Service** (**QoS**) controls in place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open `/etc/setroubleshoot/setroubleshoot.conf` in a text editor and locate
+    the `[email]` section. Update the parameters to match the local mailing infrastructure,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, edit the `email_alert_recipients` file (as referenced through the `recipients_filepath`
+    variable), and add the email addresses that need to be notified when an SELinux
+    alert comes up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, restart the D-Bus daemon, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When working on a non-systemd system, use the following command instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The D-Bus restart is needed as D-Bus manages the `setroubleshootd` daemon.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using audit2why
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If `setroubleshoot` and `sealert` are not available in the Linux distribution,
+    we can still get some information about a denial. Although it isn't as extensive
+    as the plugins offered by `setroubleshoot`, the `audit2why` utility (which is
+    short for `audit2allow -w`) does provide some feedback on a denial. Sadly, it
+    isn't always right in its deduction.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s try it out against the same denial for which we used `sealert`, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `audit2why` utility here didn't consider that the context of the target
+    location was wrong, and it suggests that the policy be updated to allow the web
+    server to bind to the `unreserved_port_t` type, unlike the information provided
+    by `setroubleshoot`, which was more accurate, recommending that the target port
+    be relabeled instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the output of the command mentions, another tool exists called `audit2allow`,
+    which can convert a denial into an SELinux policy. We will cover `audit2allow`
+    in [*Chapter 12*](B16276_12_Final_VK.xhtml#_idTextAnchor312), *Tuning SELinux
+    Policies*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Interacting with systemd-journal
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Alongside the Linux audit system, which is used for most SELinux logging and
+    events, we can also gather information through other logging systems. systemd's
+    journal, for instance, captures SELinux context information with the events and
+    allows administrators to use this information while querying the journal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to see the events in `systemd-journal` that are generated by
+    an application associated with the `system_u:system_r:sssd_t:s0` context, the
+    following command can be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because `systemd-journal` adds the SELinux context of the originating application,
+    it is harder for malicious applications to generate fake events. Whereas regular
+    system loggers just capture string events, `systemd-journal` retrieves the SELinux
+    context from the system. Using the SELinux context, it is easy to group events
+    across different but strongly related applications and have a higher guarantee
+    that events come from a particular application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the `bash-completion` package is installed, we can even use it to see
+    which SELinux contexts are present in the `systemd-journal` logs, which makes
+    querying the journal logs much easier, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To find messages related to nginx, use the embedded `grep` filter, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: The benefit of the embedded `grep` filter is that `journalctl` will still show
+    the multiline messages, whereas actually redirecting the `journalctl` output through
+    `grep` would only show the individual lines that match the expression.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using common sense
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Common sense is not easy to document, but reading a denial often leads to the
+    right solution when we have some experience with file labels (and what they are
+    used for). If we get a denial about a web server failing to read its files, and
+    the context of the file is (for instance) `user_home_t`, then that should ring
+    a bell. End user home files, for instance, use the `user_home_t` context, which
+    is not suitable for system files that the web server reads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One way to make sure that the context of the target resource is correct is
+    to verify it with `matchpathcon`. This utility returns the context as it should
+    be according to the SELinux policy, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: Performing this for denials related to files and directories might help in finding
+    a proper solution quickly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Furthermore, many domains have specific manual pages that inform the reader
+    about types commonly used for each domain, as well as how to deal with the domain
+    in more detail (for example, the available booleans, common mistakes made, and
+    so on). These manual pages start with the main service and are suffixed with `_selinux`,
+    as illustrated here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In most cases, the approach to handling denials can be best described as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Is the target resource label (such as the file label) the right one? Verify
+    this with `matchpathcon`, or compare with labels of working (accessible) resources.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Is the source label (the domain) the expected one? An SSH daemon should run
+    in the `sshd_t` domain, not the `init_t` domain. If this is not the case, make
+    sure that the labels of the application itself (such as its executable binary)
+    are correct (again, use `matchpathcon` for this).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Is the denial one that might be covered by an SELinux boolean? In that case,
+    the policy might already have the appropriate rules in place, only requiring a
+    change in an SELinux boolean value. `setroubleshootd` will report this if it is
+    the case. Usually, the manual page of the domain (such as `httpd_selinux`) will
+    also cover the available SELinux Booleans. We explain how to query and adjust
+    SELinux Booleans in [*Chapter 12*](B16276_12_Final_VK.xhtml#_idTextAnchor312)*,
+    Tuning SELinux Policies*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Changing file labels will be discussed in [*Chapter 4*](B16276_04_Final_VK.xhtml#_idTextAnchor095)*,
+    Using File Contexts and Process Domains*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To close off this section, common sense will be your most prolific approach
+    to managing SELinux denials, but the aforementioned tools will be of assistance
+    to begin with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we saw how to enable and disable SELinux, both on a complete
+    system level as well as a per-service level using various methods: kernel boot
+    options, an SELinux configuration file, or plain commands. One such command is
+    `semanage permissive`, which can disable SELinux protections for a single service.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, we saw where SELinux logs its events and how to interpret them, which
+    is one of the most common tasks an administrator has to undertake when dealing
+    with SELinux. To assist us with this interpretation, we can use tools such as
+    `setroubleshoot`, `sealert`, and `audit2why`. We also touched upon several utilities
+    related to Linux auditing to help us sift through various events.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the next chapter, we will look at the first administrative task on SELinux
+    systems: managing user accounts, their associated SELinux roles, and security
+    clearances for the resources on the system.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What should administrators try before disabling SELinux?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Where can administrators find SELinux logs by default?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How do we know whether an application is SELinux-aware?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the purpose of the AVC?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Are AVC events the only type of events for SELinux?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

@@ -1,0 +1,1019 @@
+- en: '*Chapter 14*: Using journald'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we will turn our attention to a new way of logging. Although
+    the `journald` logging system isn't part of systemd's `init` system, it is part
+    of the `systemd` ecosystem. The `journald` system has its advantages over the
+    old `rsyslog` system. However, there are also a couple of big reasons why we still
+    haven't completed the transition to `journald`. Still, `journald` is an important
+    tool that can help a busy Linux administrator easily see what's going on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Specific topics in this chapter include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the pros and cons of `rsyslog`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding the pros and cons of `journald`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `journald` on Ubuntu
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using `journalctl`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sealing `journald` log files for security
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Setting up remote logging with `journald`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: All you need for this chapter is your normal Ubuntu Server 20.04 and Alma Linux
+    8 virtual machines. (You'll need both because `journald` is implemented differently
+    on each.) Now, let's start by looking at the old `rsyslog`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3dbJmJR](https://bit.ly/3dbJmJR)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the pros and cons of rsyslog
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Fedora was the first Linux distro to come with `rsyslog` as its default logging
+    system, way back in 2007\. It has quite a few improvements over the old syslog,
+    and it eventually replaced syslog as the standard logging system on Linux, Unix,
+    and Unix-like operating systems. Despite now having `journald`, `rsyslog` is still
+    with us, as we'll see in just a bit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the best features of `rsyslog` is also its biggest weakness. That is,
+    it stores log files in plaintext format. That's great in a way because you can
+    use your normal text search and viewing utilities to view the log files and find
+    whatever information that you need to find. The less, head, tail, awk, and grep
+    utilities are your friends when it comes to working with these plaintext log files.
+    This also makes it very easy to write shell scripts to extract and parse information
+    automatically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But there are a few problems with using plaintext log files. The first one is
+    that plaintext files can become quite large and eventually consume a lot of disk
+    space. To deal with this, Linux distros all come with the `logrotate` system,
+    which automatically deletes all the log files except the ones for the previous
+    four weeks. If you need to keep log files for longer than that, you'll need to
+    either edit the `/etc/logrotate.conf` file or transfer the older log files to
+    another location before `logrotate` automatically deletes them. This can also
+    make it a bit awkward to find things. If you search through the current log file
+    soon after a log rotation has taken place, you'll see that the file is mostly
+    empty. Then, you'll have to search through the archive files to find what you
+    need.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second problem, according to the `journald` developers at least, is that
+    there''s no built-in way to structure the view of `rsyslog` log files, as shown
+    in the following snippet from the AlmaLinux messages file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: You see here that every entry begins with the `journald` displays log data in
+    `rsyslog`-compatible format. However, `journald` also includes an API that allows
+    developers to define custom fields for log messages, and the `journalctl` utility
+    allows you to view log data in many different ways.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another argument against `rsyslog` is its security. Any hacker who breaks into
+    your system and gains root privileges could easily alter plaintext log files to
+    delete any record of his or her malicious deeds. The theory is that the binary
+    log files that `journald` creates are harder for an attacker to alter. Is it impossible,
+    though? Well, perhaps not, because a bit later we'll see how to verify if `journald`
+    log files have been altered. Also, the `lastlog`, `utmp`, `wtmp`, and `btmp` binary
+    log files have been in Linux for many years, and it is possible to alter them.
+    It might be a bit harder, but not impossible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final problem with `rsyslog` is that there are no built-in search capabilities.
+    Yeah, it's good that we can use tools such as awk, grep, and the built-in search
+    function of less to search for text strings or text string patterns. But, wouldn't
+    it be nice to have a built-in function that could make those searches a bit easier?
+    As we'll soon see, we have that capability with `journald`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I must mention that not everyone agrees that not having searching and formatting
+    capabilities built into `rsyslog` is a problem. The `journald` developers *do*
+    see it as a problem, of course. But, a lot of text manipulation and search utilities
+    come installed on pretty much every Linux distro, and it''s not hard to use them.
+    Even a shell-scripting beginner could easily whip up a script that would automate
+    the process of finding and formatting pertinent information from plaintext log
+    files. For example, several years ago, I wrote such a shell script to help out
+    one of my buddies. (It was for Apache log files, but the principle still applies.)
+    Anyway, you can check out the article that I wrote about it here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[http://beginlinux.com/blog/2009/08/detect-cross-site-scripting-attacks-with-a-bash-shell-script/](http://beginlinux.com/blog/2009/08/detect-cross-site-scripting-attacks-with-a-bash-shell-script/).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: (It says at the top that the article was posted by *Mike*, but if you scroll
+    to the bottom, you'll see that I wrote it.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Having said all this, I should also mention that some things are still a bit
+    difficult to do with plaintext files, such as converting them into JSON format.
+    As we'll see shortly, `journald` is much better for that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another advantage of `rsyslog` is that it's extremely easy to set up a central
+    `rsyslog` server that can receive log files from other machines on the network.
+    Of course, configuring the server to separate the files from different machines
+    into their own sets of log files is a bit awkward, but it isn't that complex once
+    you know how to do it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the pros and cons of journald
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In contrast to `rsyslog`, `journald` stores its log files in binary format.
+    This allows us to store more data in a smaller amount of disk space, which reduces
+    the need to constantly rotate the log files. Reducing the need for rotation allows
+    us to keep log files for the long term, without having to worry about moving them
+    elsewhere.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using binary files also gives us an extra bit of security. It's harder for an
+    attacker to alter binary files, and there's also a way to see if the files have
+    been altered.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `journalctl` utility comes with built-in filtering and viewing functions.
+    We can even view the log information in JSON format, which makes it easier to
+    export log data into other log-parsing programs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Yet another cool thing about `journald` is that it stores system log files and
+    user log files separately. Each user has his or her own set of log files. A user
+    with administrative privileges can view files for the system and all users, and
+    a non-privileged user can just view his or her log files. With `rsyslog`, only
+    users with administrator privileges can view any of these log files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unfortunately, this cloud's silver lining does have a bit of tarnish. It is
+    possible to set up a central log server that can receive `journald` logs from
+    other machines, but this feature is still in development and isn't considered
+    production-ready. So, because of that and the fact that most third-party log aggregation
+    tools still expect to see plaintext `rsyslog` files, `rsyslog` is still with us,
+    and likely will be with us for quite some time to come. At the time of this writing,
+    I don't know of any Linux distros that have completely transitioned to `journald`.
+    Every Linux distro that I know of runs both `journald` and `rsyslog` together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It''s just been pointed out to me that the Fedora team initially had Fedora
+    21 running with nothing but `journald`. However, they received so many complaints
+    about it that they had to do an update that brought back `rsyslog`. I didn''t
+    know this, because I had abandoned Fedora quite a few years ago due to its instability
+    issues. I didn''t start working with it again until Fedora 23, after the instability
+    issues had gotten worked out. Anyway, you can read a bit more about this drama
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.linuxquestions.org/questions/linux-newbie-8/where-are-var-log-dmesg-and-var-log-messages-4175533513/](https://www.linuxquestions.org/questions/linux-newbie-8/where-are-var-log-dmesg-and-var-log-messages-4175533513/).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, there are differences between how the various distros do this. In the
+    next section, we'll look at how Ubuntu does it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding journald on Ubuntu
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: On Ubuntu systems, the `journald` and `rsyslog` services are both enabled by
+    default, and they both run as completely independent entities. The `journald`
+    logs are persistent, which means that they are permanently stored on disk, instead
+    of getting deleted every time you shut down the machine. The `rsyslog` log files
+    are also present, and they get rotated every week.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Two things make the `journald` log files persistent. First, is the very first
+    configuration option in the `/etc/systemd/journald.conf` file, which looks like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When you look at this whole file, you''ll see that every line in it is commented
+    out. This just means that all of these options have been set to their default
+    values. To change something, just uncomment the line and change the value. However,
+    we don''t need to do anything with this `#Storage=auto` line. The `auto` here
+    means that if the `/var/log/journal/` directory exists, then `journald` will permanently
+    store its log files there. If the `/var/log/journal/` directory doesn''t exist,
+    a transient set of log files will be created in the `/run/log/journal/` directory
+    every time you boot the machine. When you shut the machine down, these transient
+    log files will be deleted. On Ubuntu machines, the `/var/log/journal/` directory
+    is already there for you, which means that the log files are persistent. To show
+    you how persistent the `journald` log files are, let''s take a quick look at what
+    I have on the host machine that I''m using to write this. This machine is running
+    `Lubuntu 18.04`, which is just Ubuntu with an alternate desktop environment. I''ll
+    use the `journalctl` command without any options, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we can see that the logs begin in November 2018, which is almost three
+    years ago. (I''m writing this in August 2021.) Surely, three years of logs would
+    take up lots of disk space, right? Well, let''s use the `journalctl --disk-usage`
+    command to find out:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, three years'' worth of `journald` log files doesn''t even take up a whole
+    GB of disk space. That''s a lot less space than what three years'' worth of `rsyslog`
+    text files would require. To see the actual `journald` log files, go into the
+    `/var/log/journal/` directory. There, you''ll see a directory with a rather long
+    hexadecimal number as its directory name, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Within that directory, you''ll see the log files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can use `wc -l` to easily count how many files there are, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, there are 75 `journald` log files on this machine. That's because `journald`
+    is configured to store information in lots of smaller files instead of storing
+    everything in one big honkin' monolithic file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: When those of us in the southern United States say that something is *big honkin'*,
+    we mean that it's *really big*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The coolest part is that when you use `journalctl` to view the files, it will
+    automatically open all of these files as necessary, instead of making you open
+    each file with a separate command. (This is another huge advantage that `journald`
+    has over `rsyslog`.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you ever do need to limit the amount of disk space that `journald` uses for
+    log file storage, you can set the proper parameters in the `/etc/systemd/journald.conf`
+    file. (See the `journald.conf` man page for details.) Also, the `journalctl` man
+    page shows you how to rotate log files and then delete old archived log files
+    with the `--vacuum-size=`, `--vacuum-time=`, and `--vacuum-files=` options. Let's
+    look at an example of how to do that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, shut down the virtual machine and take a snapshot of it. (You''ll need
+    to have plenty of log files for the upcoming demos.) Then, restart the virtual
+    machine and ensure that the persistent logs are up-to-date with the transient
+    logs, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, combine the `--rotate` and `--vacuum-time` options to archive the current
+    log files, create new empty log files, and delete all the archived log files that
+    are older than five days, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, shut down the virtual machine, restore from the snapshot, and restart
+    the virtual machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you don't want your Ubuntu machine to persistently store `journald` log files,
+    either delete the `/var/log/journal/` directory or go into the `/etc/systemd/journald.conf`
+    file and change the `#Storage=auto` line to `Storage=volatile`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final thing I want to mention about Ubuntu is that when you install the
+    operating system, the user that gets created by the installer is a member of both
+    the `sudo` and `adm` groups. Members of the `sudo` group have full `sudo` privileges,
+    as you probably already know. On most other distros, you'd need to use `sudo`
+    to view system log files. On Ubuntu machines, members of the `adm` group can view
+    all `rsyslog` or `journald` logs without `sudo` privileges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, that does it for `journald` on Ubuntu. Now, let's move on and look at
+    `journald` on RHEL-type systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding journald on RHEL-type systems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are a few big differences in how things are done in the Red Hat world.
+    First, on your AlmaLinux machine, you''ll see that there is no `/var/log/journal/`
+    directory, which means that `journald` log files will only be created in the `/run/log/journal/`
+    directory and will disappear every time you shut down or reboot the machine. If
+    you want to change that, all you have to do is create that journal subdirectory,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: You'll immediately see that the `journald` log files are now persistent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before you make the `journald` log files persistent on a production machine,
+    evaluate whether or not you need to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The other big difference is that on RHEL-type systems, `journald` and `rsyslog`
+    work together, instead of independently. Instead of having both `journald` and
+    `rsyslog` gather information from the rest of the operating system, only `journald`
+    does. Then, `rsyslog` obtains the information from `journald` and stores it in
+    the normal `rsyslog` text files. We can see how that''s enabled in the top portion
+    of the `/etc/rsyslog.conf` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Unlike the old `syslog` service that `rsyslog` replaced, you can extend the
+    capabilities of `rsyslog` by adding new modules to it. Here, we can see the `imjournal`
+    module, that allows `rsyslog` to receive data from the `journald` service. So,
+    on RHEL 8-type machines, `journald` gathers the data from the rest of the system
+    and passes it to `rsyslog`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final big difference is that on RHEL-type systems, you'll need the proper
+    `sudo` privileges to view all of the log files. The `adm` group is there, but
+    adding yourself to it doesn't do anything for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we've seen the differences between how `journald` is set up on Ubuntu
+    and RHEL, let's look at how to use `journalctl`, which works the same across all
+    distros.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using journalctl
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `journalctl` utility is cool because it has so much flexibility. Let's start
+    by looking at the various ways to search for and display log data. We'll do this
+    on the Ubuntu machine because Ubuntu's persistent `journald` logs will give us
+    more to look at.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Searching for and viewing log data with journalctl
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The simplest command for viewing log files is just `journalctl`. As we see
+    here, this will show you pretty much the same information that you''d see when
+    you open a normal `rsyslog` file in `less`. You''ll also see that the `journalctl`
+    output is automatically piped into `less`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: A big difference from what you're used to with `rsyslog` is that long lines
+    don't wrap around. Instead, they extend beyond the right-hand side of the visible
+    window. To see the rest of these lines, you'll need to use the right cursor key.
+    Other than that, you can use the same search and navigation commands that you'd
+    normally use with the `less` utility. For example, to go directly to the bottom
+    of the `journalctl` output, just use the *Shift* + *G* key combination. (Be patient,
+    though, because `journalctl` has to read through all of those files that I showed
+    you earlier, which takes a while.) To go to a specific line, just enter the line
+    number followed by the lowercase `g`. To search for a text string, hit the `/`
+    key and enter the search term. When you're done, just hit the *Q* key to quit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: I should point out that since I'm using the Ubuntu virtual machine for this,
+    where I'm a member of the `adm` group, I don't need `sudo` privileges to view
+    all system logs. If you decide to try this on the AlmaLinux machine, you'll need
+    to use `sudo`. Otherwise, you'll only see your user logs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you look at the `journalctl` man page, you'll see a wide selection of display
+    and search options. I can't demonstrate all of them to you, but we can look at
+    a few examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On a machine with persistent `journald` log files, you might just want to see
+    the log entries from the current boot-up session. Now, to make this work, reboot
+    your machine a few times so that you''ll have more to see. Then, use `journalctl
+    -b`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, you can see that the logs began in January 2021, but the first entry
+    it shows here is for the current date of August 10 at 2:20 P.M., which is when
+    I last booted this virtual machine. To see the log entries from the previous boot-up
+    session, just add a `-1`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, it looks like I had booted this machine earlier today, at 1:36 P.M. You
+    can also view files from earlier boot-up sessions by specifying a different number.
+    For example, you can use `-2` to display files from two boot-up sessions ago,
+    `-10` to show files from 10 boot-up sessions ago, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see a list of all bootups, use the `--list-boots` option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: It looks like I've booted this virtual machine 47 times since I've created it.
+    The long hexadecimal number you can see in the second field is the ID number of
+    the boot-up session.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `-g` option allows you to grep for either specific text strings or Perl-compatible
+    regular expressions. If your search term consists only of lowercase letters, then
+    the search will be case-insensitive. If the search term includes any uppercase
+    letters, then the search is case-sensitive. For example, using `journalctl -g
+    fail` shows you all the entries that contain some form of *fail*, regardless of
+    whether *fail* contains lowercase, uppercase, or both upper and lowercase letters.
+    But if you use `journalctl -g Fail`, you''ll only see entries that contain the
+    specific specific string, `Fail`. If your search term consists of only lowercase
+    letters and you want to make the search case-sensitive, just use the `--case-sensitive=`
+    option, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The priority levels for `journald` log messages are the same as for the `ryslog`
+    log messages. The only difference is that you can now use either the name or the
+    number of the priority level in your searches. In order of descending importance,
+    the priority levels are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`0` or `emerg`: This is the emergency level, for things such as kernel panics.
+    (Hopefully, you''ll rarely ever see these.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`1` or `alert`: These aren''t quite an emergency, but they''re still bad news.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`2` or `crit`: Don''t be too surprised if you see some critical messages. These
+    can be caused by something as simple as a user fumble-fingering his or her password.
+    They could also be caused by someone trying to brute-force a password, so it''s
+    worth your while to pay attention to these.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`3` or `err`: These could be caused by a service that fails to start, a program
+    that runs out of memory, problems with accessing a hardware device, and so forth.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`4` or `warning`: You''ll see lots of these, but most are nothing to worry
+    about. Normally, most of them will be kernel messages from when you boot up the
+    machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`5` or `notice`: These don''t constitute an emergency, but you still want to
+    take *notice* of them. (See what I did there?)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`6` or `info`: Most log messages you see should be of the `info` level.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`7` or `debug`: This is is the lowest priority. It''s not enabled by default
+    on `rsyslog`, but it is on `journald`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that you want to only see the `emerg` (emergency) messages.
+    Use the `-p` option with either the number or the name of the priority level,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, there are no emergency messages, which is a good thing. What about `alert`
+    messages? Let''s see:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Cool. There are none of them, either. But from priority level `2` (`crit`)
+    on down, it''s a different story, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, there are a few `critical` messages. Now, things get a bit trickier. It''s
+    just that when you specify a priority level, you''ll see messages from that priority
+    up through all of the upper priorities that also have messages. So, if I were
+    to specify level `3` (`err`) right now, I''d also see the level `2` (`crit`) messages.
+    To see nothing but level `3` messages, specify a range with level `3` as both
+    the starting point and the ending point, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Curiously, the `journalctl` man page tells you that you can specify ranges,
+    but it doesn't tell you that you have to use two dots for it. I had to do a DuckDuckGo
+    search to find out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another carryover from `rsyslog` is the concept of *facilities*. Different
+    Linux subsystems create different types, or facilities, of messages. The standard
+    facilities are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`auth`: Messages generated by the authorization system, login, `su`, and so
+    on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`authpriv`: Messages generated by the authorization system but only readable
+    by selected users.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cron`: Messages generated by the cron service.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`daemon`: Messages generated by all system daemons (`sshd`, `ftpd`, and so
+    on),'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ftp`: Messages generated by a **File Transfer Protocol** (**FTP**) service.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`kern`: Messages generated by the Linux kernel.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`lpr`: Messages generated by the line printer spooling.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mail`: Messages generated by the operating system''s internal mail system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mark`: These are periodic timestamps that can be inserted into the logs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`news`: This facility deals with messages from Usenet newsgroup services, which
+    have pretty much died off. So, you''ll likely never see any of these messages.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`syslog`: Messages that are generated by rsyslog.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`user`: Messages generated by users.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`uucp`: Messages from the Unix-to-Unix copy system. This system also has pretty
+    much died off, so you''ll likely never see any of these messages, either.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`local0` through `local7`: You can use these to define custom facilities.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To see messages from one specific facility, use the `--facility` option, like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, I did tell you that there would likely be no `uucp` messages. For a more
+    realistic example, let''s look at `auth` and `authpriv` messages, and compare
+    the difference between them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For our final example, let''s get fancy. Let''s look at priority `4` `daemon`
+    messages that have come up since yesterday:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: All right, that about covers it for priorities and facilities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see a list of all of the available facilities, just do:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**journalctl --facility=help**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can also view log entries for a certain user. To do that, you must obtain
+    the user''s UID, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, Frank''s UID is `1002`. Now, let''s view his log entries:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, that''s good. But all I want to see is his log entries for today. I can
+    use either the `-S` or `--since` option for this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, Frank hasn't logged in today, which isn't surprising. Remember that Frank
+    is a cat, which means that he spends most of his time sleeping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that you want to view information about the Apache web server
+    service, but you want to see it in JSON format. All right, let''s do this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Is this output not pretty enough for you? No problem; we can make it pretty:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that more data fields show up in JSON format than in the standard default
+    format. That's because the default output format for `journalctl` is meant to
+    emulate the standard `rsyslog` format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that you just want to see Apache information from yesterday,
+    and you want to save it to a JSON file and view the output on the screen at the
+    same time. The `--no-pager` option allows you to pipe the `journalctl` output
+    into another utility, as we''re doing here with the tee utility:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can also use `--no-pager` to pipe output into the standard Linux text filtering
+    and manipulation utilities, such as grep or awk. This can be handy if you need
+    to write shell scripts for use in Nagios or Icinga plugins, for example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I could give you a lot more examples, but you get the idea. Besides, this is
+    one of those rare instances in the world of free-as-in-speech software where the
+    documentation that other people have written is so good that I can't improve upon
+    their efforts. So, if you want to see more, I'll direct your attention to the
+    `journalctl` man page and the resources in the *Further reading* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sealing journald log files for security
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: I've already told you how easy it is for a malicious person to tamper with the
+    text-mode `rsyslog` files to delete his or her nefarious activities. The `journald`
+    log files are already harder to tamper with because they're in binary format.
+    We can make it even harder to tamper with them by *sealing* them. (Of course,
+    this only works if you have persistent `journald` logs.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step is to create a set of **Forward Secure Sealing** (**FSS**) keys,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This command creates two keys. The *sealing key* is named `fss` and is stored
+    in the same directory as the `journald` log files, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The verification key only appears as a text string on your screen, as we see
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_14.1_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.1 – Creating the Forward Secure Sealing (FSS) keys
+  prefs: []
+  type: TYPE_NORMAL
+- en: It says to write this key down, but I'd rather cheat by copying and pasting
+    it into a text file that I can store in a secure location. (For this demo, you
+    can just store the text file in your home directory.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, you can periodically run a `verify` operation to ensure that nobody has
+    tampered with your log files. Just copy and paste the verification key into the
+    command, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: That's about it for sealing your log files. Now, let's talk very briefly about
+    setting up remote logging with `journald`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up remote logging with journald
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Sometimes, it's handy to set up a central log collection server and have all
+    the other machines on the network send their log files to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As I've already said, `journald` remote logging is still in a proof-of-concept
+    phase and isn't considered ready for production use. Also, most third-party log-aggregation
+    utilities are still set up to use plaintext `rsyslog` files. So, if you have remote
+    logging on your site or if you need to set up remote logging, you'll most likely
+    use `rsyslog`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, I do realize that some of you might be interested in playing around
+    with a remote `journald` logging setup. If that's the case, I'd like to direct
+    your attention to the procedure that's linked in the *Further reading* section.
+    However, be aware that you'll need to install security certificates on the `journald`
+    log server and all of the clients. This procedure has you install certificates
+    from *Let's Encrypt*, which requires you to have your machines in a domain that's
+    registered on the public **Domain Name Service** (**DNS**) servers. If the Let's
+    Encrypt installer can't find your machines on a public DNS server, the install
+    operation will abort.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fortunately, if you just want to set up centralized `journald` logging for an
+    internal LAN, you can modify the procedure so that it uses certificates that you
+    create locally from a local Certificate Authority server. (Showing you how to
+    set up a local Certificate Authority is beyond the scope of this book, but you
+    can read about it in my other book, *Mastering Linux Security and Hardening*.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Well, I think that that should do it for `journald`. Let's wrap things up and
+    move on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we covered the `journald` logging system and compared it to
+    the tried-and-true `rsyslog`. First, we looked at the pros and cons of both `rsyslog`
+    and `journald`. Then, we saw how the two logging systems are implemented in both
+    Ubuntu and RHEL distros. After that, we saw the various viewing, searching, and
+    formatting options that we can use with the `journalctl` utility. We wrapped up
+    by learned how to make our `journald` log files more tamper-resistant and briefly
+    discussed setting up a centralized `journald` log server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we'll look at using systemd's own network services. I'll
+    see you there!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Answer the following questions to test your knowledge of this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is the major difference between `journald` and `rsyslog`?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `journald` stores files in plaintext format, while `rsyslog` stores files
+    in binary format.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. There is no difference.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. `rsyslog` stores files in plaintext format, while `journald` stores files
+    in binary format.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following statements is true?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. Modern systemd-based Linux distros come with either `rsyslog` or `journald`,
+    but not both.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. `journald` and `rsyslog` always work independently of each other.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. Modern systemd-based Linux distros come with both `rsyslog` and `journald`.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. `journald` and `rsyslog` can never work independently of each other.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What are two major differences in how `journald` is implemented on Ubuntu and
+    RHEL? (Choose 2.)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `journald` logs are persistent on RHEL, but not on Ubuntu.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. On RHEL, `journald` works completely independently of `rsyslog`. On Ubuntu,
+    they work together.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. On RHEL, `journald` and `rsyslog` work together. On Ubuntu, they work independently.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. On Ubuntu, `journald` logs are persistent. On RHEL, they are not.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: E. There is no difference.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Which of the following commands would delete all but the most recent one GB
+    worth of `journald` log files?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `sudo journalctl --vacuum-size=1G`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. `sudo journalctl --rotate`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. `sudo journalctl --size=1G`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. `sudo journalctl --clean=1G`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C, D
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The rocket-fast syslog server (the `rsyslog` project page):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://www.rsyslog.com/](https://www.rsyslog.com/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Why `journald`?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.loggly.com/blog/why-journald/](https://www.loggly.com/blog/why-journald/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Understanding `journald`:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://linuxconcept.com/tutorial/understanding-journald/](https://linuxconcept.com/tutorial/understanding-journald/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to use `journalctl` to view and manipulate `systemd` logs:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs](https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Did you know that `journald` can give JSON output?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://ailogs.design.blog/2020/02/01/linux-logs-did-you-know-systemd-journald-can-give-json-output/](https://ailogs.design.blog/2020/02/01/linux-logs-did-you-know-systemd-journald-can-give-json-output/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Logging with `journald`:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://sematext.com/blog/journald-logging-tutorial/](https://sematext.com/blog/journald-logging-tutorial/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to centralize logs with `journald` on Ubuntu 20.04:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.digitalocean.com/community/tutorials/how-to-centralize-logs-with-journald-on-ubuntu-20-04](https://www.digitalocean.com/community/tutorials/how-to-centralize-logs-with-journald-on-ubuntu-20-04)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

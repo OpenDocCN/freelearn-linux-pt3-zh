@@ -1,0 +1,655 @@
+- en: '17'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Using Shell Script Options with getops
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Often, an administrator will need to pass both arguments and options to a shell
+    script. That’s easily done by passing positional parameters to the script, as
+    we’ve seen in previous chapters. But, if you need to use normal Linux/Unix-style
+    option switches, and you need to use arguments for certain options, then you’ll
+    need a helper program. In this chapter, I’ll show you how to use `getops` to pass
+    options, arguments, and options with arguments to a script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Topics in this chapter include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the need for `getopts`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding `getopt` versus `getopts`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using `getopts`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Looking at real-world examples
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: So, if you’re ready, let’s dig in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical Requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You can use either your Fedora or your Debian virtual machine for this chapter.
+    And, as always, you can grab the scripts by running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Understanding the Need for getopts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we do anything else, let’s review the difference between **options**
+    and **arguments**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Options modify the behavior of a program or script.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Arguments are the objects upon which a program or script will act.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The simplest way to demonstrate the difference is with the humble `ls` command.
+    If you want to see if a particular file is present, just use `ls` and the filename
+    as an argument, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you want to see the details about the file, you’ll need to add an option,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: You see how the `-l` option modifies the behavior of the `ls` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You’ve already seen how to use normal positional parameters to pass options
+    and arguments into a script. A lot of the time, this will work sufficiently well,
+    and you won’t need anything more. However, without some sort of helper utility,
+    creating scripts that can properly parse a set of single-letter options that are
+    combined with a single dash, or that have options with their arguments is very
+    unwieldy. This is where `getopts` comes in. You can use it in a script to simplify
+    the process. Before we talk about that though, I want to quickly cover something
+    that might be a point of confusion for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding getopt versus getopts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `getopt` utility, which has its own executable file, has been around forever,
+    since the early days of Unix. Its big advantage is that it can handle long options.
+    In other words, in addition to feeding it single-letter options, such as `-a`
+    or `-b`, you can also feed it whole-word options such as `--alpha` or `--beta`.
+    And, that’s it. That’s really its only advantage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It also has some disadvantages. The original implementation of `getopt` can’t
+    handle arguments that have blank spaces in their text strings. So, for example,
+    if you need to work with a file that has a blank space in its filename, you can’t
+    specify that filename as an argument for a shell script that uses the original
+    `getopt`. Also, the `getopt` syntax is a bit trickier than that of `getopts`,
+    which makes `getopts` somewhat easier to use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At some point in time, I’m not sure when, some random Linux developers decided
+    to create a new implementation of `getopt` that would fix some of these deficiencies.
+    (This is known as the **util-linux** implementation.) That would be great, except
+    that it’s still *only* in Linux. All of the Unix and Unix-like operating systems
+    still have the original, unenhanced `getopt`. So, if you were to create a script
+    on a Linux machine that uses the cool features of the enhanced `getopt`, you won’t
+    be able to run it on any Unix or Unix-like operating system, such as FreeBSD or
+    OpenIndiana.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The newer `getopts` command, which is a shell builtin command that doesn’t have
+    its own executable, can work with arguments that contain blank spaces. The trade-off
+    is that it can only work with single-letter options, and can’t work with long
+    options. The biggest advantage is that it’s portable across Linux, Unix, and Unix-like
+    operating systems, regardless of which shell you’re using. So, if portability
+    is one of your goals, your best bet is to just say *No* to `getopt`, and *Yes*
+    to `getopts`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For that reason, I’ll only cover `getopts` in this chapter, and won’t say anything
+    more about the creaky old `getopt`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With that out of the way, let’s get down to the meat of the matter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using getopts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We’ll begin with the `getopts-demo1.sh` script, which is the world’s simplest
+    `getopts` script. Here’s how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We’re using a `while` loop to pass the chosen option or options into a `case`
+    statement. The `ab` after the `getopts` command means that we’re defining `a`
+    and `b` as options that we can choose. (This list of allowable options is referred
+    to as the **optstring**.) You can use any alpha-numeric character as an option.
+    It’s possible to use certain other characters as well, but it’s not recommended.
+    For reasons that will become clear later, you definitely *cannot* use either a
+    `?` or a `:` as an option. After the `ab`, you see `options`, which is just the
+    name of the variable that we’ll use in the `case` construct. (You can name the
+    variable whatever you want.) Anyway, running the script looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, *big deal*, you’re saying. We can do this sort of thing with just normal
+    positional parameters. Ah, but here’s something that you can’t do with normal
+    positional parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, you see how `getopts` allows you to combine options with a single dash,
+    just as you’re used to doing with normal Linux and Unix utilities. Something else
+    that you can’t do with normal positional parameters, at least not easily, is to
+    have options that require their own arguments. Here’s the `getopts-demo2.sh` script
+    that shows how that’s done:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When you place a colon after an allowable option in the optstring, you’ll need
+    to supply an argument for that option when you run the script. The argument for
+    each option is stored in `OPTARG`, which is a variable that’s built into the shell
+    and that works with `getopts`. (Note that this variable name must consist of nothing
+    but upper-case letters.) The `while` loop runs once for each option that is used,
+    which means that the same `OPTARG` variable can be used for multiple option arguments.
+    Just for fun, let’s try this with my first name as the argument for the `-a` option,
+    and my last name as the argument for the `-b` option. Here’s how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As it is now, the shell will return its own error message if you run the script
+    with an invalid option, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this case, the `./getopts-demo2.sh: illegal option -- x` line is the error
+    message that was generated by `bash`. You can suppress that error message by placing
+    another colon at the beginning of the optstring. Optionally, you can add a `\?`
+    choice to the `case` structure that will display your own custom error message
+    for invalid choices, and a `:` choice to alert you if you try to run the script
+    without supplying the required option arguments. Another problem is that if I
+    don’t supply the required option arguments, the final `echo` command still runs,
+    when it really shouldn’t. Anyway, here’s how all of the fixes look in the `getopts-demo3.sh`
+    script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here’s what happens when I run it with all of the necessary arguments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And here’s how it looks if I either don’t use all of the options or if I use
+    an option without providing an argument:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'What we’ve done so far works perfectly with options that require arguments.
+    In the `getopts-demo4.sh` script, I’ll introduce two new concepts. You’ll see
+    how to require arguments for some options but not for others, and how to use non-option
+    arguments. Here’s how that looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `:a:b:c` optstring, without a colon after the `c`, says that an argument
+    is required for the `-a` and `-b` options, but not for the `-c` option. If any
+    filenames are provided as non-option arguments, the last line at the bottom will
+    perform an `ls -l` command on those files. (Note that the `[[ -z $@ ]]` structure
+    will return an exit code of 0 if there are no non-option arguments. If there is
+    a non-option argument, it will return an exit code of 1, which will trigger the
+    `ls -l` command.) But, here’s the trick.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you run this script, you’ll need to specify the options and option arguments
+    first. Then, at the end of the command, specify the filenames that will be the
+    non-option arguments. Or, if you desire, just specify a non-option argument without
+    using any of the options. The `shift $((OPTIND-1))` line is necessary to make
+    the script recognize non-option arguments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`OPTIND` is another variable that’s built into the shell and that is meant
+    to hold the number of `getopts` options that have been processed. The simplest
+    way to understand what the `shift $((OPTIND-1))` command does is to think of it
+    as a clearing mechanism. In other words, it clears away all of the `getopts` options
+    that have been used and makes way for the non-option arguments. Another way to
+    think of it is that it resets the positional parameter count back to `$1`. That
+    way, you can access your non-option arguments the way you normally would, as you
+    see on the final line. Also, note the `ls -l "$1"` command in the final line.
+    This is a case where you absolutely *must* surround the positional parameter (`$1`,
+    in this case) with a pair of double quotes. Otherwise, you’ll get an error message
+    if you try to access a file that has a blank space in its filename. Finally, note
+    that you can list multiple positional parameters so that you can have multiple
+    arguments, just as you’ve done before. Or, you can replace the `"$1"` parameter
+    with `"$@"` so that you can use an unlimited number of non-option arguments.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, running this script with no options, and with just a non-option argument,
+    looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If I were to remove the double quotes from around the positional parameter
+    in the `ls -l` command, I would receive an error whenever I try to access a file
+    with blank spaces in the filename. Here’s how that looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, remember to use those double quotes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When I told you about the disadvantages of using `getopt`, I mentioned that
+    the `getopt` syntax is trickier to use than that of `getopts`. If I were using
+    `getopt` for these scripts, I would need to place one or more `shift` commands
+    after each item in the `case` construct, so that the script would properly recognize
+    the options. With `getopts`, this shifting is done automatically. The only place
+    where I’ve had to use `shift` is in the `shift $((OPTIND-1))` command at the end.
+    So you can see where `getopts` is much simpler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, if you want to learn more about how to use `OPTIND` with `getops`, I’ve
+    placed some references in the *Further Reading* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And really, this is pretty much it for the basic usage of `getopts`. So, let’s
+    move on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at Real-world Examples
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that I’ve demonstrated the theory of using `getopts`, it’s time to get down
+    to business with a couple of real-world examples. Enjoy!
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Modified Coingecko Script
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In *Chapter 10, Understanding Functions*, I showed you a pair of cool scripts
+    that I created for my own use. To review, these scripts use the Coingecko API
+    to automatically fetch information about cryptocurrencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `coingecko.sh` script uses an `if. .elif. .else` construct to allow me to
+    choose the function that I want to perform. In the `coingecko-case.sh` script,
+    I use a `case. .esac` construct to achieve the same thing. Now, I present the
+    third incarnation of the script, which uses `getopts`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `coingecko-getopts.sh` script is too large to reproduce here, so you’ll
+    need to grab it from GitHub. I do need to point out a few things about it, so
+    I’ll just show the relevant snippets here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At the beginning of the script, I added the `gecko_usage()` function, which
+    looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, I deleted the `coin=$1` and `currency=$2` variable definitions from within
+    the `gecko_api()` function, because we no longer need them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, I added an error-checking option to the existing case structure, modified
+    the **Usage** option to call the `gecko_usage()` function, and then surrounded
+    it with a `while` loop, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Remember to install the `jq` package, as I showed you in *Chapter 10*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At first, I also had a `p:` option to obtain the current coin prices. That
+    didn’t work though, because this command requires two arguments, which are the
+    comma-separated list of coins and the reference currency. But, `getopts` only
+    allows you to use one argument per option. To fix that, I moved the coin price
+    command out of the `gecko_api()` function, and placed it at the end of the file,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: The call to the `gecko_api()` function now only requires one positional parameter,
+    which will be the selected `-h`, `-l`, or `-c` option, or the combined `-hlc`
+    set of options. If you want to use each option separately, rather than combining
+    them, you’ll need to change `gecko_api $1` to either `gecko_api $1 $2 $3` or `gecko_api
+    $@`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, adapting the original Coingecko scripts to use `getopts` was really quite
+    easy. But, what’s the advantage? Well, in this case, there’s really only one.
+    That is, by using `getopts` option switches, you can now perform more than one
+    task by running this script just a single time. That’s something that you can’t
+    do with the original scripts. Regardless, you can use this as a template for your
+    own scripts in which using `getopts` might be more advantageous.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s check out a cool system monitoring script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Tecmint Monitor Script
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: I borrowed this handy Linux-only `tecmint_monitor.sh` script from the Tecmint
+    website, and tweaked it a bit to make it work better on newer Linux systems. The
+    author released it under the Apache 2.0 free software license, so I was able to
+    upload the tweaked version to GitHub for your convenience. (I’ve also provided
+    a link to the original Tecmint article in the *Further Reading* section.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: I’m not going to explain the whole script here, because the author has done
+    a stellar job of explaining it by inserting comments everywhere. But, I will point
+    out a few things about it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first thing to note is that the author has done things a bit differently
+    with the `case` construct. Instead of placing all of the code that he wants to
+    execute into the `case` options, he instead just uses the `case` options to set
+    either the `iopt` or `vopt` variable, depending upon whether the `-i` or the `-v`
+    option was chosen. Here’s how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The executable code is placed within a pair of `if. .then` constructs. Here’s
+    the first one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, if the value of the `iopt` variable is not of zero length, meaning that
+    the `-i` option was chosen, then this script installation routine will run. It’s
+    not a very complex command. All it does is prompt you to enter the root user’s
+    password, copy the `techmint-monitor.sh` script to the `/usr/bin/` directory,
+    and change its name to `monitor`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, there is a slight problem here that I haven’t fixed. It’s just since the
+    author created this script in 2016, it’s become more common for Linux users to
+    not assign a password to the root user account. In fact, that’s the default behavior
+    for the Ubuntu distros, and it’s optional for many other distros. (In fact, I’ve
+    never assigned a root user password here on this Fedora workstation.) So, the
+    `su -c` command here won’t work, because it expects you to enter the root user
+    password when it prompts you to. So, if you haven’t assigned a password to the
+    root account, you’ll always get an authentication failure if you run the script
+    without using `sudo`. But, the script works fine when I do run it with `sudo`,
+    so I didn’t bother to change this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we have the `if. .then` construct for the `vopt` variable, which looks
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: All this option does is show version information about the script. At the bottom,
+    I added the `Tweaked by Donnie` line to show that I modified the original script.
+    (You might say that I made a tweak here to show that I made some tweaks.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, we see a long `if. .then` construct that does the real work. It begins
+    with `if [[ $# -eq 0 ]]`, which means that if no options were chosen, the code
+    in this `if. .then` construct will execute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Within this big, long `if. .then` block are the commands that obtain various
+    types of system information. I had to tweak the command for checking DNS server
+    information because the author made it look for the IP address of the DNS server
+    on a specific line of the `resolv.conf` file. I changed it so that it will look
+    for any lines that begin with the text string `nameserver`, which looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'I also tweaked the Check Disk Usages command, in order to make it more portable.
+    Here’s how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: All I did here was to add the `-P` option to the `df` command, so that the `df`
+    output will always be POSIX-compliant. Of course, you can also add more drives
+    to this if you need to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, at the very end, we have the `shift $(($OPTIND -1))` command. The script
+    will actually run just fine if you comment this line out, because we don’t have
+    to deal with any non-option arguments. Still though, a lot of people believe that
+    it’s good form to always add this line to the end of a script that uses `getopts`,
+    just to ensure that all option information is cleared out when the script exits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In all of these examples, you’ve seen me use `while` loops to implement `getopts`,
+    because that’s my own personal preference. However, if you prefer to use a `for`
+    loop instead, that’s also perfectly fine. The choice is yours.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, I think that just about does it for our discussion of `getopts`.
+    Let’s summarize and move on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we’ve looked at `getopts`, which gives us a cool and easy way
+    to create scripts that recognize Linux and Unix-style option switches that might
+    have their own arguments. We began with a review of what command options and arguments
+    are, and then cleared up a possible point of confusion about `getopt` and `getopts`.
+    After a presentation about how to use `getopts`, we wrapped up with a review of
+    a couple of real-world scripts that use it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll look at how shell scripting can be a big help to
+    security professionals. I’ll see you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Which of the following statements is true?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You should always use `getopt`, because it’s easier to use than `getopts`.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`getopt` can handle arguments that contain blank spaces, but `getopts` can’t.'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`getopt` requires you to use one or more shift commands with every option,
+    but `getopts` doesn’t.'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`getopts` can handle long options, but `getopt` can’t.'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In this `while getopts :a:b:c options; do` line, what does the first colon do?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It suppresses error messages from the shell.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It causes the `-a` option to require an argument.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It doesn’t do anything.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The colons cause the options to be separated from each other.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You need to create a script that accepts options, options with arguments, and
+    non-option arguments. Which of the following commands must you insert into the
+    script to make non-option arguments work?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`shift $(($OPTARG -1))`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`shift $(($OPTIND +1))`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`shift $(($OPTIND -1))`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`shift $(($OPTARG +1))`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further Reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Small getopts Tutorial: [http://web.archive.org/web/20190509023321/https://wiki.bash-hackers.org/howto/getopts_tutorial](http://web.archive.org/web/20190509023321/https://wiki.bash-hackers.org/howto/getopts_tutorial)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How can I handle command-line options and arguments in my script easily?: [http://mywiki.wooledge.org/BashFAQ/035](http://mywiki.wooledge.org/BashFAQ/035)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to Use OPTARG in Bash: [https://linuxsimply.com/bash-scripting-tutorial/functions/script-argument/bash-optarg/](https://linuxsimply.com/bash-scripting-tutorial/functions/script-argument/bash-optarg/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A Shell Script to Monitor Network, Disk Usage, Uptime, Load Average and RAM
+    Usage in Linux: [https://www.tecmint.com/linux-server-health-monitoring-script/](https://www.tecmint.com/linux-server-health-monitoring-script/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Note: The following links contain extra information about `OPTIND`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'How to Use getopts to Parse Linux Shellscript Otions: [https://www.howtogeek.com/778410/how-to-use-getopts-to-parse-linux-shell-script-options/](https://www.howtogeek.com/778410/how-to-use-getopts-to-parse-linux-shell-script-options/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How does the OPTIND variable work in the shell builtin getopts: [https://stackoverflow.com/questions/14249931/how-does-the-optind-variable-work-in-the-shell-builtin-getopts](https://stackoverflow.com/questions/14249931/how-does-the-optind-variable-work-in-the-shell-builtin-getopts)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to Use “getopts” in Bash: [https://linuxsimply.com/bash-scripting-tutorial/functions/script-argument/bash-getopts/](https://linuxsimply.com/bash-scripting-tutorial/functions/script-argument/bash-getopts/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: c
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: a.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: c
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Join our community on Discord!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Read this book alongside other users, Linux experts, and the author himself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ask questions, provide solutions to other readers, chat with the author via
+    Ask Me Anything sessions, and much more. Scan the QR code or visit the link to
+    join the community.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://packt.link/SecNet](https://packt.link/SecNet)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/QR_Code10596186092701843.png)'
+  prefs: []
+  type: TYPE_IMG

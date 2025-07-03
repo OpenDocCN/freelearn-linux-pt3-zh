@@ -1,0 +1,566 @@
+- en: 21\. Sharing Files between Ubuntu 23.04 and Windows with Samba
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although Linux has made some inroads into the desktop market, its origins and
+    future are very much server based. It is unsurprising, therefore, that Ubuntu
+    can act as a file server. It is also common for Ubuntu and Windows systems to
+    be used side by side in networked environments. Therefore, it is a common requirement
+    that files on an Ubuntu system be accessible to Linux, UNIX, and Windows-based
+    systems over network connections. Similarly, shared folders and printers residing
+    on Windows systems may also need to be accessible from Ubuntu-based systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Windows systems share resources such as file systems and printers using the
+    Server Message Block (SMB) protocol. For an Ubuntu system to serve such resources
+    over a network to a Windows system and vice versa, it must support SMB. This is
+    achieved using a technology called Samba. In addition to providing integration
+    between Linux and Windows systems, Samba may also provide folder sharing between
+    Linux systems (as an alternative to NFS covered in the previous chapter).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will look at the steps necessary to share file system resources
+    and printers on an Ubuntu system with remote Windows and Linux systems and to
+    access Windows resources from Ubuntu.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.1 Accessing Windows Resources from the GNOME Desktop
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before getting into more details of Samba sharing, it is worth noting that
+    if all you want to do is access Windows shared folders from within the GNOME desktop,
+    then support is already provided within the GNOME Files application. The Files
+    application is located in the dash as highlighted in [Figure 21-1](Samba_File_Sharing.xhtml#_idTextAnchor342):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ubuntu_files_icon.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-1
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once launched, select the Other Locations option in the left-hand navigation
+    panel, followed by the Windows Network icon in the main panel to browse available
+    Windows resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ubuntu_files_windows_network.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-2
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.2 Samba and Samba Client
+  prefs: []
+  type: TYPE_NORMAL
+- en: Samba allows both Ubuntu resources to be shared with Windows systems and Windows
+    resources to be shared with Ubuntu systems. Ubuntu accesses Windows resources
+    using the Samba client. On the other hand, Ubuntu resources are shared with Windows
+    systems by installing and configuring the Samba service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.3 Installing Samba on Ubuntu
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The default settings used during the Ubuntu installation do not typically install
+    the necessary Samba packages. Unless you specifically requested that Samba be
+    installed, it is unlikely that you have Samba installed on your system. To check
+    whether Samba is installed, open a terminal window and run the following command
+    and check for the [installed] indicator for each package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: apt -qq list samba-common samba smbclient
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Any missing packages can be installed using the apt command-line tool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: apt install samba-common samba smbclient
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 21.4 Configuring the Ubuntu Firewall to Enable Samba
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, the firewall protecting the Ubuntu system must be configured to allow
+    Samba traffic. If you are using the Uncomplicated Firewall (ufw) run the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: ufw allow samba
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Alternatively, if you are using firewalld, run the firewall-cmd command as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --permanent --add-port={139/tcp,445/tcp}
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: firewall-cmd --reload
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before starting the Samba service, some configuration steps are necessary to
+    define how the Ubuntu system will appear to Windows systems and the resources
+    to be shared with remote clients. Most configuration tasks occur within the /etc/samba/smb.conf
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.5 Configuring the smb.conf File
+  prefs: []
+  type: TYPE_NORMAL
+- en: Samba is a highly flexible and configurable system that provides many options
+    for controlling how resources are shared on Windows networks. Unfortunately, this
+    flexibility can lead to the sense that Samba is overly complex. In reality, however,
+    the typical installation does not need many configuration options, and the learning
+    curve to set up a basic configuration is relatively short.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this chapter, we will look at joining an Ubuntu system to a Windows workgroup
+    and setting up a directory as a shared resource that a specific user can access.
+    This is a configuration known as a standalone Samba server. More advanced configurations,
+    such as integrating Samba within an Active Directory environment, are also available,
+    though these are outside the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first step in configuring Samba is to edit the /etc/samba/smb.conf file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.5.1 Configuring the [global] Section
+  prefs: []
+  type: TYPE_NORMAL
+- en: The smb.conf file is divided into sections. The first section is the [global]
+    section, where settings that apply to the entire Samba configuration can be specified.
+    While these settings are global, each option may be overridden within other configuration
+    file sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first task is defining the Windows workgroup name on which the Ubuntu resources
+    will be shared. This is controlled via the workgroup = directive of the [global]
+    section, which by default is configured as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: workgroup = WORKGROUP
+  prefs: []
+  type: TYPE_NORMAL
+- en: Begin by changing this to the actual name of the workgroup if necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In addition to the workgroup setting, the other settings indicate that this
+    is a standalone server on which user passwords will protect the shared resources.
+    Before moving on to configuring the resources to be shared, other parameters also
+    need to be added to the [global] section as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[global]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: netbios name = LinuxServer
+  prefs: []
+  type: TYPE_NORMAL
+- en: The “netbios name” property specifies the name by which the server will be visible
+    to other systems on the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.5.2 Configuring a Shared Resource
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step is configuring the shared resources (in other words, the resources
+    that will be accessible from other systems on the Windows network). To achieve
+    this, the section is given a name by which it will be referred when shared. For
+    example, if we plan to share the /sampleshare directory of our Ubuntu system,
+    we might entitle the section [sampleshare]. In this section, a variety of configuration
+    options are possible. For this example, however, we will define the directory
+    that is to be shared, indicate that the directory is both browsable and writable,
+    and declare the resource public so that guest users can gain access:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[sampleshare]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: comment = Example Samba share
+  prefs: []
+  type: TYPE_NORMAL
+- en: path = /sampleshare
+  prefs: []
+  type: TYPE_NORMAL
+- en: browseable = Yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: public = yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: writable = yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To restrict access to specific users, the “valid users” property may be used,
+    for example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: valid users = demo, bobyoung, marcewing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.5.3 Removing Unnecessary Shares
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The smb.conf file is pre-configured with sections for sharing printers and
+    the home folders of the users on the system. If these resources do not need to
+    be shared, the corresponding sections can be commented out so that Samba ignores
+    them. In the following example, the [homes] section has been commented out:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: '#[homes]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: comment = Home Directories
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: valid users = %S, %D%w%S
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: browseable = No
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: read only = No
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: inherit acls = Yes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.6 Creating a Samba User
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Any user that requires access to a Samba shared resource must be configured
+    as a Samba User and assigned a password. This task is achieved using the smbpasswd
+    command-line tool. Consider, for example, that a user named demo is required to
+    be able to access the /sampleshare directory of our Ubuntu system from a Windows
+    system. To fulfill this requirement, we must add demo as a Samba user as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: smbpasswd -a demo
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'New SMB password:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Retype new SMB password:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Added user demo.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have completed the configuration of an elementary Samba server,
+    it is time to test our configuration file and then start the Samba services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.7 Testing the smb.conf File
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The settings in the smb.conf file may be checked for errors using the testparm
+    command-line tool as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: testparm
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Load smb config files from /etc/samba/smb.conf
+  prefs: []
+  type: TYPE_NORMAL
+- en: Loaded services file OK.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Weak crypto is allowed
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Server role: ROLE_STANDALONE'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Press enter to see a dump of your service definitions
+  prefs: []
+  type: TYPE_NORMAL
+- en: Global parameters
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '[global]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: log file = /var/log/samba/%m.log
+  prefs: []
+  type: TYPE_NORMAL
+- en: netbios name = LINUXSERVER
+  prefs: []
+  type: TYPE_NORMAL
+- en: printcap name = cups
+  prefs: []
+  type: TYPE_NORMAL
+- en: security = USER
+  prefs: []
+  type: TYPE_NORMAL
+- en: wins support = Yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'idmap config * : backend = tdb'
+  prefs: []
+  type: TYPE_NORMAL
+- en: cups options = raw
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[sampleshare]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: comment = Example Samba share
+  prefs: []
+  type: TYPE_NORMAL
+- en: guest ok = Yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: path = /sampleshare
+  prefs: []
+  type: TYPE_NORMAL
+- en: read only = No
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[homes]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: browseable = No
+  prefs: []
+  type: TYPE_NORMAL
+- en: comment = Home Directories
+  prefs: []
+  type: TYPE_NORMAL
+- en: inherit acls = Yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: read only = No
+  prefs: []
+  type: TYPE_NORMAL
+- en: valid users = %S %D%w%S
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[printers]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: browseable = No
+  prefs: []
+  type: TYPE_NORMAL
+- en: comment = All Printers
+  prefs: []
+  type: TYPE_NORMAL
+- en: create mask = 0600
+  prefs: []
+  type: TYPE_NORMAL
+- en: path = /var/tmp
+  prefs: []
+  type: TYPE_NORMAL
+- en: printable = Yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.8 Starting the Samba and NetBIOS Name Services
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For an Ubuntu server to operate within a Windows network, the Samba (SMB) and
+    NetBIOS nameservice (NMB) services must be started. Optionally, also enable the
+    services so that they start each time the system boots:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: systemctl enable smbd nmbd
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: systemctl start smbd nmbd
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before attempting to connect from a Windows system, use the smbclient utility
+    to verify that the share is configured:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: smbclient -U demo -L localhost
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Password for [WORKGROUP\demo]:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sharename Type Comment
+  prefs: []
+  type: TYPE_NORMAL
+- en: '--------- ---- -------'
+  prefs: []
+  type: TYPE_NORMAL
+- en: sampleshare Disk Example Samba share
+  prefs: []
+  type: TYPE_NORMAL
+- en: print$ Disk Printer Drivers
+  prefs: []
+  type: TYPE_NORMAL
+- en: IPC$ IPC IPC Service (demoserver server (Samba, Ubuntu))
+  prefs: []
+  type: TYPE_NORMAL
+- en: demo Disk Home Directories
+  prefs: []
+  type: TYPE_NORMAL
+- en: HP_OfficeJet_Pro_9020_series_9F6907 Printer HP_OfficeJet_Pro_9020_series
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.9 Accessing Samba Shares
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that the Samba resources are configured and the services are running, it
+    is time to access the shared resource from a Windows system. On a suitable Windows
+    system on the same workgroup as the Ubuntu system, open Windows Explorer and right-click
+    on the Network entry in the side panel to display the menu shown in [Figure 21-3](Samba_File_Sharing.xhtml#_idTextAnchor356):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/windows_map_ubuntu_drive.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-3
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Select the Map network drive... menu option to display the dialog illustrated
+    in [Figure 21-4](Samba_File_Sharing.xhtml#_idTextAnchor357):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/windows_map_ubuntu_drive_folder.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-4
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Select a drive letter and enter the path to a samba share. For example, assuming
+    that the server name is LinuxServer and the samba user name is demo, the path
+    to the user’s home folder would be as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: \\LINUXSERVER\demo
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Enable the Connect using different credentials checkbox and click finish. When
+    the network credentials dialog appears, enter the Samba user name and the password
+    that was assigned earlier using the smbpasswd command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/windows_map_ubuntu_drive_credentials.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-5
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After the connection is established, a new Windows Explorer dialog will appear
+    containing the contents of the shared Ubuntu folder:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/windows_mapped_ubuntu_drive.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-6
+  prefs: []
+  type: TYPE_NORMAL
+- en: 21.10 Accessing Windows Shares from Ubuntu
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As previously mentioned, Samba is a two-way street, allowing not only Windows
+    systems to access files and printers hosted on an Ubuntu system but also allowing
+    the Ubuntu system to access shared resources on Windows systems. This is achieved
+    using the samba-client package, installed at this chapter’s start. If it is not
+    currently installed, install it from a terminal window as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: apt install smbclient
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Shared resources on a Windows system can be accessed from the Ubuntu desktop
+    using the Files application or the command-line prompt using the smbclient and
+    mount tools. The steps in this section assume that the Windows system has enabled
+    appropriate network-sharing settings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To access any shared resources on a Windows system using the GNOME desktop,
+    launch the Files application and select the Other Locations option. This will
+    display the screen shown in [Figure 21-7](Samba_File_Sharing.xhtml#_idTextAnchor359)
+    below, including an icon for the Windows Network (if one is detected):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_connect_to_windows_share.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-7
+  prefs: []
+  type: TYPE_NORMAL
+- en: Selecting the Windows Network option will display the Windows systems detected
+    on the network and allow access to any shared resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_files_windows_10_share.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 21-8
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alternatively, the Connect to Server option may be used to connect to a specific
+    system. Note that the name or IP address of the remote system must be prefixed
+    by smb:// and may be followed by the path to a specific shared resource, for example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: smb://WinServer/Documents
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Without a desktop environment, a remote Windows share may be mounted from the
+    command line using the mount command and specifying the cifs filesystem type.
+    The following command, for example, mounts a share named Documents located on
+    a Windows system named WinServer at a local mount point named /winfiles:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: mount -t cifs //WinServer/Documents /winfiles -o user=demo
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 21.11 Summary
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we have looked at how to configure an Ubuntu system to act
+    as both a Samba client and server, allowing the sharing of resources with Windows
+    systems. Topics covered included the installation of Samba client and server packages
+    and configuring Samba as a standalone server. In addition, the basic concepts
+    of SELinux were introduced together with the steps to provide Samba access to
+    a shared resource.
+  prefs: []
+  type: TYPE_NORMAL

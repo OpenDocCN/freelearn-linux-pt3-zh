@@ -1,0 +1,1165 @@
+- en: '13'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: High Availability
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: All computer hardware has limits regarding its performance and reliability,
+    so systems that must process requests from large numbers of users without interruptions
+    are always composed of multiple individual worker machines and dedicated load-balancing
+    nodes that spread the load among those workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux includes functionality for load balancing and redundancy in the kernel,
+    and multiple user-space daemons manage that built-in functionality and implement
+    additional protocols and features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will learn about the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Different types of redundancy and load balancing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Link and network layer redundancy mechanisms in Linux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Transport layer load balancing with **Linux Virtual** **Server** (**LVS**)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Keepalived to share a virtual IP address between multiple nodes and automate
+    LVS configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Application layer load-balancing solutions, using HAProxy as an example
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Types of redundancy and load balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we delve into specific high-availability features and their configuration,
+    let’s discuss possible types of redundancy and load balancing, their advantages,
+    and their limitations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, we need to remember that the modern TCP/IP networking stack is
+    *layered*. Multiple layering models include different numbers of layers but the
+    idea is the same: protocols at the upper layer are unaware of the protocols at
+    any lower levels and vice versa. The most commonly used models are the seven-layer
+    **Open Systems Interconnection** (**OSI**) model and the four-level DoD model
+    (developed by the United States Department of Defense). We have summarized them
+    in the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **OSI model** | **DoD model** | **Purpose** | **Examples** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Physical | Link | Transmission of electrical/optical signals that represent
+    bit streams | Ethernet, Wi-Fi |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Data link |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Network | Internet | Transmission of packets in segmented, routed networks
+    | IPv4, IPv6 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Transport | Transport | Reliable transmission of data segments (integrity
+    checking, acknowledgment, congestion control, and more) | TCP, UDP, SSTP |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Session | Application | Transmission of application-specific data | HTTP,
+    SMTP, SSH |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Presentation |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Application |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 13.1 — OSI and DoD network stack models
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since the network stack is layered, to make a network resistant to different
+    types of failures, redundancy can and should be implemented at multiple levels.
+    For example, connecting a single server to the network with two cables rather
+    than one protects it from a single broken cable or a malfunctioning network card
+    but will not protect the users from failures of the server software – in that
+    case, the server will remain connected to the network but unable to serve any
+    requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This problem can usually be solved by setting up multiple servers and introducing
+    a dedicated load-balancer node to the network, which acts as an intermediary:
+    it receives connections from users and distributes the load across all those servers.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Having a load balancer adds redundancy at the transport or application layer
+    since the system remains able to serve requests, so long as at least one server
+    is available. It also increases the total service capacity beyond the performance
+    limit of a single server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, the load balancer itself becomes a single point of failure – if its
+    software fails or it ends up disconnected from the network, the entire service
+    becomes unavailable. Additionally, it becomes subject to the greatest network
+    traffic load compared to any individual server. This makes link layer and network
+    layer redundancy especially relevant. Finally, to make sure that requests that
+    users send to the IP address of the load balancer are always accepted, the public
+    address is often shared between multiple physical load-balancing servers in a
+    cluster using the **First Hop Redundancy** **Protocol** (**FHRP**):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 13.1 — Typical high-availability setup](img/B18575_13_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13.1 — Typical high-availability setup
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 13**.1* shows a fully redundant setup with three application servers
+    and two load balancers that are protected from cable or network card failures
+    with aggregated Ethernet links.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we learn about different redundancy types and their implementations in
+    Linux, we should review the terminology. Different protocols and technologies
+    use different names for node roles, and some of them still use terminology that
+    is inaccurate and may be offensive, but it’s important to know it to understand
+    what their documentation is talking about.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notes on terminology
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To describe redundant setups, we will use *active*/*standby* terminology by
+    default: only one *active* node performs any work at a time and one or more additional
+    *standby* nodes are waiting to take its place if it fails.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A lot of older literature, including protocol standards, configuration files,
+    and official documentation for high-availability solutions, may use *master*/*slave*
+    terminology instead. That terminology is getting phased out by many projects due
+    to its associations with human slavery and also because it is misleading since
+    in most protocols, the active node does not have any control over standby nodes.
+    We will use that terminology when we discuss protocols and software that still
+    use it, for consistency with their documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Link layer redundancy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Broken cables and Ethernet switch ports are quite common, especially in outdoor
+    installations and industrial networks. In those situations, it is very useful
+    to have more than one link layer connection. However, simply connecting two different
+    network cards of a Linux machine to different ports of the same switch does not
+    make them work as a single connection. The user needs to explicitly set up those
+    two network cards so that they work together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Luckily, Linux supports multiple ways to use several network cards together
+    – both in active/standby and load-balancing configurations. Some of them do not
+    require any support from the Ethernet switch and will work even with very basic
+    unmanaged switches. Other modes require that the switch supports either the older
+    EtherChannel protocol (designed by Cisco Systems) or the newer and vendor-neutral
+    IEEE 802.3ad **Link Aggregation and Control Protocol** (**LACP**), and the ports
+    must be configured explicitly to enable those protocols. We can summarize all
+    these methods in the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Type** | **Operation** | **Switch Requirements** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `active-backup` (`1`) | One network card remains disabled while the other
+    is up | None; will work for any switch (even unmanaged) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `802.3ad` (`4`) | Frames are balanced across all ports | Requires 803.3ad
+    LACP support |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `balance-xor` (`2`) and `broadcast` (`3`) | Requires EtherChannel support
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `balance-tlb` (`5`) and `balance-alb` (`6`) | None |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 13.2 — Link layer redundancy methods in Linux
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The simplest mode is active-backup, which requires no special setup on the
+    Ethernet switch and can even work with the simplest and cheapest unmanaged switches.
+    Unlike modes such as 802.3ad LACP, it only provides active-standby redundancy
+    rather than load balancing. Using the following command, you can join the `eth0`
+    and `eth1` network interfaces to a single `bond0` interface using the active-backup
+    method, on a system that uses NetworkManager for configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, if either `eth0` or `eth1` are physically disconnected from the switch,
+    link layer connectivity will be preserved.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The cost of that configuration simplicity and low requirements for the Ethernet
+    switch is wasted bandwidth. Whenever possible, high-performance servers should
+    be connected to Ethernet networks using the current industry-standard 802.3ad
+    LACP protocol, which allows them to benefit from the combined bandwidth of multiple
+    links and also automatically exclude failed links to provide redundancy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network layer redundancy and load balancing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If a system has multiple independent connections to the internet or an internal
+    network, it is possible to either provide a backup route or balance IP packets
+    across multiple routes. However, in practice, network layer redundancy is only
+    used by routers rather than hosts, and its simplest forms are only applicable
+    to networks with public, globally routed addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Suppose your Linux system is connected to two different routers, one with IPv4
+    address 192.0.2.1, and the other with 203.0.113.1\. If you are fine with one connection
+    being completely unused and acting purely as a standby, you can create two default
+    routes with different *metrics* and assign a higher metric to the standby connection.
+    The metric’s value determines the route’s priority, and if multiple routes with
+    different metrics exist, the kernel will always use the route with the lowest
+    metric. When that route disappears (for example, due to a network card going down),
+    the kernel will switch to using the route with the next lowest metric of those
+    still available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, you can use the following commands if you want `192.0.2.1` to
+    be the backup router:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The advantage of this method is that it is compatible with **Network Address
+    Translation** (**NAT**) set up on the same system. If you want to create a load-balancing
+    configuration instead, many more issues come into play because network layer load
+    balancing is per-packet and unaware of any concept of a connection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the surface, the configuration for multi-path routes is quite simple. You
+    can specify as many gateway addresses as you want and, optionally, assign weights
+    to them to direct more traffic to faster links. For example, if you wanted twice
+    as much traffic to flow through `203.0.113.1`, you could achieve this with the
+    following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The problem is that this configuration, by itself, is incompatible with NAT
+    because it will send packets that belong to the same TCP connection or a UDP stream
+    to different gateways. If you have a publicly routed network, that is considered
+    normal and even inevitable. However, if you only have a single external address
+    from each provider and have to use NAT to map a private network to that single
+    outgoing address, packets that belong to a single connection must always flow
+    through the same gateway for the setup to work as expected. There are ways to
+    set up per-connection load balancing using policy-based routing but that is outside
+    the scope of this book. If you are interested, you can find more information in
+    other sources, such as *Policy Routing* *With* *Linux*, by *Matthew G. Marsh*,
+    which is freely available online.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transport layer load balancing with LVS
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The main disadvantage of all network layer mechanisms is that the network layer
+    operates with individual packets and has no concept of connections. Many network
+    services are connection-oriented so at the very least, all packets that belong
+    to the same connection must always be sent to the same server. While the NAT implementation
+    in Linux is smart enough to detect packets from the same connection, simple load
+    balancing with one-to-many NAT is still too simplistic for many use cases. For
+    example, it does not provide an easy way to track how many connections each server
+    gets and cannot preferentially send new connections to the least loaded servers
+    (that is, to servers that are handling the smallest number of existing connections
+    at the moment).
+  prefs: []
+  type: TYPE_NORMAL
+- en: To account for this use case, Linux includes the `ipvsadm`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The key concepts of the LVS framework are *virtual servers* and *real servers*.
+    Virtual servers are Linux machines that provide the public address of the service,
+    accept connections to it, and then distribute those connections to multiple real
+    servers. Real servers can run any OS and software and can be unaware of the virtual
+    server’s existence.
+  prefs: []
+  type: TYPE_NORMAL
+- en: LVS is a flexible framework that provides multiple load-scheduling algorithms,
+    load-balancing mechanisms, and configuration options, all with their advantages
+    and disadvantages. Let’s examine them in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scheduling algorithms
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'There are multiple ways to distribute the load between multiple servers, each
+    with its advantages and disadvantages. We can summarize them in the following
+    table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Algorithm** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Round Robin (`rr`) | Distributes a connection across all servers equally.
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Weighted Round Robin (`wrr`) | This is similar to Round Robin but allows
+    you to send more connections to certain servers by assigning a higher weight value
+    to them. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Least Connection (`lc`) | Preferentially sends new connections to the server
+    with the least number of current connections. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Weighted Least Connection (`wlc`) | The default scheduling algorithm. This
+    is similar to Least Connection but allows you to assign weights to servers. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Locality-Based Least-Connection (`lblc`) | Sends new connections with the
+    same destination IP address to the same server, and switches to the next server
+    if the first one is unavailable or overloaded. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Locality-Based Least-Connection with Replication (`lblcr`) | Sends new connections
+    with the same destination IP address to the same server, if it is not overloaded.
+    Otherwise, it sends them to the server with the least connections. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Destination Hashing (`dh`) | Creates a hash table that maps destination IP
+    addresses to servers. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Source Hashing (`sh`) | Creates a hash table that maps source IP addresses
+    to servers. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Shortest Expected Delay (`sed`) | Sends new connections to the server with
+    the shortest expected delay. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Never Queue (`nq`) | Sends new connections to the first idle servers, and
+    switches to Shortest Expected Delay if there are no idle servers. |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 13.3 – LVS scheduling algorithms
+  prefs: []
+  type: TYPE_NORMAL
+- en: The right choice of scheduling algorithm depends on the type of service; none
+    of them is inherently better than others for all use cases. For example, Round
+    Robin and Weighted Round Robin work best for services with short-lived connections,
+    such as web servers that serve static pages or files (such as content delivery
+    networks).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Services that use very long-lived, persistent connections, such as online game
+    servers, can benefit from Least Connection algorithms instead. Using Round Robin
+    methods for such services can be counter-productive because if new connections
+    are relatively infrequent but resource consumption per connection is high, it
+    can overload some of the servers or create a very unequal load distribution. Least
+    Connection algorithms that keep track of the number of active connections to each
+    server were designed to counter that problem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, if response latency is a big factor in the quality of service, the
+    Shorted Expected Delay and Never Queue algorithms can improve it, while Round
+    Robin and Least Connection do not take response time into account at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: LVS load-balancing methods
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'First, we will examine the load-balancing methods that LVS provides. It supports
+    three methods: direct routing, IP tunneling, and NAT. We will summarize the differences
+    between them and their advantages and disadvantages in a table, then examine them
+    in detail with configuration examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Mechanism** | **Implementation** | **Advantages** | **Disadvantages** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Direct routing | Replaces the destination MAC address | Best performance;
+    real servers send replies directly to clients | All servers must be on the same
+    networkIt has difficulties with ARP |'
+  prefs: []
+  type: TYPE_TB
+- en: '| IP tunneling | Sends client requests encapsulated in a tunneling protocol
+    | Real servers send replies directly to clientsReal servers can be on any network
+    | Real servers must support IPIP tunneling and must have tunnels to the virtual
+    serverThe return packets may be rejected as spoofed |'
+  prefs: []
+  type: TYPE_TB
+- en: '| NAT | Creates NAT rules behind the scenes | Real servers don’t need public
+    addresses or any special configuration | Relatively resource-intensiveAll traffic
+    goes through the virtual serverThe best method in practice despite its drawbacks
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 13.4 – LVS load-balancing methods
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s examine these load-balancing mechanisms in detail, starting with NAT.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NAT
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'NAT is the most practical load-balancing method of LVS because of two factors:
+    real servers do not need to have publicly routable IP addresses and also do not
+    need to be aware of the virtual server or specially configured to work with it.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ability to use non-public internal addresses is especially important in
+    IPv4 networks, considering the shortage of IPv4 addresses. The lack of special
+    configuration requirements on the real servers also makes it possible to use any
+    OS on them, and it simplifies the configuration process as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An additional advantage of this method is that TCP or UDP ports do not have
+    to be the same on the virtual server and real servers since the virtual server
+    performs translation anyway rather than forwarding unmodified IP packets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will set up the virtual server to listen for HTTP requests on `192.168.56.100:80`
+    and forward those requests to port `8000` of real servers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first command creates a virtual server instance. The second command adds
+    a real server to forward packets to – in our case, `10.20.30.2:8000`. Finally,
+    the `--masquearding (-m)` option tells it to use the NAT method when sending connections
+    to that server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We used the long versions of all the `ipvsadm` command-line options here but
+    the command could also be written in short form (with the Round-Robin scheduling
+    algorithm specified, `-``s rr`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can ensure that the virtual server is configured using the `ipvsadm
+    –list` or `ipvsadm -``l` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, if we run `wget http://192.168.56.100:80` on the client machine and run
+    a traffic capture on the real server, we will see the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the virtual server, we will see a notably different output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the virtual server completely takes over the communication between
+    the client and the real server. Theoretically, this is a disadvantage because
+    it greatly increases the amount of traffic that flows through the virtual server.
+    In practice, Linux network performance is pretty good even on modest hardware,
+    so it is not a serious issue. Besides, application-specific load-balancing solutions
+    also proxy all traffic through the server, so this is no worse than using a service
+    such as HAProxy. Since packet forwarding and port/address translation happen in
+    the kernel space, this method offers better performance than user-space load-balancing
+    applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will briefly examine the other load-balancing mechanisms, but for a variety
+    of reasons, they are much less practical than NAT and normally need not be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Direct routing
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To set up LVS for direct routing, we need to use the `--gatewaying (-g)` option
+    when we add a real server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: With this setup, when the virtual server receives a request on `10.20.30.1:8000`,
+    it will simply change the MAC address in that packet to the MAC address of the
+    `10.20.30.2` real server and re-send it to the Ethernet network for the real server
+    to receive. The real server will then reply directly to the client without creating
+    any additional load on the virtual server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this method is theoretically the most performant and conceptually simplest,
+    in reality, it places the hardest requirements on the real servers. The minimal
+    requirement is that all real servers must be in the same broadcast network segment.
+    The other requirement is that all real servers must also be able to respond to
+    packets from the same virtual IP as the service IP, usually by having the virtual
+    service IP assigned as an alias.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, assigning the same IP address to multiple hosts creates an address
+    conflict. To make the network function properly in the presence of an address
+    conflict, all nodes except the virtual server must be made to ignore ARP requests
+    for the virtual IP. This can be done, for example, with the `arptables` tool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: To truly avoid this conflict and ensure that no real server answers an ARP request
+    for the virtual IP, those rules need to be inserted before the address is assigned.
+    This fact makes it difficult or even impossible to correctly configure real servers
+    for this scheme using the usual network configuration methods, such as distribution-specific
+    scripts or NetworkManager.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This fact makes this scheme impractical to implement in most networks, despite
+    its theoretical advantages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tunneling
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To set up a virtual server for tunneling, we need to use the `--ipip (-i)`
+    option when we add a real server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we need to set up an IPIP tunnel on the real server so that it can handle
+    incoming tunneled traffic from the virtual server and assign the virtual server
+    IP to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, if we make an HTTP request to the virtual server and run a traffic capture
+    on the real server, we will see incoming IPIP packets with requests for the virtual
+    IP inside:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: While this approach theoretically enables real servers to be in any network,
+    it comes with several difficulties in practice. First, the real server OS must
+    support IPIP tunneling. This can be a serious difficulty even with Linux systems
+    if they run in containers and do not have permission to create tunnels, even if
+    the host system kernel is built with IPIP support. Second, since replies are supposed
+    to be sent directly to the client rather than back through the tunnel, this scheme
+    falls apart in networks that take measures against source IP spoofing – as they
+    should.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Saving and restoring LVS configurations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'It is possible to export the current LVS configuration in a format that it
+    can load from standard input:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can save the output to a file and then feed it to `ipvsadm –restore`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, in practice, it is better to automate LVS configuration with Keepalived
+    or another user-space daemon, as we will learn later in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additional LVS options
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In addition to scheduling algorithms and balancing between real servers, LVS
+    offers a few additional features and options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Connection persistence
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'By default, LVS balances connections from clients across all servers and does
+    not match clients with specific servers. This approach works well for serving
+    web pages over HTTP, for example. However, some services use long-lasting and
+    stateful connections and would not work well without persistence. One extreme
+    example is remote desktop connections: if such connections are balanced between
+    multiple servers, sending a user to a different server after a disconnect will
+    create a completely new session rather than get the user back to their already
+    running applications.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make LVS remember client-to-server mappings and send new connections from
+    the same client to the same server, you need to specify `--persistent` and, optionally,
+    specify a persistence timeout:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: This preceding command creates a server that remembers client-to-server associations
+    for `600` seconds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Connection state synchronization
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: One notable feature of LVS is its connection state synchronization daemon. In
+    that case, the word *daemon* is partially a misnomer since it is implemented in
+    the kernel and is not a user-space process. Connection synchronization is unidirectional,
+    with dedicated primary (master) and replica (backup) nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is no explicit peer configuration. Instead, connection states are sent
+    to peers using IP multicast. It is possible to specify the network interface to
+    use for synchronization messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, connection state synchronization by itself is useless, unless there’s
+    also a failover mechanism that allows you to transfer the virtual IP to the backup
+    node if the primary load-balancer node fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will learn how to configure failover using the Keepalived
+    daemon for VRRP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Active/backup configurations and load balancing with Keepalived
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A Linux server that is set up as a load balancer for multiple worker servers
+    and keeps the service available, even if any of those workers fail. However, the
+    load balancer itself becomes a single point of failure in that scheme, unless
+    the administrator also takes care to provide a failover mechanism for multiple
+    balancers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The usual way to achieve failover is by using a floating *virtual IP address*.
+    Suppose `www.example.com` is configured to point at `192.0.2.100`. If you assign
+    that address directly to a load-balancing server in a `192.0.2.0/24` network,
+    it becomes a single point of failure. However, if you set up two servers with
+    primary addresses from that network (say, `192.0.2.10` and `192.0.2.20`), you
+    can use a special failover protocol to allow two or more servers to decide which
+    one will hold the virtual `192.0.2.100` address and automatically transfer it
+    to a different server if the primary server fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most popular protocol for that purpose is called **Virtual Router Redundancy
+    Protocol** (**VRRP**). Despite its name, machines that use VRRP do not have to
+    be routers – even though it was originally implemented by router OSs, now, its
+    use is much wider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most popular VRRP implementation for Linux is the Keepalived project. Apart
+    from VRRP, it also implements a configuration frontend for LVS, so it is possible
+    to write a configuration file for both failover and load balancing, without setting
+    up LVS by hand with `ipvsadm`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Keepalived
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Most Linux distributions have Keepalived in their repositories, so installing
+    it is a straightforward process. On Fedora, RHEL, and its community derivatives
+    such as Rocky Linux, you can install it using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On Debian, Ubuntu, and other distributions that use APT, run the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that we have installed Keepalived, let’s look at the basics of the VRRP
+    protocol.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Basics of the VRRP protocol operation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: VRRP and similar protocols, such as the older **Hot Standby Router Protocol**
+    (**HSRP**) and the community-developed **Common Address Redundancy Protocol**
+    (**CARP**), are based on the idea of electing the primary node and continually
+    checking its status by listening to its keepalive packets. Collectively, such
+    protocols are known as **First Hop Redundancy** **Protocols** (**FHRPs**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Initially, every node assumes that it may be the primary node and starts transmitting
+    keepalive packets (named *advertisements* in the VRRP terminology) that include
+    a unique identifier of the VRRP instance and a priority value. At the same time,
+    they all start listening to incoming VRRP advertisement packets. If a node receives
+    a packet with a priority value higher than its own, it assumes the backup role
+    and stops transmitting keepalive packets. The node with the highest priority becomes
+    the primary node and assigns the virtual address to itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The elected primary node keeps sending VRRP advertisement packets at regular
+    intervals to signal that it is functional. Other nodes remain in the backup state,
+    so long as they receive those packets. If the original primary node ceases to
+    transmit VRRP packets, a new election is initiated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the original primary node reappears after a failure, there are two possible
+    scenarios. By default, in the Keepalived implementation, the highest priority
+    node will always preempt and the node that assumed its role during its downtime
+    will go back to the backup state. This is usually a good idea because it keeps
+    the primary router predictable under normal circumstances. However, preemption
+    also causes an additional failover event that may lead to dropped connections
+    and brief service interruptions. If such interruptions are undesirable, it is
+    possible to disable preemption.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring VRRP
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s look at a simple example of VRRP configuration and then examine its options
+    in detail:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: You will need to save that configuration to the Keepalived configuration file
+    – typically, to `/etc/keepalived/keepalived.conf`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Keepalived configuration file may include one or more VRRP instances. Their
+    names are purely informational and can be arbitrary, so long as they are unique
+    within the configuration file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `state` option defines the initial state of the router. It is safe to specify
+    `BACKUP` on all routers because they will elect the active router automatically,
+    even if none of them has the `MASTER` state in its configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: VRRP instances are bound to network interfaces and exist in a single broadcast
+    domain only, so we need to specify the network interface from which VRRP advertisements
+    will originate. In that example, it is `interface eth1`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `virtual_router_id 100`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next two parameters are optional. The default VRRP router priority is 100
+    unless specified otherwise. If you want to specify router priorities manually,
+    you can use numbers from 1 to 254 – priority numbers `0` and `255` are reserved
+    and cannot be used. A higher priority value means that the router is more likely
+    to be elected as an active (master) router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The advertisement packet transmission interval (`advertise_interval`) defaults
+    to one second and for most installations, it is a sensible setting. VRRP does
+    not create much traffic, so there are no strong reasons to make the interval longer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we specified a single virtual address, `10.20.30.100/24`. It is possible
+    to specify up to 20 virtual addresses, separated by spaces. One thing to note
+    is that all virtual addresses do not have to belong to the same network and do
+    not have to be in the same network as the permanent, non-floating address of the
+    network interface where the VRRP instance is running. It may even be possible
+    to create redundant internet connections by assigning private IPv4 addresses to
+    the WAN interfaces of two routers and setting up the public IPv4 addresses allocated
+    by the internet service provider as virtual addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Verifying VRRP’s status
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When you save the sample configuration to `/etc/keepalived/keepalived.conf`
+    and start the process with `sudo systemctl start keepalived.service` (on Linux
+    distributions with systemd), your server will become the active (master) node
+    and assign the virtual address to its network interface, until and unless you
+    add a second server with a higher priority to the same network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The simplest way to verify this is to view IP addresses for the interface that
+    we configured VRRP to run on:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can also use traffic capture tools such as `tcpdump` to verify that the
+    server is indeed sending VRRP advertisement packets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, there is also a way to request VRRP’s status data directly from Keepalived.
+    Unlike some other services, Keepalived (as of its 2.2.7 release) does not include
+    a socket interface or a command-line utility for interacting with it and uses
+    POSIX signals to trigger state file creation. This is less convenient than a dedicated
+    utility would be.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, you need to look up the identifier (PID) of the Keepalived process. The
+    best way to retrieve it is to read its PID file, most often located at `/run/keepalived.pid`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Sending the `SIGUSR1` signal to the process with `kill -USR1 <PID>` will produce
+    a data file at `/tmp/keepalived.data`. This file contains multiple sections, and
+    the section of immediate interest for us to find out the status of our VRRP instance
+    is named **VRRP Topology**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It is also possible to request a statistics file (`/tmp/keepalived.stats`)
+    by sending the Keepalived process the `SIGUSR2` signal instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: While the information method is somewhat unwieldy at the moment, you can glean
+    a lot of information about your VRRP instances from those data files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring virtual servers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we already said, Keepalived can also create and maintain LVS configurations.
+    The advantage over configuring LVS manually is that Keepalived is easy to start
+    at boot time since it always comes with service management integration (typically,
+    a systemd unit), while LVS is a kernel component that does not have a configuration
+    persistence mechanism. Additionally, Keepalived can perform health checks and
+    reconfigure the LVS subsystem when servers fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For demonstration purposes, let’s consider a minimal load-balancing configuration
+    with a Weighted Round Robin balancing algorithm, NAT as the load-balancing method,
+    and two real servers with equal weights:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Every load-balancing algorithm that we discussed in the *Transport layer load
+    balancing with LVS* section can be specified in the `lb_algo` option, so it could
+    be `lb_algo wlc` (Weighted Least Connection), for example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you save that configuration to `/etc/keepalived/keepalived.conf` and restart
+    the daemon with `systemctl restart keepalived`, you can verify that it created
+    an LVS configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that we know how to make a basic virtual server configuration, let’s learn
+    how to monitor the status of real servers and exclude them if they fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Server health tracking
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: LVS by itself is purely a load-balancing solution and it does not include a
+    server health monitoring component. However, in real-world installations, prompt
+    exclusion of servers that are not functioning correctly or are under scheduled
+    maintenance is an essential task, since directing user requests to non-functional
+    servers defeats the purpose of a high-availability configuration. Keepalived includes
+    monitoring capabilities so that it can detect and remove servers that fail health
+    checks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Health checks are configured separately for each real server, although in most
+    real-world installations, they should logically be the same for all servers, and
+    using different health check settings for different servers is usually a bad idea.
+  prefs: []
+  type: TYPE_NORMAL
+- en: TCP and UDP connection checks
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'The simplest but the least specific health check type is a simple connection
+    check. It exists in two variants – `UDP_CHECK` and `TCP_CHECK` for UDP and TCP
+    protocols, respectively. Here is a configuration example for that check type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, there is no need to specify the TCP port for connection checks
+    explicitly: Keepalived will use the port specified in the server address configuration
+    (port `80` in this case).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you start Keepalived with that configuration, it will activate the health-checking
+    subsystem and begin connection checks. If there is no running web server on `192.168.56.101`
+    listening on port `80`, Keepalived will remove that server from the LVS configuration
+    once its check fails three times (as defined by the `retry` option). You will
+    see the following in the system log (which you can view, for example, with `sudo
+    journalctl -``u keepalived`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The advantage of this simple TCP check is that it works for any TCP-based service,
+    no matter what its application layer protocol is: you can use it for web applications,
+    as well as SMTP servers or any custom protocols. However, the fact that a server
+    responds to TCP connections by itself does not always mean that it is also functioning
+    correctly. For example, a web server may respond to TCP connections but reply
+    to every request with a **500 Internal Server** **Error** result.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you want perfect, fine-grained control over the check logic, Keepalived gives
+    you that option in the form of the `MISC_CHECK` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Misc (arbitrary script) check
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'The most universal check is `MISC_CHECK`, which does not have any built-in
+    checking logic and relies on an external script instead. For example, this is
+    how you can make Keepalived execute the `/tmp/my_check.sh` script and consider
+    the server unavailable if that script returns a non-zero exit code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: With this type of health check, you can monitor any kind of server, although
+    the disadvantage is that you have to implement all the checking logic yourself
+    in a script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: HTTP and HTTPS checks
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: While `MISC_CHECK` gives you total control, it is also overkill in most cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a compromise between specificity and flexibility, you can also use protocol-specific
+    checks. For example, there is the `HTTP_GET` check, which makes an HTTP request
+    to a URL and can check the hash sum of the response, or its HTTPS equivalent named
+    `SSL_CHECK`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, suppose you want to serve a simple static page. In that case,
+    you can calculate an MD5 hash sum from that page by hand using the `md5sum` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To calculate the expected hash sum of a dynamically generated page, you can
+    use the `genhash` utility that comes with Keepalived. If you run it with `--verbose`,
+    it will show you detailed information about the HTTP request it performs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, it only calculates the hash sum of the HTTP response body rather than
+    the complete response with headers, so you do not have to use it – you can retrieve
+    the response body with any other HTTP request utility if you prefer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once you have the expected response hash sum, you can configure the `HTTP_GET`
+    check to periodically perform a request and check its response body against the
+    given MD5 sum:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since normal, user-visible pages can change at any time, it is better to create
+    a special page whose content stays constant if you want to use the hash sum check.
+    Otherwise, the hash sum will change when its content changes, and the check will
+    start failing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Email notifications
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It is also possible to configure Keepalived to send email notifications to one
+    or more addresses when any status changes occur – that is, when VRRP transitions
+    from master to backup or the other way around, or when real servers become unavailable
+    and fail checks, or pass checks that were failing earlier and are added back to
+    the LVS configuration in the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a configuration example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Unfortunately, there is no support for SMTP authentication, so if you choose
+    to use the built-in email notification mechanism, you need to configure a server
+    as an open relay and take appropriate measures to ensure that only the servers
+    running Keepalived can send messages through it – for example, by limiting access
+    to it to your private network using firewall rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Application layer load balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: LVS is a flexible framework for load balancing and the fact that it is implemented
+    within the kernel makes it a high-performance solution since it does not require
+    context switches and data transfer between user-space programs and the kernel.
+    The fact that it works at the TCP or UDP protocol level also makes it application-agnostic
+    and allows you to use it with any application service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, its lack of application protocol awareness is also its greatest weakness
+    because it means that it cannot perform any protocol-specific optimizations. For
+    example, one obvious way to improve performance for applications that may return
+    the same reply to multiple users is to cache replies. LVS operates with TCP connections
+    or UDP streams, so it has no way to know what a request or a reply looks like
+    in any application layer protocol – it simply does not inspect TCP or UDP payloads
+    at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, many modern application layer protocols are encrypted, so it is
+    impossible to look inside the payload of a connection that the server does not
+    initiate or terminate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are more potential disadvantages to forwarding connections directly from
+    users to real servers. For example, it exposes servers to TCP-based attacks such
+    as SYN flood and requires appropriate security measures on all servers or a dedicated
+    firewall setup at the entry point.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One way to solve these issues is to use a user-space daemon that implements
+    the protocol of the service you are running, terminates TCP connections, and forwards
+    application layer protocol requests to target servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since most applications in the world are currently web applications, most such
+    solutions target HTTP and HTTPS. They provide in-memory response caching to speed
+    up replies, terminate SSL connections, and manage certificates, and can optionally
+    provide security features as well. HAProxy and Varnish are prominent examples
+    of web application load-balancing servers, although there are other solutions
+    for that purpose as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are also solutions for other protocols that include high availability
+    and load balancing. For example, OpenSIPS and FreeSWITCH can provide load balancing
+    for **Voice over Internet Protocol** (**VoIP**) calls made using the SIP protocol.
+    Such solutions are beyond the scope of this book, however. We will take a quick
+    look at HAProxy as one of the most popular high-availability solutions for web
+    applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Web application load balancing with HAProxy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'HAProxy configuration is a large subject since it includes a lot of functionality.
+    We will examine a simple configuration example to get a sense of its capabilities:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, at its core, any HAProxy configuration maps frontends (that
+    is, load-balancing instances) with backends – sets of actual application servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this case, a single frontend is mapped to two backends: a single server
+    specially for serving static files and two application servers. This is only possible
+    for HAProxy because it handles HTTP requests itself, sends new requests to its
+    backends, and prepares a reply to the user, instead of simply balancing connections.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we learned about the concepts of high availability: redundancy,
+    failover, and load balancing. We also learned how to configure link-layer redundancy
+    by creating bonding interfaces, as well as how to set up redundant routes at the
+    network layer. To ensure transport layer redundancy, we learned how to configure
+    the LVS subsystem by hand with `ipvsadm` or using Keepalived and also learned
+    how to provide failover for load-balancing nodes using VRRP. Finally, we took
+    a brief look at HAProxy as an application layer load-balancing solution for web
+    servers.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will learn about managing Linux systems with configuration
+    automation tools.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To learn more about the topics that were covered in this chapter, take a look
+    at the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Policy Routing* *With* *Linux*, by Matthew G. Marsh: [https://web.archive.org/web/20230322065520/http://www.policyrouting.org/PolicyRoutingBook/ONLINE/TOC.xhtml](https://web.archive.org/web/20230322065520/http://www.policyrouting.org/PolicyRoutingBook/ONLINE/TOC.xhtml)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Keepalived documentation: [https://keepalived.readthedocs.io/en/latest/](https://keepalived.readthedocs.io/en/latest/%0D)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'HAProxy: [http://www.haproxy.org/](http://www.haproxy.org/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

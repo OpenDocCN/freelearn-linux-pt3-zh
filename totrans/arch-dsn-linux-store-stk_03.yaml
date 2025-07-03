@@ -1,0 +1,1333 @@
+- en: '3'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Exploring the Actual Filesystems Under the VFS
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: “Not all roots are buried down in the ground, some are at the top of a tree.”
+    — Jinvirle
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The kernel’s I/O stack can be broken down into three major sections: the **virtual
+    filesystem** (**VFS**), the **block layer**, and the **physical layer**. The different
+    flavors of filesystems supported by Linux can be thought of as the tail end of
+    the VFS layer. The first two chapters gave us a decent understanding of the role
+    of VFS, the major structures used by VFS, and how it aids the end user processes
+    to interact with the different filesystems through a common file model. This means
+    that we’ll now be able to use the word *filesystem* in its commonly accepted context.
+    Finally.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028), we defined and explained
+    some important data structures used by the VFS to define a generic framework for
+    different filesystems. In order for a particular filesystem to be supported by
+    the kernel, it should operate within the boundaries defined in this framework.
+    But it is not mandatory that all the methods defined by the VFS are used by a
+    filesystem. The filesystems should stick to the structures defined in the VFS
+    and build upon them to ensure commonality between them, but as each filesystem
+    follows a different approach for organizing data, there might be a ton of methods
+    and fields in these structures that are not applicable to a particular filesystem.
+    In such cases, filesystems define the relevant fields as per their design and
+    leave out the non-essential information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we’ve seen, the VFS is sandwiched between user-space programs and *actual*
+    filesystems and implements a common file model so that applications can use uniform
+    access methods to perform their operations, regardless of the underlying filesystem
+    in use. We’re now going to shift our focus to one particular side of this *sandwich*,
+    which is the filesystems that contain user data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will introduce you to some of the more common and popular filesystems
+    used in Linux. We’ll cover the working of the extended filesystem in great detail
+    as it is most commonly used. We’ll also shed some light on **network filesystems**,
+    and cover a few important concepts related to filesystems such as journaling,
+    filesystems in user-space, and **copy-on-write** (**CoW**) mechanisms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The concept of journaling
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CoW mechanisms
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The extended filesystem family
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network filesystems
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Filesystems in user space
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter focuses entirely on filesystems and associated concepts. If you
+    have experience with storage administration tasks in Linux but haven’t delved
+    into the inner workings of filesystems, this chapter will serve as a valuable
+    exercise. Having prior knowledge of filesystem concepts will enhance your understanding
+    of the content covered in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The commands and examples presented in this chapter are distribution-agnostic
+    and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
+    Fedora, and so on. There are a few references to the kernel source code. If you
+    want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
+    The code segments referred to in this book are from kernel `5.19.9`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Linux filesystem gallery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As said earlier, one of the major benefits of using Linux is the wide range
+    of supported filesystems. The kernel contains out-of-the-box support for some
+    of these, such as XFS, Btrfs, and extended filesystem versions 2, 3, and 4\. These
+    are considered **native filesystems** as they were designed keeping in mind the
+    Linux principles and philosophies. On the other side of the aisle are filesystems
+    such as NTFS and FAT. These can be considered **non-native filesystems**. This
+    is because, although the Linux kernel is capable of understanding these filesystems,
+    supporting them usually requires additional configuration as they do not fall
+    in line with the conventions adopted by native filesystems. We’re going to keep
+    our focus on the native filesystems and explain the key concepts associated with
+    them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Although each filesystem claims to be better, faster, and more reliable and
+    secure than all others, it is important to note that no filesystem can be the
+    best fit for all kinds of applications. Every filesystem comes with its strengths
+    and limitations. From a functional standpoint, filesystems can be classified as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.1 – Linux filesystem gallery](img/B19430_03_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.1 – Linux filesystem gallery
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 3**.1* gives a glimpse of some of the supported filesystems and their
+    respective categories. Given the plethora of filesystems supported by Linux, covering
+    all of them will make us run out of space (filesystem pun!). Although the implementation
+    details vary, filesystems usually make use of some common techniques for their
+    internal operations. Some core concepts, such as journaling, are more common among
+    filesystems. Similarly, some filesystems make use of the popular CoW technique,
+    due to which they do not need journaling.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s explain the concept of journaling in filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The diary of a filesystem – the concept of journaling
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A filesystem uses complex structures to organize data on the physical disk.
+    In the case of a system crash or abrupt failure, a filesystem is unable to finish
+    off its operations in a graceful manner, which can corrupt its organizational
+    structures. When the system is powered up the next time, the user will need to
+    run a consistency or integrity check of some sort against the filesystem to detect
+    and repair those damaged structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When explaining VFS data structures in [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028),
+    we discussed that one of the fundamental principles followed in Linux is the separation
+    of metadata from actual data. The metadata of a file is defined in an independent
+    structure, called an **inode**. We also saw how a directory is treated as a special
+    file and it contains the mapping of filenames to their inode numbers. Keeping
+    this in mind, let’s say we’re creating a simple file to add some text to it. To
+    go through with this, the kernel will need to perform the following operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create and initialize a new inode for the file to be created. An inode should
+    be unique within a filesystem.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Update the timestamps for the directory in which the file is being created.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Update the inode for the directory. This is required so that the filenames-to-inode
+    mapping is updated.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Even for an operation as simple as text file creation, the kernel needs to perform
+    several I/O operations to update multiple structures. Let’s say that while performing
+    one of these operations, there is a hardware or power failure due to which the
+    system shuts down abruptly. All the operations required for creating a new file
+    will not have completed successfully, which will render the filesystem structurally
+    incomplete. If an inode for the file was initialized and not linked to the directory
+    containing the file, the inode will be considered *orphaned*. Once the system
+    is back online, a consistency check will be run on the filesystem, which will
+    remove any such inodes that are not linked to any directory. After a crash, the
+    filesystem itself might remain intact, but individual files could be impacted.
+    In a worst-case scenario, the filesystem itself can also become permanently damaged.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To improve filesystem reliability in case of outages and system crashes, the
+    feature of journaling was introduced in filesystems. The first filesystem to support
+    this feature was IBM’s **JFS**, also known as **Journaled Filesystem**. Over the
+    last few years, journaling has become an essential ingredient in the design of
+    filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The concept of filesystem journaling finds its roots in the design of database
+    systems. In most databases, journaling guarantees data consistency and integrity
+    in case a transaction fails due to external events, such as hardware failures.
+    A database journal will keep track of uncommitted changes by recording such operations
+    in a journal. When the system comes back online, the database will perform a recovery
+    using the journal. Journaling in filesystems follows the same route.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Any changes that need to be performed on the filesystem are first written sequentially
+    to a journal. These changes or modifications are referred to as transactions.
+    Once a transaction has been written to a journal, it is then written to the appropriate
+    location on the disk. In the case of a system crash, the filesystem replays the
+    journal to see whether any transaction is incomplete. When the transaction has
+    been written to its on-disk location, it is then removed from the journal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Depending on the journaling approach, either metadata or actual data (or both)
+    is first written to the journal. Once data has been written to the filesystem,
+    the transaction is removed from the journal:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.2 – Journaling in filesystems](img/B19430_03_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.2 – Journaling in filesystems
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s important to note that, by default, the filesystem journal is also stored
+    on the same filesystem, albeit in a segregated section. Some filesystems also
+    allow storing the journal on a separate disk. The size of the journal is typically
+    just a few megabytes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The burning question – doesn’t journaling adversely affect performance?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The entire point of journaling is to make the filesystem more reliable and preserve
+    its structures in case of system crashes and hardware failures. With a journaling
+    filesystem, data is first written to a journal and then to its specified disk
+    location. It’s not difficult to see that we’re adding an extra hop to reach our
+    destination as we’ll need to write the same data twice. Surely this is going to
+    backfire and undermine the filesystem performance?
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s one of those questions whose answer seems obvious but it isn’t. The filesystem
+    performance doesn’t necessarily deteriorate when using journaling. In fact, in
+    most cases, it’s the exact opposite. There could be workloads where the difference
+    in both cases is negligible, but in most scenarios, especially in metadata-intensive
+    workloads, filesystem journaling actually boosts performance. The degree to which
+    the performance is enhanced can vary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consider a filesystem without journaling. Every time a file is modified, the
+    natural course of action is to perform the relevant modifications on the disk.
+    For metadata-intensive operations, this could negatively impact performance. For
+    instance, modifications in file contents also require that the corresponding timestamps
+    of the file are also updated. This means that every time a file is processed and
+    modified, the filesystem has to go and update not only the actual file data but
+    also the metadata. When journaling is enabled, **fewer seeks** to the physical
+    disk are required as data is written to disk only when a transaction has been
+    committed to the journal or when the journal fills up. Another benefit is the
+    use of sequential writes in a journal. When using a journal, random write operations
+    are converted into sequential writes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In most cases, performance improvement occurs as a result of the cancellation
+    of metadata operations. When metadata updates are required in a swift manner,
+    such as recursively performing operations on a directory and its contents, the
+    use of journaling can improve performance by reducing frequent trips to disks
+    and performing multiple updates in an atomic operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, how a filesystem implements journaling also plays a major role in
+    this. Filesystems offer different approaches when it comes to journaling. For
+    instance, some filesystems only journal the metadata of a file, while others write
+    both metadata and actual data in a journal. Some filesystems also offer flexibility
+    in their approach and allow end users to decide the journaling mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To summarize, journaling is an important constituent of modern filesystems as
+    it makes sure that the filesystem remains structurally sound, even in the case
+    of a system crash.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The curious case of CoW filesystems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`fork ()` system call. The `fork ()` system call creates a new process by duplicating
+    the calling process. When a new process is created using a `fork ()` system call,
+    memory pages are shared between the parent and child processes. As long as the
+    pages are being shared, they cannot be modified. When either the parent or child
+    process attempts to modify a page, the kernel duplicates the page and marks it
+    writable.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most filesystems in Linux that have existed for a long time use a very conventional
+    approach when it comes to the core design principles. Over the past several years,
+    two major changes in the extended filesystem have been the use of journaling and
+    extents. Although efforts have been made to scale the filesystems for modern use,
+    some major areas such as error detection, snapshots, and deduplication have been
+    left out. These features are the need of today’s enterprise storage environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Filesystems that use the CoW approach for writing data differ from other filesystems
+    in a notable way. When overwriting data on an Ext4 or XFS filesystem, the new
+    data is written on top of the existing data. This means that the original data
+    will be destroyed. Filesystems that use the CoW approach copy the old data to
+    some other location on disk. The new incoming data is written to this new location.
+    Hence, the phrase *Copy on Write*. As the old data or its snapshot is still there,
+    the space utilization on the filesystem will be a lot more than the user would
+    expect to see. This is often confusing to newer users and it might take some time
+    to get used to this. Some Linux folks have a rather funny take on this: *CoWs
+    ate my data*. As shown in *Figure 3**.3*, filesystems using the CoW approach write
+    incoming data to a new block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.3 – The CoW approach in filesystems](img/B19430_03_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.3 – The CoW approach in filesystems
+  prefs: []
+  type: TYPE_NORMAL
+- en: As an analogy, we can loosely relate this to the concept of time travel in movies.
+    When someone travels back in time and makes changes to the past, a parallel timeline
+    is created. This creates a separate copy of the timeline that diverges from the
+    original. CoW filesystems operate similarly. When a modification is requested
+    on a file, instead of directly modifying the original data, a separate copy of
+    the data is created. The original data remains intact while the modified version
+    is stored separately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since the original data is preserved in the process, this opens up some interesting
+    avenues. Because of this approach, filesystem recovery in the case of a system
+    crash is simplified. The previous state of data is saved on an alternate location
+    on disk. Hence, if there's an outage, the filesystem can easily revert to its
+    former state. This makes the need for maintaining any journal obsolete. This also
+    allows for the implementation of snapshots at the filesystem level. Only modified
+    data blocks are copied to a new location. When a filesystem needs to be restored
+    using a particular snapshot, the data can be easily reconstructed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Table 3.1* highlights some major differences between journaling and CoW-based
+    filesystems. Please note that the implementation and availability of some of these
+    features may vary depending on the type of filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '|  | **Journaling** | **Copy-on-Write** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Write handling** | Changes are recorded in a journal before applying them
+    to the actual filesystem | A separate copy of data is created to make modifications
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Original data** | Original data gets overwritten | Original data remains
+    intact |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Data consistency** | Ensures consistency by recording metadata changes
+    and replaying them if needed | Ensures consistency by never modifying the original
+    data |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Performance** | Minimal overhead depending on the type of journaling mode
+    | Some performance gains because of faster writes |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Space utilization** | Journal size is typically in MB, so no additional
+    space is required | More space is required due to separate copies of data |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Recovery times** | Fast recovery times as the journal can be replayed instantly
+    | Slower recovery times as data needs to be reconstructed using recent copies
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **Features** | No built-in support for features such as compression or deduplication
+    | Built-in support for compression and deduplication |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 3.1 – Differences between CoW and journaling filesystems
+  prefs: []
+  type: TYPE_NORMAL
+- en: Filesystems that use the CoW-based approach for organizing data include **Zettabyte
+    Filesystem** (**ZFS**), **B-Tree Filesystem** (**Btrfs**), and Bcachefs. ZFS was
+    initially used on Solaris and quickly gained popularity because of its powerful
+    features. Although not included in the kernel because of licensing issues, it
+    has been ported to Linux through the *ZFS on Linux* project. The Bcachefs filesystem
+    was developed from the kernel’s block cache code and is quickly gaining popularity.
+    It might become a part of future kernel releases. Btrfs, also fondly known as
+    ButterFS, is directly inspired by ZFS. Unfortunately, because of a few bugs in
+    early releases, its adoption slowed down in the Linux community. Nevertheless,
+    it has been under active development and has been a part of the Linux kernel for
+    over a decade.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Despite a few issues, Btrfs is the most advanced filesystem present in the kernel
+    because of its rich feature set. As mentioned previously, Btrfs draws a lot of
+    inspiration from ZFS and tries to offer almost identical features. Like ZFS, Btrfs
+    is not just a simple disk filesystem, it also offers the functionality of a logical
+    volume manager and software, **Redundant Array of Independent Disks** (**RAID**).
+    Some of its features include snapshots, checksums, encryption, deduplication,
+    and compression, which are usually not available in regular block filesystems.
+    All these characteristics greatly simplify storage management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To summarize, the CoW approach of filesystems such as Btrfs and ZFS ensures
+    that existing data is never overwritten. Hence, even in the case of a sudden system
+    crash, existing data will not be in an inconsistent state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extended filesystem
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The **extended filesystem**, shortened as **Ext**, has been a trusted aide
+    of the Linux kernel since its inception and is almost as old as the Linux kernel
+    itself. It was first introduced in the kernel 0.96c. Over the years, the extended
+    filesystem has gone through some major changes that have resulted in multiple
+    versions of the filesystem. These versions are briefly explained as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**The First Extended Filesystem**: The first filesystem to run Linux was Minix
+    and it supported a maximum filesystem size of 64 MB. The extended filesystem was
+    designed to overcome the shortcomings in Minix and was generally considered an
+    extension of the Minix filesystem. The extended filesystem supported a maximum
+    filesystem size of 2 GB. It was also the first filesystem to make use of the VFS.
+    The first Ext filesystem only allowed one timestamp per file, as compared to the
+    three timestamps used today.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**The Second Extended Filesystem**: Almost a year after the release of the
+    first extended filesystem, its second version, Ext2, was released. The Ext2 filesystem
+    addressed the limitations of its predecessor, such as partition sizes, fragmentation,
+    filename lengths, timestamps, and maximum file size. It also introduced several
+    new features including the concept of filesystem blocks. The design of Ext2 was
+    inspired by BSD’s Berkeley Fast File System. The Ext2 filesystem supported much
+    larger filesystem sizes, up to a few terabytes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**The Third Extended Filesystem**: The Ext2 filesystem was widely adopted but
+    fragmentation and filesystem corruption in the case of a crash remained big concerns.
+    The third extended filesystem, Ext3, was designed keeping this in mind. The most
+    important feature introduced in this release was **journaling**. Through journaling,
+    the Ext3 filesystem kept track of uncommitted changes. This reduced the risk of
+    data loss if the system crashed because of a hardware or power failure.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**The Fourth Extended Filesystem**: Ext4 is currently the latest version of
+    the extended filesystem family. The Ext4 filesystem offers several improvements
+    over Ext2 and Ext3 in terms of performance, fragmentation, and scalability, while
+    also keeping backward compatibility with Ext2 and Ext3\. When it comes to Linux
+    distributions, Ext4 is probably the most frequently deployed filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We’re going to mainly focus on the design and structure of the most recent version
+    of the extended filesystem, Ext4.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Blocks – the lingua franca of filesystems
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: At the lowest level, a hard drive is addressed in units of sectors. Sectors
+    are the physical property of a disk drive and are normally 512 bytes in size.
+    Although, these days, it’s not uncommon to see drives using a sector size of 4
+    KB. The sector size is something that we cannot tinker with as it is decided by
+    the drive manufacturer. As a sector is the smallest addressable unit on the drive,
+    any operation performed on the physical drive is always going to be larger than
+    or equal to the sector size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A filesystem is created on top of the physical drive and does not address the
+    drive in terms of sectors. All filesystems (and the extended filesystem family
+    is no exception to this) address a physical drive in terms of blocks. A block
+    is a group of physical sectors and is the fundamental unit of a filesystem. An
+    Ext4 filesystem performs all operations in terms of blocks. On x86 systems, the
+    filesystem block size is set to 4 KB by default. Although it can be set to a lower
+    or higher value, the block size should always satisfy the following two constraints:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The block size should always be a power-of-two multiple of the disk sector size
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The block size should always be less than or equal to the memory page size
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The maximum filesystem block size is the page size of the architecture. On
+    most x86-based systems, the default page size of the kernel is 4 KB. So, the filesystem
+    block size cannot exceed 4 KB. The page size of the VFS cache also amounts to
+    4 KB. The restriction of the block size to be less than or equal to the kernel’s
+    page size is not limited to the extended filesystem only. The page size is defined
+    during kernel compilation and is 4 KB for x86_64 systems. As shown ahead, the
+    `mkfs` program for Ext4 will throw a warning if a block size greater than the
+    page size is specified. Even if a filesystem is created with a block size greater
+    than the page size, it cannot be mounted:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once a filesystem has been created, the block size cannot be changed. The Ext4
+    filesystem divides the available storage into logical blocks of 4 KB by default.
+    The selection of block size has a significant impact on the space efficiency and
+    performance of the filesystem. The block size dictates the minimum on-disk size
+    of a file, even if its actual size is less than the block size. Let’s say that
+    our filesystem uses a block size of 4 KB and we save a simple text file of 10
+    bytes on it. This 10-byte file, when stored on the physical disk, will use 4 KB
+    of space. A block can only hold a single file. This means that for a 10-byte file,
+    the remaining space in a block (4 KB – 10 bytes) is wasted. As shown next, a simple
+    text file containing the `"hello"` string will occupy a full filesystem block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `stat` command gives us a block count of `8`, which is a bit misleading,
+    as it is actually the sector count. This is because the `stat` system call assumes
+    that 512 bytes of disk space are allocated per block. The block count here indicates
+    that `4096` bytes (8 x 512) are physically allocated on the disk. The file size
+    is `6` bytes only, but it occupies one full block on the disk. As shown next,
+    when we add another line of text in the file, the file size increases from `6`
+    to `19` bytes, but the numbers of used sectors and blocks remain the same:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Is there a more efficient approach to organizing data?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Given that a small text file occupies a full block, it’s not difficult to see
+    the impact of filesystem block size. Having a lot of small files on a filesystem
+    of a large block size can result in a waste of disk space, and a filesystem can
+    quickly run out of blocks. Let’s see a visual representation for a clearer understanding.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s say we have four files of varied sizes as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: File A -> 5 KB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: File B -> 1 KB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: File C -> 7 KB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: File D -> 2 KB
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Going with the approach of allocating a whole block (4 KB) to a single file,
+    the files will be stored on disk as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.4 – Even the smallest of files occupy a full block](img/B19430_03_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.4 – Even the smallest of files occupy a full block
+  prefs: []
+  type: TYPE_NORMAL
+- en: As is apparent from *Figure 3**.4*, we’re wasting 3 KB of space in blocks 2
+    and 3, and 1 KB and 2 KB in blocks 5 and 6, respectively. It’s pretty clear that
+    too many small files spoil the blocks!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s try an alternative approach and try to store the files in a more condensed
+    format to avoid wasting space:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.5 – An alternate method for storing files](img/B19430_03_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.5 – An alternate method for storing files
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s not difficult to see that the second approach is more compact and efficient.
+    We’re now able to store the same four files in only four blocks as compared to
+    the six in the first approach. We are even able to save 1 KB of filesystem space.
+    Apparently, allocating a whole filesystem block for a single file seems like an
+    inefficient method for managing space, but in reality, that is a necessary evil.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the first look, the second approach seems far better, but do you see the
+    design flaw? A filesystem following this approach would have major pitfalls. If
+    filesystems were designed to accommodate multiple files in a single block, they
+    would need to devise a mechanism that would keep track of individual file boundaries
+    within a single block. This would increase the design complexity by a fair margin.
+    Additionally, this would lead to massive fragmentation, which would degrade the
+    filesystem performance. If the size of a file increases, the incoming data would
+    have to be adjusted in a separate block. Files would be stored in random blocks
+    and there would be no sequential access. All of this would result in poor filesystem
+    performance and neutralize any advantage gained from this condensed approach.
+    Therefore, every file occupies a full block, even if its size is less than the
+    filesystem block size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The structural layout of an Ext4 filesystem
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The individual blocks in Ext4 are arranged into another unit called block groups.
+    A **block group** is a collection of contiguous blocks. When it comes to the organization
+    of the block group, there are two cases. For the first block group, the first
+    1,024 bytes are not used. These are reserved for the installation of boot sectors.
+    For the first block group, the layout is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.6 – Layout for block group 0](img/B19430_03_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.6 – Layout for block group 0
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the filesystem is created with a block size of 1 KB, the superblock will
+    be kept in the next block. For all other block groups, the layout becomes the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.7 – Layout for block group 1 and onward](img/B19430_03_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.7 – Layout for block group 1 and onward
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s discuss the constituents of an Ext4 block group.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Superblock
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As explained in [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028), the `fs/ext4/ext4.h`
+    and, as shown next, it contains dozens of fields defining the different attributes
+    of the filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `__le32` data types indicate that the representation is in little-endian
+    order. As evident from its definition in the kernel source, the Ext4 superblock
+    defines a number of properties to characterize the filesystem. This contains information
+    such as the total number of blocks and block groups in the filesystem, the total
+    number of used and unused blocks, the block size, the total number of used and
+    unused inodes, the filesystem state, and a lot more. The information contained
+    in a superblock is of utmost importance as it is the first thing that is read
+    when mounting a filesystem. Given its critical nature, multiple copies of the
+    superblock are kept at different locations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most fields in the superblock definition are easily understood. Some interesting
+    fields are explained here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Block size calculation**: The block size of the Ext4 filesystem is computed
+    using this 32-bit value. The block size is calculated as follows:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Ext4 block size = 2 ^ (10 +* *s_log_block_size)*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The minimum block size of an Ext4 filesystem can be 1 KB when `s_log_block_size`
+    is zero. The Ext4 filesystem supports a maximum block size of 64 KB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`s_log_cluster_size`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`s_mnt_count` field indicates the number of times the filesystem has been mounted
+    since the last consistency check was run. The `s_max_mnt_count` field imposes
+    a hard limit on the number of mounts, beyond which a consistency check is mandatory.
+    The filesystem state is saved in `s_state`. It can be one of the following:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cleanly unmounted`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`errors detected`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`orphans` `being recovered`'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If the filesystem state in `s_state` is not clean, the check is enforced automatically.
+    The date of the last consistency check is saved in `s_lastcheck`. If the time
+    specified in the `s_checkinterval` field has passed since the last check, the
+    consistency check is enforced on the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`s_magic` field in the superblock contains this magic number. For Ext4, its
+    value is `0xEF53`. The `s_rev_level` and `s_minor_rev_level` fields are used to
+    differentiate between filesystem versions.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0` (root user). An Ext4 filesystem reserves 5% of filesystem blocks for the
+    super or root user. This is done so that the root user processes continue to run,
+    even if the non-root processes cannot write to the filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`11`, which belongs to the `lost+found` directory on an Ext4 filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sda` and `sdb`) can often change, resulting in confusion and incorrect mount
+    points. The UUID is a unique identifier for a filesystem and can be used in `/etc/fstab`
+    to mount filesystems.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`s_feature_compat` field contains a 32-bit bitmask of compatible features.
+    The filesystem is free to support the features defined in this field. On the other
+    hand, if any feature defined in `s_feature_incompat` is not understood by the
+    kernel, the filesystem mount operation will not succeed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Data block and inode bitmaps
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The Ext4 filesystem uses a negligible amount of space to organize some internal
+    structures. Most of the space in a filesystem is used for storing user data. The
+    Ext4 filesystem stores user data in data blocks. As we learned in [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028),
+    the metadata of each file is stored in a separate structure, called an inode.
+    The inodes are also stored on disk, albeit in a reserved space. Inodes are unique
+    in a filesystem. Every filesystem uses a technique to keep track of allocated
+    and available inodes. Similarly, there has to be a method through which the number
+    of allocated and free blocks can be tracked.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ext4 uses a bitmap as an allocation structure. A bitmap is a sequence of bits.
+    Separate bitmaps are used to track the number of inodes and data blocks. The data
+    block bitmap tracks the usage of data blocks within the block group. Similarly,
+    the inode bitmap keeps track of entries in the inode table. A bit value of `0`
+    indicates that the block or inode is available for use. A value of `1` indicates
+    that the block or inode is occupied.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The bitmaps for both the inode and data block are of one block each. As a byte
+    is composed of 8 bits, that means, for the default block size of 4 KB, the block
+    bitmap can represent a maximum of 8 x 4 KB = 32,768 blocks per group. This can
+    be verified in the output of `mkfs` or through the `tune2fs` program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inode tables
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In addition to inode bitmaps, a block group also contains an inode table. The
+    inode table spans a series of consecutive blocks. The definition of an Ext4 inode
+    is present in the `fs/ext4/ext4.h` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Ext4 inode has a size of 256 bytes. Some fields of particular interest
+    are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`i_uid` and `i_gid` fields serve as the user and group identifiers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_atime`, `i_ctime`, and `i_mtime`. These describe the last access time, inode
+    change time, and data modification time, respectively. The file deletion time
+    is saved in `i_dtime`. These 4 fields are 32-bit signed integers that represent
+    the elapsed seconds since the Unix epoch time, January 1, 1970, 00:00:00 UTC.
+    For calculating time with subsecond accuracy, the `i_atime_extra`, `i_mtime_extra`,
+    and `i_ctime_extra` fields are used.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_links_count` field. This is a 16-bit value, which means that Ext4 allows
+    for a maximum of 65K hard links for a file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`i_block`, which is an array of length `EXT4_N_BLOCKS`. The value of `EXT4_N_BLOCKS`
+    is `15`. As discussed in [*Chapter 2*](B19430_02.xhtml#_idTextAnchor028), an inode
+    structure uses pointers for block addressing. First, 12 pointers point directly
+    to block addresses and are called **direct pointers**. The next three pointers
+    are indirect pointers. An **indirect pointer** points to a block of pointers.
+    The 13th, 14th, and 15th pointers provide single-, double-, and triple-level indirection.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Group descriptors
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Group descriptors are stored just after the superblock in the filesystem layout.
+    Every block group has a group descriptor associated with it, so there are as many
+    group descriptors as the number of block groups. It’s important to understand
+    that the block group descriptors describe the contents of each block group in
+    the filesystem. This means they include information about the local, as well as
+    all the other block groups in the filesystem. The group descriptor structure is
+    defined in `fs/ext4/ext4.h`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some important fields are described further:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bg_block_bitmap_lo`, `bg_inode_bitmap_lo`, and `bg_inode_table_lo`, whereas
+    the most significant bits are stored in `bg_block_bitmap_hi`, `bg_inode_bitmap_hi`,
+    and `bg_inode_table_hi`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bg_free_blocks_count_lo`, `bg_free_blocks_count_hi`, `bg_free_inodes_count_lo`,
+    `bg_free_inodes_count_hi`, `bg_used_dirs_count_lo`, and `bg_used_dirs_count_hi`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As each block group descriptor includes information about both local and non-local
+    block groups, it contains a descriptor for each block group in the filesystem.
+    Because of this, the following information can be determined from any single block
+    group:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The number of free blocks and inodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The location of the inode table in the filesystem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The location of block and inode bitmaps
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Reserved GDT blocks
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: One of the most useful features of an Ext4 filesystem is its on-the-fly expansion.
+    The size of an Ext4 filesystem can be increased on the fly without any disruption.
+    The reserved **group descriptor table** (**GDT**) blocks are put aside at the
+    time of filesystem creation. This is done to aid in the process of filesystem
+    expansion. Increasing the size of the filesystem involves the addition of physical
+    disk space and the creation of filesystem blocks in the newly added disk space.
+    This also means that to accommodate the newly added space, more block groups and
+    group descriptors will be required. These reserved GDT blocks are used when an
+    Ext4 filesystem is to be extended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Journaling modes
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Like most filesystems, Ext4 also implements the concept of journaling to prevent
+    data corruption and inconsistencies in the case of a system crash. The default
+    journal size is typically just a few megabytes. The journaling in Ext4 uses the
+    generic journaling layer in the kernel, known as the `jbd2` process in that list.
+    This is the kernel thread responsible for updating the Ext4 journal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Ext4 offers a great deal of flexibility when it comes to journaling. The Ext4
+    filesystem supports three journaling modes. Depending upon the requirements, the
+    journaling mode can be changed if required. By default, journaling is enabled
+    at the time of filesystem creation. If desired, it can be disabled later. The
+    different journaling modes are explained here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Ordered**: In ordered mode, only metadata is journaled. The actual data is
+    directly written to disk. The order of the operations is strictly followed. First,
+    the metadata is written to the journal; second, the actual data is written to
+    disk; and last, the metadata is written to disk. If there is a crash, filesystem
+    structures are preserved. However, the data being written at the time of the crash
+    may be lost.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Writeback**: The writeback mode also only journals metadata. The difference
+    is that actual data and metadata can be written in any order. This is a slightly
+    more risky approach than ordered mode but offers much better performance.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Journal**: In journal mode, both data and metadata are written to the journal
+    first, before being committed to the disk. This offers the highest level of security
+    and consistency but can adversely affect performance, as all write operations
+    have to be performed twice.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The default journaling mode is *ordered*. If you want to change the journal
+    mode, you’ll need to unmount the filesystem and add the desired mode in the corresponding
+    `fstab` entry. For instance, to change the journaling mode to *writeback*, add
+    `data=writeback` against the relevant filesystem entry in the `/etc/fstab` file.
+    Once done, you can verify the journaling mode as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can also display information about the filesystem journal using the `logdump`
+    command from `debugfs`. For instance, you can check the journal for the `sdc`
+    device as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Filesystem extents
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: We’ve covered the use of indirect pointers to address large files. Through the
+    use of indirect pointers, an inode can keep track of data blocks that contain
+    the file contents. For large files, this approach becomes a bit inefficient. The
+    higher the number of blocks occupied by a file, the higher the number of pointers
+    required to keep track of each block. This creates a complex mapping scheme and
+    increases the metadata usage per file. As a result, some operations on large files
+    are performed rather slowly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ext4 makes use of extents to address this problem and reduce the metadata required
+    to keep track of data blocks. An **extent** is a pointer plus a length of blocks
+    – basically, a bunch of contiguous physical blocks. When using extents, we only
+    need to know the address of the first and last block of this contiguous range.
+    For instance, let’s say that we’re using an extent size of 4 MB. To store a 100
+    MB file, we can allocate 25 contiguous blocks. Since the blocks are contiguous,
+    we only need to remember the address of the first and last blocks. Assuming a
+    block size of 4 KB, while using pointers, we would need to create an indirect
+    mapping of 25,600 blocks to store a 100 MB file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Block allocation policies
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When it comes to filesystem performance, fragmentation is a silent killer. The
+    Ext4 filesystem uses several techniques to improve the overall performance and
+    reduce fragmentation. The block allocation policies in Ext4 ensure that related
+    information exists within the same filesystem block group.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When a new file is to be created and saved, the filesystem will need to initialize
+    an inode for that file. Ext4 will then select an appropriate block group for that
+    file. The design of Ext4 makes sure that maximum effort is made to do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allocate the inode in the block group that contains the parent directory of
+    the file
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Allocate a file to the block group that contains the file’s inode
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Once a file has been saved on disk, after some time, the user wants to add new
+    data to the file. Ext4 will start a search for free blocks, from the block that
+    was most recently allocated to the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When writing data to an Ext3 filesystem, the block allocator only allocated
+    a single 4 KB block at a time. Assuming a block size of 4KB, for a single 100
+    MB file, the block allocator would need to be called 25,600 times. Similarly,
+    when a file is extended and new blocks are allocated from the block group, they
+    can be in random order. This random allocation can result in excessive disk seeking.
+    This approach does not scale well and causes fragmentation and performance issues.
+    The Ext4 filesystem offers a significant improvement on this through the use of
+    a multi-block allocator. When a new file is created, the multi-block allocator
+    in Ext4 allocates multiple blocks in a single call. This reduces the overhead
+    and increases performance. If the file uses those blocks, the data is written
+    in a single multi-block extent. If the file does not use the extra allocated blocks,
+    they are freed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Ext4 filesystem uses delayed allocation and does not allocate the blocks
+    immediately upon a write operation. This is done because the kernel makes heavy
+    use of the page cache. All operations are first performed in the kernel’s page
+    cache and then flushed to disk after some time. Using delayed allocation, the
+    blocks are only allocated when data is actually being written to disk. This is
+    extremely useful as the filesystem can then allocate contiguous extents for saving
+    the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ext4 tries to keep the data blocks of a file in the same block group as its
+    inode. Similarly, all inodes in a directory are placed in the same block group
+    as the directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Examining the result of an mkfs operation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Let’s summarize our discussion about Ext4 and see what happens when we create
+    an Ext4 filesystem using `mkfs`. The following command was run on a disk of only
+    1 GB:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let’s examine the output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the man page of `mkfs.ext4` will tell you, the discarding device blocks feature
+    is especially useful for solid-state drives. By default, the `mkfs` command will
+    issue a `TRIM` command to inform the underlying drive to erase unused blocks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The filesystem consists of 262,144 blocks of 4 KB each. The total number of
+    inodes in the filesystem is 65,536\. The UUID can be used in `fstab` to mount
+    the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The stride and stripe widths are used when the underlying storage is a RAID
+    volume.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An Ext4 filesystem will by default reserve 5% space for the superuser.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We see that the filesystem has divided the 262,144 blocks into 8 block groups.
+    There are a total of 32,768 blocks per group. Each block has 8,192 inodes. This
+    is in line with the total number of inodes mentioned earlier – that is, 8 x 8,192
+    = 65,536.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The copies of the superblock structure are stored on multiple blocks. The filesystem
+    will always be mounted using the primary superblock. But if the primary superblock
+    gets corrupted for some reason, the filesystem can be mounted using the backups
+    saved on different block locations. The filesystem journal occupies 8,192 blocks,
+    which gives us a journal size of 8,192 x 4 KB = 32 MB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The extended filesystem is one of the oldest Linux-specific software projects.
+    Over the years, it has gone through several enhancements in terms of reliability,
+    scalability, and performance. Most of the concepts associated with Ext4, such
+    as journaling, the use of extents, and delayed allocation, also apply to XFS,
+    although XFS uses different techniques to implement these features. Like all block-based
+    filesystems, Ext4 divides the available disk space into fixed-size blocks. Being
+    a native filesystem, it makes extensive use of the structures defined in VFS and
+    implements them as per its own design. Because of its proven track record of stability,
+    it is the most used filesystem across Linux distributions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Network filesystem
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The evolution of computer networks and network protocols made remote file sharing
+    possible. This gave rise to the concept of distributed computing and client-server
+    architectures, which can be referred to as distributed filesystems. The idea was
+    to store data on a central location on one or more servers. There are multiple
+    clients that request access to this data through different programs and protocols.
+    This includes protocols such as **File Transfer Protocol** (**FTP**) and **Secure
+    File Transfer Protocol** (**SFTP**). The use of these programs makes it possible
+    to transfer data between two machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As compared to any traditional filesystem, a filesystem that uses the distributed
+    approach will require some additional elements for its functioning. We’ve seen
+    that processes make use of the generic system call layer to issue read or write
+    requests. In the case of conventional filesystems, both the process (which issues
+    the request) and the storage (which serves that request) are part of the same
+    system. In distributed systems, there can be a dedicated client-side application
+    that is used for accessing the filesystem. In response to a generic system call
+    such as `read ()`, the client side will send a message to the server requesting
+    read access to a particular resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the oldest filesystems to follow this approach is the **Network Filesystem**,
+    shortened as **NFS**. The NFS protocol was created by Sun Microsystems in 1984\.
+    NFS is a distributed filesystem, which allows accessing files stored in a remote
+    location. NFS version 4 is the most recent version of the protocol. Since the
+    communication between the client and server is over a network, any request by
+    the clients will traverse all the layers in the **Open Systems Interconnection**
+    (**OSI**) model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NFS architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'From an architecture standpoint, NFS has three major components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Remote Procedure Calls** (**RPCs**): To allow processes to send and receive
+    messages to and from each other, the kernel offers different **inter-process communication**
+    (**IPC**) mechanisms. The NFS uses RPCs as a method of communication between an
+    NFS client and server. RPC is an extension of the IPC mechanism. As the name suggests,
+    in RPC, the procedure called by the client doesn’t need to be in the same address
+    space as the client. It can be in a remote address space. The RPC service is implemented
+    at the session layer.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**External Data Representation** (**XDR**): NFS uses XDR as the standard for
+    encoding binary data at the presentation layer of the OSI model. The use of XDR
+    ensures that all stakeholders use the same language when communicating. The use
+    of a standardized method for transferring data is necessary as data representation
+    may differ between the two systems. For instance, it is possible that the NFS
+    participants may be architecturally different and have different endian-ness.
+    For instance, if data is being transmitted from a system using big-endian architecture
+    to a system using little-endian architecture, the bytes will be received in the
+    reverse order. XDR uses a canonical method of data representation. When an NFS
+    client needs to write data on an NFS server, it will convert the local representation
+    of relevant data into its equivalent XDR encoding. Similarly, when this XDR-encoded
+    data is received by the server, it will decode and convert it back into its local
+    representation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**NFS procedures**: All the NFS operations function at the application layer
+    of the OSI model. The procedures defined at this layer specify the different tasks
+    that can be performed on files residing on the NFS server. These procedures include
+    file operations, directory operations, and filesystem operations.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Figure 3**.8* depicts the route taken by an I/O request when using NFS:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.8 – Flow of an I/O request in NFS](img/B19430_03_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.8 – Flow of an I/O request in NFS
+  prefs: []
+  type: TYPE_NORMAL
+- en: In version 2, NFS used UDP as the underlying transport protocol and as a result,
+    NFS v2 and v3 were stateless. An advantage of this approach was the slightly better
+    performance because of the lower overhead when using UDP. Since version 4, the
+    default protocol has been changed to TCP. Mounting NFS shares using TCP is a more
+    reliable option. NFS version 4 is stateful, which means that both the NFS client
+    and server maintain information about open files and file locks. In the case of
+    a server crash, both the client and server side work to recover the state prior
+    to the failure. NFS version 4 also introduced the **compound** request format.
+    By using the compound request format, the NFS client can combine several operations
+    into a single request. The compound procedure acts as a wrapper to coalesce one
+    or more operations into a single RPC request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Like any regular filesystem, the NFS also needs to be mounted to establish a
+    logical connection between the client and server. This mount operation is a bit
+    different from a local filesystem. While mounting an NFS filesystem, we do not
+    need to create a filesystem since the filesystem already exists on the remote
+    side. The `mount` command will include the name of the remote directory to be
+    mounted. In NFS terms, this is called an **export**. The NFS server keeps a list
+    of filesystems that can be exported and a list of hosts that are allowed to access
+    these exports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The NFS server uses a special structure to uniquely identify a file. This structure
+    is known as a **file handle**. This handle makes use of an inode number, a filesystem
+    identifier, and a generation number. The generation number plays a critical role
+    in this identification process. Let’s say that file A had an inode number of 100
+    and was deleted by the user. A new file, say B, was created and was assigned the
+    recently freed inode number, 100\. When trying to access a file using its file
+    handle, this can cause confusion, as now, file B uses the inode number that was
+    previously assigned to file A. Because of this, the file handle structure also
+    uses a generation number. This generation number is incremented every time an
+    inode is reused by the server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing NFS with regular block filesystems
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Network filesystems are also referred to as *file-level storage*. As such, I/O
+    operations performed on an NFS are called file-level I/O operations. Unlike block
+    filesystems, file-level I/O doesn’t specify the block address of a file when requesting
+    an operation. Keeping track of the exact location of the file on the disk is the
+    job of the NFS server. Upon receiving the request from the NFS client, the NFS
+    server will convert it into a block-level request and perform the requested operation.
+    This does introduce additional overhead and is one of the major reasons that the
+    performance of an NFS pales in comparison to a regular block filesystem. In the
+    case of block filesystems and storage, applications have the freedom to decide
+    how filesystem blocks will be accessed or modified. For NFS, the management of
+    filesystem structures is entirely the responsibility of the NFS server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can see the differences between an NFS and a block filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.9 – NFS versus block filesystem](img/B19430_03_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.9 – NFS versus block filesystem
+  prefs: []
+  type: TYPE_NORMAL
+- en: To sum up, NFS is one of the most popular protocols for remote file sharing.
+    It is distributive in nature and follows a client-server architecture. The request
+    from an NFS client ends up on the NFS server after traversing the entire network
+    stack. To standardize data representation between the client and server, NFS uses
+    XDR for data encoding at the presentation layer of the OSI model. Although it
+    lags in performance when compared to regular block storage, it is still used in
+    most enterprise infrastructures, mainly for backups and archiving.
+  prefs: []
+  type: TYPE_NORMAL
+- en: FUSE – a unique method for creating filesystems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We’ve talked about how the kernel divides the system into two portions: user
+    space and kernel space. All the privileged system resources reside in kernel space.
+    The kernel code, including that of filesystems, also exists in kernel space in
+    a separate area of memory. It is not possible for normal user-space application
+    programs to access it. The distinction between user space and kernel space programs
+    restricts any regular process from modifying the kernel code.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although this approach is essential to the kernel’s design, it does create a
+    few problems in the development process. Consider the example of any filesystem.
+    As all the filesystem code exists in the kernel space, in the case of a bug in
+    the filesystem code, it is extremely difficult to perform any troubleshooting
+    or debugging because of this segregation. Any operations on the filesystem also
+    need to be performed by the root user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **filesystem in user space** (**FUSE**) framework was designed to address
+    some of these limitations. Through the use of the FUSE interface, filesystems
+    can be created without tinkering with the kernel code. As such, the code for such
+    filesystems only exists in user space. Both the actual data and metadata on the
+    filesystem are managed by user-space processes. This is extremely flexible as
+    it allows non-privileged users to mount the filesystem. It’s important to note
+    that FUSE-based filesystems can be stackable, meaning that they can be deployed
+    on top of existing filesystems such as Ext4 and XFS. One of the most widely used
+    FUSE-based solutions that makes use of this approach is **GlusterFS**. GlusterFS
+    operates as a user-space filesystem and can be stacked on top of any existing
+    block-based filesystem such as Ext4 or XFS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The functionality provided by FUSE is achieved using a kernel module (`fuse.ko`)
+    and a user-space daemon using the `libfuse` library. The FUSE kernel module is
+    responsible for registering the filesystem with VFS. The interaction between the
+    user-space daemon and the kernel is achieved using a character device, `/dev/fuse`.
+    This device plays the role of a bridge between the user-space daemon and the kernel
+    module. The user-space daemon will read from and write requests to this device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 3.10 – The FUSE approach](img/B19430_03_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3.10 – The FUSE approach
+  prefs: []
+  type: TYPE_NORMAL
+- en: When a process in user space performs any operation on a FUSE filesystem, the
+    relevant system call is sent to the VFS layer. Upon checking that this corresponds
+    to a FUSE-based filesystem, VFS will forward this request to the FUSE kernel module.
+    The FUSE driver will create a request structure and put it in the FUSE queue in
+    `/dev/fuse`. The communication between the kernel module and `libfuse` library
+    is achieved using a special file descriptor. The user-space daemon will open the
+    `/dev/fuse` device to process the result. If the FUSE filesystem is stacked on
+    top of an existing filesystem, then the request will again be routed to the kernel
+    space so that it can be passed to the filesystem underneath.
+  prefs: []
+  type: TYPE_NORMAL
+- en: FUSE filesystems are not as robust as traditional filesystems but they offer
+    a great deal of flexibility. They are easy to deploy and can be mounted by non-privileged
+    users. Since the filesystem code is in user space, it is easier to troubleshoot
+    and make changes. Even in the case of a bug in the code, the functionality of
+    the kernel will not be impacted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Having covered the workings of VFS in the first two chapters, this chapter gave
+    you an introduction to common filesystems and their concepts. The Linux kernel
+    is capable of supporting around 50 filesystems and covering each one of them is
+    an impossible task. We maintained our focus on the native filesystems in Linux,
+    as the kernel is capable of supporting them out of the box. We explained some
+    features that are common among a group of filesystems, such as journaling, CoW
+    mechanisms, and FUSE. The major focus of this chapter was the working and internal
+    design of the extended filesystem. The extended filesystem has been around since
+    kernel version 0.96 and is the most widely deployed filesystem on computing platforms.
+    We also shed some light on the architecture of network filesystems and explained
+    the differences between file and block storage. At the end, we discussed FUSE,
+    which offers an interface for user space programs to export a filesystem to the
+    Linux kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With this chapter, we’ve now completed our exploration of VFS and filesystem
+    layers in the kernel. This brings the curtains down on *Part 1* of this book.
+    I would like to think that this has been a good learning journey so far and I
+    hope that it stays that way. The second part of this book, starting from [*Chapter
+    4*](B19430_04.xhtml#_idTextAnchor072), will focus on the block layer in the kernel,
+    which provides an upstream interface to the filesystems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 2: Navigating Through the Block Layer'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This part introduces the role of the block layer in the Linux kernel. The block
+    layer is a key part of the kernel’s storage stack because the interfaces implemented
+    in the block layer are used by the user space applications to access the available
+    storage devices. This part will explain the block layer and its major components,
+    such as the device mapper framework, block devices, block layer data structures,
+    the multi-queue framework, and the different I/O schedulers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part contains the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 4*](B19430_04.xhtml#_idTextAnchor072), *Understanding the Block Layer,
+    Block Devices, and Data Structures*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 5*](B19430_05.xhtml#_idTextAnchor090), *Understanding the Block Layer,
+    Multi-Queue, and Device Mapper*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 6*](B19430_06.xhtml#_idTextAnchor101), *Understanding I/O Handling
+    and Scheduling in the Block Layer*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

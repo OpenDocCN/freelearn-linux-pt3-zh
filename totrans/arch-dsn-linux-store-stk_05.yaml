@@ -1,0 +1,752 @@
+- en: '5'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Understanding the Block Layer, Multi-Queue, and Device Mapper
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: “I feel the need... the need for speed.” – Maverick in Top Gun
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 4*](B19430_04.xhtml#_idTextAnchor072) introduced us to the role of
+    the block layer in the kernel. We were able to see what constitutes a block device
+    and explored the major data structures in the block layer. This chapter will build
+    on that knowledge as we continue understanding the block layer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter will introduce you to two major concepts: the multi-queue block
+    I/O mechanism and the device mapper framework. The kernel’s block layer has undergone
+    significant changes in recent years to tackle performance concerns. The introduction
+    of the multi-queue framework was a significant milestone in this direction, as
+    discussed in [*Chapter 4*](B19430_04.xhtml#_idTextAnchor072). Performance is a
+    critical consideration when dealing with block devices, and the kernel has implemented
+    various improvements to optimize disk drive performance. In [*Chapter 4*](B19430_04.xhtml#_idTextAnchor072),
+    we looked at the request and response queue structures in the block layer, which
+    handle the I/O requests for a block device. In this chapter, we’ll start by introducing
+    the single-request queue model, its performance limitations, and the challenges
+    faced by the block layer when working with modern high-performing storage drives
+    such as NVMe and SSDs. We’ll also explain how the single-request queue model impacts
+    the performance of multicore systems.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second major topic of this chapter will be the mapping framework in the
+    kernel, known as the device mapper. The device mapper framework in the kernel
+    works in conjunction with the block layer and is responsible for mapping physical
+    block devices to logical block devices. As we will see, the device mapper framework
+    serves as the foundation for implementing various technologies, such as logical
+    volume management, RAID, encryption, and thin provisioning. In the end, we’ll
+    also briefly discuss caching mechanisms in the block layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will discuss the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The problem with single-request queues
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The multi-queue block I/O mechanism
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The device mapper framework
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Multi-tier caching in the block layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In addition to the Linux operating system concepts we covered previously, the
+    topics discussed in this chapter require a basic understanding of modern processors
+    and storage technologies. Any practical experience in Linux storage administration
+    will greatly enhance your understanding of certain aspects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The commands and examples presented in this chapter are distribution-agnostic
+    and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
+    Fedora, and others. There are quite a few references to the kernel source code.
+    If you want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
+    The code segments referred to in this chapter and book are from kernel `5.19.9`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at problems with single-request queues
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The operating system must handle block devices so that they operate at their
+    full potential. An application may need to perform I/O operations on arbitrary
+    locations on a block device, which requires seeking multiple disk locations and
+    can prolong the operation’s duration. When rotating mechanical drives, constant
+    random accesses can not only degrade performance but also produce noticeable noise.
+    Although still used in the modern day, interfaces such as **Serial Advanced Technology
+    Attachment** (**SATA**) were the protocol of choice for mechanical drives. The
+    original design of the kernel’s block layer was meant for a time when mechanical
+    drives were the medium of choice. These legacy hard drives could only handle a
+    few hundred IOPs. Two things changed this: the ascendance of multi-core processors
+    and the advancement in drive technologies. With these changes, the bottleneck
+    in the storage stack shifted from the physical hardware to the software layers
+    in the kernel.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the legacy design, the kernel’s block layer handled I/O requests in one
+    of the following ways:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The block layer maintained a single-request queue, a linked list structure,
+    to handle I/O requests. New requests were inserted at the tail end of the queue.
+    The block layer implemented techniques such as merging and coalescing (which we’ll
+    explain in the next chapter) on these requests before handing them over to the
+    driver.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In some cases, the I/O requests had to bypass the request queues and land directly
+    on the device driver. This meant that all the processing done in the request queue
+    would be performed by the driver. This usually resulted in a negative performance
+    impact.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Even with the use of modern solid-state drives, this design suffered from major
+    limitations. This approach further results in a three-fold problem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The request queue containing I/O requests didn’t scale to handle the needs of
+    modern processors. On multi-core systems, a single-request queue had to be shared
+    between multiple cores. Therefore, to access the request queue, a locking mechanism
+    was used. This global lock was used to synchronize shared access to the block
+    layer request queue. To implement the different I/O handling techniques, a CPU
+    core needed to acquire a lock to the request queue. This meant that if another
+    core needed to operate on the request queue, it had to wait a considerable amount
+    of time. All CPU cores remain in a state of contention for the request queue lock.
+    It’s not too difficult to see that this design made the request queue the single
+    point of contention on multi-core systems.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A single-request queue also introduces cache coherency problems. Each CPU core
+    has its own L1/L2 cache, which may contain a copy of the shared data. When a CPU
+    core modifies some data after acquiring a global lock to the request queue and
+    updates said data in its cache, the other cores may still contain stale copies
+    of the same data in their caches. As a result, modifications made by one core
+    may not be promptly propagated to the caches of other cores. This leads to an
+    inconsistent view of the shared data across different cores. When the global lock
+    to the request queue is freed by a core, its ownership is transferred to another
+    core already waiting for the lock. Although several cache coherency protocols
+    exist, which ensure that caches maintain a consistent view of the shared data,
+    the bottom line is that the single-queue design does not inherently provide mechanisms
+    to synchronize the caches of different CPU cores. This increases the overall workload
+    required to ensure cache coherency.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This frequent switching of request queue locks between cores results in an increased
+    number of interrupts.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All in all, the use of multiple cores meant that multiple execution threads
+    would be simultaneously competing for the same shared lock. The higher the number
+    of CPUs/cores in the system, the higher the lock contention for the request queue.
+    A significant number of CPU cycles are wasted due to the spinning and contention
+    involved in acquiring this lock. On multi-socket systems, this greatly reduces
+    the number of IOPs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 5**.1* highlights the limitations of using the single queue model:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.1 – The single-request queue model](img/B19430_05_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.1 – The single-request queue model
+  prefs: []
+  type: TYPE_NORMAL
+- en: From *Figure 5**.1*, it becomes abundantly clear that regardless of the CPU
+    core count and the type of underlying physical storage, the single queue block
+    layer’s design could not scale up to match their performance requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the past decade or so, enterprise storage environments have shifted to solid-state
+    drives and non-volatile memory. These devices do not have mechanical parts and
+    are capable of handling I/O requests in parallel. The design of these devices
+    ensures that no performance penalty is observed when doing random access. With
+    the emergence of flash drives as the preferred persistent storage medium, the
+    traditional techniques that were used in the block layer for working with HDDs
+    became obsolete. To fully leverage the enhanced capabilities of SSDs, the design
+    of the block layer needed to mature accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we’ll see how the block layer has evolved to meet this
+    challenge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the multi-queue block I/O framework
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The organization of the storage hierarchy in Linux bears some resemblance to
+    the network stack in Linux. Both are multi-layered and strictly define the role
+    of each layer in the stack. Device drivers and physical interfaces are involved
+    that dictate the overall performance. Similar to the behavior of the block layer,
+    when a network packet was ready for transmission, it was placed in a single queue.
+    This approach was used for several years until the network hardware evolved to
+    support multiple queues. Hence, for devices with multiple queues, this approach
+    became obsolete.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This problem was pretty similar to the one that was later faced by the block
+    layer in the kernel. The network stack in the Linux kernel solved this problem
+    a lot earlier than the storage stack. Hence, the kernel’s storage stack took a
+    cue from this, which led to the creation of a new framework for the Linux block
+    layer, known as the **multi-queue block** I/O queuing mechanism, shortened to
+    **blk-mq**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The multi-queue framework solved the limitations in the block layer by isolating
+    request queues for every CPU core. *Figure 5**.2* illustrates how this approach
+    fixes all three limitations in the single queue framework’s design:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.2 – The multi-queue framework](img/B19430_05_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.2 – The multi-queue framework
+  prefs: []
+  type: TYPE_NORMAL
+- en: By using this approach, a CPU core can focus on executing its threads without
+    worrying about the threads running on other cores. This approach resolves the
+    limitations caused by the shared global lock and also minimizes the usage of interrupts
+    and the need for cache coherency.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `blk-mq` framework implements the following two-level queue design for
+    handling I/O requests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bio` structures. A block device will have multiple software I/O submission
+    queues, usually one per CPU core, and each queue will have a lock. A system with
+    *M* sockets and *N* cores can have a minimum of *M* and a maximum of *N* queues.
+    Each core submits I/O requests in its queue and doesn’t interact with other cores.
+    These queues eventually fan into a single queue for the device driver. The I/O
+    schedulers can operate on the requests in the staging queue to reorder or merge
+    them. However, this reordering doesn’t matter as SSDs and NVMe drives don’t care
+    if an I/O request is random or sequential. This scheduling happens only between
+    requests in the same queue, so no locking mechanism is required.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`blk-mq` will send the request directly to the hardware queue.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The multi-queue API makes use of tags to indicate which request has been completed.
+    Every request is identified by a tag, which is an integer value ranging from zero
+    to the size of the dispatch queue. The block layer generates a tag, which is subsequently
+    utilized by the device driver, eliminating the need for a duplicate identifier.
+    Once the driver has finished processing the request, the tag is returned to the
+    block layer to signal the completion of the operation. The following section highlights
+    some of the major data structures that play a vital role in the implementation
+    of the multi-queue block layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at data structures
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Here are some of the primary data structures that are essential to implement
+    the multi-queue block layer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first relevant data structure that’s used by the multi-queue framework is
+    the `blk_mq_register_dev` structure, which contains all the necessary information
+    required when registering a new block device to the block layer. It contains various
+    fields that provide details about the driver’s capabilities and requirements.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `blk_mq_ops` data structure serves as a reference for the multi-queue block
+    layer to access the device driver’s specific routines. This structure serves as
+    an interface for communication between the driver and the `blk-mq` layer, enabling
+    the driver to integrate seamlessly into the multi-queue processing framework.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The software staging queues are represented by the `blk_mq_ctx` structure. This
+    structure is allocated on a per-CPU core basis.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The corresponding structure for hardware dispatch queues is defined by the `blk_mq_hw_ctx`
+    struct. This represents the hardware context with which a request queue is associated.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The task of mapping software staging queues to hardware dispatch queues is performed
+    by the `blk_mq_queue_map` structure.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The requests are created and sent to the block device through the `blk_mq_submit_bio`
+    function.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following figure paints a picture of how these functions are interconnected:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.3 – Interplay of major structures in the multi-queue framework](img/B19430_05_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.3 – Interplay of major structures in the multi-queue framework
+  prefs: []
+  type: TYPE_NORMAL
+- en: To summarize, the multi-queue interface solves the limitations faced by the
+    block layer when working with modern storage devices that have multiple queues.
+    Historically, regardless of the capabilities of the underlying physical storage
+    medium, the block layer maintained a single-request queue to handle I/O requests.
+    On systems with multiple cores, this quickly turned into a major bottleneck. As
+    the request queue was being shared between all CPU cores through a global lock,
+    a considerable amount of time was spent by each CPU core waiting for the lock
+    to be released by another core. To overcome this challenge, a new framework was
+    developed to cater to the requirements of modern processors and storage devices.
+    The multi-queue framework resolves the limitations of the block layer by segregating
+    request queues for each CPU core. This framework leverages a dual queue design
+    that is comprised of software staging queues and hardware dispatch queues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With that, we have analyzed the multi-queue framework in the block layer. We
+    will now shift our focus and explore the device mapper framework.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at the device mapper framework
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: By default, managing physical block devices is rigid in that there are only
+    a handful of ways in which an application can make use of them. When dealing with
+    block devices, informed decisions have to be made regarding disk partitioning
+    and space management to ensure optimal usage of available resources. In the past,
+    features such as thin provisioning, snapshots, volume management, and encryption
+    were exclusive to enterprise storage arrays. However, over time, these features
+    have become crucial components of any local storage infrastructure. When operating
+    with physical drives, it is expected that the upper layers of the operating system
+    will possess the necessary capabilities to implement and sustain these functionalities.
+    The Linux kernel provides the device mapper framework for implementing these concepts.
+    The device mapper is used by the kernel to map physical block devices to higher-level
+    virtual block devices. The primary goal of the device mapper framework is to create
+    a high-level layer of abstraction on top of physical devices. The device mapper
+    provides a mechanism to modify bio structures in transit and map them to block
+    devices. The use of the device mapper framework lays the foundation for implementing
+    features such as logical volume management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The device mapper provides a generic way to create virtual layers of block devices
+    on top of physical devices and implement features such as striping, mirroring,
+    snapshots, and multipathing. Like most things in Linux, the functionality of the
+    device mapper framework is divided into kernel space and user space. The policy-related
+    work, such as defining physical-to-logical mappings, is contained in the user
+    space, while the functions that implement the policies to establish these mappings
+    lie in the kernel space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The device mapper’s application interface is the `ioctl` system call. This
+    system call adjusts the special file’s underlying device parameters. The logical
+    devices that employ the device mapper framework are managed via the `dmsetup`
+    command and the `libdevmapper` library, which implement the respective user interface,
+    as depicted in the following figure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.4 – Major components of the device mapper framework](img/B19430_05_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.4 – Major components of the device mapper framework
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we run `strace` on the `dmsetup` command, we will see that it makes use
+    of the `libdevmapper` library and the `ioctl` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Applications that establish mapped devices, such as LVM, communicate with the
+    device mapper framework via the `libdevmapper` library. The `libdevmapper` library
+    utilizes `ioctl` commands to transmit data to the `/dev/mapper/control` device.
+    The `/dev/mapper/control` device is a specialized device that functions as a control
+    mechanism for the device mapper framework.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From *Figure 5**.4*, we can see that the device mapper framework in kernel
+    space implements a modular architecture for storage management. The device mapper
+    framework’s functionality consists of the following three major components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mapped device
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Mapping table
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Target device
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s briefly look at their respective roles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at the mapped device
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A block device, such as a whole disk or an individual partition, can be *mapped*
+    to another device. The mapped device is a logical device provided by the device
+    mapper driver and usually exists in the `/dev/mapper` directory. Logical volumes
+    in LVM are examples of mapped devices. The mapped device is defined in `drivers/md/dm-core.h`.
+    If we look at this definition, we will come across a familiar structure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `gendisk` structure, as explained in [*Chapter 4*](B19430_04.xhtml#_idTextAnchor072),
+    represents the notion of a physical hard disk in the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at the mapping table
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A mapped device is defined by a mapping table. This mapping table represents
+    a mapping from a mapped device to target devices. A mapped device is defined by
+    a table that describes how each range of logical sectors of the device should
+    be mapped, using a device table mapping that is supported by the device mapper
+    framework. The mapping table defined in `drivers/md/dm-core.h` contains a pointer
+    to the mapped device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: This structure allows mappings to be created, modified, and deleted in the device
+    mapper stack. Details about the mapping table can be viewed by running the `dmsetup`
+    command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at the target device
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As explained earlier, the device mapper framework creates virtual block devices
+    by defining mappings on physical block devices. Logical devices are created using
+    “targets,” which can be thought of as modularized plugins. Different mapping types,
+    such as linear, mirror, snapshot, and others, can be created using these targets.
+    Data is passed from the virtual block device to the physical block device through
+    these mappings. The target device structure is defined in `include/linux/device-mapper.h`.
+    The unit that’s used for mapping is a sector:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The device mapper can be a bit confusing to understand, so let’s illustrate
+    a simple use case of the building blocks that we explained previously. We’re going
+    to use the *linear* target, which lays the foundation of logical volume management.
+    As discussed earlier, we’re going to use the `dmsetup` command for this purpose
+    as it implements the user-space functionality of the device mapper. We’re going
+    to create a linear mapping target called `dm_disk`. If you plan on running the
+    following commands, make sure that you run them on a blank disk. Here, I’ve used
+    two disks, `sdc` and `sdd` (you can use any disk for the exercise, so long it’s
+    empty!). Note that once you press *Enter* after the `dmsetup create` commands,
+    it will prompt you for input. The `sdc` and `sdd` disks are referred to using
+    their respective major and minor numbers. You can find out the major and minor
+    numbers for your disk using `lsblk`. The major and minor numbers for `sdc` are
+    8 and 32, expressed as `8:32`. Similarly, for `sdd`, this combination is expressed
+    as `8:48`. The rest of the input fields will be explained shortly. Once you’ve
+    entered the required data, use *Ctrl* + *D* to exit. The following example will
+    create a linear target of 5 GiB:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here’s what we’ve done:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have created a logical device called `dm_disk` by using specific portions
+    or ranges from two physical disks, `sdc` and `sdd`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The first line of input that we’ve entered, `dm_disk: 0 2048000 linear 8:32
+    0`, means that the first `2048000 sectors (0-2047999)` of `dm_disk` will use the
+    sectors of `/dev/sdc`, starting from sector 0\. Therefore, the first `2048000
+    (0-2047999)` sectors of `sdc` will be used by `dm_disk`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The second line, `dm_disk: 2048000 8192000 linear 8:48 1024`, means that the
+    next `8192000 sectors` (after `sector number 2047999`) of `dm_disk` are being
+    allocated from `sdd`. These `8192000` sectors from `sdd` will be allocated from
+    sector number `1024` onward. If the disks do not contain any data, we can use
+    any sector number here. If existing data is present, then the sectors should be
+    allocated from an unused range.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The total number of sectors in `dm_disk` will be `8192000 + 2048000 =` `10240000`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: With a sector size of 512 bytes, the size of `dm_disk` will be `(8192000 x 512)
+    + (2048000 x 512) ≈` `5 GiB`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `0-2047999` sector numbers of `dm_disk` are mapped from `sdc`, whereas the
+    `2048000-10239999` sector numbers are mapped from `sdd`. The example we’ve discussed
+    is a simple one, but it should be evident that we can map a logical device to
+    any number of drives and implement different concepts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following figure summarizes what we explained earlier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 5.5 – Linear target mapping in the device mapper framework](img/B19430_05_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.5 – Linear target mapping in the device mapper framework
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The device mapper framework supports a wide variety of targets. Some of them
+    are explained here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Linear**: As we saw earlier, a linear mapping target can map a continuous
+    range of blocks to another block device. This is the basic building block of logical
+    volume management.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Raid**: The raid target is used to implement the concept of software raid.
+    It is capable of supporting different raid types.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Crypt**: The crypt target is used to encrypt data on block devices.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`(raid 0)` across multiple underlying disks.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Multipath**: The multipath mapping target is utilized in storage environments
+    where a host has multiple paths to a storage device. It allows a multipath device
+    to be mapped.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Thin**: The thin target is used for thin provisioning – that is, creating
+    devices larger than the size of the underlying physical device. The physical space
+    is allocated only when written to.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As repeatedly mentioned earlier, the linear mapping target is most commonly
+    implemented in LVM. Most Linux distributions use LVM by default for space allocation
+    and partitioning. To the common user, LVM is probably one of the more well-known
+    features of Linux. It should not be too difficult to see how the previously mentioned
+    example can be applied to LVM or any other target for that matter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As most of you should be aware, LVM is divided into three basic entities:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Physical volume**: The physical volume is at the lowest layer. The underlying
+    physical disk or partition is a physical volume.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Volume group**: The volume group divides the space available in a physical
+    volume into a sequence of chunks, called physical extents. A physical extent represents
+    a contiguous range of blocks. It is the smallest unit of disk space that can be
+    individually managed by LVM. By default, an extent size of 4 MB is used.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Logical volume**: From the space available in a volume group, logical volumes
+    can be created. Logical volumes are typically divided into smaller chunks of data,
+    each known as a logical extent. Since LVM utilizes linear target mapping, there
+    is a direct correspondence between physical and logical extents. Consequently,
+    a logical volume can be viewed as a mapping that’s established by LVM that associates
+    logical extents with physical ones. This can be visualized in the following figure:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 5.6 – LVM architecture](img/B19430_05_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5.6 – LVM architecture
+  prefs: []
+  type: TYPE_NORMAL
+- en: The logical volumes, as we all know, can be treated like any regular block device,
+    and filesystems can be created on top of them. A single logical volume that spans
+    multiple physical disks is similar to `RAID-0`. The type of mapping to be used
+    between physical and logical extents is determined by the target. As LVM is based
+    on a linear target, there is a one-to-one mapping relationship between physical
+    and logical extents. Let’s say we were to use the `dm-raid` target and configure
+    `RAID-1` to do mirroring between multiple block devices. In that case, multiple
+    physical extents will map to a single logical extent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s wrap up our discussion of the device mapper framework by mapping some
+    key facts in our minds. The device mapper framework plays a vital role in the
+    kernel and is responsible for implementing several key concepts in the storage
+    hierarchy. The kernel uses the device mapper framework to map physical block devices
+    to higher-level virtual block devices. The functionality of the device mapper
+    framework is split into user space and kernel space. The user-space interface
+    consists of the `libdevmapper` library and the `dmsetup` utility. The kernel part
+    consists of three major components: the mapped device, mapping table, and target
+    device. The device mapper framework provides the basis for several important technologies
+    in Linux, such as LVM. LVM provides a thin layer of abstraction above physical
+    disks and partitions. This abstraction layer allows storage administrators to
+    easily resize filesystems based on their space requirements, providing them with
+    a high level of flexibility. Before concluding this chapter, let’s briefly touch
+    on the caching mechanisms that are employed by the block layer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking at multi-tier caching mechanisms in the block layer
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The performance of physical storage is usually orders of magnitude slower than
+    that of processors and memory. The Linux kernel is well aware of this limitation.
+    Hence, it uses the available memory as a cache and performs all operations in
+    memory before writing all data to the underlying disks. This caching mechanism
+    is the default behavior of the kernel and it plays a central role in improving
+    the performance of block devices. This also positively contributes toward improving
+    the system’s overall performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although solid state and NVMe drives are now commonplace in most storage infrastructures,
+    the traditional spinning drives are still being used for cases where capacity
+    is required and performance is not a major concern. When we talk about drive performance,
+    random workloads are the *Achilles heel* of spinning mechanical drives. In comparison,
+    the performance of flash drives does not suffer from such limitations, but they
+    are far more expensive than mechanical drives. Ideally, it would be nice to get
+    the advantages of both media types. Most storage environments are hybrid and try
+    to make efficient use of both types of drives. One of the most common techniques
+    is to place *hot* or frequently used data on the fastest physical medium and move
+    *cold* data to slower mechanical drives. Most enterprise storage arrays offer
+    built-in storage tiering features that implement this caching functionality.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Linux kernel is also capable of implementing such a cache solution. The
+    kernel offers several options to combine the capacity offered by spinning mechanical
+    drives with the speed of access offered by SSDs. As we saw earlier, the device
+    mapper framework offers a wide variety of targets that add functionalities on
+    top of block devices. One such target is the `dm-cache` target. The `dm-cache`
+    target can be used to improve the performance of mechanical drives by migrating
+    some of its data to faster drives, such as SSDs. This approach is a bit contrary
+    to the kernel’s default caching mechanism, but it can be of significant use in
+    some cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most cache mechanisms offer the following operational modes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Write-back**: This mode caches newly written data but does not write it immediately
+    to the target device.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Write-through**: In this mode, new data is written to the target while still
+    retaining it in the cache for subsequent reads.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Write-around**: This mode implements read-only caching. Data written to the
+    device goes directly to the slower mechanical drive and is not written to the
+    fast SSD.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Pass-through**: To enable pass-through mode, the cache needs to be clean.
+    Reading is served from the origin device that bypasses the cache. Writing is forwarded
+    to the origin device and *invalidates* the cache block.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `dm-cache` target supports all the previously mentioned modes, except write-around.
+    The required functionality is implemented through the following three devices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Origin device**: This will always be the slow primary storage device'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Cache device**: This is a high-performing drive, usually an SSD'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Metadata device**: Although this is optional and this information can also
+    be saved on the fast cache device, this device is used for keeping track of all
+    the metadata information, such as which disk blocks are in the cache, which blocks
+    are dirty, and so on'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Another similar caching solution is `dm-writecache`, which is also a device
+    mapper target. As its name suggests, the main focus of `dm-writecache` is strictly
+    write-back caching. It only caches write operations and does not perform any read
+    or write-through caching. The thought process for not caching reads is that read
+    data should already be in the page cache. The write operations are cached on the
+    faster storage device and then migrated to the slower disk in the background.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another notable solution that has gained widespread popularity is `bcache`.
+    The `bcache` solution supports all four caching modes defined previously. `bcache`
+    uses a far more complex approach and lets all sequential operations go to the
+    mechanical drives by default. Since SSDs excel at random operations, there generally
+    won’t be many benefits to caching large sequential operations on SSDs. Hence,
+    `bcache` detects sequential operations and skips them. The writers for `bcache`
+    compare it to the L2 `bcache` project has also led to the development of the *Bcachefs*
+    filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter was the second chapter in our exploration of the block layer in
+    the kernel. The two main topics we discussed in detail were the multi-queue and
+    device mapper frameworks. At the start of this chapter, we looked into the legacy
+    single-request queue model in the block layer, its limitations, and its adverse
+    impact on performance when working with modern storage drives and multi-core systems.
+    From there, we introduced the multi-queue framework in the kernel. We described
+    how the multi-queue framework addresses the limitations of the single-request
+    model and improves the performance of modern storage drives, which are capable
+    of supporting multiple hardware queues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We also got a chance to look at the device mapper framework in the kernel. The
+    device mapper framework is an essential part of the kernel and is responsible
+    for implementing several technologies, such as multipathing, logical volumes,
+    encryption, and raid. The most well known of these is logical volume management.
+    We saw how the device mapper can implement these powerful features through mapping
+    techniques.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll conclude our discussion of the block layer after
+    exploring the different I/O schedulers in the kernel.
+  prefs: []
+  type: TYPE_NORMAL

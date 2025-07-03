@@ -1,0 +1,1001 @@
+- en: '*Chapter 17*: Understanding systemd and Bootloaders'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A bootloader is necessary for any operating system, including Linux. In this
+    chapter, we'll look at the GRUB2 and systemd-boot bootloaders, and we'll discuss
+    the differences between them. Becoming familiar with the material in this chapter
+    can help you choose which bootloader is best suited for your needs, and to troubleshoot
+    things that might go wrong.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the basic computer architecture
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding GRUB2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding systemd-boot
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding Secure Boot
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note that there are several different bootloaders in use, some of which are
+    specific to embedded and IoT devices. In this chapter, we'll only concentrate
+    on GRUB2 and systemd-boot, which are used on servers and normal workstations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let's get started!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We'll start with the same Ubuntu Server and Alma virtual machines that we have
+    been using throughout. We'll use these to look at a normal BIOS-based GRUB2 configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see how the GRUB2 bootloader works on an EFI-based machine, you''ll need
+    to create another pair of Alma and Ubuntu Server virtual machines with the EFI
+    feature enabled. To do that, create the initial VirtualBox setup for the Alma
+    and Ubuntu machines as you always do. Then, before you start up the machines to
+    install the operating system, open the **Settings** dialog box. Under the **System**
+    menu, click the **Enable EFI** checkbox, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.1_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.1 – Checking the Enable EFI box
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, install the operating system as you normally would.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To look at a systemd-boot environment, you'll need to create a virtual machine
+    with Pop!_OS Linux. Enable the EFI feature as you did for the Alma and Ubuntu
+    machines, and install the operating system as you normally would.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pop!_OS Linux is built from Ubuntu source code by the System76 computer vendor.
+    Pop!_OS is the only Linux distro I know of that uses systemd-boot by default.
+    You can set up Clear Linux and Arch Linux with either GRUB2 or systemd-boot, but
+    installing either of them involves more complexity than we want to deal with now.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can download Pop!_OS from here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://pop.system76.com/](https://pop.system76.com/)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that you have your virtual machines, let's briefly define a few terms that
+    we need to know about.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/3pkVA8D](https://bit.ly/3pkVA8D)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the basic computer architecture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before we can talk about bootloaders, we need to define a few terms that describe
+    the basic computer architecture:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`init` system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Boot manager**: When you first power on your computer, a boot manager will
+    present you with a boot menu. If you have multiple operating systems installed,
+    the boot manager will allow you to choose which one to boot. If a Linux distro
+    has multiple kernels installed, the boot manager will allow you to choose which
+    kernel to boot.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**BIOS**: The **Basic Input/Output System** (**BIOS**) is firmware that resides
+    in a chip on a computer motherboard. It contains the basic instructions that start
+    up a computer. After the computer is started, the BIOS will perform a **Power-on
+    Self Test** (**POST**) to verify that the hardware is working properly. Then,
+    the BIOS will start the bootloader. It worked well for its time but is now outdated.
+    One problem is that it can''t deal with drives of more than two terabytes in size.
+    I mean, if you were to install a three-Terabyte drive in a BIOS-based machine,
+    you''d be able to use the drive, but one Terabyte of drive space would go to waste.
+    BIOS also can''t deal with the Secure Boot feature.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**EFI/UEFI**: This was originally called the **Extensible Firmware Interface**
+    (**EFI**), but the name was changed to **Unified Extensible Firmware Interface**
+    (**UEFI**) for the Version 2 variant. It has replaced BIOS on newer computers.
+    Unlike BIOS, EFI/UEFI works very well with very large drives. It also works with
+    the Secure Boot feature.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**MBR**: There are two general categories of partition types. The **Master
+    Boot Record** (**MBR**) type is the older type. Its main flaw is that it doesn''t
+    work with partitions that are larger than two terabytes. Even if you have an EFI/UEFI-based
+    machine that can work with large drives, MBR still limits you to these smaller
+    partitions. What''s a bit confusing is that the term *MBR* also refers to the
+    first 512-byte sector of a drive, which is where the bootloader gets installed
+    on BIOS-based machines.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**GPT**: The **GUID Partition Table** (**GPT**) type of partition has replaced
+    the old MBR type. It works well with partitions that are larger than two Terabytes.
+    (The exact maximum partition size depends on which filesystem you''ve used to
+    format the partition.) On EFI/UEFI machines, you need to install the bootloaders
+    in a GPT partition instead of in an MBR. (I''ll explain why I''ve said *bootloaders*
+    instead of *bootloader* later.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**GRUB2**: The **Grand Unified Bootloader Version 2** (**GRUB2**) is currently
+    the most popular bootloader on laptops, desktops, and servers. It works well on
+    machines with multiple installed operating systems. It''s not part of the systemd
+    ecosystem, but it can be used on systemd machines.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**systemd-boot**: This bootloader is part of the systemd ecosystem. It isn''t
+    widely used just yet, but it could be someday. It''s lighter-weight and simpler
+    to configure than GRUB2, and it also works well for machines with multiple operating
+    systems installed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Okay, now that we have the terminology nailed down, let's look at GRUB2.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding GRUB2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The original GRUB, which is now referred to as *GRUB Legacy*, first came on
+    the scene in 1995 as a replacement for the old LILO bootloader. It was easy to
+    work with because it was easy to configure and it was implemented consistently
+    on all Linux distros that used it. Unlike LILO, it can boot non-Linux operating
+    systems. So, you can install Windows and Linux on the same computer, and GRUB
+    lets you choose which one to boot up. GRUB Legacy worked well on the old BIOS-based
+    computers, but it doesn't work with the newer EFI/UEFI computers. (Well, actually,
+    the Fedora team did create a forked version of GRUB Legacy that would work with
+    EFI/UEFI, but they abandoned it in favor of GRUB2 in 2013.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: GRUB2 isn't an update of GRUB Legacy. Instead, it's a whole new bootloader that
+    was created from scratch. Now, I have to tell you that there are both good things
+    and bad things about it. The good thing is that it can work with the new EFI/UEFI
+    computers. The bad things are that it's a lot more complicated to configure, and
+    different Linux distros implement it differently. So, things can get a bit confusing
+    when you have to work with multiple distros.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Almost all Linux distros, including the Ubuntu and Alma distros that we've been
+    using, use GRUB2\. On a BIOS-based machine, GRUB2 gets installed into the primary
+    drive's MBR, which is the first 512-byte sector of the drive. On an EFI/UEFI machine,
+    GRUB2 gets installed into a special EFI partition, which always has to be a GPT-type
+    partition. (This special partition is referred to as the **EFI System Partition**
+    or **ESP**.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, here's where things get a bit confusing. As I said, unlike GRUB Legacy,
+    GRUB2 isn't implemented in the same way across all Linux distros, as we'll see
+    in a bit. To see how this all works, let's begin by comparing the GRUB2 setup
+    on our BIOS-based and EFI/UEFI-based AlmaLinux virtual machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing GRUB2 on BIOS and EFI/UEFI systems
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: On both BIOS-based and EFI/UEFI-based machines, the Linux kernel and the `initramfs`
+    files get installed in the `/boot` partition. But this is where the similarities
+    end. Let's see how it's done with BIOS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GRUB2 on a BIOS-based Alma 8 machine
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'On a BIOS-based machine, the `/boot` partition is normally `/dev/sda1`, as
+    we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We also see that the `/boot` partition is formatted with just a normal Linux
+    filesystem. On RHEL-type machines, this would normally be `xfs`. On Ubuntu machines,
+    this would normally be `ext4`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Master Boot Record, where the bootloader is installed, isn''t a partition.
+    Rather, the MBR is just the first 512 bytes of the drive. The GRUB2 configuration
+    file (`grub2.cfg`) is in the `/boot/grub2/` directory. On RHEL-type machines,
+    the `/etc/grub.cfg` symbolic link points to the actual configuration file, as
+    we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Understand though, that if you ever need to reconfigure GRUB2, you''ll never
+    edit this `grub.cfg` file. Instead, you''ll edit the `/etc/default/grub` file.
+    Then, you''ll rebuild the `grub.cfg` file by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is an `efi/` directory within the `/boot/` directory, but it isn''t used.
+    It contains a nest of subdirectories, but there are no files, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Whenever we boot the machine, we see a boot menu with our different boot-up
+    choices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.2_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.2 – The GRUB2 boot menu on AlmaLinux
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The configuration files for these menu choices are in the `/boot/loader/entries/`
+    directory. This directory requires root privileges to enter. So, let''s make things
+    easier on ourselves by going to the `root` shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let''s see what we have:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These configuration files are known as `BootLoaderSpec` (`BLS`) files. Whenever
+    you boot your machine, GRUB2 will take information from these `BLS` files and
+    use it to populate the boot menu. A new `BLS` file will be generated automatically
+    every time a new Linux kernel is installed, even if it''s a kernel that you''ve
+    compiled yourself. If you do a system update and `dnf` removes any older kernels,
+    the `BLS` files for those older kernels will be deleted. Let''s peek inside one
+    of these files to see what''s there:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we see here, this file defines which kernel and `initramfs` images to load,
+    along with the various kernel options. But we don't see specific kernel options
+    here. Instead, we see variable names preceded by a `$`. This just means that the
+    kernel option information will be pulled in from the `/boot/grub2/grub.cfg` file
+    and the `/boot/grub2/grubenv` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you install Linux alongside an already existing installation of another operating
+    system, the boot menu entry for that operating system should also be created automatically.
+    (This works even if the other operating system is Windows.) The `/etc/grub.d/30_os-prober`
+    script is what finds the other operating systems for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is different from what you might be used to. Older Linux distros, such
+    as the RHEL 7-type distros, don't use `BLS` files. Instead, all boot menu information
+    is listed in the `grub.cfg` file. Red Hat first introduced `BLS` files in Fedora
+    30, and they're now used in all RHEL 8-type distros. (As we'll see later, even
+    the newest Ubuntu distros still don't use them.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let's look at an EFI/UEFI machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GRUB2 on an EFI/UEFI-based Alma machine
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'On our EFI/UEFI machine, the `/boot/` partition is mounted on `/dev/sda2`,
+    while the `/boot/efi/` partition is mounted on `/dev/sda1`, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `/boot/efi/` partition is where the bootloaders reside. We can also see
+    that the normal boot partition is formatted with the normal `xfs` Linux filesystem,
+    but that the `/boot/efi/` partition is formatted with the `vfat` filesystem. The
+    `efi` partition must always be formatted with `vfat` because nothing else works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we see that the symbolic link in the `/etc/` directory has a different
+    name and that it points to the `grub.cfg` file in a different location:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As before, the directories that we want to explore require root privileges
+    to enter. Let''s make things a bit easier by going to a `root` shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There''s still a `/boot/grub2/` directory, but the only thing it contains is
+    a symbolic link that points to the GRUB environmental settings file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Almost everything else of importance is in the `/boot/efi/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At the bottom of this nest, we see the `/boot/efi/EFI/almalinux/` and `/boot/efi/EFI/BOOT/`
+    directories. Let''s look in the `BOOT/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `BOOTX64.EFI` file is part of the `shim` system, which allows Linux to boot
+    on machines that have the Secure Boot feature enabled. (We'll talk about Secure
+    Boot at the end of this chapter.) The `fbx64.efi` file is the fallback bootloader.
+    Its job is to recreate the boot manager options that are built into the firmware
+    in case they somehow get deleted. It does this by scanning the `BOOTX64.CSV` files
+    that are in the subdirectories for any operating systems that are installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, here''s what we see in the `almalinux/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In addition to the normal `GRUB2` files that we''d see on a BIOS-based machine,
+    we see several files that are specific to EFI/UEFI machines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`grubx64.efi`: This is what makes GRUB2 work on an EFI/UEFI machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`shim64-almalinux.efi` and `shimx64.efi`: These files go along with the `BOOTX64.EFI`
+    file to make Alma work on a Secure Boot machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mmx64.efi`: This is part of the *Machine Owner Key* system, which also helps
+    out with Secure Boot.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`BOOTX64.CSV`: This file works with the fallback bootloader and contains a
+    boot menu entry for this installation of Alma. (If multiple operating systems
+    were installed, they would all have their own `BOOTX64.CSV` files.) If you peek
+    inside this file, you''ll see this:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Something to keep in mind is that the `BOOTX64.CSV` file is not an ASCII text
+    file as most Linux configuration files are. (That would explain those two funny-looking
+    questions marks that you see in this code.) Instead, it''s a UTF-16 Unicode file,
+    as we see here:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '`BOOTX64.CSV` file, you''ll need to convert it into UTF-16 format. Let''s say
+    that you''ve created a `boot.csv` file in your home directory. You can convert
+    it with the `iconv` tool, like this:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**[donnie@alma-efi ~]$ iconv -t UTF-16 < ~/boot.csv > BOOTX64.CSV**'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**[donnie@alma-efi ~]$**'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Now, you're ready to copy the file to its proper location.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Next, we have the `BLS` files for the boot menu choices, just as we had on
+    the BIOS machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we boot an EFI/UEFI machine, we''ll see that the boot menu looks somewhat
+    different than what it does on a BIOS machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.3_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.3 – The boot menu on an EFI/UEFI machine
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We now see a **System setup** choice, which takes us into the EFI management
+    utility we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.4_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.4 – The EFI management utility
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This can do several things for us. If we select **Boot Maintenance Manager**,
+    we''ll see the **Boot Options** option. If we select that, we''ll see that we
+    can add or delete boot options, or change the default boot order:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.5_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.5 – The Boot Options screen
+  prefs: []
+  type: TYPE_NORMAL
+- en: This could come in handy if we ever need to boot from a DVD or USB device rather
+    than from the default device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Under the **Boot Manager** option, we see the **EFI Internal Shell** option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.6_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.6 – The Boot Manager screen
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This internal shell can help you troubleshoot boot-up problems and looks like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.7_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.7 – The EFI internal shell
+  prefs: []
+  type: TYPE_NORMAL
+- en: To see the commands that you can run from this shell, just type `help`. I'm
+    not going to cover this shell in detail because it's not something that you'll
+    use very often. However, I've linked to a good tutorial in the *Further reading*
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, that covers it for GRUB2 on the AlmaLinux machine. Now, let's look at
+    how things are a bit different on the Ubuntu machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GRUB2 on BIOS-based and EFI/UEFI-based Ubuntu machines
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The biggest difference is that Ubuntu doesn''t use `BootLoaderSpec` files,
+    as the RHEL 8-type distros do. Instead, all menu entries are defined within the
+    `/boot/grub/grub.cfg` file. To see these menu entries, open the file and search
+    for stanzas that begin with `menuentry`. Here''s a snippet from one such menu
+    entry:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: The only other real difference is that there's no symbolic link to the `grub.cfg`
+    file in the `/etc/` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's reboot to get to the good stuff. Let's look at *systemd-boot*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding systemd-boot
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first thing to note here is the name, *systemd-boot*. It's shocking, I know.
+    We have a systemd component whose name does *not* end in the letter *d*. But seriously,
+    systemd-boot is a component of systemd that has some cool features. Compared to
+    GRUB2, it's lighter-weight, easier to configure, boots faster, and works well
+    with the modern implementations of Secure Boot. Contrary to popular belief, systemd-boot
+    is a *boot manager*, not a *bootloader*. It can automatically probe for other
+    operating systems on the machine and add them to the boot menu. (GRUB2 only does
+    this when you first install the operating system, while systemd-boot does this
+    each time you boot the machine.) Once you've booted the machine and have chosen
+    your desired boot option, systemd-boot hands the boot operation over to a *real*
+    bootloader.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, why isn't it more widely used? Well, it's just that systemd-boot *only*
+    works on EFI/UEFI systems. There are still a lot of older BIOS-based computers
+    in use, and all of them would become unusable if all operating systems were to
+    switch to EFI/UEFI-only bootloaders.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can read about the various features of systemd-boot on the `systemd-boot`
+    man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For our demos, we'll use **Pop!_OS** Linux, which is a product of the System76
+    company. System76 is a computer vendor, so it made sense for them to produce an
+    operating system that would only run on newer machines. It's based on Ubuntu,
+    so you can use the same Ubuntu commands that you're used to using, other than
+    any commands that deal with the bootloader. (At the time of writing, it was based
+    on Ubuntu 21.04.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When I created the Pop!_OS virtual machine, I just accepted the installer''s
+    default partition setup. Here''s what it looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we see that `/dev/sda1` is mounted as `/boot/efi/`, which is the EFI system
+    partition where the bootloaders reside. We also see a `/recovery/` partition,
+    which is something I've never before seen on any Linux machine. This `/recovery/`
+    partition contains a live version of Pop!_OS. Boot from this partition if you
+    ever need to repair or even reinstall the operating system without losing users'
+    files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Unlike GRUB2, systemd-boot does not have any configuration files in the `/etc/`
+    directory. Instead, they''re all in the `/boot/efi/` directory. As we did previously,
+    we''ll make things easier by going to a `root` shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here''s what''s inside the `/boot/efi/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s look in the `loader/` subdirectory first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We''ll come back to the two files in just a bit. First, let''s look into the
+    `entries/` subdirectory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These three `BootLoaderSpec` files represent the three choices that will come
+    up on the boot menu when you boot up your machine. (I know that you haven''t seen
+    the boot menu yet, but that''s okay. We''ll fix that shortly.) Just for fun, let''s
+    peek inside the `Pop_OS-current.conf` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Unlike GRUB2, there are no other files for storing the kernel options. So, they
+    all have to be stored here. What you might think of as a bit unusual is that the
+    kernel file that this `BLS` file calls in has a `.efi` filename extension. I'll
+    explain why that is in just a few moments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `/boot/efi/loader/random-seed` file stores a random seed value. (I bet you
+    would never have guessed that.) This allows the machine to boot with a fully initialized
+    entropy pool, which allows the `/dev/urandom` device to create better random numbers.
+    This makes security better by allowing the system to create security keys that
+    are harder to crack. (Note though, that this feature doesn't work on virtual machines.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let''s look at the `/boot/efi/loader/loader.conf` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Wait a minute. That''s all there is to it? Well yeah. (Didn''t I tell you that
+    systemd-boot is much easier to configure than GRUB2?) I do see a slight problem
+    here, though. It''s just that the boot menu won''t show up unless you quickly
+    press the proper key after you turn on the machine. Let''s edit this file to have
+    the boot menu show for five seconds. The edited file should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, that was tough. I just hope that you were able to handle it. Seriously,
+    though, there are a few more options that you can read about on the `loader.conf`
+    man page and they're all very easy to configure. (By the way, don't reboot the
+    machine just yet. We'll make one more change in just a bit, and then you can reboot.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the `/boot/efi/EFI/` directory, we see these subdirectories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Linux/` subdirectory is empty, so we won''t bother looking into it. In
+    the `BOOT/` subdirectory, we only see one file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we saw on the Alma and Ubuntu machines, we have the `BOOTX64.EFI` file, which
+    makes this machine work with Secure Boot. However, we don't have the fallback
+    bootloader file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the `systemd/` subdirectory, we see the executable file that makes systemd-boot
+    work:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, let''s look inside the `Pop_OS-bc156c8a-fcb8-4a74-b491-089c77362828/`
+    subdirectory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is much different than what you saw on the GRUB2 machines. Here, we're
+    using the *EFI Stub Loader* feature that's built into the Linux kernel. The `vmlinuz.efi`
+    file is just a copy of the `/boot/vmlinuz-5.11.0-7633-generic` file, which is
+    the newest installed Linux kernel. By renaming this kernel file with a `.efi`
+    filename extension, systemd-boot effectively turned this kernel file into its
+    own bootloader. (Pretty slick, eh?) The `vmlinuz-previous.efi` file is a copy
+    of the `/boot/vmlinuz-5.11.0-7620-generic` file, which is the second oldest installed
+    kernel. Every time we install a new kernel on this systemd-boot machine, the original
+    copy will go into the top-level `/boot/` directory, and a copy with the `.efi`
+    filename extension will go into this directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another thing to note here is that there are no `shimx64*.efi` files, as we
+    saw on the Alma and Ubuntu machines. That's because systemd-boot doesn't need
+    the shim system to work with Secure Boot. (I'll explain this in more detail in
+    the *Understanding Secure Boot* section.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, we don't need the root shell anymore, so type `exit` to get back to your
+    normal user shell.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The final systemd-boot component I want to show you is the `bootctl` tool.
+    To see the status of systemd-boot, run the command without any options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the `list` option to view all of the boot menu entries:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the `set-default` option to permanently change the default boot option,
+    or the `set-oneshot` option to set the default boot option for only the next boot-up.
+    Take the ID of the boot option that you want to use from the list output and specify
+    it with either option, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, go ahead and reboot the machine. This time, you'll see the boot menu come
+    up. After the five-second menu timer expires, you'll see the machine boot up on
+    the alternate kernel that you chose with this `bootctl set-oneshot` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's more that you can do with `bootctl`, but I'll let you read all about
+    it in the `bootctl` man page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's wrap this chapter up by briefly look at the Secure Boot feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Secure Boot
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Secure Boot is an EFI/UEFI feature that prevents computers from loading any
+    operating system, operating system modules, or device drivers that haven''t been
+    signed by an authorized security key. It helps prevent computers from loading
+    various types of malware, such as rootkits. To enable or disable it, boot your
+    machine to its setup screen, as you see here on my late-model Acer machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Figure_17.8_B17491.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 17.8 – UEFI setup screen with Secure Boot enabled
+  prefs: []
+  type: TYPE_NORMAL
+- en: For some strange reason, it's still called the *BIOS Setup Utility*, even though
+    this machine has a UEFI. What I want you to notice is the **TPM Support** option,
+    which shows as **[Enabled]**. **TPM** stands for **Trusted Platform Module** and
+    is the firmware chip on the motherboard that contains the signing keys that the
+    Secure Boot option needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On a Windows machine, Secure Boot is a big deal, because Windows has traditionally
+    been very susceptible to malware infections. Linux is much less susceptible, although
+    Secure Boot could be useful even for it. Ever since Microsoft introduced Windows
+    8, all new computers that come with Windows have Secure Boot enabled by default.
+    For now, it's possible to disable Secure Boot on a Windows machine if you need
+    to. With Windows 11, that will no longer be an option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When Secure Boot first came on the market, it caused much wailing and gnashing
+    of teeth among the Linux faithful. That's because Secure Boot works by looking
+    at the cryptographic signature of the machine's bootloader, and then compares
+    it to the signature list that's in the computer's TPM. Okay, that doesn't sound
+    so bad. What is bad is that the necessary signatures and signing keys are loaded
+    into the TPM when the computer is manufactured, and Microsoft pretty much controls
+    which signatures and keys get loaded. So, at first, Windows was the only operating
+    system that was guaranteed to boot on a machine with Secure Boot enabled. Linux
+    developers had to come up with a way to make Linux work with Secure Boot. The
+    Linux faithful wailed and gnashed their teeth even more when they learned that
+    this would have to involve letting Microsoft issue the signing keys for Linux
+    bootloaders. (Yeah, the same Microsoft whose CEO at the time once stated that
+    Linux is a *cancer*.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, although you don't realize it yet, we've seen how GRUB2 and
+    systemd-boot handle the Secure Boot feature in different ways. GRUB2 works with
+    the shim system, which uses pre-signed shim files. On the Alma machine, these
+    are the `shimx64.efi` and `shimx64-almalinux.efi` files, which we saw in the `/boot/efi/EFI/almalinux/`
+    directory. On the Ubuntu Server machine, all we have is the `shimx64.efi` file
+    in the `/boot/efi/EFI/ubuntu/` directory. So, why do we have this shim system,
+    instead of just signing the GRUB2 bootloader files? Well, there are two reasons.
+    One is that GRUB2 is already rather bloated and adding the Secure Boot code to
+    it would bloat it even more. The other reason is that the GRUB2 code is licensed
+    under the GPL3 free-as-in-speech software license. For some reason that I don't
+    know, Microsoft refuses to issue signing keys for anything that's under GPL3\.
+    For that reason, systemd-boot is licensed under GPL2, which Microsoft seems to
+    like better.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we looked at Pop!_OS Linux, I pointed out that it doesn't have any `shimx64*.efi`
+    files. Since systemd-boot is under GPL2, Microsoft will sign its files, making
+    the shim system unnecessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, I'm reading your mind again, hopefully for the final time. You're thinking,
+    *But, Donnie. What if I've created a kernel module, and I need it to load on a
+    Secure Boot machine? And what if I install Linux on a Secure Boot machine, and
+    then decide that I don't trust any signing keys that are issued by Microsoft?
+    What can I do?*
+  prefs: []
+  type: TYPE_NORMAL
+- en: Well, in both cases, it is possible to create signing keys and load them into
+    the TPM yourself. It's a long procedure that I can't go into here, so I'll refer
+    you to the *Managing EFI bootloaders for Linux* site that's linked in the *Further
+    reading* section. In its *Table of Contents*, you'll see a link to the Secure
+    Boot page, where you'll find the procedure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And that, guys and gals, is it for the bootloader chapter. Let's summarize and
+    then wrap this baby up in swaddling clothes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As always, we've covered much ground in this chapter. We started by providing
+    an overview of the computer architecture and then discussed how the GRUB2 bootloader
+    works on both BIOS-based and EFI/UEFI-based computers. Then, we covered systemd-boot
+    on the Pop!_OS Linux machine, and wrapped up with a discussion of Secure Boot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, which will be our final one, we'll talk about systemd-logind.
+    I'll see you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To test your knowledge of this chapter, answer the following questions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Which of the following statements is true?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. Only GPT partitions can be used on BIOS-based computers.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. Only a GPT partition can be used to install GRUB2.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. Only a GPT partition can be used to install systemd-boot.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. Only an MBR partition can be used to install systemd-boot.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: How does GRUB2 work with Secure Boot?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. It uses the shim system.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. Its files are directly signed by Microsoft.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. GRUB2 doesn't work with Secure Boot.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: How does systemd-boot work?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. It uses the `grubx64.efi` file to activate the bootloader.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. It copies the kernel file over to a file with a `.efi` filename extension
+    so that the kernel can act as its own bootloader.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. It directly calls in the Linux kernel from the `/boot/` directory.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. It doesn't work at all.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What is necessary to make Secure Boot work?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. Nothing. It works on all computers.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. That the machine has a BIOS chip, and that TPM is enabled.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. That the machine has an EFI/UEFI, and that TPM is enabled.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. Nothing. It never works.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To learn more about the topics that were covered in this chapter, take a look
+    at the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The 15 best bootloaders for home and embedded systems: [https://www.ubuntupit.com/best-linux-bootloader-for-home-and-embedded-systems/](https://www.ubuntupit.com/best-linux-bootloader-for-home-and-embedded-systems/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The UEFI Interactive Shell: [https://linuxhint.com/use-uefi-interactive-shell-and-its-common-commands/](https://linuxhint.com/use-uefi-interactive-shell-and-its-common-commands/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'What is `vmlinux.efi`?: [https://askubuntu.com/questions/330541/what-is-vmlinuz-efi](https://askubuntu.com/questions/330541/what-is-vmlinuz-efi)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to modify systemd-boot: [https://www.techrepublic.com/article/how-to-modify-systemd-boot-on-linux/](https://www.techrepublic.com/article/how-to-modify-systemd-boot-on-linux/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Pop!_OS` recovery partition: [https://support.system76.com/articles/pop-recovery](https://support.system76.com/articles/pop-recovery)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Secure Boot overview: [https://www.dell.com/support/kbdoc/en-us/000145423/secure-boot-overview](https://www.dell.com/support/kbdoc/en-us/000145423/secure-boot-overview)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'An explanation of Secure Boot: [https://docs.microsoft.com/en-us/windows-hardware/design/device-experiences/oem-secure-boot](https://docs.microsoft.com/en-us/windows-hardware/design/device-experiences/oem-secure-boot)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Secure Boot Linux: [https://linuxhint.com/secure-boot-linux/](https://linuxhint.com/secure-boot-linux/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Installing Linux with Secure Boot: [https://www.linux.org/threads/installing-linux-with-secure-boot-and-friends.29454/](https://www.linux.org/threads/installing-linux-with-secure-boot-and-friends.29454/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Changing to `BootLoaderSpec` files: [https://fedoraproject.org/wiki/Changes/BootLoaderSpecByDefault](https://fedoraproject.org/wiki/Changes/BootLoaderSpecByDefault)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Managing EFI bootloaders for Linux: [https://www.rodsbooks.com/efi-bootloaders/index.html](https://www.rodsbooks.com/efi-bootloaders/index.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Ballmer: Linux is a cancer: [https://www.theregister.com/2001/06/02/ballmer_linux_is_a_cancer/](https://www.theregister.com/2001/06/02/ballmer_linux_is_a_cancer/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

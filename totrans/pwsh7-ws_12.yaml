@@ -1,0 +1,1087 @@
+- en: '12'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Securing PowerShell
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we’ve seen, PowerShell is an incredibly powerful tool, and, to quote Uncle
+    Ben, “*with great power comes great responsibility.*” If you don’t know who Uncle
+    Ben is, ask your friendly neighborhood Spider-Man. PowerShell can wreak absolute
+    havoc across a system or an organization. This damage can be deliberate, by someone
+    setting out to cause damage, but it can just as easily be inadvertent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’re going to start this chapter by looking at one of the features that makes
+    PowerShell so powerful – PowerShell remoting. We’ll continue by looking at how
+    PowerShell protects against inadvertent mistakes, and then move on to the PowerShell
+    features that protect us from deliberate attacks. We’ll then look at the features
+    PowerShell has that let us analyze what has happened on the machine through logging,
+    before wrapping up with a look at the things we can do to make the code we write
+    more secure. Because of PowerShell’s history with Windows, many of these features
+    are exclusive to Windows, or more fully developed in Windows. When this is the
+    case, it will be acknowledged.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The main topics we will cover in this chapter are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Why is security so important?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Securing PowerShell against inadvertent mistakes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Running PowerShell securely
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: PowerShell logging
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Writing secure code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Why is security so important?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We’ve seen that PowerShell is powerful, but we haven’t seen why it can be so
+    dangerous. Everything we’ve done so far has required an interactive logon to the
+    client we are using, which implies someone would need physical access to a device
+    before attacking it. PowerShell, however, has the concept of **PowerShell remoting**,
+    which allows us to log on to a remote device and run PowerShell code as if we
+    were physically there. This is why it is such a powerful administration tool.
+    We’ll not cover much about remoting in this book, as it is very much an admin
+    tool, but it’s important to know the basics. Let’s take a closer look.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A PowerShell remoting whistlestop tour
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Many older cmdlets in Windows PowerShell have a `-ComputerName` parameter, which
+    allows PowerShell to query a remote machine for information. The trouble with
+    this parameter is that it relies on the credentials under which we are running
+    our PowerShell session having the authorization to query the remote machine. If
+    we’re lucky, the cmdlet will have a `-Credential` parameter that we can use to
+    supply alternate credentials. Quite often, we’re not lucky; see the following
+    screenshot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.1 – Get-Process does not feel lucky](img/B17600_12_001.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.1 – Get-Process does not feel lucky
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can see, the `Get-Process` cmdlet has no `-Credential` parameter, so we
+    just have to hope that our session credentials will work on the remote machine.
+    If we don’t have the right credential on our PowerShell session, we can’t run
+    `Get-Process` on a remote machine. Even if we do have the right credential, it’s
+    quite possible that a remote firewall will block the request. In PowerShell 7.2
+    and later, it doesn’t have a `–ComputerName` parameter either.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To get around this, PowerShell remoting was developed for Windows PowerShell
+    3.0\. It uses the `5985` (HTTP) and `5986` (HTTPS), which means it can be encrypted
+    using SSL. In enterprise configurations, where Active Directory is used, the traffic
+    is also encrypted, using Kerberos. Obviously, Linux machines don’t include WinRM,
+    so PowerShell 7.x helpfully includes support to run remote sessions over SSH.
+    We’ll cover that in more detail later in this chapter, in the *Running PowerShell
+    securely* section. Let’s have a look at how PowerShell remoting works in a Windows
+    environment; we’ll start by enabling PowerShell remoting. Note that I’m running
+    this on a Windows 10 client, and I have created a new local user called `Admin`,
+    with a password and administrator rights.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enabling PowerShell remoting
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'By default, PowerShell remoting is enabled on all Windows servers. However,
+    it’s disabled on Windows clients. The easiest way to get it running is to use
+    the `Enable-PSRemoting` cmdlet. This cmdlet does everything we need, from enabling
+    the endpoints to creating the correct rules in Windows Firewall. This needs to
+    be run from an elevated admin prompt. Take a look at the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.2 – Enabling PowerShell remoting](img/B17600_12_002.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.2 – Enabling PowerShell remoting
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can see, I’ve run `Enable-PSRemoting` with a couple of common parameters.
+    The `-Force` parameter means we don’t get asked whether we’re sure we want to
+    do this a bunch of times, and we’ve seen the parameter used this way before. The
+    `-SkipNetworkProfileCheck` is an interesting one, however. Many people haven’t
+    configured their network profile on standalone clients, and the default is public.
+    However, PowerShell remoting won’t operate over a public network, by default.
+    Using the `-SkipNetworkProfileCheck` bypasses the network profile check but creates
+    a firewall rule that only allows remote sessions from the local subnet. This rule
+    is easily edited, but it’s probably better to set the network profile up correctly,
+    or to not try running remote sessions over a public network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a session
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now we’ve got remoting set up on our client, let’s create a session. We can
+    do that with the `New-PSSession` cmdlet. I’m going to store my `Admin` user credentials
+    in a variable called `$cred`, and then I’m going to run it like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And we can see the output we get here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.3 – Creating a new remoting session](img/B17600_12_003.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.3 – Creating a new remoting session
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will create a persistent session that may be connected to and disconnected
+    from as needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Joining and leaving a session
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We can use the `Enter-PSSession` cmdlet to connect to a session like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The session we create is a PowerShell object (like everything else in PowerShell),
+    and so we can also enter by passing the session through the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is how it looks on my machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.4 – Entering and leaving a remoting session](img/B17600_12_004.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.4 – Entering and leaving a remoting session
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first command, I’ve called the session by name. In the second command,
+    I’ve passed the session object to `Enter-PSSession`. I’ve left the session by
+    using the `exit` keyword. Note that once I am in a session, the PowerShell prompt
+    changes to reflect `ComputerName` of the client I am connected to and the remote
+    working directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is called a one-to-one remoting session. Once we’re in this sort of session,
+    it is the same as if we were directly connected to the remote machine. Only the
+    PowerShell modules on the remote machine are available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can also enter an ad hoc session by not specifying an existing session when
+    we use `Enter-PSSession`; instead, we specify a computer name and a credential
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we can see here, creating a session this way means it ceases to exist when
+    we exit it, rather than persisting:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.5 – Ad hoc remoting](img/B17600_12_005.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.5 – Ad hoc remoting
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first command in the preceding screenshot, I’m creating an ad hoc session,
+    which I then `exit`. As we can see, after I type `exit`, the session is no longer
+    available, as shown in the last command, where I run the `Get-PSSession` cmdlet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To remove persistent sessions, we can either pass the session name to `Remove-PSSession`,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alternatively, we pipe the session object:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we run the preceding `Get-PSSession` cmdlet without specifying a session
+    name, then all sessions will be removed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One-to-many sessions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We can also run commands and scripts on multiple machines at once by using
+    the `Invoke-Command` cmdlet, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This will run the commands or scripts in the scriptblock against the list of
+    names specified in the `-ComputerName` parameter. This command uses PowerShell
+    remoting the same as the previous `PSSession` cmdlets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Being able to run commands on remote machines makes PowerShell an extremely
+    useful administration tool, which unfortunately means that it is also a security
+    risk. Let’s look now at the ways we can help prevent PowerShell from causing problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Securing PowerShell against inadvertent mistakes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first set of tools we’ll look at are the ones that protect us from people
+    doing things by accident. The most useful of these is a built-in execution policy
+    that can be used to control how scripts can be run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Execution policy
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We encountered the execution policy feature back in [*Chapter 8*](B17600_08.xhtml#_idTextAnchor162),
+    *Writing Our First Script – Turning Simple Cmdlets into Reusable Code*, and noted
+    that we would cover it in more detail in this chapter. The execution policy is
+    a safety feature that controls how we can run scripts, but only in a Windows environment.
+    Don Jones (the Don!) has described the execution policy as intended to “*…slow
+    down an uninformed user who is unintentionally trying to run an untrusted script.*”
+    There is a lot of unintentionality in that sentence. The execution policy will
+    present a few obstacles to an educated user who is deliberately trying to run
+    a script. The best way to stop a user from running a potentially destructive script
+    is to make sure that they don’t have the permissions to carry out the commands
+    in the script. I have seen customer environments where the number of domain admin
+    accounts runs into the hundreds, many of them unused for years, but still enabled.
+    These customers have much bigger problems than PowerShell’s execution policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The execution policy has different levels of security and is applied at different
+    scopes. The levels are determined by the script’s origin, and whether it is signed
+    with a code signing certificate from a trusted certificate authority; we’ll discuss
+    code signing certificates later in this chapter, in the *Signing scripts* section.
+    Let’s look at the levels first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Restricted`: This is the default policy on Windows client computers and prevents
+    the running of scripts, including formatting files and modules – any files with
+    the `.ps1xml`, `.psm1`, or `.ps1` extensions. Individual commands may be run at
+    the terminal, but that’s it.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`AllSigned`: This level allows scripts with a digital signature from a trusted
+    publisher to be run; this includes scripts that were written on the computer.
+    If it isn’t signed, it can’t run. If it is signed by an untrusted publisher, then
+    PowerShell will prompt the user. Obviously, if a script is malicious and signed,
+    then it can still be run.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`RemoteSigned`: Scripts that originated elsewhere than the local machine need
+    a digital signature, but scripts written on the local machine do not. Obviously,
+    there are a number of clandestine ways around this that might involve opening
+    Notepad and using copy and paste. This is the default policy for Windows server
+    computers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Default`: This sets the default policy. On a Windows client, the default policy
+    is `Restricted`. On a Windows server, the default policy is `RemoteSigned`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Undefined`: This removes any execution policy that is set on the current scope.
+    If we use this on all scopes, then the resulting policy is the default policy,
+    as previously mentioned.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Unrestricted`: This is the default policy on non-Windows computers. Unsigned
+    files from anywhere can be run; users may get a warning when running scripts that
+    didn’t originate in the local network.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Bypass`: Nothing is blocked, and there are no warnings. Execution policy is
+    ignored. This can be set by calling the `-ExecutionPolicy` parameter of the `pwsh.exe`
+    program. We can see how this looks in the following figure:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 12.6 – Bypassing the execution policy](img/B17600_12_006.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.6 – Bypassing the execution policy
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can see, the execution policy is only bypassed at the `pwsh.exe` process
+    level but remains at the default for the other scopes. When this `pwsh` process
+    ends, the execution policy bypass will lapse.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s consider the scopes at which we can apply execution policies next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we can see in *Figure 12**.6*, there are five scopes at which we can apply
+    an execution policy. Each one has a different precedence level. The `MachinePolicy`
+    and `UserPolicy` scopes can only be set in Group Policy – a feature of Windows
+    Active Directory. Group Policy is an enterprise application for controlling the
+    configuration of users and machines centrally, and we’re not going to worry too
+    much about it here. There is a good introductory article on Group Policy here:
+    [https://techcommunity.microsoft.com/t5/ask-the-performance-team/the-basics-of-group-policies/ba-p/372404](https://techcommunity.microsoft.com/t5/ask-the-performance-team/the-basics-of-group-policies/ba-p/372404).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Scopes have an order of precedence, and a scope at a lower level will be overridden
+    by a scope at a higher level. In descending order of precedence, the scopes are
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`MachinePolicy`: This scope is set using a group policy and applies to all
+    users of a machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`UserPolicy`: This scope is set by group policy and applies to the current
+    user of a machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Process`: This scope refers to the current PowerShell session. There is no
+    registry location for this; it is governed by the content of the `$env:PSExecutionPolicyPreference`
+    variable. When the session is closed, the content of the variable is removed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`CurrentUser`: This only applies to the current user and is stored in the Windows
+    registry, a database of machine settings.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`LocalMachine`: This applies to all users on the machine and is also stored
+    in the registry.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In *Figure 12**.6*, we can see that the scopes are listed in order of precedence.
+    Because the execution policy is `Undefined` at both the `MachinePolicy` and `UserPolicy`
+    levels, the effective execution policy is `Bypass`, defined at the `Process` level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The two cmdlets we can use with the execution policy are `Get-ExecutionPolicy`
+    and `Set-ExecutionPolicy`, which we saw back in [*Chapter 8*](B17600_08.xhtml#_idTextAnchor162),
+    *Writing Our First Script – Turning Simple Cmdlets into Reusable Code*. Let’s
+    briefly look at two other features of PowerShell that are intended to help prevent
+    mistakes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Other features
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: These features only protect against someone accidentally running a script. Firstly,
+    PowerShell extensions such as `.ps1` are associated with Notepad by default, rather
+    than as executable files. This means that if someone double-clicks a script by
+    accident, they will open it in Notepad, rather than run it. This is in contrast
+    to earlier Windows script files such as batch files and Visual Basic script files,
+    which would execute if clicked accidentally.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The other way we are protected against accidental execution is that PowerShell
+    doesn’t search the current folder for script files, so either a relative path
+    or absolute path must be provided to run a script at the terminal prompt, like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.7 – Absolute and relative paths](img/B17600_12_007.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.7 – Absolute and relative paths
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first line, I’ve used an absolute path to call a script called `HelloWorld.ps1`,
+    which outputs the line `hello world`. In the second line, I switch to the folder
+    containing the script, and in the third line, I attempt to call it by using `HelloWorld`,
+    which would work for a program Windows recognizes as an executable, such as a
+    batch file, but doesn’t for a PowerShell script. Note how PowerShell helpfully
+    tells me what I was doing wrong. In the fourth line, I call it using a relative
+    path by prefacing the full script name with `.\`, which is successful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That used to be it for PowerShell security. Thankfully, in recent versions,
+    lots of new features have been added that are more proactive. Let’s explore how
+    we can run PowerShell securely.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running PowerShell securely
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: PowerShell has several features that actively increase the security of our environments.
+    Let’s start by looking at application control.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Application control
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Application control solutions prevent unauthorized applications from running.
+    There are third-party applications, such as Trellix, but Windows 10 and later
+    come with two built-in applications – **Windows Defender Application Control**
+    (**WDAC**) and AppLocker. These can be used to create policies that enforce a
+    whitelist of applications that are allowed to execute and prevent anything else
+    from running. AppLocker is no longer under development, so WDAC is recommended.
+    These solutions are intended for an enterprise environment and allow for centralized
+    control. I am not aware of any solutions that work with PowerShell on Linux or
+    macOS. When PowerShell runs under a default WDAC policy, then trusted modules
+    and scripts are granted more access than untrusted ones, using a feature called
+    language modes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Language modes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Language modes are used to control how scripts can run in a PowerShell environment
+    that is subject to an Application Control policy. It’s worth noting that there
+    are lots of articles on the internet showing you how to set language modes using
+    a variable; this is just for testing how code behaves under a particular mode
+    and is not secure, as we’ll shortly. The only way to use language modes to enforce
+    security policies is through an application such as WDAC, according to Microsoft.
+    There are three language modes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`FullLanguage`: This is the default when not running under an Application Control
+    policy.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ConstrainedLanguage`: This prevents the creation and use of certain .NET types
+    and restricts access to C# code from PowerShell. It also restricts access to features
+    such as `ScheduledJob`. Many scripts will not run in constrained language mode;
+    they will need to be signed, and the publishing authority will need to be added
+    to the whitelist.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`NoLanguage`: This disables PowerShell scripting completely. Only native commands
+    and cmdlets can run. `New-Object` is also disabled.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can check the language mode of our session by calling the `$ExecutionContext.SessionState.LanguageMode`
+    variable, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.8 – Getting and setting the language mode](img/B17600_12_008.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.8 – Getting and setting the language mode
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first line, I call the variable, and we can see that the language mode
+    is set to `FullLanguage`. I then set the variable to `ConstrainedLanguage`; we
+    can see that when I call the variable again, it is now set to `ConstrainedLanguage`.
+    Unfortunately, when I try to set it back to `FullLanguage` in the third line,
+    I can’t, because we’re in `ConstrainedLanguage` mode, and there is limited access
+    to variables. The easiest way to get around this is to close the session and open
+    a new one; the language mode will revert to `FullLanguage`. As we discussed previously,
+    setting this variable does not make PowerShell secure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security servicing criteria
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: PowerShell is subject to Microsoft’s Security Servicing Criteria for Windows,
+    and so some features will receive security updates when vulnerabilities are detected.
+    Unfortunately, those features that are included only operate on Windows, such
+    as the execution policy and Application Control.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Software Bill of Materials
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A **Software Bill of Materials** (**SBOM**) helps provide transparency, integrity,
+    and identity to a piece of software by identifying each resource used in its creation,
+    and it provides code signing and software identities that can be used to associate
+    the software with known vulnerabilities. SBOMs are required by many governments
+    as a response to the SolarWinds supply chain attack of 2020\. This is applicable
+    to both Windows and Linux/Mac.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Windows Antimalware Scan Interface support
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: PowerShell passes script blocks and .NET invocations to the Windows **Antimalware
+    Scan Interface** (**AMSI**) API so that anti-malware applications, such as Windows
+    Defender, can inspect them for malicious code. This is a Windows-only feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secure Shell (SSH) remoting
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The SSH protocol is a cryptographic protocol that supports secure network services
+    over an unsecured network. It is cross-platform and works on both Windows and
+    Linux/Mac systems. It relies on public key cryptography; we need to generate a
+    key pair and pass the public key to the system we want to remote to. When we subsequently
+    open a session, we specify the path to the private key on our machine, and SSH
+    verifies that the public key on the remote machine is part of a pair with the
+    local private key. At no point is the private key passed over the network. While
+    setup is quite complex, using SSH once it is set up is very easy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just Enough Administration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`Get-Process`, using the principle of least privilege, and exclude everything
+    else from running, meaning they would be unable to run `Start-Process`. We can
+    also configure the endpoint to use virtual privileged accounts so that a user
+    doesn’t need to have an admin account at all to run the commands. This allows
+    us to drastically reduce the number of users who have admin-privileged accounts.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we’ve seen, nearly all of these features are only applicable to Windows environments.
+    Luckily, everyone who uses Linux is entirely trustworthy. Let’s look at the features
+    that are available to us to understand what PowerShell has been used for – logging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PowerShell logging
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: PowerShell has a number of ways to record what we do with it. In this section,
+    we’re going to look at three of them – over the shoulder logging, deep script
+    block logging, and module logging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Over the shoulder logging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: PowerShell can record a transcript of a session, using the `Start-Transcript`
+    and `Stop-Transcript` cmdlets. The transcript function will record everything
+    that is displayed on the screen. This is useful for recording what we do and the
+    output we get, and then sharing it with others.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can set the path where the transcript is saved using the `-Path` parameter,
+    and we add to an existing transcript with the `-Append` parameter, followed by
+    the name and path of an existing transcript. The `-InvocationHeader` parameter
+    logs the time each command was run. When we want to stop recording, we can use
+    the `Stop-Transcript` cmdlet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In older versions of PowerShell, we had to perform some magic to ensure that
+    transcription was turned on, and even then, it would only log interactive sessions
+    in the console, but that is no longer the case. We can turn on automatic transcription
+    in Windows systems by either using Group Policy or by editing the `powershell.config.json`
+    file in the `$pshome` location – `C:\Program Files\PowerShell\7` in Windows. Editing
+    the config file works for both Windows and Linux/Mac, although you may need to
+    create it first. To enable transcription, we would need to add the following JSON
+    to the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: To stop transcription, delete the JSON entry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The transcript contains a useful header that includes the account the session
+    was run under, whether the session was using `RunAs` credentials, such as administrator,
+    which version of PowerShell was used, and the process number. Let’s take a look:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.9 – The transcript header](img/B17600_12_009.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.9 – The transcript header
+  prefs: []
+  type: TYPE_NORMAL
+- en: I’ve used `Get-Content` with the `-Head` parameter to call the first 19 lines
+    of the transcript file, and we can see the information it contains. When I run
+    `Stop-Transcript`, the name and path of the transcript file is displayed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Over the shoulder logging is a very powerful tool for recording what is done
+    with PowerShell, especially if transcripts are sent to a central shared location
+    and then scanned by a **Security Information and Event Management** (**SIEM**)
+    application. However, it doesn’t capture everything. Let’s look at the next technique,
+    deep script block logging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deep script block logging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If we call a function or a script, the transcript will record that call, but
+    it won’t tell us anything about the contents of the function or script. This is
+    where we need deep script block logging, which will record the contents of the
+    script and other pertinent information to the logging system. In Windows, this
+    is the `PowerShellCore` log, under `/var/log/journal`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can enable deep script block logging via group policy on Windows, or through
+    the config file if the machine we use is not in an Active Directory domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On my machine, I have edited the `PowerShell.config.json` file to include lines
+    4–16 in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.10 – Enabling deep script block logging in PowerShell](img/B17600_12_010.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.10 – Enabling deep script block logging in PowerShell
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember that this is JSON, so it is really important to get the syntax correct.
+    VS Code will underline any syntax errors. We will also need admin privileges to
+    save the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, if I open a new session and call the `HelloWorld.ps1` script that we used
+    at the start of this chapter, I can expect to see events appear in my event log,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.11 – Script block logging events in the event log](img/B17600_12_011.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.11 – Script block logging events in the event log
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember that the `HelloWorld.ps1` script was a single line of code – `Write-Output
+    "hello world"`. We can see that line clearly in the preceding event. We can also
+    see the account it was run under, when it was run, and on what machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Module logging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The final type of logging we’ll look at is module logging. This is similar to
+    script block logging and tracks the modules that are being loaded and called in
+    PowerShell. This can generate a lot of information quite quickly, so there is
+    an option to only record specified modules. If we want to record all the modules,
+    then we can use a wildcard (`*`) instead of an array of module names in the JSON
+    we add to the config file. Again, if group policy is available, then we can use
+    it to enable module logging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are other types of logging available, but they are quite specialized,
+    such as protected event logging for events that may contain sensitive information,
+    such as personal details. I’ve not needed to use them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That wraps up the security features we’re going to cover. Let’s move on to the
+    final section of this chapter and look at ways we can write secure code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing secure code
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Most code has security flaws; it is our job to make sure that the code we write
+    is as secure as possible. In this section, we will look at some ways to write
+    more secure PowerShell code. We’ll look at how to store passwords our scripts
+    might need, code signing scripts, and parameter validation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storing passwords securely
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Quite often, we will write a script that contains commands that need to be
+    run with a particular set of credentials. We saw how to store credentials in an
+    XML file in [*Chapter 6*](B17600_06.xhtml#_idTextAnchor117), *PowerShell and Files
+    – Reading, Writing, and Manipulating Data*. To recap, we can do it like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The credential is then stored in an XML object. This object contains an encrypted
+    standard string, which is the password that was entered encrypted with a reversible
+    encryption, based on the account and machine that the string was encrypted on.
+    Let’s look at how this works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I have a password that I want to save as a secure string:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To turn it into a secure string, I use the `ConvertTo-SecureString` cmdlet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The password is now encrypted, as we can see if we try this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Encryption, in this case, is based on the logged-on account and the machine,
+    and the string cannot be decrypted by anyone other than the original user (or
+    someone logged on as them) on the original machine. Let’s see how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.12 – Putting a password in a secure string](img/B17600_12_012.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.12 – Putting a password in a secure string
+  prefs: []
+  type: TYPE_NORMAL
+- en: On line 1, I create a variable called `$pwd` that holds a string, `ILovePowerShell`.
+    On line 2, I create a new variable, `$securepwd`, by piping `$pwd` to the `ConvertTo-SecureString`
+    cmdlet, with the `-AsPlainText` parameter, and use the `-Force` parameter to suppress
+    any prompts. On line 3, I convert the contents of `$securepwd` back from a secure
+    string to text and store it in the `$encryptedpwd` variable. Finally, on line
+    4, I write the contents of the `$encryptedpwd` variable, and as we can see, it
+    is now an encrypted string, not the original password.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`$encryptedpwd` can be stored in a file or in the registry, and it can be used
+    to create a `PSCredential` object that can be passed to a cmdlet, using the `Add-Content`
+    cmdlet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.13 – Adding a password to a PSCredential as a secure string](img/B17600_12_013.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.13 – Adding a password to a PSCredential as a secure string
+  prefs: []
+  type: TYPE_NORMAL
+- en: On line 1, I add the content of `$encryptedpwd` to a file, `encryptedpwd.txt`.
+    On line 2, I add the contents of the file to a variable, `$securepwd2`, after
+    converting it to a secure string. On line 3, I create a new `PSCredential` object
+    with two values – a username string and the `$securepwd2` variable. Finally, on
+    line 4, I check the password property of the credential, and we can see it is
+    `ILovePowerShell`, the string I originally started with, on line 5\. In this way,
+    we can store passwords securely in a file on a machine, and they can’t be copied
+    to another machine and decrypted. Of course, someone can remote into PowerShell
+    on the machine and decrypt them, so it’s not bulletproof.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, what is the difference between a secure string and an encrypted string?
+    An encrypted string is a plain text string that has been encrypted, as you can
+    see if you look in the `encryptedpwd.txt` file. A secure string is an object of
+    type `System.Security.SecureString`. They are two different types. Many PowerShell
+    cmdlets will only accept passwords of type `System.Security.SecureString`, so
+    it’s important to understand which type is needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Signing scripts
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Earlier in this chapter, we discussed execution policies and how they rely on
+    scripts being signed to determine their trustworthiness. A digital signature does
+    two things – it provides assurance that the script was signed by a trusted source
+    and verifies that the script has not been edited after it was signed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To sign a script, we need either a code-signing certificate from a trusted authority,
+    such as VeriSign, that will be trusted by the majority of computers, a certificate
+    from an Active Directory certificate authority that will be trusted by machines
+    within that directory, or we can use a self-signed certificate that will only
+    be trusted on the machine that was used to sign the script. Code-signing certificates
+    are not cheap, and while there are a few companies that may be exploring such
+    a thing, at the time of writing they’re not generally available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we have a code-signing certificate, we can use the `Set-AuthenticodeSignature`
+    cmdlet to sign the script with our certificate. The signature includes a hash
+    of the script, so any changes made after signing will break the signature and
+    lead to the script not being trusted. This signing only works on Windows environments,
+    much like the execution policy feature that makes use of it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Parameter security
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We saw in [*Chapter 8*](B17600_08.xhtml#_idTextAnchor162), *PowerShell and
+    Files – Reading, Writing, and Manipulating Data*, that we can use accelerators
+    to force a parameter to only accept a specific type of input. We can also use
+    regular expressions to ensure that the input is in the right format, such as a
+    date string or IP address. This code will test a parameter and only accept date
+    strings in the DD/MM/YYYY format:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can see how it looks in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.14 – Validating parameter input](img/B17600_12_014.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.14 – Validating parameter input
+  prefs: []
+  type: TYPE_NORMAL
+- en: I’ve created a `Test-Date` function that uses a regular expression to test whether
+    the input is a valid date or not. When I pass a valid date in the correct format,
+    the function returns `True`. When I pass an invalid date, `21/13/2023`, it returns
+    `False`. We could use that return value to stop a script from continuing, or to
+    prompt for valid input.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding instance is trivial, but it is possible for unvalidated parameters
+    to be used for malicious code injection, where code is inserted into the parameter
+    and then executed. Parameter validation can help prevent this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That wraps up what we are going to cover in this chapter. Let’s summarize what
+    we’ve learned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We started this chapter by looking at PowerShell remoting and saw how the feature
+    can make PowerShell a security risk. We looked at how to create, join, and leave
+    sessions and how to run expressions on multiple remote computers at once.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We then moved on to see how we could secure PowerShell against inadvertent mistakes
+    and saw how the execution policy can *“…slow down an uninformed user who is unintentionally
+    trying to run an untrusted script.*” We also saw some of the other early security
+    features, such as requiring an absolute or relative path for script execution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We then looked at more modern security features, many of which only apply to
+    Windows, such as Application Control and language modes. Unfortunately, the security
+    features for Linux and macOS are still sadly lacking.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We looked at the different ways of recording what PowerShell is doing, with
+    over the shoulder logging, script block logging, and module logging, and saw how
+    to turn these features on and off and where to find the logs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the final section, we looked at three techniques for writing scripts more
+    securely – storing passwords as encrypted strings, signing our scripts, and validating
+    parameters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That’s it for this chapter, and for this part of the book, where we’ve looked
+    at scripting and tooling. In the final part of the book, we’ll be looking at how
+    PowerShell works in three different environments – Windows, Linux/macOS, and ARM
+    – finishing off with a chapter on using PowerShell with .NET, the underlying platform
+    that PowerShell is built on. I’m looking forward to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exercises
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Which cmdlet is used to create a new PowerShell session for remote administration?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can we use PowerShell remoting securely on Linux?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which execution policy in PowerShell allows only signed scripts to run?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the purpose of the `-ExecutionPolicy` `Bypass` switch?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: On Windows, what can be used to analyze and block known malicious scripts and
+    configurations?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the purpose of the constrained language mode in PowerShell?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can you restrict the use of specific cmdlets for a particular user in PowerShell
+    on Windows?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is script block logging in PowerShell, and why is it important for security?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between a secure string and an encrypted string?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'PowerShell remoting:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/scripting/learn/ps101/08-powershell-remoting](https://learn.microsoft.com/en-us/powershell/scripting/learn/ps101/08-powershell-remoting)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Execution policies:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Application Control:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-gb/Windows/security/application-security/application-control/Windows-defender-application-control/wdac](https://learn.microsoft.com/en-gb/Windows/security/application-security/application-control/Windows-defender-application-control/wdac)'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/scripting/learn/application-control](https://learn.microsoft.com/en-us/powershell/scripting/learn/application-control)'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Language modes:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_language_modes](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_language_modes)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Security Servicing Criteria:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.microsoft.com/en-us/msrc/Windows-security-servicing-criteria](https://www.microsoft.com/en-us/msrc/Windows-security-servicing-criteria)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'SBOM:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://devblogs.microsoft.com/engineering-at-microsoft/generating-software-bills-of-materials-sboms-with-spdx-at-microsoft/](https://devblogs.microsoft.com/engineering-at-microsoft/generating-software-bills-of-materials-sboms-with-spdx-at-microsoft/)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'SSH:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://en.wikipedia.org/wiki/Secure_Shell](https://en.wikipedia.org/wiki/Secure_Shell)'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/scripting/learn/remoting/ssh-remoting-in-powershell-core](https://learn.microsoft.com/en-us/powershell/scripting/learn/remoting/ssh-remoting-in-powershell-core)'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'JEA:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/scripting/learn/remoting/jea/overview](https://learn.microsoft.com/en-us/powershell/scripting/learn/remoting/jea/overview)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'A deep dive into PowerShell logging:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://devblogs.microsoft.com/powershell/powershell-the-blue-team/](https://devblogs.microsoft.com/powershell/powershell-the-blue-team/)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Logging on Windows
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_Windows](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_Windows)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Logging on Linux and macOS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_non-Windows](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_non-Windows)'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Part 3: Using PowerShell'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now we understand how to use PowerShell 7, and how to write simple scripts
+    and modules, it’s time to learn how to use it on different platforms. One of the
+    defining features of PowerShell 7 is that it is cross-platform. This section will
+    detail how to use PowerShell with a variety of platforms. This part has the following
+    chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 13*](B17600_13.xhtml#_idTextAnchor267), *Working with PowerShell
+    7 and Windows*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 14*](B17600_14.xhtml#_idTextAnchor280), *PowerShell 7 for Linux and
+    macOS*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 15*](B17600_15.xhtml#_idTextAnchor302), *PowerShell 7 and the Raspberry
+    Pi*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 16*](B17600_16.xhtml#_idTextAnchor320), *Working with PowerShell
+    and .NET*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

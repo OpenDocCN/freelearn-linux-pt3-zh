@@ -1,0 +1,1609 @@
+- en: '*Chapter 7*: Configuring Application-Specific SELinux Controls'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Several Linux services and applications enable additional SELinux controls besides
+    the kernel-enforced SELinux policy. They allow the administrator to further manipulate
+    and enforce policy rules through the application itself—isolating users, reducing
+    data leakage risks, and mitigating the impact of malicious behavior.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will look at several SELinux-aware applications, such as
+    systemd services and how they allow administrators to set up and specify target
+    domains and resource labels. We'll also cover the D-Bus service, which allows
+    SELinux policies to control the service binding and message communication within
+    D-Bus itself. Next, we'll jump to PAM-enabled services that allow users to log
+    in through them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we'll end the chapter with `mod_selinux`, an Apache module that allows
+    SELinux-specific tuning of the web server's behavior. This approach shows how
+    applications that do not natively have SELinux support can still be extended to
+    address the administrator's requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will cover the following topics in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning systemd services, logging, and device management
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Communicating over D-Bus
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring PAM services
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using mod_selinux with Apache
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/37jYtze](https://bit.ly/37jYtze)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tuning systemd services, logging, and device management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`init` system, responsible for handling services and boot-up operations.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Throughout its development phase, systemd added several other components to
+    its portfolio:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: D-Bus, which offers a system and session bus service allowing the use of D-Bus
+    for inter-application communication, merged with systemd.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: systemd also incorporated `udev`, which offers a flexible device-node management
+    application.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Login capabilities were added to systemd, enabling fine-grained control over
+    user sessions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `journald` daemon joined the systemd family to provide a new approach to
+    system and service logging, replacing some of the functionality of standard system
+    loggers.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `timerd` daemon provides support for the time-based execution of tasks,
+    replacing some of the functionality of standard cron daemons.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network configurations can be managed by systemd-networkd.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This ongoing approach of absorbing several system services into a single application
+    suite has not gone unnoticed and isn't without controversy. Some distributions
+    even refuse to have systemd as the default `init` system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The systemd project includes SELinux support for most of its services. Applications
+    such as systemd, which not only include SELinux awareness but also enforce access
+    controls on specific SELinux classes and permissions (rather than relying on the
+    Linux kernel), are called **userspace object managers**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.1 — The difference between kernel-enforced, standard SELinux, and
+    userspace-managed SELinux ](img/B16276_07_001.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.1 — The difference between kernel-enforced, standard SELinux, and userspace-managed
+    SELinux
+  prefs: []
+  type: TYPE_NORMAL
+- en: If an application enforces access controls toward certain classes and permissions,
+    then it will also have its own AVC (see [*Chapter 2*](B16276_02_Final_VK.xhtml#_idTextAnchor045),
+    *Understanding SELinux Decisions and Logging*, for more information about the
+    AVC). Log events resulting from these applications will be identified as `USER_AVC`
+    events rather than (kernel-managed) `AVC` events. The systemd application has
+    support for systemd-specific classes, as we will see in the *Governing unit operation
+    access* section. But before we dive into these specific details, let's first see
+    what systemd is all about and what SELinux support it has.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Service support in systemd
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The main capability of the system daemon that most people know about is its
+    support for system services. Unlike traditional SysV-compatible `init` systems,
+    systemd does not use scripts to manage services. Instead, it uses a declarative
+    approach for the various services, documenting the wanted state and configuration
+    parameters while using its own logic to ensure that the right set of services
+    start at the right time and in the correct order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding unit files
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'systemd uses unit files to declare how a service should behave. These unit
+    files use the INI-style syntax, supporting sections and key/value pairs within
+    each file. A service can have multiple unit files that influence the service at
+    large. It is important to remember that different unit files for the same service
+    are all related:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `*.service` unit files define how a system service should be launched, what
+    its dependencies are, how systemd should treat sudden failures, and so on.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `*.socket` unit files define which socket(s) should be created and which
+    permissions should be assigned to it. systemd uses this for services that can
+    be launched on request rather than directly at boot.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `*.timer` unit files define at what time or frequency the service should
+    be launched. Services that do not necessarily run daemonized but need to execute
+    a certain logic at defined intervals can use these timer files to ensure regular
+    runs. These settings are comparable to the more classic yet still widely used
+    crontabs, which we briefly touch upon in *PAM services*, in the subsection called
+    *Cron*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Other unit files exist as well, although those have more in common with generic
+    system configurations (such as slice definitions and automount settings) and less
+    with runtime services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'System unit files can be placed in one of three locations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unit files are installed by default by the system's package manager inside `/usr/lib/systemd/system`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At runtime, updates can be placed inside `/run/systemd/system`, which will override
+    the unit files in the default location. However, this location is transient and
+    will not persist across reboots.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: System administrators can override the configurations in the two locations by
+    placing unit files in `/etc/systemd/system`. These unit files override previous
+    definitions, so there is no need to remove the unit files from the previous locations.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As an example, check out the default Nginx service unit file, `nginx.service`,
+    inside `/usr/lib/systemd/system`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This unit file declares the command to launch Nginx with and informs systemd
+    that the service should be launched after successfully reaching the `network`,
+    `remote-fs`, and `nss-lookup` targets (which is a milestone in the boot process,
+    allowing proper dependency handling). The unit file also declares that it is a
+    dependency of the `multi-user` target (which is the equivalent of the default
+    run level when using SysV-style `init` services), which means the service should
+    launch when the system boots.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting the SELinux context for a service
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When systemd launches a service, it executes the command defined through the
+    `ExecStart=` configuration entry in the service unit file. By default, a standard
+    domain transition will occur as defined through the SELinux policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Package developers and system administrators can, however, update the service
+    unit files to have the service launched in an explicitly mentioned SELinux domain.
+    To accomplish this, the `[Service]` section of the unit file can be extended with
+    the `SELinuxContext=` configuration entry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to ensure that Nginx launches with the `httpd_t:s0:c0.c128` context,
+    you''d use this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Of course, it is also possible to use this to have a service running with a
+    different context, which can be useful when developing custom policies for daemons.
+    However, keep in mind that the SELinux policy rules still apply: you cannot ask
+    systemd to launch Nginx, for instance, with the `dnsmasq_t` domain without updating
+    the SELinux policy so that `httpd_exec_t` (the entry point for the `httpd_t` domain)
+    is also made an entry point for the `dnsmasq_t` domain.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you request systemd to explicitly use an SELinux context for a service,
+    systemd will attempt to use this context for all execution-related tasks: `ExecStartPre`,
+    `ExecStart`, `ExecStartPost`, `ExecStopPre`, `ExecStop`, `ExecStopPost`, and `ExecReload`.
+    As these tasks often are not labeled with the right entry point label, these commands
+    can fail. In that case, prefix the commands with `+` so that the SELinux context
+    definition does not apply to them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: While developing and changing unit files, the changed settings might not always
+    be immediately applied to the system. Running `systemctl daemon-reload` after
+    modifying unit files will ensure that the latest changes on the system are read
+    by systemd.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using transient services
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: systemd can also be used to launch applications as if they are services and
+    have them under systemd's control. Such applications are called **transient services**
+    as they lack the unit files that generally declare how systemd should behave.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Transient services are launched through the `systemd-run` application. To show
+    this, let''s create a simple Python script (one that calculates Pi up to 10,000
+    digits):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As this takes some time, we can opt to run this Python script under systemd''s
+    control:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As transient services do not have unit files to manage, changing the SELinux
+    context must be accomplished through the command line as well. Of course, this
+    is only needed if the standard domain transitions defined in the policy do not
+    result in the wanted behavior:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `systemd-run` application supports this through the `--property` (or `-p`)
+    option, through which unit file properties can be added. In the previous example,
+    we use this option to run the script in the `guest_t` domain using the `SELinuxContext`
+    property, similar to how we would define this in the unit file itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Requiring SELinux for a service
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Some services should only run when SELinux is enabled or disabled. With systemd,
+    this can be defined through its conditional parameters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A service unit file can contain several conditions that need to be valid before
+    systemd will consider executing the service. These conditionals can point to the
+    system type (virtualized or not), kernel command-line parameters, files that do
+    or don't exist, and so on. The one we are interested in is `ConditionSecurity`,
+    which represents the state of the given security system—in our case, SELinux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, look at the `selinux-autorelabel.service` unit file inside `/usr/lib/systemd/system`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similarly, the Linux distribution provides the `selinux-autorelabel-mark.service`
+    file. This service ensures that, if SELinux is not active when the system boots
+    (and no `/.autorelabel` file exists yet), then systemd will create an empty `/.autorelabel`
+    file. This file ensures that, when the system reboots with SELinux support, the
+    relabeling operation occurs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Relabeling files during service startup
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: One of the actions that many services require is the preparation of service-specific
+    runtime directories, such as `/run/httpd` for the Apache service. systemd supports
+    this through `tmpfiles.d`. We have briefly covered `tmpfiles` in [*Chapter 4*](B16276_04_Final_VK.xhtml#_idTextAnchor095),
+    *Using File Contexts and Process Domains*. Within `tmpfiles`, we can define the
+    files and locations requested to be provided or updated immediately (at boot time)
+    when these are not placed in the (persisted) filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, the package that provides the Apache daemon installs the following
+    definition as `/usr/lib/tmpfiles.d/httpd.conf` on the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Like the systemd unit files, the files that contain these settings should be
+    declared in one of the following three locations. Each location overrides the
+    settings of the previous one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The default, package-provided location is `/usr/lib/tmpfiles.d`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Runtime declarations can be placed in `/run/tmpfiles.d`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Local system administrator-provided declarations are placed in `/etc/tmpfiles.d`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These definitions can get much more specific than just directory creation. Through
+    the `tmpfiles.d` application, definitions can be set to create files, empty directories
+    upfront, create sub-volumes, manage special files such as symbolic links or block
+    devices, set extended attributes, and more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of its features is to set the file mode and ownership, and restore the SELinux
+    context on a file (`z`) or recursively against a directory (`Z`). This can be
+    used to change contexts on files that have a proper context definition in the
+    policy, but whose context is not properly assigned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, look at the definitions in the `selinux-policy.conf` file inside
+    `/usr/lib/tmpfiles.d`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We need to relabel files inside `/sys` because this location is labeled with
+    `sysfs_t` by default and changing the context at runtime does not preserve its
+    status across reboots. Yet some of its files should have a different label – the
+    `/sys/devices/system/cpu/online` file, for instance, requires the `cpu_online_t`
+    label:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The definition ensures that this (pseudo) file is relabeled at boot so that
+    all other processes that rely on the file labeled with `cpu_online_t` can happily
+    continue working.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The other arguments to the definition are explicitly marked with a dash in the
+    previous example, meaning that no other parameters need to be configured. They
+    can be used to set the mode, **User Identifier** (**UID**), **Group Identifier**
+    (**GID**), age, and argument related to the rule.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An example configuration that uses some of these other parameters with the
+    `z` or `Z` state is the `systemd.conf` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: For more information about the definition format, see `man tmpfiles.d`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using socket-based activation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The system daemon also supports socket-based activation. When configured, systemd
+    will create the socket on which the daemon usually listens and will have the daemon
+    launched when the socket is first used. This allows systems to boot quickly (as
+    many daemons do not need to be launched immediately) while still ensuring that
+    all required sockets are available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When a client only writes information to the socket (such as with the `/dev/log`
+    socket), the client does not even need to wait for the daemon to be activated.
+    The data is stored in a buffer until the daemon can read it. Only when the buffer
+    is full will the operation block until the daemon flushes the buffer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take a look at the `systemd-journald.socket` unit file, available inside `/usr/lib/systemd/system`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: When a client uses one of the mentioned sockets, then systemd will launch the
+    `systemd-journald.service` unit to accommodate the client interaction. As long
+    as these sockets are not used, the service will not be started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Inside the `[Socket]` section, an SELinux-specific entry can be defined: `SELinuxContextFromNet=true`.
+    When a unit file has this entry set, systemd will obtain the MLS/MCS information
+    from the client context (the application connecting to the socket) and append
+    this to the context of the service. This sensitivity inheritance can be used to
+    prevent any information leakage from taking place when communication is happening
+    through sockets.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Governing unit operation access
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Until now, we've looked at configuration settings related to systemd's SELinux
+    support. systemd also uses SELinux to control access to services defined through
+    unit files. When a user wants to perform an operation against a unit (such as
+    starting a service or checking the state of a running service), systemd queries
+    the SELinux policy to see whether it will allow this operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The systemd daemon uses the service class to validate the permissions of the
+    client''s domain toward the requested operation. For instance, to validate whether
+    a user context, `sysadm_t`, can view the status of the service associated with
+    the `sshd.service` unit file, it checks the context of this file (being `sshd_unit_file_t`)
+    and then validates whether the status permission is granted:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Other supported permissions are `disable`, `enable`, `reload`, `start`, and
+    `stop`. When a permission is not granted, a `USER_AVC` denial message will be
+    visible in the audit logs (rather than an `AVC` message) as the message is not
+    generated by the Linux kernel, but by systemd. So, while the rules themselves
+    are part of the SELinux policy, it is systemd that enforces the access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'systemd, or the client through which systemd is queried, might also provide
+    additional error messages to reflect that the SELinux policy prevents the action.
+    For instance, if we attempt to query systemd over D-Bus (which we cover in the
+    *D-Bus communication* section) from an unprivileged user domain, then we get the
+    following error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: To facilitate troubleshooting any systemd-triggered failures, systemd also has
+    an extensive logging component, called `systemd-journald`, which we'll cover next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Logging with systemd
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'systemd is not only responsible for service management: it takes up several
+    other tasks as well. One of these tasks is log management, traditionally implemented
+    through a system logger.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: While systemd still supports running with a traditional system logger, it now
+    suggests the use of `systemd-journald`. One of the advantages of the journal daemon
+    is that it is not limited to textual, single-line log messages. Daemons can now
+    use binaries as well as multiline messages as part of its logging capabilities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The journal daemon also registers information about the sending process alongside
+    the log messages themselves. This additional information contains ownership data
+    (the process owner) including the SELinux context of the sending process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Retrieving SELinux-related information
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The traditional approach to receive SELinux-related information (excluding
+    the audit events we tackled before) is to `grep` through the log information.
+    With the journal daemon, we can accomplish this as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `-b` option passed on to the journal control application informs the journal
+    daemon that we are only interested in the log messages that originated for a specific
+    boot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Querying logs given an SELinux context
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A unique feature of the journal daemon is to use the information associated
+    with the log messages as part of the query to be launched against the journal
+    database. For instance, we can ask the journal daemon to only show those messages
+    that originated from a daemon or application running in the `udev_t` context:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: The available contexts can be retrieved through the Bash completion support
+    on the system. After writing `_SELINUX_CONTEXT=`, press *Tab* twice to see the
+    possible values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using setroubleshoot integration with journal
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The SELinux troubleshoot daemon is also integrated with `systemd-journald`.
+    Any alert that comes up from `setroubleshootd` is also available through the journal
+    daemon.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This helps administrators as they will quickly find out about SELinux denials
+    when investigating problems. For instance, when the Nginx web server is not working
+    properly and this is due to an SELinux policy, a quick investigation of the status
+    of the service will reveal that the SELinux policy is preventing some actions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To get more information about the message, use `journalctl`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, `systemd-journald` has captured environment information related
+    to the service, which can provide much-needed guidance on resolving potential
+    problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A third systemd service that has SELinux configuration possibilities is the
+    device daemon.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling device files
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Linux has a long history of device managers. Initially, administrators needed
+    to make sure that the device nodes were already present on the filesystem (`/dev`
+    was part of the persisted filesystem). Gradually, Linux adopted more dynamic approaches
+    for device management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Nowadays, device files are managed through a combination of a pseudo filesystem
+    (`devtmpfs`) and a userspace device manager called udev. This device manager is
+    merged in systemd as well, becoming `systemd-udevd`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The device manager listens on a kernel socket for kernel events. These events
+    inform the device manager about detected or plugged-in devices (or the removal
+    of such devices) and allow the device manager to take appropriate action. For
+    udev, these actions are defined in udev rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using udev rules
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Configuring the udev subsystem is mainly done through udev rules. These rules
+    are one-liners that contain a matching part and an action part.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The matching part contains validations, executed against the event(s) that
+    udev receives from the Linux kernel. This validation uses key/value pairs obtained
+    from the event, and includes the following possible keys:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kernel-provided device name (`KERNEL`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Device subsystem (`SUBSYSTEM`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Kernel driver (`DRIVER`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Specific attributes (`ATTR`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Active environment variables (`ENV`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The action type to inform if the device is detected or removed (`ACTION`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: While more match keys are possible, the preceding list is most commonly used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Linux kernel will also inform the device manager about the device hierarchy.
+    This allows rules to be defined based on, for instance, the USB controller through
+    which a USB device is plugged in. Alongside the information for the device itself,
+    the kernel will also provide hierarchically related information through similar
+    key/value pairs. These pairs, however, use a key definition in plural form: `SUBSYSTEMS`
+    instead of `SUBSYSTEM`, `DRIVERS` instead of `DRIVER`, and so on.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to match a USB webcam with vendor ID `05a9` and product ID `4519`,
+    the match-related pairs could look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The second part of a udev rule is the action to take. The most common action
+    is to create a symbolic link to the created device file, ensuring that applications
+    can always reach the same device through the same symbolic link, even when the
+    device from the kernel point of view has a different name. We can, for instance,
+    extend the preceding example with `SYMLINK+="webcam1"` to have `/dev/webcam1`
+    point to this newly detected device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The udev application supports many more actions than just defining symbolic
+    links, of course. It can associate ownership (`OWNER`) or group membership (`GROUP`)
+    on the device, controlling who can access the devices. udev can also set environment
+    variables (`ENV`) and even run a command (`RUN`) when the matched device is plugged
+    in or detached from the system. To make sure the command is only executed when
+    the device is added, we need to add an `ACTION` setting such as `ACTION=="add"`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: udev can interpret `ENV` as both a matching key as well as an action key. The
+    difference is the operation performed (a single equals sign `=` or a double `==`).
+    `ENV{envvar}=="value"` is a match operation (checking whether the variable matches
+    the given `value`), whereas `ENV{envvar}="value"` is an action (setting the variable
+    to `value`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: udev rules are provided by default through the `/usr/lib/udev/rules.d` location.
+    Distributions and applications/drivers will store their default rules in this
+    location. Additional rules or rule overrides can be placed in `/etc/udev/rules.d`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It's important to remember that udev will continue processing rules even when
+    it has already encountered a matching rule. This can be changed on a per-rule
+    basis through the `OPTIONS` action, as with `OPTIONS+="last_rule"`, which informs
+    udev that it can stop processing further rules for this event.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting an SELinux label on a device node
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'One of the actions that udev supports is to assign an SELinux context on the
+    device node. We can do this using the `SECLABEL{selinux}` action:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that this action only sets the context on the device node. If the rule
+    also sets a symbolic link, then the symbolic link itself will inherit the default
+    `device_t` context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Placing an SELinux label on a device node is often done together with the other
+    security-related permissions, so the rule often receives additional actions such
+    as setting the target owner (`OWNER`), group (`GROUP`), and permission set (`MODE`).
+    After all, SELinux security controls only apply *after* the regular, discretionary
+    access control checks have passed, so don't forget to make sure your users have
+    access to the device nodes outside of the SELinux controls as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All the settings we've seen so far are about systemd service management and
+    system support. Another component within the systemd ecosystem is D-Bus, which
+    is less about system management and more about facilitating communication and
+    interaction between different applications over a programmable communication bus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Communicating over D-Bus
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The D-Bus daemon provides an inter-process communication channel between applications.
+    Unlike traditional IPC methods, D-Bus is a higher-level communication channel
+    that offers more than simple signaling or memory sharing. Applications that want
+    to chat over D-Bus link with one of the many D-Bus-compatible libraries, such
+    as those provided by the libdbus, sd-bus (part of systemd), GDBus, and QtDBus
+    applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The D-Bus daemon is part of the systemd application suite.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding D-Bus
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Linux generally supports two D-Bus types – system-wide and session-specific
+    D-Bus instances:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The system-wide D-Bus is the main instance used for system communication. Many
+    services or daemons will associate themselves with the system D-Bus to allow others
+    to communicate with them through D-Bus.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The session-specific D-Bus is an instance running for each logged-in user. It
+    is commonly used by graphical applications to communicate with each other within
+    a user session.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Both D-Bus instances are provided through the `dbus-daemon` application. The
+    system-wide D-Bus will run with the `--system` option, whereas a session-specific
+    instance will run with the `--session` option.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applications register themselves against D-Bus through a namespace. Conventionally,
+    this namespace uses the domain name of the project. For instance, systemd declares
+    the `org.freedesktop.systemd1` namespace, whereas D-Bus is at `org.freedesktop.DBus`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The currently associated applications can be queried using Python easily:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each application then provides objects on the bus that can be reached by other
+    objects (other applications)—of course, assuming they have the privileges to do
+    so. These objects are represented through a path-like syntax and generally also
+    use the domain of the project as a prefix.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to list the objects currently associated with `org.freedesktop.systemd1`,
+    we can use the `gdbus` command. To facilitate its use, we first enable auto-completion
+    support, after which we can use the *Tab* key to easily add the appropriate values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Applications can trigger methods on these objects, or send messages to the applications
+    bound to these objects through these methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, to get the state of the `sshd.service` unit through D-Bus, we
+    invoke the `org.freedesktop.systemd1.Manager.GetUnitFileState` method on the `org.freedesktop.systemd1`
+    object reachable through the `/org/freedesktop/systemd1` path, and with the `sshd.service`
+    argument, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: These calls can also be controlled through the SELinux policy, as we will learn
+    next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling service acquisition with SELinux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The D-Bus application, like systemd, will query the SELinux policy to verify
+    whether to allow an operation. Again, it is the D-Bus application itself that
+    enforces the policy and not a Linux kernel subsystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first control that administrators can enable within D-Bus is to ensure that
+    only well-established domains can acquire a specified object within D-Bus. Without
+    this control, malicious code could register itself as `org.freedesktop.login1`,
+    for instance, and act as a system daemon on the bus. Other applications might
+    mistakenly send out sensitive information to the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Applications store this policy information in files hosted in `/usr/share/dbus-1/system.d`.
+    The login service, for instance (stored as `org.freedesktop.login1.conf`) has
+    the following policy snippet installed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As the login daemon runs in the `systemd_logind_t` domain, we could enhance
+    this configuration as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this enhancement in place, D-Bus will check whether the application (which
+    we presume is running in the `systemd_logind_t` context) has the `acquire_svc`
+    permission (of the `dbus` class) against the `systemd_logind_t` context. By default,
+    the SELinux policy does not have this permission, and as such, the registration
+    fails:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we add the following SELinux policy rule, the registration of `systemd-logind`
+    will succeed, as expected:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Load this policy (say `test.cil`) and try the `restart` operation again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: By limiting which domains can obtain a given service, we ensure that only trusted
+    applications are used. Non-trusted applications will generally not run within
+    the domain of that application (end users, for instance, cannot trigger a transition
+    to such a domain) even if they receive root privileges (which is another check
+    that D-Bus does for the login service, as shown in the first `busconfig` snippet).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Administrators can enhance this D-Bus configuration without having to alter
+    the existing configuration files. For instance, the previously mentioned SELinux-governing
+    `busconfig` snippet could very well be saved as a different file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Governing message flows
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A second control that D-Bus validates is which applications can communicate
+    with each other. This is not configurable through the service configurations but
+    is a pure SELinux policy control.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Whenever a source application is calling a method of a target application, D-Bus
+    validates the `send_msg` permission between the two domains associated with the
+    source and target applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, communication over D-Bus between a user domain (`sysadm_t`) and
+    service domain (`systemd_logind_t`) will check the following permissions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: If these permissions are not granted, then D-Bus will not allow the communication
+    to happen. If at any point, the application context cannot be obtained, then the
+    bus daemon context will be used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Failures will be logged as `USER_AVC` entries in the audit log. If the communication
+    should be allowed, we can create a simple SELinux policy file to address this
+    like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Store these rules in a file with the suffix `.cil` (say, `local_logind_systemd.cil`),
+    and load it with `semodule`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let's consider a few other applications that have SELinux support, not necessarily
+    built-in, but through the SELinux policy and PAM integration within the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring PAM services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: systemd and D-Bus are SELinux-aware applications, with explicit SELinux support
+    built in. Several other services exist on a Linux system that play nicely together
+    with SELinux yet are not SELinux-aware themselves. Many of these services have
+    an affinity with SELinux through their PAM integration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We covered PAM integration in [*Chapter 3*](B16276_03_Final_VK.xhtml#_idTextAnchor071),
+    *Managing User Logins*. In this section, we'll cover three example services using
+    PAM, and how SELinux can be further fine-tuned to support these services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cockpit
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Cockpit is a simple, browser-based management application that allows administrators
+    to easily see system resources (monitoring) as well as to interact with the system.
+    It also allows users to log into the system through the browser.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is this browser-based terminal that we want to configure: by tuning the
+    target SELinux roles for the SELinux users, we can selectively put users in a
+    specific role. This effectively defines what the users can accomplish through
+    this browser-based session.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Cockpit
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The Cockpit application is readily available in the CentOS repository, so installing
+    it is a breeze:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: While the application does not need additional configuration, if you do need
+    tweaks, you will need to create the configuration file, `/etc/cockpit/cockpit.conf`,
+    yourself as the application does not create a default configuration file. Within
+    this configuration file, you can configure the TLS settings, or disable encrypted
+    communication generally.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s disable the encrypted communication for this demonstration run (but
+    if you intend to use Cockpit in production, you should not only keep encryption
+    on but also ensure that only trusted hosts are connecting, possibly even requiring
+    client certificate authentication using the `ClientCertAuthentication` directive):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: With this set, we can continue with configuring SELinux for Cockpit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Restricting user logins
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Through these instructions, we will add the more restricted `user_r` role to
+    the `staff_u` SELinux user, and then ensure that all logins mapped to the `staff_u`
+    SELinux user are logged in using the `user_r` role when they log in through Cockpit.
+    If they log in through other services, they will continue using the default `staff_r`
+    role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of the `user_r` role rather than the (even more restricted) `guest_r`
+    role is to allow the Cockpit application to function properly. The application
+    will run a service under the user's privileges, which are not sufficient for Cockpit
+    if we use the `guest_t` user domain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s first add the `user_r` role so that we can put the users in the correct
+    context later:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we want to update the SELinux configuration so that any Cockpit login
+    by `staff_u` mapped users is going to use the `user_r` role. The Cockpit application
+    has logins done through a service running in the `cockpit_session_t` context,
+    which we find out by checking the context of the process first, and then logging
+    in on Cockpit and checking the context of the processes again. There, we notice
+    that a new process (`cockpit-session`) runs with the `cockpit_session_t` context:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this information now available, we can edit the `/etc/selinux/targeted/contexts/users/staff_u`
+    file as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: By adjusting the order of the roles listed for the `cockpit_session_t` context
+    (or limiting them to only the `user_r` role), we ensure that users allowed to
+    run with the `user_r` role (like the `staff_u` user we configured earlier on)
+    do so through the `user_r` role. As this role is more restricted than the default
+    `staff_t` user domain, logins through Cockpit are thus more isolated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach can be used for all PAM-enabled services, as this solely relies
+    on the `pam_selinux.so` call in the service PAM configuration. For some services,
+    the SELinux policy administrators add in a few more tweaks to use, such as with
+    cron and SSH, which we'll discuss next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cron
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Cron services on a system allow you to run tasks or commands on predefined schedules.
+    Some cron applications are explicitly made SELinux-aware (such as fcron), allowing
+    them to compute the target context a job should run in. Even cron systems that
+    do not have any specific SELinux logic built in can be fine-tuned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Switching between user-specific and generic contexts
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A common setup supported through the SELinux policy is to toggle whether user
+    tasks run in the user's default context (such as `staff_t` for staff users) or
+    in a default, restricted cron context (`cronjob_t`). Both approaches have their
+    pros and cons.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we configure the system to have user jobs run in the user's default context,
+    then users know what the privileges are of their jobs. A guest user has guest
+    privileges, a staff user has staff privileges, and so forth. This is the most
+    common configuration, and the default cron system on CentOS uses the context of
+    the file containing the user's tasks (located in `/var/spool/cron`) to deduce
+    the target runtime context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By running user jobs in a more restricted context such as `cronjob_t`, all users'
+    cron jobs run with the same privileges, and the administrator can easily fine-tune
+    the privileges for all user jobs. This also allows the administrator to grant
+    specific privileges for cron jobs while keeping the user contexts free of these
+    rights.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s have a simple task executed every minute, namely a 59-second sleep.
+    As a regular user, create a file (let''s say `lisa.cron`) with the following content:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This file uses the common cron syntax, where the following applies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first field covers the minute.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The second field covers the hour.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The third field covers the day of the month.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The fourth field covers the month.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The fifth field covers the day of the week.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The rest of the line is the command to execute.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The fields can use expressions to facilitate time definitions. For instance,
+    to run every 15 minutes, you can use `*/15` in the first field. If you want to
+    run only at 8 o'clock and 18 o'clock, you can use the `8,18` value in the second
+    field. Another example is if you only want to run on workdays, for which you can
+    use `1-5` in the fifth field (in cron, Sunday holds both 0 and 7 as valid values).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By loading it with the `crontab` command, the file is checked for errors and,
+    if error-free, is securely placed inside `/var/spool/cron` (the `crontab` command
+    is a `setuid` command that is able to modify `/var/spool/cron` even though this
+    location is inaccessible by regular users):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'From here, the cron daemon will pick up this file, and 1 minute later we will
+    see the command active in the background:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As seen from the output, the command is running in the `staff_t` context. To
+    change this to the `cronjob_t` type, rather than editing the SELinux context definition
+    file as we did with the Cockpit application, use the `cron_userdomain_transition`
+    SELinux boolean:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This boolean changes the active SELinux policy behavior so that any user task
+    executed from the cron system executes within the `cronjob_t` domain. You might
+    need to reset the crontab definition (this depends on the cron system used), but
+    afterward, we will see the job running in the `cronjob_t` domain:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: The use of SELinux booleans to allow administrators to differentiate system
+    behavior as needed is commonly used. For the SSH daemon, SELinux policy administrators
+    have defined something similar.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OpenSSH
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The OpenSSH daemon is the most common secure shell daemon around. It allows
+    users to remotely access systems through a terminal, as well as to securely transfer
+    files, tunnel application communications, and more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When logging in through SSH, the PAM controls apply, but the SELinux policy
+    also has specific SSH controls embedded and controllable through SELinux booleans.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Directly logging in as sysadm_t
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The first change to assess is to allow directly logging in using the `sysadm_r`
+    role. Users mapped to the `staff_u` SELinux user by default log in using the (more
+    restricted) `staff_r` role, and then need to explicitly switch roles to obtain
+    the more privileged `sysadm_r` role.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first change we need to make is to edit the `/etc/selinux/targeted/contexts/users/staff_u`
+    file and adjust the order of the roles listed for the `sshd_t` context:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, this is not enough. The SELinux policy administrators have disabled
+    direct logins through SSH to the `sysadm_r` role, forcing users to explicitly
+    change roles (and thus reauthenticate). This approach is because SSH is often
+    a publicly reachable and not otherwise easily controllable service (unlike services
+    such as web servers, which can have reverse proxies and web application firewalls
+    in front).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Change the SELinux `ssh_sysadm_login` boolean to `true` to enable the wanted
+    behavior:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: This boolean changes the SELinux policy behavior to allow logins to the `sysadm_r`
+    role from the SSH daemon.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Chrooting Linux users
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Another feature that SSH supports is forcing logins from selected users to be
+    chrooted. A **chroot** (which is a portmanteau of **change root**) is an isolation
+    method for processes, where the process no longer sees the entire filesystem but
+    only a part of it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Informational note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, chroot environments are an easy way to isolate processes, but a chroot
+    itself is still governed through Linux's discretionary access controls, and escaping
+    chroot environments is not impossible. Using SELinux to further confine the process
+    is recommended but is not in the scope of this section. For that, we refer to
+    [*Chapter 14*](B16276_14_Final_VK.xhtml#_idTextAnchor354), *Dealing with New Applications*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we configure SSH to chroot some users, we need to create a properly
+    functioning environment: once we change the root for a process, all commands and
+    libraries that the process wants to read or execute need to be available within
+    this chroot environment.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's first create a chroot environment. A nice utility that assists in creating
+    the right folder structure and files is Jailkit. Jailkit is not available by default
+    through the regular repositories but can be easily installed and only requires
+    a working compiler and Python environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We start off by installing the necessary dependencies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we download the Jailkit source code and build it. As CentOS does not
+    have a linked Python binary by default (as it requires the use of `python3` as
+    the runtime), we need to tell the build scripts how to address Python. We do this
+    by declaring the `PYTHONINTERPRETER` environment variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once the installation is complete, you might need to remove a duplicate `includesections`
+    call within the Jailkit configuration file (the `jk_init` command, which we will
+    use next, will inform you about it if you don''t). The `openvpn` section in `/etc/jailkit/jk_init.ini`
+    should look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the configuration updated, we can now create the chroot environment. Let''s
+    create the `/srv/chroot` directory and then populate it with the necessary files,
+    directories, device nodes, and more with the `jk_init` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We want to make sure that the SELinux contexts for the resources inside this
+    location are equivalent to the root location, so let''s create a file context
+    equivalency definition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the chroot environment set, we can now update the SSH configuration to
+    chroot a user:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'While not applicable to all systems (as it depends on the distribution), we
+    might need to tell the SELinux policy that the user domains for the users can
+    chroot. This privilege (`sys_chroot`) is often not enabled by default for user
+    domains:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this set, restart the SSH daemon and see whether the chroot is successful:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: Chroot environments are not only sensible for SSH access; other daemons might
+    support chroot environments to further protect the resources on the system. In
+    the past, chroot support was a common way to further harden the system. Namespace
+    and resource isolation support has, however, largely surpassed the need for chroot
+    jails. These new features have also jumpstarted the containerized ecosystem, which
+    we will cover in [*Chapter 11*](B16276_11_Final_VK.xhtml#_idTextAnchor293), *Enhancing
+    the Security of Containerized Workloads*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SELinux support for applications such as Cockpit, cron, and OpenSSH is generally
+    provided through the SELinux policy and uses PAM integration to link SELinux controls
+    within the application. It is, however, also possible to explicitly build in SELinux
+    support in applications not intentionally SELinux-aware, but who support dynamic
+    additions of logic through a modular design. As an example of this, we will look
+    at Apache and the `mod_selinux` Apache module next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using mod_selinux with Apache
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Applications are often web-based, exposing their interface as either a common
+    website or a simple web service, and executing the bulk of logic either within
+    the web server or in backend services that the web server interacts with for the
+    user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A web-based application has the huge advantage that end users often don't require
+    any application or client to be installed on top of what is available by default
+    on their device, be it a workstation, laptop, mobile, wristwatch, or smart TV.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, unlike the services discussed earlier, Apache does not run individual
+    user sessions through PAM logins on the system. Instead, user requests are handled
+    by the web server threads and processes themselves, which makes easy SELinux-based
+    controls a bit harder to accomplish.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing mod_selinux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Apache has support for modules: dynamically loadable code that enhances the
+    functionality of the web server, without having to rebuild the web server code
+    itself. This modularity has given rise to the popularity of Apache, as we can
+    see through its support for features such as PHP, introducing dynamic web applications
+    to a server platform that was once meant to serve static content only.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`mod_selinux` uses the same modular support, which allows the Apache web server
+    to become SELinux-aware. Once we enable `mod_selinux`, we can configure Apache
+    to switch SELinux sensitivity or even SELinux domains for running code, further
+    isolating the behavior of the web server and allowing SELinux policies to control
+    what the web server can do. `mod_selinux` also supports user mappings, allowing
+    the Apache web server to run specific user sessions in different domains.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before building the `mod_selinux` module, let''s first install the necessary
+    dependencies on the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once the dependencies are installed, we can download and build the `mod_selinux`
+    code. The code is available on GitHub in Kaigai''s `mod_selinux` repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `apxs` command is the `-c`) and installs (`-i`) the `mod_selinux` module.
+    We have yet to activate it in the Apache configuration though, which we accomplish
+    by creating a new module configuration file in `/etc/httpd/conf.modules.d` called
+    `99-selinux.conf` (you can pick whatever name you want, but make sure it ends
+    with the `.conf` suffix):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, while we have now installed the module, it is not ready for consumption
+    yet, as we have not loaded the SELinux policy for it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `mod_selinux` repository contains the necessary SELinux policy code. However,
+    it is not fully compatible with the more recent SELinux policy used by Linux distributions.
+    We need to edit the `mod_selinux.if` file and remove all references to `httpd_user_script_ro_t`,
+    `httpd_user_script_rw_t`, and `httpd_user_script_ra_t`, as those types are no
+    longer present in current SELinux policies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A second change – cosmetic for now – is to rename the calls from `miscfiles_read_certs`
+    to `miscfiles_read_generic_certs`. These are functions used in the reference policy,
+    a different – and still the most common way – of writing SELinux policies (which
+    we cover in [*Chapter 15*](B16276_15_Final_VK.xhtml#_idTextAnchor373), *Using
+    the Reference Policy*), and while both functions are supported at the time of
+    writing, the `miscfiles_read_certs` function is no longer recommended for use
+    and will disappear soon:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we have adjusted the policy, we can build and load it. As this policy
+    is developed using the reference policy style, the installation first requires
+    building the module before we load it (unlike the directly loadable CIL examples
+    we''ve used so far):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: With the SELinux module loaded and the `mod_selinux` Apache module installed,
+    we can start configuring the Apache daemon with SELinux-specific controls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring the general Apache SELinux sensitivity
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The simplest configuration setting that `mod_selinux` supports is to configure
+    Apache to run with a specific SELinux sensitivity. Suppose we want Apache to run
+    with the `s0-s0:c0.c100` sensitivity, then we need to adjust the Apache configuration
+    and use the `selinuxServerDomain` directive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Assuming we want to adjust the sensitivity for the default welcome site, edit
+    `/etc/httpd/conf.d/welcome.conf` and add in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the Apache web server uses virtual host definitions (allowing a single web
+    server definition to manage multiple websites, based on the hostname that the
+    client is using to access the web content), the `selinuxDomainVal` directive needs
+    to be used instead of the `selinuxServerDomain` one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For instance, suppose the web server manages two virtual hosts, one for the
+    `apps.genfic.local` domain, and the other for `intranet.genfic.local`, then we
+    can assign each virtual host with its own sensitivity set like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Restart the Apache web server and validate that the setting is active:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, the web server is now running with the given sensitivity. An
+    important caveat though: the `mod_selinux` code does not support `mcstransd`,
+    the translation daemon we covered in [*Chapter 3*](B16276_03_Final_VK.xhtml#_idTextAnchor071),
+    *Managing User Logins*, so you cannot use human-readable sensitivity definitions
+    such as `SystemLow-SystemHigh`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mapping end users to specific domains
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To map users, when logged in to a web application, to a specific domain, we
+    need to create a user mapping file. This mapping file is then referred to using
+    the `selinuxDomainMap` directive in the web server configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s first create the mapping file inside `/etc/httpd/conf.d`, naming it
+    `mod_selinux.map`, with the following content:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This mapping file contains three mappings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first one is for a user called `test` and is mapped to the `user_webapp_t`
+    domain and `s0:c0.c100` sensitivity.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second one is for any successfully authenticated user and is mapped to the
+    `user_webapp_t` domain and `s0:c0,c1` sensitivity.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The third one is for unauthenticated users and is mapped to the `anon_webapp_t`
+    domain.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can then refer to this map by adjusting the previously created snippet like
+    so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: Restart the web server to apply the changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Changing domains based on source
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `mod_selinux` module also supports setting the server domain value based
+    on environment variables that we have defined elsewhere in the configuration.
+    For instance, we can first declare the value in an environment variable when a
+    certain condition triggers, and then tell `mod_selinux` that this environment
+    variable's value is to be used for the server domain setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's make this a bit more tangible with an example. Suppose the website manages
+    web applications for both local (internal) people, as well as for people that
+    work from remote locations. Assuming these users enter the web server through
+    different source IP addresses, we can use the source IP address to differentiate
+    between the two and assign a different SELinux sensitivity value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can do this in the Apache configuration with the `SetEnvIf` directive, which
+    declares an environment variable but only if a request matches a particular condition.
+    The condition we use is then the `Remote_Addr` directive, which checks the source
+    IP address against the expression that follows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Suppose local users come from `10.10.0.0/16` and remote users from a load balancer
+    or reverse proxy with the IP address `10.121.12.15`, then we can differentiate
+    this as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is possible to mix and match multiple `mod_selinux` directives. The module
+    will use the first successful declaration, so you could use a user mapping first,
+    and if that user mapping does not result in a hit (because the user is not declared
+    in the map), use the environment variable, and if that fails, fall back to a default
+    setting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All we have to do to accomplish this fallback definition is to sequentially
+    declare the `mod_selinux` directives, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: Through these declarations, you can fine-tune the web server security using
+    SELinux domains and sensitivities. While this should never replace the security
+    approach within the application itself, it provides additional isolation in case
+    an unauthorized or malicious user exploits an error within the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we started out with an introduction to systemd and a strong
+    focus on the service management capabilities that systemd offers. We learned how
+    to start a service with a custom SELinux context as well as how additional files
+    can be properly labeled upon boot. Alongside the service management, through systemd's
+    unit files, this chapter also covered transient services and how to immediately
+    associate the right SELinux context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Other systemd capabilities and services were touched upon as well. We saw how
+    SELinux contexts are registered as part of the systemd journal and how to query
+    for events using this context. We took a brief look at udev and how its rules
+    can be used to support administrators in managing devices. One of its actions
+    is to set the SELinux context of the device node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We then looked at D-Bus, how SELinux can be used to control the association
+    of applications with services, and how D-Bus uses the `send_msg` permission to
+    validate communications across its channels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After D-Bus, we looked at several services that use PAM to launch user contexts,
+    and we dived into specific examples such as SSH, learning how SELinux policy developers
+    have further fine-tuned support for these services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We finished with a look at `mod_selinux`, a dynamic module for Apache that enables
+    SELinux support within Apache's configuration even though Apache itself does not
+    have any SELinux specifics in it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will look at another SELinux-aware application, SEPostgreSQL,
+    which extends the popular and robust PostgreSQL database with mandatory access
+    control support through SELinux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Why should you not update unit files in `/usr/lib/systemd/system` directly?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What application allows resetting the SELinux context of files during boot?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can we get all log events in journald associated with a given SELinux context?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can you set the SELinux label for a device node created by udev?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Are SELinux controls always applicable to D-Bus associations?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How is it possible for Apache to be SELinux-aware without Apache having any
+    SELinux code in it?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

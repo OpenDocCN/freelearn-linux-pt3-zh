@@ -1,0 +1,1265 @@
+- en: Using Ansible to Build Virtual Machine Templates for Deployment
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far in this book, we have covered in detail the groundwork for the remainder—that
+    is to say, we have set the rationale for what we intend to do next and provided
+    a *crash course* in our automation tool of choice, Ansible. From the preceding
+    chapter, we know that, in an enterprise-scale environment, there are two fundamental
+    methods for deploying Linux, and which of these to use is determined by the technologies
+    in use in your environment and your intended goals.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will cover in detail how to build virtual machine images
+    that will serve on most virtualization and cloud platforms. The differences between
+    these two platforms are subtle but distinct as we shall find out, and by the end
+    of this chapter, you will know how to handle both environments with ease. We will
+    start with a discussion on the initial build requirements, and then move on to
+    configure and prepare the images for use in your chosen environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing the initial build
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Ansible to build and standardize the template
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cleaning up the build with Ansible
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter assumes that you have access to a virtualization-capable environment
+    running Ubuntu 18.04 LTS. Some examples are also performed on CentOS 7\. In either
+    of these cases, the examples can be run on either a physical machine (or laptop)
+    running one of the aforementioned operating systems, with a process that has virtualization
+    extensions enabled or a virtual machine with nested virtualization enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ansible 2.8 is also used later in this chapter and it is assumed you have this
+    installed on the Linux host you are using.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All example code discussed in this chapter is available from GitHub at: [https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter05](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter05).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing the initial build
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As discussed in [Chapter 4](2b6b6bcd-287a-4ce9-a2fa-1ecccf3a174b.xhtml), *Deployment
+    Methodologies*, whether you are using a traditional virtualization platform such
+    as oVirt or VMware or a cloud-based one such as OpenStack or Amazon's EC2, your
+    starting point for any Linux deployments (and hence further automation) will be
+    a templated image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In terms of the SOE we defined in [Chapter 1](c7596fb8-4971-44d7-943a-7660c5eecb17.xhtml),
+    *Building a Standard Operating Environment on Linux*, the templated image is the
+    very real initial manifestation of this. It is usually a small virtual machine
+    image, with just enough software installed and configuration completed that it
+    is useful in almost all scenarios it might be deployed in for the enterprise.
+    As long as the image boots up cleanly with a unique hostname, SSH host keys, and
+    such, then it can be customized almost immediately using further automation as
+    we shall discover from [Chapter 7](200bea26-7066-4feb-a571-481a5f047ae4.xhtml),
+    *Configuration Management with Ansible*, later in this book. Let's dive into the
+    build process by taking a ready-made template image (provided by a third party)
+    as our starting point.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using ready-made template images
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For most platforms, there are a large number of readily available images for
+    you to download, and again, we discussed a few of these in the previous chapter.
+    For many enterprises, these images will be sufficient. However, what if you absolutely
+    need full control over your image definition? Perhaps you are adopting a new standard
+    (at the time of writing, Red Hat Enterprise Linux 8 has just been released, and
+    CentOS 8 will surely follow in due course), and you want to implement it early
+    to gain experience and test workloads. What if you operate in a secure environment
+    (perhaps payment card industry-compliant), and you absolutely have to have 100%
+    confidence in how the image was built and there can be no risk of compromise?
+  prefs: []
+  type: TYPE_NORMAL
+- en: This, of course, is not to say that any publicly available images are compromised
+    or even likely to be, but historically there have been a handful of *man-in-the-middle*
+    or *supply chain* attacks where attackers have compromised services not directly,
+    but rather indirectly by attacking common components that are used as building
+    blocks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most publicly available images come from trustworthy sources that have put in
+    place a variety of checks and controls to ensure their integrity. Provided you
+    make use of these checks, and perform due diligence on any images you download,
+    most enterprises will find little need to create their own images from scratch,
+    as automation tools such as Ansible will take care of all post-deployment configuration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a practical example: suppose that, for a new set of deployments,
+    we have decided to create an SOE based upon the Fedora 30 server image, and we
+    will be running this on an OpenStack infrastructure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We would download the cloud image from the official Fedora project web site—details
+    can be found here, though note that the version number will change over time as
+    new releases of Fedora arrive, at [https://alt.fedoraproject.org/cloud/](https://alt.fedoraproject.org/cloud/).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Upon establishing the correct Fedora cloud image for our environment, we can
+    download our required image with a command such as this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Simple enough—now, let's verify it. Verification instructions are normally provided
+    with all major Linux releases, whether for ISOs or complete images, and those
+    for our Fedora image download can be found at [https://alt.fedoraproject.org/en/verify.html](https://alt.fedoraproject.org/en/verify.html).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Let''s run through the process and validate our image. First of all, we will
+    import the official Fedora GPG key to validate the checksum file to make sure
+    it hasn''t been tampered with:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we will download the checksum file for the cloud base images and verify
+    it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Although you may get a warning about the key not being certified by a trusted
+    signature (this is a facet of the way GPG key trust is established), the important
+    thing is that the signature of the file is validated as good—see the following
+    screenshot for an example of the output:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/68e73909-46e1-444f-9321-e319b0c49493.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'As long as the signature verifies successfully, the last step is to validate
+    the actual image against the checksums themselves, with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You will get errors for any files that are in the `*-CHECKSUM` file that you
+    haven''t downloaded, but as you can see in the following screenshot, our downloaded
+    image matches the checksum in the file and so we can proceed to use it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/80e48215-c119-48d2-9e3c-27370deea527.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: With these steps completed, we can proceed to use the downloaded image in our
+    OpenStack platform. You may, of course, want to customize this image after deployment,
+    and we will look at ways to do this later in this book. Just because you have
+    chosen an *off-the-shelf* image does not mean it has to remain that way. Note
+    that these steps will vary slightly for each Linux distribution, but the high-level
+    procedure should be the same. The important thing is to validate all downloaded
+    images.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is also an issue of trust surrounding the use of publicly available operating
+    system images. How do you know that the author removed all redundant services
+    and sysprepped the image correctly? How do you know that there are no back doors
+    or other vulnerabilities? Although there are many excellent publicly available
+    images out there, you should always perform due diligence on any that you download
+    and ensure they are fit for your environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What if you absolutely have to generate your own image, however? We will explore
+    this in the next part of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating your own virtual machine images
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The preceding process described will be fine for many enterprises, but sooner
+    or later, the requirement will come about to create your own completely customized
+    virtual machine image. Fortunately, modern Linux distributions make it easy to
+    achieve this, and you don't need to even be on the same platform as you are building.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at building a CentOS 7.6 virtual machine image using an
+    Ubuntu 18.04 Server host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first step before we begin is to ensure that the build host is capable of
+    running virtual machines—this is normally a set of CPU extensions that are included
+    with most modern x86 systems. It is also possible to build virtual machine images
+    using nested virtualization, that is, to create a virtual machine within another
+    virtual machine. However, to do this, you will have to enable virtualization support
+    in your build VM. The process for this varies from one hypervisor to another,
+    and so we will not go into detail on this here.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If you are using a VMware hypervisor to perform nested virtualization, you will
+    need to enable **code profiling** support for the CPU as well as enabling **hypervisor
+    applications**—some of the steps in this process will fail otherwise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once you have your build host up and running, you will need to install the
+    Linux **Kernel-based Virtual Machine** (**KVM**) toolset—the commands to do this
+    will vary depending upon your build host version of Linux, but on our Ubuntu host,
+    we need to run the following commands:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note the need to add your user account to two KVM-related groups—you will also
+    need to log out and back in again for these group changes to take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once this is complete, you will also need to download a local copy of the ISO
+    image for your chosen Linux image. I use the following command to download an
+    ISO image as it is sufficient for the CentOS 7.6 SOE image I am going to create:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: With all of these pieces in place, you will now create an empty virtual machine
+    disk image. The best format to choose for this is the **Quick Copy On Write** (**QCOW2**)
+    format, which is compatible with OpenStack and most public cloud platforms. Hence,
+    we will make this image as generic as possible to enable the widest array of support
+    possible.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'To create a blank 20 GB QCOW2 image in the current directory, we would run
+    the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that other image formats are available. If, for example, you were building
+    exclusively for VMware, it would make sense to use the VMDK format instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that both these commands create sparse images—that is, they are only as
+    big as the data and metadata they contain. They can be turned later into pre-allocated
+    images by your chosen hypervisor platform if you wish:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6a50e71b-ae66-42ef-b2ec-7ea8e0f67efd.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'With the empty disk images created, it''s time to install the VM image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use the `virt-install` command to achieve this, which basically runs
+    up a temporary VM for OS installation. Don't worry about parameters such as CPU
+    and memory—as long as these are sufficient for the OS installation to be run,
+    they will be fine—they do not have any bearing on the deployed virtual machine.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Note the use of VNC in the `--graphics vnc,listen=0.0.0.0` option—we will use
+    this to remotely control the virtual machine and complete the installation. You
+    can choose another graphics option, such as SPICE, if you prefer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following command is an example of how to use `virt-install` to create
+    a CentOS 7 image from the ISO we downloaded earlier, using the preceding 20 GB
+    QCOW2 disk image we created:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Most of these parameters are self-explanatory, but pay particular attention
+    to your environment. For example, if you have edited or removed the `default`
+    network, the preceding command will fail. Similarly, ensure the correct paths
+    for all files referenced.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To see the list of supported `--os-variant` parameters, run the `osinfo-query
+    os` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Naturally, you would vary these parameters according to the operating system
+    you are installing, your disk image name, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For now, let''s run this command—when successful, it should inform you that
+    you can connect to the virtual machine console to continue:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/eb890b7d-29e5-4b31-9335-642fcde2a1df.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'We will now connect to it from another shell using the `virt-viewer` utility:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'From here, you will install the operating system in the normal way. As we have
+    discussed in [Chapter 4](2b6b6bcd-287a-4ce9-a2fa-1ecccf3a174b.xhtml), *Deployment
+    Methodologies*, try to go for the most minimal install that you can. Don''t worry
+    too much about hostname and such, as these should get set later as part of the
+    deployment process; specify the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Choose KEYBOARD and LANGUAGE SUPPORT most relevant to your locale.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Choose the appropriate DATE & TIME settings for your country.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Ensure SOFTWARE SELECTION is Minimal Install (this is the default).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Set INSTALLATION DESTINATION—there will only be one virtual hard drive attached
+    to this VM using the preceding `virt-install` command, so this is simply a matter
+    of selecting it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Enable or disable KDUMP as appropriate.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Ensure networking is enabled under NETWORK & HOST NAME.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The resulting CentOS 7 installation settings screen should look something like
+    the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7ff215f0-0956-47b4-a09b-f255467de7e3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Allow the installation to complete as normal, and then log into the VM you have
+    just created. Once logged into the running VM, you should perform any and all
+    customization that you want to appear in the final version of the VM template.
+    In the next section of this chapter, we will go into the use of Ansible for configuring
+    deployed virtual machines, and using it to build templates is no different—hence,
+    to prevent overlap with later chapters, we will not go into details of Ansible
+    configuration work here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When your VM goes to reboot after the initial installation, you may find that
+    it shuts down. If it does, you will need to undefine it using the `virsh` utility,
+    and then run it again using a slight variant on our previous `virt-install` command,
+    telling `virt-install` to boot this time from the hard drive image rather than
+    the CD:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It is worth noting at this stage that most cloud platforms, whether OpenStack,
+    **Amazon Web Services** (**AWS**) or otherwise, all make use of the `cloud-init`
+    utility to perform the initial configuration of the virtual machine image once
+    it is deployed and running. Hence, as a bare minimum, we will install this in
+    our VM image before we shut it down. The following are the listed commands required
+    to install this manually and, in the next section, we will turn this into an Ansible
+    role for installation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you have completed these commands successfully, you will probably need
+    to customize `/etc/cloud/cloud.cfg` to configure `cloud-init` for the environment
+    you will use it in, although the default configuration serves as a good start
+    for many environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring `cloud-init` is left as an exercise for you, given the wide variety
+    of cloud platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, when you have performed any other customization you need, you can now
+    shut the virtual machine down. Make sure to shut it down cleanly rather than simply
+    powering it off, as this is going to become a template to be deployed at scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the virtual machine has been shut down, the next step is to run **system
+    preparation** (**sysprep**) on the image, and then to compact the sparse image
+    file to make it as small as possible for distribution and archival.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The process of sysprepping is to prepare an image for deployment at scale.
+    Hence, all uniquely identifiable parameters will be wiped to produce a clean image
+    for deployment at scale, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: SSH host keys
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: History files
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Local session configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Log files
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: MAC address references in network configuration
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The preceding list is not exhaustive though—there are numerous items to clean
+    up for an image to be considered truly clean and ready for deployment, and it
+    would warrant an entire chapter by itself to explain them all. Fortunately for
+    us, there are two commands in the suite of KVM tools that perform exactly these
+    tasks for us:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Although the output from the first command is too lengthy to fit in a single
+    screenshot, it shows the wide variety of tasks that are considered necessary as
+    part of sysprep, and if you find yourself running through this process either
+    manually or with Ansible, the `virt-sysprep` utility should give you a good guideline
+    as to the tasks you should perform:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/82944a6d-dce7-43a5-b01e-f29bd8eefc68.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Finally, we re-sparsify the disk image, effectively compacting it for efficient
+    storage. Note that if you get any free space warnings when running this tool (it
+    requires a great deal of space in `/tmp` by default—the exact amount will be determined
+    by the size of your virtual disk image), you should generally not ignore them,
+    as there is a chance the utility will fill up your partition, hence stopping your
+    build host from working correctly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8f5bb278-21b5-4515-961a-50d27b21df6d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The steps performed in this part of this chapter should work for just about
+    any Linux distribution, being built on just about any Linux host. As ever, refer
+    to the documentation for your preferred distribution for guidance on package names.
+    Nonetheless, by following this process, you have now successfully built yourself
+    a completely bespoke cloud image, which you should be able to upload to many of
+    the popular cloud and hypervisor platforms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: From here, we will take a more detailed look at customizing the template with
+    Ansible, rather than entering commands manually as we did in this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Ansible to build and standardize the template
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You should, by now, have a base Linux image for deployment in your enterprise.
+    If you chose to download a ready-made template (or indeed, to make use of one
+    provided by a public cloud provider), then your image will be very much a blank
+    template, ready for customization. If you chose to build your own, then you may
+    have already chosen to perform a small amount of customization such as the installation
+    of `cloud-init` that we performed earlier. You will note, however, that we did
+    this by hand, which is hardly along the line of the scalable, repeatable, auditable
+    processes that we have lauded throughout the early parts of this book. As we proceed
+    through this section of this chapter, we will take a look at how to customize
+    a base template, regardless of its origin, using Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is no one-size-fits-all Linux image that will suit everyone, and as a
+    result, this chapter is not definitive. We will, however, look at some of the
+    more common tasks that might be associated with customizing as an image for deployment,
+    such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transferring files into the image
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installing packages
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Editing configuration files
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Validating the image
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Through a combination of these examples, most readers should be able to customize
+    their own images to their requirements with ease. Let's start exploring this in
+    greater depth with a look at how to transfer files into the virtual machine image
+    we created previously using Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transferring files into the image
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It is commonplace, in the experience of the author, to need to *inject* files
+    into an operating system image to ensure it meets a given set of requirements.
+    These files might be a simple text file, such as an enterprise-standard *message
+    of the day*, a configuration file for an existing package, or perhaps even a binary
+    file that is not available in a package. Ansible can handle all of these with
+    ease, so let''s look at some specific examples. As it is generally good practice
+    to write your Ansible code in roles to support reuse and readability, we will
+    define a role for our example here. In this example, I am making the following
+    assumptions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have downloaded/built our Linux template as outlined in the previous section
+    of this chapter.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We are running this bare template in a virtual machine.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The IP address of this virtual machine is `192.168.81.141`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The virtual machine has a user account already set up with the following credentials:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Username: `imagebuild`.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Password: `password`.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This account is sudo-enabled.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Naturally, we would not distribute a cloud image with a sudo-enabled account
+    that uses a weak password like this, so we are assuming we will use this account
+    during the build phase only and then will remove it during the cleanup phase.
+    Ansible needs to be able to connect to a remote host to perform its magic, but
+    the account it uses can be transient in nature and removed after use:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Under our example, we would create an inventory file that looks like this—yours
+    will undoubtedly be different and customizing it for your image and environment
+    is left as an exercise for you:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is a very simple example; in many ways, it is the bare minimum needed for
+    this process when we do not have SSH key authentication configured. Often SSH
+    keys are the best way to handle SSH authentication as they offer several benefits,
+    not least that tasks can run without a password prompt.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although this inventory file is intended to be transient in nature, it is still
+    best practice to use `ansible-vault` to store passwords and this is recommended
+    here. For the sake of simplicity in this chapter and to reduce the number of steps
+    that you need to complete, we will leave the passwords unencrypted (in cleartext).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we''ll create the basic directory structure for our role:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let''s create a few sample files to copy across. First of all, create
+    a customized message to append to the message of the day in `roles/filecopyexample/files/motd`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s also create a new configuration file for the `chrony` service to synchronize
+    time to our corporate time servers in `roles/filecopyexample/files/chrony.conf`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We intend to copy these two files across to the remote server. However, Ansible
+    is not limited to copying files from the Ansible host—it can also download files
+    from a remote server directly to the target host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's suppose your build is going to need `docker-compose`—we could download
+    this from an internal server, or even directly from the internet if your image
+    machine has access to the internet. Suppose we want to install `docker-compose` 1.18.0
+    into our images, we can instruct Ansible to download this directly from [https://github.com/docker/compose/releases/download/1.18.0/docker-compose-Linux-x86_64](https://github.com/docker/compose/releases/download/1.18.0/docker-compose-Linux-x86_64).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Now, let''s build our role to copy across our two files and download `docker-compose` into
+    our image—this must be written in `roles/filecopyexample/tasks/main.yml`. The
+    first part of this role is shown in the following code, and serves to copy across
+    the two configuration files we discussed earlier:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The role then continues, with the task of installing `docker-compose` on the
+    VM image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Hence, our role is now complete, though be sure to customize it correctly for
+    your environment. For example, it is likely a newer version of `docker-compose`
+    might be available and this will mean a change to the `url` parameter of the preceding `get_url`
+    module.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The path of the `chrony` configuration file may vary depending on your operating
+    system—check this before running the preceding playbook. The path shown in the
+    example is suitable for a CentOS 7 system like the one we built earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we will create a file in the top-level directory (where the `roles/` directory
+    was created) called `site.yml` to call and run this role. This should contain
+    the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, let''s run our example with the `ansible-playbook -i hosts site.yml` command and
+    see what happens:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/95176795-3eef-4217-91fa-9184a6a6388f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As we can see, the `changed` statuses tell us that all three of our files were
+    transferred or downloaded successfully, and by way of example, we can see that
+    it is now possible to run `docker-compose`, which was installed during the playbook
+    run (though this would require Docker to run correctly, which we have not installed
+    as part of this example).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Obviously this example has made a fundamental assumption—that the `chrony` package
+    was installed on our example image during the build phase. Although it makes sense
+    to start with a minimal operating system image for the reasons we have discussed
+    previously, there is almost certainly going to be a requirement to install a few
+    supplemental packages on the basic build, and we will explore this in the next
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing packages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We have looked at how to install a standalone binary such as `docker-compose` in
+    the previous section—but what if we need to actually install some additional operating
+    system packages that were not installed in our base image? For example, `cloud-init` is
+    incredibly useful in most cloud environments but was not included in our minimal
+    CentOS 7 install that we performed earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here, again, Ansible can help—this time, we will define a role to install the
+    packages we require. We''ll reuse the inventory file from the previous section
+    and create a new role called `packageinstall` in the same manner that we did before:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, the preceding example on copying files would work on all Linux distributions—the
+    only thing you need to be mindful of is where destination files might life. For
+    example, our CentOS 7 VM image will have the `chrony` configuration file installed
+    in `/etc/chrony.conf`, whilst an Ubuntu 18.04 LTS server would have it in `/etc/chrony/chrony.conf`.
+    Apart from this small change to the `dest:` parameter of the `copy` module, the
+    code would remain the same.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Unfortunately, it gets a little more complex with package installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s suppose we want to install `cloud-init` and `docker` on our CentOS 7
+    example image—the role required to do this might look like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We must install the EPEL repository first, and then we can install the required
+    packages. When we run it, the output should look something like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/118e82be-2c14-41ed-85f8-006698478d55.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'If you are using a different Linux distribution, then you need to vary the
+    package manager accordingly. For example, on distributions that use the `apt`
+    package manager such as Debian or Ubuntu, the equivalent Ansible role would look
+    like the following block of code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note the change in module from `yum` to `apt`, and the different package name
+    used for the Docker container service. Other than that, the playbook is almost
+    identical.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can improve on this further—this different results in the need to maintain
+    two different roles for two different operating system bases—but what if we could
+    intelligently combine them into one? Fortunately, the facts that Ansible gathers
+    when it first runs can be used to identify the operating system and, as such,
+    run the correct code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will repurpose our earlier example code to combine both of these installations
+    into one Ansible role:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first part of the code is almost identical to the preceding example, except
+    that we have now specified the `when` clause to ensure it is only run on Debian-
+    or Ubuntu-based Linux distributions:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then add two further tasks that perform the required steps to install Docker
+    on CentOS or Red Hat Enterprise Linux:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice again the `when` clauses under each task—these specific examples are
+    used to determine whether the tasks should be run depending on the facts that
+    Ansible obtained during the initial part of the run. Hence, if we now run this
+    role on an Ubuntu system, we see the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/310c40fb-430c-4466-b821-3344f81faa97.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'As you can see, the first task related to `apt` was run, but the two following
+    ones based on `yum` were skipped because the conditions of the `when` clause were
+    not met. Now, if we run it on a CentOS 7 target instead, we see this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/03714111-8f66-426d-9fe6-a83fe2a30983.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The inverse is now true: the `apt` task was skipped, but the two `yum` related
+    tasks were run. In this way, it is possible to maintain a single role for installing
+    a common set of package requirements, even when dealing with several different
+    base operating systems. Combining `when` clauses with Ansible facts is a very
+    powerful way to ensure the correct behavior of a single code base across a variety
+    of systems, and hence if your SOE does extend to both Debian and Red Hat-based
+    systems, you can still maintain code with ease and simplicity.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once supplemental packages have been installed, they often must be configured
+    for them to be useful. In the next section, we will explore the use of Ansible
+    in editing configuration files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Editing configuration files
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far, all of the configuration work we have performed has been very black
+    and white—we are either installing something (be that a file or a package), or
+    we could equally and just as easily delete it (more on this in the section on
+    cleaning up). However, what if something more subtle is required? Earlier in this
+    chapter, in the section entitled *Transferring files into the image*, we replaced
+    the entire `chrony.conf` file with our own version. This, however, might be a
+    bit too much brute force—for example, we might only need to change one line in
+    a file, and replacing the entire file to change one line is a bit heavy-handed,
+    especially when you consider that the configuration file might get updated in
+    a future package version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take another common operating system image configuration requirement:
+    SSH daemon security. By default, CentOS 7 installations like the one we created
+    earlier allow remote logins from the root account. This is not desirable for security
+    reasons, so the question is, how do we update the SSH daemon configuration without
+    having to replace the entire file? Luckily, Ansible has modules for just such
+    a task.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To perform this task, the `lineinfile` module will come in handy. Consider
+    the following role, which we''ll call `securesshd`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we are using the `lineinfile` module to process the `/etc/ssh/sshd_config` file.
+    We are telling it to look for lines beginning with `PermitRootLogin` (this prevents
+    us from accidentally editing commented-out lines), and then to replace this line
+    with `PermitRootLogin no`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s try that against a CentOS 7 test system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/af064e87-0bc9-496d-847b-5ab293aaf16b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: This works just as desired. Regular expressions require a great deal of care
+    though. For example, the SSH daemon will process configuration lines that contain
+    whitespace at the beginning of the line. However, our simple regular expression
+    in the preceding code does not take account of whitespace, and so could easily
+    miss an otherwise valid SSH configuration directive. To craft regular expressions
+    that take account of all possible situations and permutations of a file is an
+    art in itself and so caution is most definitely advised in their creation and
+    use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that, on a live system, you would also need to restart the SSH service
+    to make this change effective; however, as this is an image that we will clean
+    up and then shut down for future deployment, there is no need to do this here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A halfway house between uploading an entire file and editing an existing one
+    is the use of templates. Ansible Jinja2 templating is incredibly powerful and
+    very useful where files might have to have contents that vary with some variable
+    parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consider again our `chrony` configuration example from earlier—here, we transferred
+    a static file with a hardcoded NTP server address. This is fine if your enterprise
+    relies on a static NTP server (or a set of them), but some will rely on different
+    NTP servers depending on where the image is to be deployed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s demonstrate this with a new role called `templatentp`. For this, we
+    will define a templates directory in `roles/templatentp/templates` and place into
+    it a file called `chrony.conf.j2` with the following contents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that the file is almost identical to the previous example, except that
+    we now have an Ansible variable name in place of the static hostname on the first
+    line of the file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create the `main.yml` file for the role as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice how similar it is to the `copy` example. Our `site.yml` is also only
+    slightly different—in it, we will define the variable with the NTP server hostname.
+    There are many places in Ansible where this variable could be defined, and it
+    is left to the user to figure out the best place for them to define it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we can run the playbook and see the results:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7de0ec1f-25fc-4092-b80c-ebeb2e8d8f65.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this way, Ansible provides you with powerful tools to not only copy or download
+    entire configurations into place, but also to manipulate existing ones to suit
+    your environment. Let's suppose that our image is now complete. We could take
+    this on faith, but good practice suggests we should always test the result of
+    any build process, especially an automated one. Thankfully, Ansible can help us
+    to validate the image we have created according to our requirements, and we will
+    explore this in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Validating the image build
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As well as installing and configuring your image, you might also wish to verify
+    that certain components that are critical, and that you assume to be present,
+    are actually present. This is especially true when you download an image that
+    was created by someone else.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are many ways to perform this task in Ansible—let's take a simple example.
+    Suppose you have an archival script that makes use of the `bzip2` compression
+    utility to compress files. This is just a small tool but if you rely on it for
+    certain purposes, your scripts would break if it was not present. It is also a
+    pertinent example, as the minimal install of CentOS 7 (as we performed earlier)
+    does not actually include it!
+  prefs: []
+  type: TYPE_NORMAL
+- en: How can Ansible solve this problem? There are two approaches we can take. First
+    of all, we know from our earlier background work on Ansible that most modules
+    are idempotent—that is, they are designed to achieve a desired state on the target
+    host and not repeat actions that have already been performed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Hence, we could have very easily included a role such as this in our configuration
+    playbook:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: When this role is run and `bzip2` is not installed, it will perform the installation
+    and return the result `changed`. When it detects that `bzip2` is installed, it
+    will return `ok` and perform no further actions. However, what if we truly want
+    to check for something rather than just perform an action, perhaps as a post-build
+    step? Later in this book, we'll look at more detailed ways of auditing systems,
+    but for now, let's further this example with Ansible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you were using shell commands, you would check for the presence of `bzip2` in
+    one of two ways, that is, query the RPM database to see whether the `bzip2` package
+    is installed or check for the presence of `/bin/bzip2` on the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s look at the latter example in Ansible. The Ansible `stat` module can
+    be used to verify the existence of a file. Consider the following code, which
+    we''ll create in a role called `checkbzip2` in the usual manner:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we are using the `stat` module to tell us about the `/bin/bzip2` file (if
+    it exists). We `register` the result of the module run in a variable called `bzip2result`,
+    and then we define a custom failure condition on the task that will cause it to fail
+    (and hence fail the entire the playbook run) if the file does not exist. Note
+    that when a failure condition is encountered, Ansible halts the entire playbook
+    run, forcing you to address the issue before continuing. Obviously, this may or
+    may not be the behavior you desire, but it is easy to vary the failure condition
+    accordingly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at this in action:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/3d627adc-f501-46ab-a37b-6474a298e5a7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As you can see, the debug statement was never run because of the failure encountered.
+    Hence, we can be absolutely sure when running this role that our image is going
+    to have `bzip2` installed—if it doesn't, our playbook will fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once `bzip2` is installed, the run looks quite different:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/85c4f010-3e8f-4b78-9f21-b39d247d77f2.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'This is quite definitive in its behavior, which is exactly what we would want.
+    Ansible is not just limited to checking for files though—we could also check that
+    our `sshd_config` file has the `PermitRootLogin no` line we looked at earlier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We could do this with a role as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, running this when the setting is not in place again yields a failure:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/05d02a35-5796-4186-9d62-3dbdcce8cb43.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Yet if we put this setting in place, we see the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/a643a45e-26cb-4d34-8b7c-a0ea4317a81b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Again, it's very definitive. Note the `changed` status in the preceding output—this
+    is so because we used the `command` module, which successfully ran `command`—hence,
+    it always returns `changed`. We could alter this behavior with a `changed_when` clause
+    to this task if we wanted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this manner, Ansible playbooks can be put together that not only customize
+    your build but also validate the end result. This is especially useful for testing
+    purposes, and where security is a consideration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before completing this chapter, let's take a look, in the next section, at how
+    we pull together all of the disparate roles and pieces of code we have discussed
+    so far to form a cohesive automated solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Putting it all together
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Throughout this section of this chapter, you will note that we have used roles
+    for all of our examples. Naturally, when it comes to building out your final image,
+    you don''t want to end up running lots of playbooks individually as we have done
+    here. Luckily, if we were to combine everything, all we would need to do is put
+    all of the roles together in the `roles/` subdirectory, and then reference them
+    all in the `site.yml` playbook. The `roles` directory should look something like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, our `site.yml` file will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Running this code is left as an exercise for the reader, as we have already
+    run all of the component parts earlier in this chapter. However, if all goes well
+    then, when all roles have completed, there should be no `failed` statuses—just
+    a mixture of `changed` and `ok`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you have run through the process of post-build customization, as detailed
+    in this chapter, the resulting image will likely need cleaning up a second time.
+    We could resort to the `virt-sysprep` command again, however, Ansible can help
+    us here too. In the next section, we will explore the use of Ansible for cleaning
+    up images for large scale deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cleaning up the build with Ansible
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By now, you should have a pretty good idea of how to build or validate a base
+    image, and then customize it with Ansible. Before we close this chapter, it is
+    worth revisiting the task of cleaning up your image for deployment. Whether you
+    have built an image from scratch or downloaded a ready-made one, if you have booted
+    it up and run commands on it, either manually or using Ansible, you are likely
+    to have a whole load of items that you really don't want present every time you
+    deploy the image. For example, do you really want all of the system log files
+    from every configuration task you performed and the initial boot to be present
+    on every single virtual machine deployed? If you had to run any commands by hand
+    (even if it was to set up authentication to allow Ansible to run), do you want
+    those commands in the `.bash_history` file of the account you ran them in on every
+    deployment?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The answer to these is, of course, no. Then there are those files that could
+    actually cause problems if cloned—for example, duplicate SSH host keys or MAC
+    address-specific configurations such as `udev` configuration data. All of this
+    should be cleaned out before you consider the image ready for distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ansible can help with this task too, although it is recommended that you use
+    the `virt-sysprep` tool that we demonstrated earlier in this chapter, as this
+    takes care of all of these steps for you. There might be a reason why you don't
+    want to use this tool—perhaps you don't have access to it in your environment,
+    or there isn't a build for your preferred distribution of Linux. In this instance,
+    you can use Ansible to perform the final cleanup. The great thing about Ansible
+    is that you can use the built-in modules, as we have demonstrated so far in this
+    chapter, but you can equally use raw shell commands—this can be especially useful
+    when you need to perform wildcard operations across a filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following is an example of a role that relies on raw shell commands to
+    clean up an image in preparation for deployment. It is not as complete as the
+    job performed by `virt-sysprep`, but does serve as a good example of how this
+    could be performed using Ansible. Note that this example is specific to CentOS
+    7—if using a different operating system, then it will be necessary to change paths,
+    package database cleanup commands, and so on. Hence, this playbook is presented
+    to the reader very much as a practical example of how the cleanup could be performed
+    in Ansible, though it is intended that the reader takes this further depending
+    on their own requirements. First of all, we clean out the package database, as
+    this data need not be replicated across deployments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then continue by clearing out the logs—this is achieved by stopping the
+    logging daemon, forcing a rotation of the logs, and then recursively deleting
+    the directory containing them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then clear our hardware and MAC address-specific configurations that would
+    be invalid on a deployed VM image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Following this, we clear out `/tmp` and remove any history files from user
+    home directories. The following example is not complete, but does show some pertinent
+    examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we perform our final task—in this case, the removal of the SSH host
+    keys. Note that following this, we also shut down the VM—this is performed as
+    part of this command to prevent accidental creation of any additional history
+    or logging data. Note also the `ignore_errors` clause, which prevents the playbook
+    from failing when the shutdown occurs and the SSH connection is terminated:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Running this code on a CentOS 7 VM will result is a fairly well-cleaned image,
+    but there are specifics not covered here. For example, we have cleared out all
+    bash history, but if any alternate shells were used, their data would not be cleaned.
+    Similarly, we have cleaned out VIM application data from root's home directory,
+    but not any other applications that may or may not have been used during the image
+    creation. Hence, it is up to you to extend this role as you require in your environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By this stage, you will have run through the entire process, end-to-end, of
+    creating, customizing, and cleaning up a Linux operating system for our proposed
+    SOE. Effective use of Ansible means that the entire process can be automated,
+    and hence enables us to make a strong start toward automation in the enterprise.
+    All that remains is to deploy the template we have created into your environment,
+    and from here, you can clone it and build on it to your heart's content.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We have seen several hands-on examples of how to obtain or build Linux virtual
+    machine images for use in a wide variety of scenarios and environments. We have
+    seen how Ansible lends itself to automating this process, and hence how it complements
+    the image build process to support the good practices we have previously discussed
+    for automation in the enterprise and, in particular, the creation and management
+    of an SOE.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, you learned how to build Linux images for templating purposes
+    and indeed obtain and verify ready-made ones. You then learned through practical
+    examples how to customize these template images with Ansible, covering key concepts
+    such as package installation and configuration file management. Finally, you learned
+    how to ensure that image builds are clean and tidy and do not contain data that
+    would either be wasteful or harmful to replicate across and infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter of this book, we will look at how to create standardized
+    images for use on bare metal servers and in some traditional virtualization environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the purpose of system preparation (sysprep)?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When would you need to make use of Ansible facts in your roles?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you deploy a new configuration file to a virtual machine image using
+    Ansible?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which Ansible module is used to download a file from the internet directly into
+    a virtual machine image?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you write a single Ansible role that will install packages on both
+    Ubuntu and CentOS?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why would you wish to validate an ISO image you have downloaded?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How does the use of Ansible roles at this stage benefit the environment once
+    it is deployed?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For an in-depth understanding of Ansible, please refer to *Mastering Ansible*,
+    *Third Edition* by *James Freeman* and *Jesse Keating*, available at [https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition](https://www.packtpub.com/gb/virtualization-and-cloud/mastering-ansible-third-edition)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For more details on the use of KVM for virtualization on Linux, please refer
+    to *Mastering KVM Virtualization* by *Prasad Mukhedkar*, *Anil Vettathu*, *Humble
+    Devassy Chirammal*, available at [https://www.packtpub.com/gb/networking-and-servers/mastering-kvm-virtualization](https://www.packtpub.com/gb/networking-and-servers/mastering-kvm-virtualization)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

@@ -1,0 +1,1281 @@
+- en: '18'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Shell Scripting for Security Professionals
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we’ll do things a bit differently. Instead of showing you new
+    scripting concepts, I’ll show you how to use the concepts that you’ve already
+    learned to perform chores that a security professional might need to do.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, you could do many of these chores with a more complex program, such
+    as `nmap`. But, there may be times when these tools won’t be available to you.
+    In this chapter, I’ll show you some simple scripts that can do some of these jobs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Topics in this chapter include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Simple scripts for auditing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating simple firewall scripts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Searching for existing security-related scripts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Okay, I know that you’re anxious to get started. So, let’s go.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical Requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For the Linux demos in this chapter, I’ll use a Fedora Server virtual machine.
+    That’s because these demos will use features and utilities that are unique to
+    Red Hat-type distros, such as Fedora. However, you can easily adapt them to other
+    Linux distros, such as Ubuntu or Debian, if you desire.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I’ll also be showing you some things on OpenIndiana and FreeBSD. On your FreeBSD
+    virtual machine, I’m assuming that you’ve already installed `bash`, and set up
+    a normal user account with full `sudo` privileges, as I’ve shown you in *Chapter
+    12, Automating Scripts with here Documents and expect*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Also, as always, you can grab the scripts from Github by running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Simple Scripts for Auditing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you’re used to using `nmap`, you already know how awesome it is. You can
+    use it for many types of auditing and network security chores, such as scanning
+    ports or identifying operating systems on remote machines. But, if you ever find
+    yourself in a situation where `nmap` isn’t available to you, know that you can
+    do some of your `nmap` chores with some simple shell scripts. Let’s begin with
+    something simple.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifying an Operating System
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can get a rough idea of what operating system is running on another machine
+    by pinging it, and looking at the **Time-to-Live** (**TTL**) figure in the response.
+    Here’s how it works:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`64`: If the TTL of a ping response is 64, then the operating system of the
+    target machine is Linux, some sort of BSD, or macOS.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`128`: A 128 TTL indicates that the target machine is running Windows.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`255`: This indicates that the target machine is running either Solaris or
+    a Solaris clone, such as OpenIndiana.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Here’s the output of a normal ping command. (Note that I’m using the `-c1`
+    option, which means that I’m only sending one ping packet.) This shows the TTL
+    field:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the second line of output, you see `ttl=128`, which indicates that I’ve
+    just pinged a Windows machine. Now, here’s the `os-detect.sh` script, which automatically
+    interprets the TTL field:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the second line, I’m using the `$1` positional parameter to represent the
+    IP address of the target machine. I’m also piping the `ping` output into `head`
+    and then `tail` in order to isolate the second line of output, which contains
+    the TTL field. I then pipe this second line into `cut`, using the `=` as the field
+    delimiter to isolate the third field, which in this example with Windows is `128
+    time`. Finally, I pipe the value of this third field into `cut`, in order to isolate
+    just the TTL number. This TTL number will be the value of the `ttl` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we have the `if. .elif. .else` construct to identify the target machine’s
+    operating system. Now, here’s the script in operation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: For the record, the first machine is running Windows 10, the second one is running
+    FreeBSD, and the third one is running OpenIndiana. So, that’s easy, right? Hang
+    on though, because I do need to point out a couple of caveats.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, is the obvious fact that this script can’t provide much detail about
+    the operating systems on the target machines. In fact, it can’t even differentiate
+    between Linux, BSD, or macOS operating systems. The second caveat is that you
+    can only use this script to scan machines that are on your local network, because
+    sending ping packets across a network boundary changes the TTL value. Thirdly,
+    you can run this script from either a Linux or a BSD machine, but you can’t run
+    it from a Solaris/OpenIndiana machine. That’s because Solaris and OpenIndiana
+    use a different implementation of the `ping` utility that doesn’t show anything
+    other than the fact that the target machine is up. And lastly, if the target machines
+    have firewalls that are configured to block ping packets, then this script won’t
+    work at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, even though this script could be a handy tool for a quick analysis of machines
+    on your local network, you’ll need to use `nmap` or some other equivalent tool
+    to get more detailed information, to scan machines on another network, or to scan
+    machines with firewalls that block ping packets. For example, using `nmap` with
+    the `-A` option allows `nmap` to somewhat accurately detect the operating system
+    of the target machine. Here’s how it looks when I scan a FreeBSD 14 machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, you see what I meant when I said that `nmap`'s operating system detection
+    is *somewhat* accurate. The scan results show that I’m scanning a FreeBSD 12 or
+    FreeBSD 13 machine, even though it’s really a FreeBSD 14 machine. But, FreeBSD
+    14 is still quite new, so it’s probable that the fingerprint for it hasn’t yet
+    been added to the `nmap` database. On the positive side, at least this accurately
+    tells us that it’s some sort of FreeBSD machine, instead of just telling us that
+    it could be FreeBSD, Linux, or macOS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the other hand, you might find times when our simple script works better.
+    For example, look at what happens when I do an `nmap -A` scan on an OpenIndiana
+    machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you saw earlier, our script correctly identified this machine as either a
+    Solaris or OpenIndiana machine. But, `nmap` can’t identify it at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Simple Port-scanning Script
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'This is a cool little script that you can use to scan either local or remote
+    machines for open network ports. If you’re new to network scanning, a network
+    port can be in any one of three states. Here are the relevant definitions of those
+    states:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`open`: An open port is one that has an associated network service running,
+    and that is not blocked by a firewall. For example, you would expect to find Port
+    22 open on a server that has its Secure Shell service running, and Port 443 open
+    on a webserver that’s using an encrypted connection. By observing which ports
+    on a remote machine are open, you can tell which network services are running
+    on that machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`closed`: A closed port is one that does not have an associated service running,
+    and that is not blocked by a firewall.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`filtered`: A filtered port has been blocked by a firewall.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This script works by using the network capability that’s built into the GNU
+    implementation of `bash` that comes on Linux and newer versions of macOS. It works
+    by using either the `/dev/tcp` or the `/dev/udp` device on your Linux system.
+    What’s crazy though, is that you won’t find either of these device files in the
+    `/dev/` directory. That’s because they’re hard-coded into the `bash` executable.
+    You can use the `strings` utility to verify that, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: In case you’re wondering, `strings` allows you to view text strings that are
+    embedded into binary executable files. Also, be aware that this networking capability
+    is only built into the GNU implementation of `bash`, which means that you can
+    run these commands on either Linux or a newer version of macOS, but not on other
+    Unix/Unix-like distros such as FreeBSD or OpenIndiana.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The simplest way to illustrate this is to manually query a port that will provide
+    feedback. Here, I’m querying Port 13 on a remote network time server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You’ll also get feedback from Port 22, the SSH port, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: This one takes a bit longer to complete, because it takes a while for the authentication
+    timer on the target machine to time out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In both of these examples, note how I’m using the input redirector (`<`) to
+    obtain input from the `/dev/tcp` device. Then, after the `/dev/tcp/` part, I place
+    the IP address of the target machine, and finally the port that I want to scan.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Most ports won’t provide you with any kind of feedback. But, you can still
+    tell if a port is open by how quickly the command executes. For example, if you
+    query Port 53 on a DNS server, you should see that the command completes execution
+    immediately, as you see here with the Google DNS server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, I know that Port 53 is open. But, if I query a port that isn’t open, such
+    as Port 54 in this case, it will be a very long time before the command-prompt
+    returns with an error message, as you see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s leverage this knowledge by creating the `bash-portscan1.sh` script,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It’s rather long, so I’ll break it down into sections. Here’s the top part:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To run this script, you’ll need to specify either the hostname or the IP address
+    of the target machine, along with the range of ports that you want to scan. Easy
+    enough so far, right? Next, we want to verify that the target machine is actually
+    up, and create a variable assignment that we can use in the next step. Here’s
+    how that looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The value of the `ping` variable will be greater than 1, most likely 2, if
+    the target machine is up and accessible. If the target machine isn’t accessible,
+    the value will just be 1\. To see how this works, run this from the command-line,
+    leaving off the `wc -l` part, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: I first pinged a machine that’s up, and got two lines of output. I then pinged
+    a fictitious machine, and only received one line of output. The `wc -l` command
+    will count those lines and assign the appropriate value to the `ping` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we have the `if. .else` block that causes the script to exit if the target
+    machine isn’t up. Here’s how that looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note how I had to surround `$ping` with a pair of double quotes. That’s because
+    the value of `ping` will contain blank spaces, non-alphanumeric characters, and
+    might consist of more than one line. Without the double quotes, `bash` won’t interpret
+    the value of `ping` correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we have the `for` loop that does the actual port scan. Here’s how
+    it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: This starts by assigning the value of the `startport` variable to the `counter`
+    variable. The loop will continue as long as the value of `counter` is less than
+    or equal to the value of `stopport`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, here’s how it looks when I run the script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the first instance, I scanned a range of ports, beginning with Port 20 and
+    ending with Port 22\. Then, I scanned only Port 53 on the Google DNS server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So you see, this works fine with either local or remote targets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So far, we’ve only scanned TCP ports. But, you can also scan UDP ports by making
+    one simple modification, as I’ve done in the `bash-portscan2.sh` script. In the
+    `for` loop, just change `tcp` to `udp`, so that it will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Of course, you can fancy things up a bit more if you like. For example, you
+    could combine the TCP and the UDP scan functions together into one script, and
+    have some sort of menu that allows you to choose the one you want to do. Heck,
+    for that matter, you could even add a `yad`, `dialog`, or `xdialog` interface.
+    (I’ve shown you the techniques for all this in *Chapter 16, Creating User Interfaces
+    with yad, dialog, and xdialog*.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, you can get more detailed information about your target by using `nmap`
+    to perform the scan, which would look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This `-sS` type of scan, which is known as a SYN packet scan, requires `sudo`
+    privileges. However, you can also do a `-sT` type of scan, which doesn’t require
+    `sudo` privileges. Scanning open ports with our homemade script runs almost instantaneously.
+    But scanning closed or filtered ports can be, but not always, faster with `nmap`.
+    Still though, there is one possible advantage for using our script. It’s just
+    that certain types of `nmap` scans can be blocked by adding a few rules to the
+    target machine’s firewall. So, if you try to run an `nmap` scan against a machine
+    and get no results, you might try using the script, instead. On the other hand,
+    scanning open ports with the script can be a bit less stealthy, because it will
+    leave tell-tale messages in the target machine’s system log files. For example,
+    here’s the set of messages that resulted from using the script to scan Port 22
+    on an AlmaLinux 9 machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Using the script to scan other open ports will create similar messages, while
+    scanning closed ports won’t create any messages at all. If you use the script
+    to scan an open webserver port, such as Port 80 or Port 443, you’ll instead see
+    messages like this one in the webserver’s `access_log` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: But, `nmap` won’t create any messages like these unless the target machine’s
+    firewall is configured to log packets that come from `nmap` scans. So, there are
+    advantages and disadvantages for both approaches.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On Red Hat-type machines, such as AlmaLinux, Rocky Linux, and RHEL, these messages
+    will show up in the `/var/log/secure` file. On other distros, these messages might
+    show up in either the `/var/log/messages` file or the `/var/log/syslog` file.
+    Some Linux distros, such as Debian, no longer create any of these files by default.
+    For them, you’ll need to either use the `sudo journalctl` command to view the
+    messages, or install the `rsyslog` package from the normal distro repository so
+    that you can have the normal text-mode log files..
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s do something a bit more complex.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Auditing the root User Account
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Since I’m a security geek, I always advocate setting up Linux and Unix systems
+    with the root user account disabled. That’s easy to do on many modern Linux systems,
+    because you can configure things properly in the system installer. In fact, the
+    Ubuntu installer won’t even let you enable the root user account, and will just
+    automatically add the account that you created for yourself to the `sudo` group.
+    (You can enable the root user account after you’ve installed the operating system,
+    even though that’s not recommended practice.) For other Linux distros, such as
+    Debian, Fedora, or members of the RHEL family, enabling the root user account
+    during installation is optional. On most Unix-like systems such as FreeBSD and
+    OpenIndiana, the installer will assign a password to the root user account. On
+    FreeBSD, after installation has been completed, you’ll have to manually install
+    `sudo`, set up a normal user account to use it, and then disable the root user
+    account. On OpenIndiana, the normal user you create when you install the operating
+    system will already be configured to have full `sudo` privileges, and the root
+    account will also be enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So now, you want an easy way to audit your systems to see if the root user on
+    them is enabled. Let’s begin by setting up a script that works equally well on
+    either Linux or OpenIndiana systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the root Account Auditing Script for Linux and OpenIndiana
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: We’ll begin with the `rootlock_1.sh` script, which you can download from the
+    Github repository. This is another one of those scripts that’s too long to show
+    here in its entirety. That’s okay though, because it’s easier to explain if I
+    break it down into sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first thing I want to do is to initialize a couple of variables, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: OpenIndiana and most Linux systems come with `bash` installed by default, and
+    both use the same shadow file system. So, the same exact script works for either
+    one. Eventually though, I might want to modify it so that it will run on some
+    of the BSD-type operating systems, which are set up differently. To prepare for
+    that, I’ll use the output of the `uname` command as the value for the `os` variable,
+    so that I can ensure that the correct code will always run on each operating system.
+    I also want to know how many user accounts there are that have an assigned UID
+    value of 0, so I’ll create the `quantity` variable to keep track of that. To obtain
+    that value, I need to use the `cut -f3 -d:` command to look at the third field
+    of each `passwd` file entry, and then pipe that into the `grep -w 0` command to
+    only find the lines that contain nothing but a 0 in that field. Finally, I use
+    the `wc -l` command to count the number of lines that match this criterion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember that the UID value of 0 is what gives user accounts full root user
+    privileges. On most operating systems, you should never see more than one UID
+    0 user account. On some BSD-type systems, you’ll see either two or three UID 0
+    accounts. One will be the root account, which might have either `csh` or `sh`
+    assigned as the default shell. A second one will be the toor account, which will
+    have `sh` assigned as the default shell. DragonflyBSD has a third UID 0 account
+    which is called, installer. So, if you want to write one script that will cover
+    all of these different operating systems, you’ll need to write code that will
+    account for each one having a different number of UID 0 accounts. (We’ll look
+    at all that later in this section.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, I’ve created the `linux_sunos` function, which contains the bulk of the
+    working code. Here’s how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The top part is easy. It’s just an `if. .then. .else` construct that alerts
+    you if there are more than one UID 0 accounts in the `/etc/passwd` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, I use an `awk` command, with its output piped into `cut -c1`, to find
+    the root user account line in the `/etc/shadow` file, and to isolate the value
+    of the first character of the second field of that line. That value will be assigned
+    to the `rootlock` variable. So, what is so significant about that character? Well,
+    here’s the deal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On Linux, Unix, and Unix-like systems, a list of user accounts is kept in the
+    `/etc/passwd` file. This file must always be world-readable, so that users can
+    access their user account information when they log in. Many years ago, when I
+    was young and still had a full head of hair, user passwords were also kept in
+    this `passwd` file. Eventually, someone figured out that keeping passwords in
+    a world-readable file is a security problem, and invented the **shadow file system**.
+    Now, the hashed values of all users’ passwords are in the `/etc/shadow` file on
+    Linux and Solaris/OpenIndiana systems, which requires root privileges to read.
+    (It’s a bit different on BSD-type systems, as I’ll show you in just a bit.) For
+    example, here’s the entry for my own user account on my Fedora Server virtual
+    machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: (Note that this is one long line that wraps around on the printed page. Also
+    note that I changed a couple of characters, to prevent revealing the real hash
+    value.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: What I want you to note is the prefix of this hashed value, which is `$y$`.
+    The leading `$` indicates that this account is enabled, and the whole `$y$` thing
+    indicates that the password was hashed by the **yescrypt** hashing algorithm.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since Fedora is a cutting-edge, somewhat experimental Linux distro, you can
+    expect it to use new technologies that aren’t yet widely used by the rest of the
+    Linux ecosystem. Such is the case here with Fedora’s use of yescrypt. On most
+    modern Linux distros, you’ll see a `$6$` prefix on the password hash, which indicates
+    that they’re using the SHA512 hashing algorithm. Although SHA512 hashes are very
+    difficult to crack, yescrypt hashes are supposed to be even more difficult, which
+    enhances password security.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For our present purposes, it doesn’t matter which hashing algorithm is in use.
+    All we care about is that leading `$`, because that’s what tells us that the account
+    is enabled. If anything other than a `$` is in that first position, then the account
+    is disabled. For best security, you want to see something like any of these three
+    lines in the `/etc/shadow` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, here’s the sort of thing that you don’t want to see:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On this virtual machine, the root account is enabled, as indicated by the leading
+    `$`. And, this takes us back to the `linux_sunos` function in our script. Let’s
+    take another look at the line that creates the `rootlock` variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: As I pointed out before, this `awk` command isolates the second field of the
+    root user’s entry, which is the password field. Piping the `awk` output into the
+    `cut -c1` command isolates the first character of that field. The value of that
+    character is then assigned as the value of the `rootlock` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next up is the code that determines whether or not the root user account is
+    locked:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: This says that if the first character of the second field of the root user’s
+    entry is a `$`, then the account is not locked. If that first character is anything
+    other than a `$`, then the account is locked, and all is good.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that in this `if. .then. .else` construct I had to surround `$rootlock`
+    with a pair of double quotes. That’s because on some Linux distros, such as Ubuntu,
+    you might see an `*` in the password field of the root user’s `shadow` file entry.
+    Without the double quotes, the shell will interpret the `*` as a wildcard, and
+    will cause `$rootlock` to return the list of files in the current working directory.
+    Using the double quotes allows the `$` to do its job, while forcing the shell
+    to interpret the `*` in a literal manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For good measure, I also surrounded the `$` with a pair of single quotes, to
+    ensure that that the shell would interpret it correctly. (It actually worked fine
+    when I tested it without the single quotes, but it’s better to be safe.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, at the very end of the script, after the function, you see this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: The value of the `os` variable should be `Linux` on a Linux system, and `SunOS`
+    on an OpenIndiana system. Either way, the `linux_sunos` function will run. If
+    the value of `os` is anything else, the user will see an error message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, let’s test this script to see what happens. Here’s what it looks like
+    on the Fedora workstation that I’m using to write this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Very cool, it all looks good.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see how it looks when the root account is enabled, I pulled up my Fedora
+    Server virtual machine, which has never had the root account enabled. I enabled
+    the root account like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Easy, right? All I had to do was to assign a password to the root user account.
+    Now, let’s run the script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s add the option to disable the root account, as you see in the `rootlock_2.sh`
+    script. We’ll do that by embedding another `if. .then. .else` construct within
+    the one that’s already there. Here’s how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here’s how running the modified script looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To disable an account, the `passwd -l` command places a pair of exclamation
+    points in front of the password hash, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The password hash is still there, but the operating system can no longer read
+    it. This will allow you to unlock the account by running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To both delete the password and disable the account, place a `passwd -d root`
+    command on the line before the `passwd -l root` command, so that the construct
+    will now look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that you can’t use both the `-l` and `-d` options for `passwd` in a single
+    command. To use both options, you’ll need to run two separate commands. Also note
+    that if you just use the `-d` option, you’ll delete the password hash but the
+    account is still considered as enabled. Running `passwd -l` after running `passwd
+    -d` will both delete the password hash and disable the account.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And, although you probably already know this, I’ll tell you anyway. Before you
+    disable the root user account, be darned sure that you’re logged in as a normal
+    user with full `sudo` privileges, instead of as the root user. That way, there
+    will be no chance of accidentally disabling the root account on a machine for
+    which nobody else has any admin privileges.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The only way to re-enable root’s account now is to create a new password, as
+    you’ve already seen.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That covers it for Linux and OpenIndiana. Let’s see if we can make this work
+    on FreeBSD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Modifying the root Account Auditing Script for Use on FreeBSD
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: On BSD-type operating systems, such as FreeBSD, the `/etc/master.passwd` file
+    is used instead of the `/etc/shadow` file. In addition to the UID 0 root user
+    account in the `/etc/passwd` file, there’s the toor user account, which is also
+    a UID 0 account. So, we’ll need to add a `freebsd` function to work with these
+    differences.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Up through FreeBSD 13, the root user account has `csh` assigned as its default
+    shell, and the toor account has `sh` assigned as the default shell. Now, on FreeBSD
+    14, both of these UID 0 accounts have `sh` as the default shell.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The simplest way to do this is to add a new function, which I’ll call `freebsd`.
+    (Really, what else would I call it?) You’ll find this new function in the `rootlock_3.sh`
+    script that’s in the Github repository. Let’s break this new function into sections
+    to see what we have. Here’s the top part:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the same as the `linux_sunos` function that we just looked at, except
+    that it now checks for more than two UID 0 accounts in the `passwd` file. Here’s
+    the next part:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'I had to modify the `awk` command so that it will only find “root” in the first
+    field of a line, as you see here with the `$1 ~ /root/` part:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'That’s because, unlike the Linux and OpenIndiana `shadow` files, the FreeBSD
+    `master.passwd` file lists users’ default home directories. As you see here, the
+    default home directories for the first three users are set to the `/root/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: Having `/root/` instead of `$1 ~ /root/` in the `awk` command causes the script
+    to read all three of these lines, instead of just the first one that’s for the
+    root user. This prevents the script from properly detecting if the root user account
+    is enabled. That’s because if the script sees a `$` in field 2 of the root line,
+    and then sees an `*` in field 2 of the toor and daemon lines, it will assign the
+    `*` as the final value of `rootlock`. Because of that, the script will always
+    show that the root account is locked, even when it isn’t.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I also had to change the commands that lock the root and toor accounts, because
+    the FreeBSD version of `passwd` doesn’t have the proper option switches to do
+    that. So, I replaced the two `passwd` commands with:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: This handy command both removes the password and locks the account at the same
+    time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since FreeBSD also has the toor account with UID 0, I’ve added another section
+    to check for that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: Only one line in the `master.passwd` file contains the word “toor”, so I didn’t
+    need to tell `awk` to look for the `/toor/` pattern in only the first field. Other
+    than that, it’s the same as what I’ve just shown you for the root user. (Of course,
+    since this is the end of the function, I’ve included the closing curly brace at
+    the end.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, I’ve modified the final part of the script so that it will automatically
+    choose which function to run:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: You’ve seen this sort of thing before in previous chapters, so you likely already
+    know what’s going on with this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once again, I’m reading your mind. You’re thinking about how cool this script
+    is, and how much you’d like to use it on an entire fleet of mixed Linux, Unix,
+    and Unix-like servers. The problem though, is that this script is written for
+    `bash` and uses some of the `bash` advanced features that don’t work on many of
+    the legacy `sh` shells. That’s great if you can install `bash` on all of your
+    Unix and Unix-like servers, but that might not be an option. Also, if you’re working
+    with Internet of Things devices that run lightweight versions of Linux, you might
+    not be able to install `bash` on them either. So, what do you do? Well, hang on,
+    because I’ll explain all of that in *Chapter 19, Shell Script Portability*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I think that this about covers it for the `rootlock` scripts. Let’s look at
+    one more auditing script before wrapping up this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a User Activity Monitoring Script
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this scenario, you want to see a record of when other users have logged
+    into the system, and what they’re doing with their `sudo` privileges. To do that,
+    let’s create the `user_activity_1.sh script`. Here’s the top section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This tells you that you have to supply a user name when invoking this script.
+    If you don’t specify a user name, you’ll see this message, and the script will
+    exit. Here’s the next part:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: Most Linux and some Unix/Unix-like distros store user authentication messages
+    in either the `/var/log/secure` file or the `/var/log/auth.log` file. SUSE and
+    openSUSE are notable exceptions to this rule, because they store this information
+    in the `/var/log/messages` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I’m assuming here that you’re working with a distro that has either `rsyslog`
+    or `syslog` installed. This script won’t work if all you have is `journald`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, here’s the part that does the actual work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: Okay, it’s easy. It’s just creating a report file with the user’s name and a
+    timestamp in the filename. The `last` command creates the record of the user’s
+    logins, and the `grep` command searches through the designated file for all lines
+    that contain the *sudo* text string. Then, it pipes that output into `grep` to
+    search for all lines that contain the designated user name.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s run the script to see what that Donnie character has been doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Very cool. You see that the script has created a report file with my username
+    and the current date and time in the filename. Here’s a snippet of what you’ll
+    see in that report file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: I’ve tested this script on Fedora Server, Ubuntu Server, openSUSE, FreeBSD,
+    and OpenBSD. (Note that I installed `bash` on both of the BSD distros.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, I think that that’s about it for the auditing scripts. Let’s see what
+    we can do with a firewall script.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating Simple Firewall Scripts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this scenario, you need to create a text file with a list of IP addresses
+    that you want to block. You then need to create a shell script that will read
+    that list of IP addresses, and then create firewall rules that will block them.
+    There are two ways that you can do this. First, there’s the hard way. And then,
+    there’s the easy way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The hard way consists of reading the list of addresses into a variable array,
+    and then creating a `for` loop that will create a blocking rule for each IP address
+    that’s in the array. Okay, it’s not that hard, but it is a bit harder than we
+    would like. (I’ll show you the easy way after I show you the hard way. That way,
+    you’ll be more appreciative of the easy way.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an IP Address Blocking Script for Red Hat Distros
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Red Hat-type distros, such as Fedora, AlmaLinux, Rocky Linux, Oracle Linux,
+    and of course Red Hat Enterprise Linux, use `firewalld` as their firewall management
+    utility, and `nftables` as the actual firewall engine. To my knowledge, the only
+    non-Red Hat Linux distros that come with this setup installed by default are SUSE
+    and openSUSE.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `firewall-cmd` utility is the main way to manage `firewalld` rules, policies
+    and configuration. To see how this works, let’s do a couple of hands-on labs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Hands-on Lab: Create the Script with an Array and a for loop'
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In this lab, you’ll create a script that builds a variable array by reading
+    the list of IP addresses from the `ip-address_blacklist.txt` file. You’ll then
+    use a `for` loop to create a firewall rule for each IP address in the list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '1\. On the Fedora Server virtual machine, create the `ip-address_blacklist.txt`
+    file, with one IP address on each line. Make it look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: '2\. Now, create the `firewall-blacklist_array.sh` script, which uses a variable
+    array and a `for` loop. Make it look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first thing we’re doing here is to declare and build the `badips` array,
+    as I showed you in *Chapter 8, Basic Shell Script Construction*. This array obtains
+    its values from the `ip-address_blacklist.txt` file that we’ve just created. Within
+    the `for` loop, you see the `firewall-cmd` command that creates a firewall rule
+    for each IP address that we loaded into the `badips` array. Whenever you use the
+    `--permanent` option the `firewall-cmd` command will write the new rules to the
+    proper configuration file. But, it won’t load the new rules into the running firewall.
+    The final `firewall-cmd --reload` command loads the new rules so that they will
+    take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '3\. Run this script on your Fedora virtual machine. You should receive one
+    success message for each IP address, and a final success message after the reload
+    command. Here’s how it looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: '4\. To verify that the rules have taken effect, use the `nft list ruleset`
+    command, and then scroll back to where you’ll see the new rules. Here’s how that
+    looks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: '5\. To see if the rules have been added permanently, look at the proper configuration
+    file in the `/etc/firewalld/zones/` directory, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that the name of this configuration file will be different on other distros,
+    such as AlmaLinux, Rocky Linux, Red Hat Enterprise Linux, or SUSE/openSUSE.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also, be aware that different Linux distros come with different firewall management
+    utilities. For example, Ubuntu comes with the **Uncomplicated Firewall** (`ufw`)
+    firewall manager, and other distros might just have you use plain `nftables` without
+    a management utility. Once you know the proper firewall management commands for
+    your particular distro, it’s a simple matter to modify this script to work with
+    it. (If you need to learn more about Linux firewalls, you might like to check
+    out one of my other books, *Mastering Linux Security and Hardening*, which is
+    available from both Amazon and directly from Packt Publishing.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: End of lab.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, that wasn’t too difficult, was it? Hang on, though. Let’s make this even
+    easier with `xargs`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Hands-on Lab: Creating the Script with xargs'
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Back in *Chapter 7, Text Stream Filters–Part 2*, I introduced you to the `xargs`
+    utility. I showed you a few examples of how to use it in the context of text stream
+    filters, and I also promised that I would show you more examples of how to use
+    it later. You can vastly simplify this type of script by using `xargs` instead
+    of variable arrays and `for` loops. As before, I’ll show you how it’s done with
+    the Red Hat family.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '1\. Create the `firewall-blacklist_xargs.sh` script, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: (Note that the `xargs` line is a long line that wraps around on the printed
+    page.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: As before, the first command is just a normal `firewall-cmd` command that creates
+    the blocking rules. In this case, we’re preceding the command with `xargs -i`
+    so that it will read the list of IP addresses from the `ip-address_blacklist.txt`
+    file, one at a time. In a normal `firewall-cmd` command, you would place either
+    an IP address or a range of IP addresses after the `source address=` part. This
+    time though, we’ve placed a pair of curly braces there. The `xargs` utility will
+    cause the `firewall-cmd` command to run once for each IP address that it finds
+    in the `ip-address_blacklist.txt` file. Each time that the command runs, the next
+    IP address in the list will be placed within the pair of curly braces. The `--permanent`
+    option in this `firewall-cmd` command is what saves the new rules to the proper
+    rules file. Using this `--permanent` option requires you to run the `firewall-cmd
+    --reload` command in order to make the new rules take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '2\. Edit the `ip-address_blacklist.txt` file to add a few more IP addresses.
+    Then, run the script. The output should now look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: '3\. Verify that the new rules have taken effect:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note how with the last rule, I opted to block an entire IP address subnet. This
+    capability could come in handy if you ever need to block an entire country from
+    accessing your server, for example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you ever do need to block an entire country, you can find lists of IP address
+    ranges for various countries here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://lite.ip2location.com/ip-address-ranges-by-country](https://lite.ip2location.com/ip-address-ranges-by-country)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 4\. Open the `/etc/firewalld/zones/FedoraServer.xml` file in your text editor,
+    and remove the rules that you’ve just created.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '5\. Finally, clear the rules out of the running firewall by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: End of lab.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, is that slick, or is that slick? I mean, by using `xargs` instead of variable
+    arrays and `for` loops, you’ve vastly simplified this script. Also, using `xargs`
+    makes your scripts more portable. That’s because you can use `xargs` on pretty
+    much any type of Linux, Unix, or Unix-like shell. On the other hand, you can use
+    variable arrays with `bash`, but not with certain variations of `sh`. (I’ll talk
+    more about portability in *Chapter 19, Shell Script Portability*.) So really,
+    having `xargs` in our toolbox is what I call a win-win!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let’s see if we can save ourselves a bit of work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Searching for Existing Security-related Scripts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A basic tenet of computer programming is to reuse code as much as possible.
+    Otherwise, every programmer in the world would waste huge amounts of time trying
+    to always reinvent the proverbial wheel. So, if you find yourself in need of a
+    script and don’t know how to write it yourself, you can search for one either
+    by using your favorite search engine or by searching on Github.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The only catch with using search engines is that you might have to try several
+    different search terms to find what you need. For example, I tried the following
+    search terms on DuckDuckGo:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: bash scripts for security audit
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: bash scripting for pentesters
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: bash scripts for security administrators
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: bash scripting for cybersecurity
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As a matter of full disclosure, I have to say that most of these search results
+    were for courses and books for which you’ll have to pay. If that’s what you need
+    or want, then great. But, mixed in with all that you might find some gems that
+    will either help you with your immediate problem or that will give you some good
+    ideas for your own scripts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For more concise and useful search results, you might consider searching for
+    scripts on Github. Here, for example, I searched for the term, *bash security
+    scripts*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![B21693_18_1](img/B21693_18_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 18.1: Searching for bash security scripts on Github'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You’ll find lots of repositories from many different authors like this. Most,
+    if not all, of these scripts are released under a free-as-in-freedom software
+    license, so you can download them and use them as you wish. Of course, you’ll
+    want to review and test the scripts before you put them into production use. Some
+    of them will work on your systems without modification, and some won’t. So, just
+    because you’re able to find scripts that someone else has already written doesn’t
+    mean that you can just skate by without any knowledge of shell scripting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All right, I think that about covers it. Let’s summarize and then move on to
+    the next chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, I didn’t introduce a lot of new scripting concepts as I normally
+    do. Instead, I showed you how to use the concepts that you already know to create
+    scripts that might be useful to a security-conscious administrator. You’ve seen
+    how to create shell scripts that can do simple port scans or operating system
+    identification. Then, you saw how to create auditing scripts that can show if
+    the root user account is enabled, when a normal user is logging into the system,
+    and what a normal user is doing with his or her `sudo` privileges. After that,
+    I showed you a script that can read a list of IP addresses, and automatically
+    create firewall rules to block those addresses. Finally, I showed you some tips
+    about how to find and use scripts that other people have already created.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll talk a bit about shell script portability. I’ll see
+    you there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When you do a port scan of a remote machine and find ports that are in a closed
+    state, what does that mean?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: That the ports are blocked by a firewall.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: That the ports are not blocked by a firewall, and that the associated services
+    for those ports are not running.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: That the ports are not blocked by a firewall, and that the associated services
+    for those ports are running.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: That the remote machine can’t be reached by your port scanner.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You’re looking for the `/etc/shadow` file on a FreeBSD system, but can’t find
+    it. What could be the problem?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: FreeBSD keeps its account passwords in the `/etc/passwd` file.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: FreeBSD keeps its account passwords in the `/var/lib/` directory.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: FreeBSD uses the `/etc/master.passwd` file instead of the `/etc/shadow` file.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: FreeBSD doesn’t require passwords.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which of the following statements is true?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There is no advantage to using `xargs` in your scripts.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Using `xargs` can make your scripts easier to create, easier to read, and can
+    enhance script portability.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Using `xarg`s makes your scripts more complex and harder to understand.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further Reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Introduction to Bash for Cybersecurity: [https://medium.com/@aardvarkinfinity/introduction-to-bash-for-cybersecurity-56792984bcc0](mailto:https://medium.com/@aardvarkinfinity/introduction-to-bash-for-cybersecurity-56792984bcc0)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Shell Scripting and Security: [https://www.linuxjournal.com/content/shell-scripting-and-security](https://www.linuxjournal.com/content/shell-scripting-and-security)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'HackSploit Blog-Bash Scripting: [https://hackersploit.org/bash-scripting/](https://hackersploit.org/bash-scripting/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Is Bash the Secret Weapon of Cybersecurity Experts?: [https://cyberinsight.co/is-bash-used-in-cyber-security/](https://cyberinsight.co/is-bash-used-in-cyber-security/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Secure Scripting: A Step-by-Step Guide to Password Automation in Linux with
+    Bash: [https://medium.com/@GeorgeBaidooJr/secure-scripting-a-step-by-step-guide-to-password-automation-in-linux-with-bash-12aa6b980acf](mailto:https://medium.com/@GeorgeBaidooJr/secure-scripting-a-step-by-step-guide-to-password-automation-in-linux-with-bash-12aa6b980acf)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: b
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: c
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: b
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Join our community on Discord!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Read this book alongside other users, Linux experts, and the author himself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ask questions, provide solutions to other readers, chat with the author via
+    Ask Me Anything sessions, and much more. Scan the QR code or visit the link to
+    join the community.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://packt.link/SecNet](https://packt.link/SecNet)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/QR_Code10596186092701843.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Leave a Review!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Thank you for purchasing this book from Packt Publishing—we hope you enjoy it!
+    Your feedback is invaluable and helps us improve and grow. Once you've completed
+    reading it, please take a moment to leave an Amazon review; it will only take
+    a minute, but it makes a big difference for readers like you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scan the QR code below to receive a free ebook of your choice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://packt.link/NzOWQ](https://packt.link/NzOWQ)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/review.png)'
+  prefs: []
+  type: TYPE_IMG

@@ -1,0 +1,1237 @@
+- en: Custom Builds with PXE Booting
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When working with physical hardware, it is not a given that you could simply
+    clone a virtual machine template to the hard drive and expect it to work. It is,
+    of course, entirely possible to do this with the right tools, but it is tricky,
+    and there is no guarantee the resulting system will run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, cloud-ready images will only have the kernel modules installed
+    for the common virtualized network adapters, and so, may not run (or not have
+    network connectivity) when installed on a modern piece of hardware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In spite of this, it is still entirely possible to perform automated, standardized
+    builds on physical hardware, and this chapter provides a complete hands-on approach
+    to doing so. In conjunction with the preceding chapter, by the end of this one,
+    you will have practical experience of the automated build process for standardizing
+    images for all your platforms, whether they are virtual, cloud-based, or physical.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: PXE booting basics
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Performing unattended builds
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Adding custom scripts to unattended boot configurations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we are going to look at the process of PXE booting, for physical
+    and virtual servers. You will require two servers on the same network, and it
+    is recommended that the network be isolated, as some of the steps performed in
+    this chapter could be disruptive and, even, destructive if performed in a live
+    operational network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You will need one server (or virtual machine) to be pre-installed with your
+    choice of Linux distribution—in our examples, we will use Ubuntu Server 18.04
+    LTS. The other server (or virtual machine) should be blank, and suitable for reinstalling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All example code discussed in this chapter is available from GitHub at: [https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter06](https://github.com/PacktPublishing/Hands-On-Enterprise-Automation-on-Linux/tree/master/chapter06).
+  prefs: []
+  type: TYPE_NORMAL
+- en: PXE booting basics
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before the widespread adoption of virtualization and cloud platforms, there
+    was a requirement to generate a standardized operating system build on physical
+    servers, without the need to visit a data center and insert some form of installation
+    media. PXE booting was created, as one of the common solutions to this requirement,
+    and the name comes from the **Pre-eXecution** **Environment** (think of a tiny,
+    minimal operating system) that is loaded so that an operating system installation
+    can occur.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At a high level, when we talk about the PXE build of a given server, the following
+    process is occurring:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The server must be configured to use one (or all) of its network adapters for
+    network booting. This is commonly a factory default setting for most new hardware.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Upon power-up, the server brings up the network interfaces, and on each, in
+    turn, attempts to contact a DHCP server.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The DHCP server sends back IP address configuration parameters, along with further
+    information on where the pre-execution environment should be loaded from.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The server then retrieves the pre-execution environment, typically, using the
+    **Trivial File Transfer Protocol** (**TFTP**).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The PXE environment runs and looks in a known, well-defined location on the
+    TFTP server for configuration data.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The configuration data is loaded, and instructs the PXE environment how to proceed.
+    Normally, with Linux, this involves loading a kernel and initial RAMDisk image
+    from the TFTP server, which contains just enough Linux to proceed with the installation,
+    and pulling further installation sources from another network service (often HTTP).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Although this all sounds rather complex, it is, in fact, quite straightforward
+    when broken down into a step-by-step process. As we proceed through this chapter,
+    we will walk through the process of building out a PXE boot server that is capable
+    of performing an unattended installation of either CentOS 7 or Ubuntu 18.04 Server.
+    This will serve as a good hands-on example, and also demonstrates how we can script
+    our build processes even on physical hardware, where the VM template processes
+    we discussed in the last chapter are not readily available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before any process of PXE booting can commence, we must first set up some supporting
+    services that provide the necessary network services. In the next section, we
+    will look at how these may be set up and configured.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing and configuring PXE-related services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As with just about any Linux setup, the exact way to do this will depend upon
+    the Linux distribution on which you are performing the installation, and also,
+    the software packages you are going to use. Here, we are going to make use of
+    the ISC DHCP server, the venerable TFTP daemon, and nginx. However, you could
+    just as feasibly use dnsmasq and Apache.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In many enterprises, these decisions will have already been made—most will have
+    some form of DHCP infrastructure already in place, and many businesses with IP
+    telephony systems will have a TFTP server too. Thus, this chapter serves to provide
+    an example only—real-world implementations will likely be driven by long-established
+    corporate standards.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is no safety mechanism to prevent you from running two DHCP servers on
+    the same network. DHCP relies on broadcast messages, and so any DHCP clients on
+    the network will receive an answer from whichever server answers them faster.
+    As a result, it is entirely possible to stop a network from functioning by setting
+    up a second DHCP server. If you follow the process outlined in this chapter, be
+    sure you are performing it on an isolated network, suitable for testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For this setup, we are going to assume that we have an isolated network. Our
+    PXE server will have the IP address `192.168.201.1`, and the subnet mask will
+    be `255.255.255.0`. These details will be important in setting up our DHCP server.
+    Let''s now walk through the process of setting up your server to support PXE booting:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We need to install the following list of required packages:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: DHCP server
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: TFTP server
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Web server
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Assuming an Ubuntu 18.04 host, as discussed earlier, run this command to install
+    the packages we will need for this part of the chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With these installed, the next step is to configure our DHCP server, with which the
+    preceding package is configured through the `/etc/dhcp/dhcpd.conf` file. The configuration
+    file shown in the following code block is a good, if basic, example for our PXE
+    boot network, though naturally, you''ll need to edit the subnet definition to
+    match your own test network. The first part of the file contains some important
+    global directives and the subnet definition for the network:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The next part of the file then contains configuration directives, to ensure
+    that we load the correct pre-execution binary, depending on the type of system
+    being used. It is common at the time of writing to find a mix of both BIOS- and
+    UEFI-based systems, so the following configuration is important:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Most of this is fairly self-explanatory if you have worked with DHCP servers
+    before. However, the block of text headed `class "pxeclients"` deserves a special
+    mention. Some years ago, server hardware relied on the BIOS to boot, and thus
+    PXE boot configurations were simple, as there was only one pre-boot environment
+    that you needed to load. Most new server hardware now is configured with firmware
+    that can operate in either *Legacy BIOS* or *UEFI modes*, and most default to
+    UEFI, unless configured otherwise. The pre-execution binary is different, depending
+    on the type of firmware in use, and hence, the `if` statements in this block make
+    use of a DHCP `option`, returned to the server when the client makes its DHCP
+    request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With this configuration in place, enable the DHCP server, and restart it, as
+    follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The default configuration for the TFTP server will suffice for this example,
+    so, let''s also enable this and ensure it is running as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we''ll use the default configuration of nginx, and serve all the files
+    we need from `/var/www/html`—obviously, in an enterprise environment, you would
+    want to do something a bit more advanced, but for the following practical example
+    here, this will suffice:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: That's our server infrastructure configured, but one last task remains. We need
+    the pre-execution environment binaries for our TFTP server, to send to the clients.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Although these are readily available for most Linux distributions (and Ubuntu
+    18.04 is no exception), these packages are often quite old (the last stable release
+    of PXELINUX was in 2014), and I have run into known bugs with these, especially
+    when working with UEFI hardware. Although you are welcome to try newer snapshots,
+    the author has achieved the most success with the release tagged 6.04-pre2, and
+    so, we will explain how to build this and copy the files into the correct places
+    for our TFTP server, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, download and unpack the required release of SYSLINUX (which contains
+    the PXELINUX code) by entering the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we need to install a few build tools to successfully compile the code,
+    as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we''ll make sure the build directory is clean, and then build the
+    code, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When the build is complete, the final step is to copy the files into the correct
+    places. Recalling our DHCP server configuration from earlier, we know that we
+    need to separate out the files related to Legacy BIOS boots, and those released
+    to newer UEFI boots. Here, we will step through the process of setting up your
+    server for both BIOS and UEFI network boots:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The default root directory for the TFTP server is `/var/lib/tftpboot` on Ubuntu
+    18.04\. Under this path, we will create the two directories referenced by the
+    DHCP server configuration, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we will run this set of commands, to gather up and copy all BIOS-related
+    boot files into the newly created `BIOS` directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then repeat this step, except this time, we specify the UEFI-related boot
+    files, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: With those steps completed, we now have a completed, functional PXE server.
+    We have not downloaded any operating system images yet, so the boot process wouldn't
+    proceed very far, but if you were to execute a test at this point, your server
+    firmware should report that it has obtained an IP address from the DHCP server,
+    and should present you with some boot-related messages. However, we will build
+    this out further before going into any detailed testing in this book, and, in
+    the next section, we will look at how to obtain the correct network installation
+    images for your chosen Linux distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Obtaining network installation images
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The next step in our PXE boot setup process is to build out the images required. Luckily,
+    obtaining the boot images is quite easy—the kernel and packages are normally contained
+    on the DVD ISO images for your chosen Linux distribution. Obviously, this can
+    vary from distribution to distribution, so you will need to check this. In this
+    chapter, we will show examples for Ubuntu Server and CentOS 7—these principles
+    could also be applied to many Debian derivatives, Fedora, and Red Hat Enterprise
+    Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The installation images required for network booting, along with the required
+    installation packages, are normally found on the full DVD images—*live* images
+    are often not sufficient because they lack either a sufficiently complete set
+    of packages to perform the installation, or the network boot-capable kernel is
+    missing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s make a start with the CentOS 7 image, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First of all, download the latest DVD image from your nearest mirror—for example,
+    the one shown in the following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once downloaded, mount the ISO image to a suitable location so that the files
+    can be copied from it, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, the network boot-capable kernel and initial RAMDisk image should be copied
+    to a location of our choosing, under the TFTP server root.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Note that in the following example, we are only doing this for UEFI booting.
+    To set up for **Legacy BIOS booting**, follow exactly the same process, but place
+    all files to be served by TFTP in `/var/lib/tftpboot/BIOS` instead. This applies
+    throughout the rest of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The commands to achieve this on our test system are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we need the web server we installed earlier to serve out the files
+    for the installer—once the kernel and initial RAMDisk environment load, the rest
+    of the environment will be served over HTTP, which is better suited to large data
+    transfers. Again, we''ll create a suitable subdirectory for our CentOS content,
+    as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'That''s all there is to it! Once these steps have been completed, we''ll repeat
+    this process for our Ubuntu 18.04 Server boot image, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: With these steps complete, we just have one more configuration stage to go before
+    we can perform a network boot of our chosen operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The process is almost identical—the only difference is that the NetBoot-capable
+    kernel and RAMDisk were sourced from a different directory on the ISO image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will configure the PXE boot server we have built so
+    far, so as to boot from these installation images.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing your first network boot
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Thus far, we have configured our server to give our clients an IP address on
+    boot, and have even built two installation trees, such that we can install either
+    CentOS 7 or Ubuntu 18.04 Server, without the need for any physical media. However,
+    when our target machine boots over the network, how does it know what to boot?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The answer to this comes in the form of the PXELINUX configuration. This is
+    very similar in nature to the **GRand Unified Bootloader** (**GRUB**) configuration
+    that most Linux installations use, to define their boot options and parameters
+    when they boot from disk. Using the installation we have built so far, these configuration
+    files are expected to be in `/var/lib/tftpboot/EFIx64/pxelinux.cfg` (or `/var/lib/tftpboot/BIOS/pxelinux.cfg` for
+    Legacy BIOS machines).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, a word on file naming. You might want all devices that boot off a network
+    interface to perform a network boot. However, consider a server where a valid
+    Linux installation is on the local disk, but through some error (perhaps misconfiguration
+    of the boot order in the firmware, or a missing boot loader), it boots from the
+    network interface instead of the local disk. If you have a full, unattended installation
+    configured on your PXE server, this would wipe the local disks, with potentially
+    disastrous consequences.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you want all servers to perform a network boot regardless, you create a special
+    configuration file, called `default`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, if you want to be more targeted, you instead create a configuration
+    file with the name based on the MAC address. Suppose we have a server with the
+    MAC address `DE:AD:BE:EF:01:23`, and our DHCP server is going to assign it the
+    IP address `192.168.10.101/24` (this would most likely be through a static DHCP
+    mapping so that we can ensure that this server always gets this IP address). When
+    this server network boots using UEFI, it will look initially for `/var/lib/tftpboot/EFIx64/pxelinux.cfg/01-de-ad-be-ef-01-23`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If this file is not present, it will look for a file named after the hex-encoded
+    IP address. If this does not exist, it then takes one digit off the hexadecimal
+    IP address at a time, until it finds a matching file. In this manner, our server
+    would look for `/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A80A65`. If it doesn't
+    find it, it cycles through the ever-shortening IP address representations, until
+    it runs out of options. If no appropriately named file is found, it finally reverts
+    to the `default` file, and if that file isn't present, a boot failure is reported
+    by the client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Thus, the full search sequence for configuration files is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/01-de-ad-be-ef-01-23`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A80A65`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A80A6`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A80A`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A80`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A8`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/C`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`/var/lib/tftpboot/EFIx64/pxelinux.cfg/default`'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The idea of shortening the IP address filename is to enable you to create a
+    subnet-wide configuration—for example, if all machines in the `192.168.10.0/24`
+    subnet needed the same boot configuration, you could create a single file called `/var/lib/tftpboot/EFIx64/pxelinux.cfg/C0A80A`.
+    Pay special attention to the case of the letters in the filename—the MAC address-based
+    filename requires lowercase letters, while the IP address requires uppercase letters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are numerous permutations of configuration for the contents of this configuration
+    file, and looking into all the possibilities for this is left as an exercise for
+    the reader—there is ample documentation, and examples, available for PXELINUX.
+    However, with the specific aim of booting our network install images, let''s consider
+    the following file. Initially, we define the header for the menu, with a simple
+    title and timeout, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then proceed to define the entries for our two operating system install
+    images that we have built, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: As with other examples in this book, these are real-world, tested examples that
+    will work in their own right. However, they should be customized to your own requirements,
+    and you should endeavor to read and understand the code before applying it in
+    a production environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In these preceding examples, `192.168.201.1` is the IP address of my PXE server
+    in my test setup. Be sure to replace this wherever you see it with the IP address
+    of your PXE server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is, in fact, a very simple example—here, we are defining a simple text
+    mode menu with two entries, one for each of our operating systems. Each menu entry
+    has a `label`, a title that appears in the menu, and then, a `kernel` and `append` line.
+    The `kernel` line tells the client from where to source the kernel on our TFTP
+    server, while the `append` line is used to specify the path of the RAMDisk image
+    and all supplementary boot parameters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These boot parameters, as you can see, are greatly different for different
+    Linux distributions, as are the capabilities of the installers. For example, the
+    CentOS 7 installer is graphical (though a text mode option is available) and supports
+    a VNC server, which we are configuring in the first menu item, enabling a remote
+    installation using a VNC console, using the parameters `inst.vnc` and `inst.vncpassword=password`.
+    The other parameters used are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`method=http://192.168.201.1/centos7`: Sets the address from where our CentOS
+    7 repo will be served'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`devfs=nomount`: Tells the kernel not to mount the devfs filesystem'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ip=dhcp`: Tells the pre-boot environment to obtain an IP address using DHCP,
+    to then be able to reach the HTTP server'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The Ubuntu installer is, by contrast, normally run in text mode, and so does
+    not support a VNC server, so a different remote access technology would be required
+    to perform an interactive installation, such as **Serial-Over-LAN** (**SOL**).
+    Nonetheless, this menu file would be sufficient for us to perform an interactive
+    installation of either OS as we choose, and is provided as a template for the
+    reader to build on and develop, as they see fit. The parameters in use are the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`vga=normal`: Tells the installer to use the standard VGA mode'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`locale=en_US.UTF-8`: Sets the locale—adjust this to suit your environment'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mirror/country=manual`: Tells the installer we are manually defining the repository
+    mirror'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mirror/http/hostname=192.168.201.1`: Sets the hostname of the repository mirror
+    we created previously'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mirror/http/directory=/ubuntu1804`: Sets the path on the repository mirror
+    host that is serving the repository content'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mirror/http/proxy=""`: Tells the installer we are not using a proxy'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`live-installer/net-image=http://192.168.201.1/ubuntu1804/install/filesystem.squashfs` : The
+    URL from where the installer disk image can be downloaded'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Of course, in an unattended boot scenario, you would not want to present the
+    server with a choice of operating system—you simply want it to boot the one you
+    want to install. In this instance, simply remove the menu items that are not needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at this in action. Upon a successful network boot of a test
+    machine, we should be presented with the following menu, as defined previously:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ac03916d-46c7-4467-94e3-b09a390877f1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'If we select the CentOS image as our boot target, you will see the kernel and
+    base system load, and then ultimately, a screen asking you to connect to the installer
+    using a VNC client, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/4a2416cf-e10d-4b1e-a7e2-2aa8ed6550a7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Connecting with a VNC viewer, as instructed, yields the familiar interactive
+    CentOS 7 graphical installer, as shown in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/724b5e2a-7b6a-4709-b383-1d80a753e19d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Thus, a complete remote installation is possible, without the need to visit
+    the location of the server, or connect a keyboard and mouse! The same is almost
+    true if we boot our Ubuntu Server image, only this time, the console is on the
+    host screen, rather than available over VNC, as can be seen in the following screenshot:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![](img/c07c98c2-85f3-41b2-af42-e0ffbad7f5e3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: This lends itself well to either redirecting the console over an SOL implementation
+    or a remove KVM option. Neither of these is particularly convenient, especially
+    as the goal of this book is automation!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thus, in the next section, we will look at performing automated installations,
+    using the concept of *unattended builds*—that is to say, builds where no human
+    needs to intervene for the installation to take place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing unattended builds
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The ultimate goal of this process is to have a server boot over the network
+    and configure itself completely, rather than having to have someone interact with
+    it. Although this is not a process controlled by Ansible, it is still a vital
+    component in our **Standard Operating Environment** (**SOE**) architecture to
+    ensure consistency of builds, and that build standards can be well documented
+    and version controlled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fortunately, both CentOS (Red Hat-based) and Ubuntu (Debian-based) installers
+    provide the capability for unattended installs to be completed in a programmatic
+    manner. Sadly, there is no common standard for this process and, as you will see
+    in this section, the language used for this process is wholly different between
+    the two Linux types we are discussing here. Nevertheless, by covering off these
+    two technologies, we are giving a good grounding that will enable you to perform
+    remote, unattended installations on a wide variety of Linux systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that the examples in this chapter are complete and working, and thus are
+    provided as hands-on examples—however, they are really just scratching the surface in
+    terms of what these unattended installation technologies can do. It is left as
+    an exercise for you to expand on these examples, and build them out to your own
+    requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's get started by looking in the next section at how we perform unattended
+    builds on Red Hat-based platforms such as CentOS using kickstart files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing unattended builds with kickstart files
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Red Hat installer, Anaconda, uses a scripting language called **kickstart**
+    to define unattended builds. This is well documented, and there are many examples
+    available on the internet for you to work from—in fact, when you manually install
+    a Red Hat derivative such as CentOS 7, you will find a kickstart file in `/root/anaconda-ks.cfg`, which
+    could be employed to automate future builds! In the following, we will build up
+    our own simple kickstart file, based loosely on a minimal install of CentOS 7
+    from the interactive installer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s start building up our example kickstart file for use in this chapter.
+    Consider this block of code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Much of the kickstart file is very readable—in the preceding code block, you
+    can see the following: we are defining `sha512` for the password hashing algorithm;
+    our repository server is available at `http://192.168.201.1/centos7/`; we are
+    performing a `graphical` install, using only `/dev/sda`, and with some `GB` specific
+    locale settings. We also tell the installer to `reboot` automatically once the
+    install completes successfully.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We then build on this by setting up the network (note that you must know the
+    network device name in advance of creating this file, so you might find it useful
+    to boot into a live environment to check this first) by running the following
+    code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: This sets the hostname of our newly built server to `ksautomation`, and enables
+    IPv6 and IPv4 DHCP on the network device called `ens33`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We then define the root account password, and—optionally—any additional accounts
+    we want to be added as part of the build, by running the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that the password hashes must be used in this file—there are many ways
+    to generate these. I used the following snippet of Python to generate unique hashes
+    for the `password` string (you would obviously want to choose a more secure password!):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Running the preceding three lines of code in the shell of any Linux server that
+    has Python installed will generate the password hash needed for your kickstart
+    file, which you can copy and paste into your installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding code is used only to generate the password hashes—do not include
+    it in your kickstart file!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we set the time zone appropriately, and enable the `chrony` time synchronization
+    service. We initialize the disk label on our chosen boot device, `sda`, and make
+    use of Anaconda's automated partitioning (designated by the `autopart` directive),
+    to set up the disk.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Note that `clearpart --none` does not actually clear the partition table—and
+    if you run through this example with the kickstart file as defined here, the installation
+    will only complete if there is space on the target disk to install CentOS 7\.
+    To have the kickstart file wipe the target disk and perform a fresh installation
+    of CentOS 7 (which may be desirable to avoid having to manually wipe old machines
+    before reuse), perform the following changes to the kickstart file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Insert the `zerombr` directive above the `clearpart` statement to ensure the
+    boot sector is cleared.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Change the `clearpart` line to read `clearpart --drives=sda --initlabel --all`—be
+    sure to only specify the drives you want clearing in the `--drives=` parameter!
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The fragment of following code does not include these changes as they are destructive—however,
+    you are free to experiment with them as you wish in your test environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then define our packages to be installed by default. Here, we are installing
+    the `core` package group, the `minimal` system package set, and the `chrony` package.
+    We are also disabling `kdump` for our test server, as shown in the following code
+    block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we can perform additional customization, such as setting a strong
+    password policy—the following lines are actually the defaults from the interactive
+    installer, and should be customized to your requirements:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When you have built your complete kickstart file, it''s time to test the boot
+    process. Remember the PXELINUX boot configuration we used in the last section?
+    Well, that is reused almost in its entirety, except this time, we need to tell
+    it where to find the kickstart file. I am storing the file we have just created
+    in `/var/www/html/centos7-config/centos7unattended.cfg`—thus, it can be downloaded
+    from our HTTP server, just like with the packages for the installer. In this case,
+    our PXELINUX configuration would look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let's run through the installation process, and see what happens. Initially,
+    the process will look identical to the interactive installation we performed earlier
+    in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding PXE boot configuration shown is identical to before, save for
+    the `inst.ks` parameter at the end, telling Anaconda where to download our kickstart
+    file from.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Indeed, when you connect to the VNC console of your machine as it is being
+    built, things will initially look the same—the graphical installer for CentOS
+    7 loads, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/dd4b86f0-8388-482e-858d-de5c83874658.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'So far, everything looks like an ordinary interactive installation. However,
+    once the installer finishes the various tasks listed (for example, Saving storage
+    configuration...), you will note that you are presented with a screen that looks
+    complete, save for the Begin Installation button being grayed out (as shown in
+    the following screenshot):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d56b8cad-7d41-4d05-b9dc-1e72ce64ce97.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Note the differences here—the installation source has now been set to the HTTP
+    server we set up for our installation process. All other items that are usually
+    completed manually, such as disk selection, have been completed automatically,
+    using the configuration in our kickstart script. In fact, if we wait a short while
+    longer, you will see that the installation commences automatically, without the
+    need to click the Begin Installation button, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/565adc47-7510-44cb-b64d-5bd5597746ba.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The installation now proceeds, using the parameters from our kickstart file.
+    Note that the root password and initial user account creation has been completed,
+    using the parameters from the kickstart script, and so, these buttons are again
+    grayed out. In short, although the installation process appears very similar to
+    a normal interactive installation, the user is not able to interact with the process
+    in any way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are only two times when a user will be expected to interact with a kickstart
+    installation, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A configuration is incomplete or incorrect—in this instance, the installer will
+    pause and expect the user to intervene, and (if possible) correct the issue.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If the `reboot` keyword has not been specified in the kickstart file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In the latter case, the installation will complete, but the installer will
+    wait for the Reboot button to be clicked, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/294e8549-4fb9-4db9-abbb-0ef895fbf6c3.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Rebooting automatically at the end of a kickstart installation is often desirable,
+    as it saves the need to connect to the console. However, there are times when
+    it is not—perhaps you don't actually want the newly built server to be running
+    on the network at the present time. Or, perhaps you are building an image for
+    templating purposes, and so don't want the first boot to complete, as it will
+    mean log files and other data that subsequently need to be cleaned up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The exact path the installation takes is up to you—the important thing to note
+    is that you can connect to the VNC console, as shown in the preceding screenshots,
+    and see exactly how the installation is going. If there are any errors or issues,
+    you will be alerted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Test this out, and see how the build performs for you. In the event of any
+    issues, the installer runs up several consoles on the physical server that contain
+    logging information—you can switch between these using *Alt* + *Tab*, or *Alt*
+    + *F<n>*, where *F<n>* is one of the function keys—each of the first six corresponds
+    to a different console, which will contain useful logging information. These can
+    be queried, to debug any issues that might arise. The instructions are actually
+    shown at the bottom of the text mode console screen—see the following screenshot
+    for an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/97a127c9-5481-4cda-85a6-27da340fd7f7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In the preceding screenshot, we can see we are on console `1`, entitled `main`.
+    Console `2` has a `shell` for debugging purposes, and consoles `3` through `5`
+    show `log` files specific to the installation process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, if all of this goes well, you will see the installer run without any
+    intervention required, and then, the server will reboot and present you with a
+    login prompt. From there, you should be able to log in, using the password you
+    defined via the password hash earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That concludes the process of building a CentOS 7 server over the network using
+    a kickstart file. The same high-level process can be followed for Ubuntu and other
+    Debian derivatives through the use of pre-seed files, as we shall explore in the
+    next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing unattended builds with pre-seed files
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Broadly speaking, Ubuntu Server builds (and indeed, other Debian derivative
+    operating systems) function exactly the same way. You specify a script file to
+    tell the installer what actions to take, in place of a human being selecting options.
+    With Ubuntu Server, this is called a pre-seed file. Let's go through this now,
+    and build one up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The pre-seed files are very powerful, and there is lots of documentation around—however,
+    they can sometimes appear more complex to the naked eye. Starting with the following
+    lines of code, we set the appropriate locale and keyboard layout for our server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We then configure the following network parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, you will note that we don''t actually need to know the interface name
+    in advance—rather, we can get Ubuntu to guess it, using its automated detection
+    algorithm. We are setting the hostname to `automatedubuntu`; however, note that
+    the other parameters are used to prevent the installer from prompting for a hostname
+    from the user, thus meaning the installation is not truly unattended. Next, we
+    add some details about where the installer can download its packages from, as
+    shown in the following code block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: These should naturally be adjusted to suit your network, HTTP server setup on
+    your PXE server, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many of these are also set in the kernel parameters, as we saw in our PXELINUX
+    configuration earlier—we just need to confirm a few of them here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We then set up the root account password, and any additional user accounts,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note here that I have specified the passwords in plain text, to highlight the
+    possibility to do this here—there are alternative parameters you can specify that
+    will accept a password hash, which is far more secure when creating configuration
+    files. Here, the root password is set to `password`, and a user account called `automation` is
+    set up, with the password `insecure`. As before, our password policy is quite
+    weak and could be strengthened here, or later, using Ansible. We then set the
+    time zone as appropriate, and turn on NTP synchronization, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The most complex block of code in our otherwise simplistic example is the following
+    one, which is used to partition and set up the disk:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Although verbose, this section of the file basically says to automatically
+    partition the disk `/dev/sda`, set up LVM, use automated calculations to determine
+    the filesystem layout, and then create `ext4` filesystems. As you can see, there
+    are many safeguards and confirmation prompts that we have flagged as `true` as
+    otherwise, the installer would stop and wait for user input to proceed. If this
+    were to happen, our installation would again not be truly unattended. From here,
+    we specify the package set we want to be installed, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding lines of code essentially set up a minimal server build with
+    the `openssh-server` package and `build-essential` packages on it. The automated
+    update policy is configured to not automatically update. Finally, to finish off
+    the file, we tell it where to install the boot loader, and to reboot upon successful
+    completion, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As with our CentOS example, we will serve this file from our web server, and
+    thus, the PXELINUX boot configuration needs adjusting, to make sure we incorporate
+    this file—an appropriate example is shown as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note the following new options in use this time:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`url`: Tells the installer from where to obtain our pre-seed file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`console-setup/layoutcode` and `keyboard-configuration/layoutcode`: Prevents
+    the installer from asking about keyboard settings when it is first run.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`netcfg/get_hostname`: Although we have set the hostname in the pre-seed file,
+    we have to specify this parameter here, otherwise the installer will stop, and
+    prompt the user to enter a hostname.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Again, if you test this by booting a server over the network using the preceding
+    configuration, you should see the server build complete. Unlike the CentOS 7 installation,
+    you will not see any menu options—these will only be presented to you if your
+    pre-seed configuration file is incorrect, or is missing some important details.
+    Instead, you will simply see a series of progress bars flash by, as the various
+    stages of the installation are completed. For example, the following screenshot
+    shows that the base system is installed to the disk after the partitions and logical
+    volumes have been set up:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/abe7682b-af5d-4a53-b371-71d3bed0a352.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Assuming all goes well, this process will continue until you are presented
+    with a final progress bar, which shows the final tidy-up being completed before
+    the server is rebooted. In the following screenshot, the filesystems are being
+    unmounted, in preparation for a reboot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/fcb62dcc-1ca4-486b-9153-adf3c47e3d6a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: When this final progress bar completes, your server will reboot, and you will
+    be presented with a login prompt, from where you can log in with the credentials
+    specified in the pre-seed file `d-i passwd` parameters shown previously. Note
+    that if you use different credentials for your build, you must use these here,
+    and not those specified previously.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this stage, you should be able to perform an unattended build of either CentOS
+    or Ubuntu Server over the network and perform basic changes, such as selecting
+    the required packages and setting credentials. In the next section, we will explore
+    methods of additional bespoke customization, beyond the original OS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding custom scripts to unattended boot configurations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As you will have seen from the examples in this chapter, the kickstart and pre-seed
+    files are quite prescriptive in what they can do. For most purposes, they should
+    be perfectly adequate, allowing you to build a machine suitable for further customization
+    with Ansible. Indeed, much of the rest of this book is dedicated to how you would
+    manage and automate configuration management across an estate of servers, built
+    per the details in this and the preceding chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, what if your enterprise has a task (or tasks) that absolutely has to
+    be performed at build time—perhaps for security compliance (which we shall explore
+    in [Chapter 13](3d4a9c0a-452f-4fbb-85c8-372149303613.xhtml), *Using CIS Benchmarks*),
+    for example? Luckily, both of the technologies we have discussed here provide
+    an option for that. Let's first take a look at how you might perform custom commands
+    in a kickstart-unattended installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Customized scripting with kickstart
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As discussed previously, it is recommended for most tasks that you perform
+    the post-build configuration with Ansible. However, let''s take a simple and hypothetical
+    example—suppose that, for security reasons, you need to disable root SSH logins
+    immediately when the server is built, for security compliance. There is no directive
+    in kickstart that can perform this task, and leaving the server with this enabled
+    while it waits for Ansible to run against it may not be acceptable to a corporate
+    security team, as there is a window of opportunity for a potential attacker. Luckily,
+    at the bottom of our kickstart file, we can put a `%post` block in that runs any
+    shellcode you put into it. Thus, we could run the `sed` utility from within the
+    following code block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: This very simple block of code runs after the installation process has finished
+    (but before the reboot), and logs its output into `/root/ks.log`. You could customize
+    this as you see fit—however, here, for the sake of our simple example, we are
+    performing a search and replace operation on the default SSH daemon configuration,
+    to ensure that even on first boot, root logins over SSH are disabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we'll see how the same thing is achieved in an Ubuntu pre-seed
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Customized scripting with pre-seed
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Suppose we want to perform the same customization with Ubuntu. Ubuntu pre-seed
+    files run a single line of commands rather than a block as used in kickstart;
+    hence, they lend themselves better to either simple tasks, or indeed to downloading
+    a script for more complex operations. We could embed the `sed` command in our
+    pre-seed file by adding the following line at the bottom:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Suppose, however, we have a much more complex script to run, and that trying
+    to write it all on one line would make it difficult both to read and manage—instead,
+    we could change the preceding command, to download a script from a chosen place
+    and run it, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note here that we are using `wget` (which was installed earlier in the build
+    process) to download a file called `run.sh` from the `/ubuntu-config/` path on
+    our web server. We then make it executable and run it. In this way, far more complex
+    command sequences can be run at the end of the build process, just prior to the
+    first reboot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this manner, incredibly complex, bespoke operating system builds can be installed
+    remotely, over the network, without any human intervention at all. The use of
+    kickstart and pre-seed files also means that the process is scripted and repeatable,
+    which is an important principle for us to adhere to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Even when using bare-metal servers (and some virtualization platforms), it is
+    entirely possible to script the installation process, to ensure that all builds
+    are consistent and thus adhere to the SOE principle we set out earlier in this
+    book. By following the processes set out in this chapter, you will ensure that
+    all your servers are built in a consistent manner, regardless of the platform
+    on which they are running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Specifically, you gained experience of performing an interactive Linux installation
+    environment, using PXE network booting. You then learned how to fully automate
+    the build process, using kickstart and pre-seed scripts, to ensure that builds
+    are completely unattended (and, hence, automated). Finally, you learned how to
+    further customize the builds, by adding custom scripts to the build definition.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will proceed to look at the use of Ansible to customize
+    servers, both when they are newly built, and on an ongoing basis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What does PXE stand for?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which basic services are required for a PXE boot?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Where would you obtain the installation sources for a network boot?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is an unattended installation?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between a kickstart file and a pre-seed file?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why would you need to use a `%post` block in a kickstart file?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the purpose of the `BIOS` and `EFIx64` directories under the TFTP server
+    root?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you create a separate partition for `/home` in a pre-seed file?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To see all the possible pre-seed file options, please visit [https://help.ubuntu.com/lts/installation-guide/example-preseed.txt](https://help.ubuntu.com/lts/installation-guide/example-preseed.txt).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To learn more about kickstart files (also works on CentOS), please visit [https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/installation_guide/sect-kickstart-howto](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/installation_guide/sect-kickstart-howto).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To see a syntax reference for kickstart file commands, please visit [https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/installation_guide/sect-kickstart-syntax#sect-kickstart-commands](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/installation_guide/sect-kickstart-syntax#sect-kickstart-commands).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

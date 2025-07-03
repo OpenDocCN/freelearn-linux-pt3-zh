@@ -1,0 +1,1503 @@
+- en: '*Chapter 1*: Fundamental SELinux Concepts'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Security-Enhanced Linux (SELinux)** brings additional security measures to
+    your Linux system to further protect its resources. As part of the Linux kernel,
+    it is a mandatory access control system supported by major Linux distributions.
+    In this book, we cover all aspects of SELinux, from basic fundamentals to resolving
+    SELinux issues, configuring applications to deal with SELinux, and even writing
+    our own policies.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we embark on the details of SELinux, let''s first cover the concepts
+    of this technology: why SELinux uses labels to identify resources, how SELinux
+    differs from traditional Linux access controls, how SELinux enforces security
+    rules, and other mandatory access control systems that are supported in the Linux
+    kernel. We will also see how the access control rules enforced by SELinux are
+    provided through policy files. At the end of the chapter, we will cover an overview
+    of the differences between SELinux implementations across Linux distributions.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we''re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Providing more security for Linux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Labeling all resources and objects
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Defining and distributing policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Distinguishing between policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Check out the following video to see the Code in Action: [https://bit.ly/2FFaUdm](https://bit.ly/2FFaUdm)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Providing more security for Linux
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Seasoned Linux administrators and security engineers already know that they
+    need to put some trust in the users and processes of their system in order for
+    the system to remain secure. This is partly because users can attempt to exploit
+    vulnerabilities found in the software running on the system, but a large contribution
+    to this trust level is because the secure state of the system depends on the behavior
+    of the users. A Linux user with access to sensitive information could easily leak
+    that out to the public, manipulate the behavior of the applications they launch,
+    and do many other things that affect the security of the system. The default access
+    controls active on a regular Linux system are **discretionary**; it is up to the
+    users how the access controls should behave.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Linux `/etc/shadow` file, which contains the password and account information
+    of the local Linux accounts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Without additional access control mechanisms in place, this file is readable
+    and writable by any process owned by the `root` user, regardless of the purpose
+    of the process on the system. The `shadow` file is a typical example of a sensitive
+    file that we don't want to see leaked or abused in any other fashion. Yet the
+    moment someone has access to the file, that user can copy it elsewhere, for example
+    to a home directory, or even mail it to another computer and attempt to attack
+    the password hashes stored within.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another example of how Linux DAC requires trust from its users is the configuration
+    of a database server. Database files themselves are (hopefully) only accessible
+    to the runtime account of the `root` user. Properly secured systems will only
+    grant trusted users access to these files (for instance, through `sudo`) by allowing
+    them to change their effective user ID from their personal user to the database
+    runtime user or even the `root` account, but only for a well-defined set of commands
+    that the system administrator has configured up front. These users too, can analyze
+    the database files and gain access to potentially confidential information in
+    the database without going through the DBMS. Administrators often have to put
+    significant trust in these users to provide a secure system, rather than being
+    able to enforce this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, regular users are not the only reason for securing a system. Lots
+    of software daemons run as the Linux `root` user or have significant privileges
+    on the system. Errors within those daemons can easily lead to information leakage
+    or might even lead to remotely exploitable vulnerabilities. Backup software, monitoring
+    software, change management software, scheduling software, and so on: they all
+    often run with the highest privileged account possible on a regular Linux system.
+    Even when the administrator does not allow privileged users, their interaction
+    with daemons introduces a potential security risk. So, the users are still trusted
+    to correctly interact with these applications in order for the system to function
+    properly. Through this, the administrator leaves the security of the system to
+    the *discretion* of its (many) users.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enter SELinux, which provides an additional access control layer *on top of*
+    the standard Linux DAC mechanism. SELinux provides a **mandatory access control
+    (MAC)** system that, unlike its DAC counterpart, gives the administrator full
+    control over what is allowed on the system and what isn't. It accomplishes this
+    by supporting a policy-driven approach over what processes are and aren't allowed
+    to do and by enforcing this policy through the Linux kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Mandatory** means that the operating system enforces the access control,
+    defined solely by the policy rules that the system administrator (or security
+    administrator) has enabled. Users and processes do not have permission to change
+    the security rules, so they cannot work around the access controls; security is
+    not left to their discretion anymore.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Considering the relational database example, a mandatory access control system
+    would no longer require the administration to trust certain users, as it has full
+    control over what these users can and cannot do. PostgreSQL, as we will see in
+    [*Chapter 8*](B16276_08_Final_VK.xhtml#_idTextAnchor237), *SEPostgreSQL – Extending
+    PostgreSQL with SELinux*, can interact with the SELinux subsystem to allow the
+    administrator full coverage over the data access involved, even inside the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The word *mandatory* here, just like the word *discretionary* before, was not
+    chosen accidentally to describe the abilities of the access control system: both
+    are known terms in the security research field. Many security publications use
+    these terms, including the **Trusted Computer System Evaluation Criteria** (**TSEC**)
+    ([http://csrc.nist.gov/publications/history/dod85.pdf](http://csrc.nist.gov/publications/history/dod85.pdf))
+    standard (also known as the **Orange Book**) published by the Department of Defense
+    in the United States of America in 1985\. This publication has led to the Common
+    Criteria standard for computer security certification (ISO/IEC 15408), available
+    at [http://www.commoncriteriaportal.org/cc/](http://www.commoncriteriaportal.org/cc/).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, we'll describe how the Linux kernel is responsible for the SELinux implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing Linux Security Modules (LSM)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Consider the example of the `shadow` file again. A MAC system can be configured
+    to only allow a limited number of processes to read from and write to the file.
+    On such specifically configured systems, a user logged on as `root` cannot directly
+    access the file or even move it around. They can''t even change the attributes
+    of the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The system enforces this through rules that describe when the contents of this
+    file can be read, or when its attributes can be changed. With SELinux, these rules
+    are defined in the SELinux policy and are loaded when the system boots. It is
+    the Linux kernel itself that is responsible for enforcing the rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mandatory access control systems such as SELinux are supported in the Linux
+    kernel through **Linux Security Modules** (**LSM**), a Linux subsystem called
+    before processing a user space request. Such requests are called **system calls**,
+    and Linux supports over 100 of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.1 – High-level overview of how LSM integrates into the Linux kernel
+    ](img/B16276_01_001.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.1 – High-level overview of how LSM integrates into the Linux kernel
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'LSM has been available in the Linux kernel since version 2.6, released in December
+    2003\. It is a framework that provides hooks inside the Linux kernel at various
+    locations, including the system call entry points. When these hooks trigger, registered
+    security implementations such as SELinux have their functions executed automatically.
+    In SELinux, these functions check the policy and other information before returning
+    a go/no-go. LSM by itself does not provide any security functionality; instead,
+    it relies on security implementations that do the heavy lifting: the framework
+    is *modular*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Within the LSM framework, two types of security modules exist: exclusive and
+    non-exclusive modules. Two exclusive modules cannot be active simultaneously:
+    each exclusive LSM module needs exclusive control over some kernel objects (generally
+    those related to a security context) and is not able to deal with other LSM modules
+    that need these objects as well. Non-exclusive modules don''t have this need and
+    can be combined (also known as *stacking*) at will, regardless of whether an exclusive
+    LSM module is active or not.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A major use case for stacking LSM modules is to enable different security models
+    within containers running on the system. Right now, it is not possible to implement
+    a different security module within a Linux container, and the security within
+    the container falls back to the security module of the host. To support this,
+    more and more exclusive LSM implementations (like SELinux) are working to make
+    their implementation non-exclusive, and we can expect improvements in this area
+    within the next year.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'SELinux is one implementation that uses LSM. Several other implementations
+    exist:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**AppArmor** is a mandatory access control system that has a strong focus on
+    application-level protections (called profiles), based largely on filesystem paths.
+    This makes AppArmor easy to understand and implement for administrators, as it
+    does not have the complexity of abstracting rules to labels (as SELinux does).
+    In the *Labeling all resources and objects* section, we explain why SELinux uses
+    labels. AppArmor is an exclusive LSM module at the time of writing, but will most
+    likely become non-exclusive very soon.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Smack** is a mandatory access control system that uses labels on processes
+    and resources. The labels contain security identifiers interpreted by Smack to
+    enforce access control, requiring fewer access rules in Smack (unlike SELinux,
+    which does not perform an interpretation of labels – excluding sensitivity – and
+    thus requires a higher number of policy rules). Smack is an exclusive LSM module.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**TOMOYO Linux** is a mandatory access control system, but its access control
+    mechanism is also easy to use for system analysis. It automatically builds up
+    policies based on application behavior, and like AppArmor, its policies primarily
+    use paths rather than labels. TOMOYO Linux (and its fork, **AKARI**) is a non-exclusive
+    LSM module.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**LoadPin** is an LSM module that ensures that the Linux kernel resources (such
+    as kernel modules and firmware) are all loaded from a single non-writable filesystem.
+    LoadPin is a non-exclusive LSM module.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ptrace`). Yama is a non-exclusive LSM module.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`setuid` (switching to another user) toward another user. Rather than granting
+    the use of `setuid`, SafeSetId can limit for which users this is allowed. This
+    ensures that vulnerabilities or misconfigurations in tools such as `sudo` are
+    still contained. SafeSetId is a non-exclusive LSM module.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Lockdown** is an LSM module that protects the Linux kernel memory. It has
+    two modes: in integrity mode, it prevents modifying kernel objects from user space
+    (such as direct memory access or PCI access); in confidentiality mode, it additionally
+    prevents extracting potentially confidential information from kernel objects.
+    Lockdown is a non-exclusive LSM module.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **capability** LSM module is, by default, enabled on systems and provides
+    support for Linux capabilities (a set of permissions granted to a user when the
+    user is assigned a certain capability). It is a non-exclusive LSM module.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To query the list of active LSM modules on a system, read `/sys/kernel/security/lsm`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, we'll explain how SELinux works on top of regular Linux access controls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extending regular DAC with SELinux
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: SELinux does not change the Linux DAC implementation, nor can it override denials
+    made by the Linux DAC permissions. If a regular system (without SELinux) prevents
+    a particular access, there is nothing SELinux can do to override this decision.
+    This is because the LSM hooks are triggered *after* the regular DAC permission
+    checks execute, a conscious design decision from the LSM project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For instance, if you need to allow an additional user access to a file, you
+    cannot add an SELinux policy to do that for you. Instead, you will need to look
+    into other features of Linux, such as the use of POSIX access control lists. Through
+    the `setfacl` and `getfacl` commands, the user can set additional permissions
+    on files and directories, opening up the selected resource to additional users
+    or groups.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As an example, let''s grant a user `admin` read-write access to a file using
+    `setfacl`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Similarly, to view the current POSIX ACLs applied to the file, use this command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This shows that the file is writable not only by its owner but also by the `admin`
+    user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Restricting root privileges
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The regular Linux DAC allows an all-powerful user: `root`. Unlike most other
+    users on the system, the logged-on `root` user has all the rights needed to fully
+    manage the entire system, ranging from overriding access controls to controlling
+    audits, changing user IDs, managing the network, and much more. This is supported
+    through a security concept called `man capabilities`). SELinux is also able to
+    restrict access to these capabilities in a fine-grained manner.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Due to this fine-grained authorization aspect of SELinux, even the `root` user
+    can be confined without impacting the operations on the system. The previous example
+    of accessing `/etc/shadow` is just one example of an activity that a powerful
+    user such as `root` still might not be able to perform due to the SELinux access
+    controls in place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reducing the impact of vulnerabilities
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If one benefit of SELinux needs to be stressed, then it is its ability to reduce
+    the impact of vulnerabilities. But this vulnerability reduction is also often
+    misunderstood.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A properly written SELinux policy confines applications so that their allowed
+    activities are reduced to a minimum set. This **least-privilege model** ensures
+    that abnormal application behavior is not only detected and audited but also prevented.
+    Many application vulnerabilities can be exploited to execute tasks that an application
+    is not meant to do. When this happens, SELinux will prevent this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, there are two misconceptions about SELinux's ability to thwart exploits,
+    namely, the impact of the policy and the exploitation itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the policy is not written in a least-privilege model, then SELinux might
+    consider this non-standard behavior as normal and allow the actions to continue.
+    For policy writers, this means that their policy rules have to be very fine-grained.
+    Sadly, that makes writing policies very time-consuming: with more than 130 classes
+    and over 250 permissions known to SELinux, policy rules need to take all these
+    classes and permissions into account for each interaction.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a result, policies tend to become convoluted and harder to maintain. Some
+    policy writers make policies more permissive than is absolutely necessary, which
+    might result in exploits becoming successful even though the action is not expected
+    behavior from an application's point of view. Some application policies are explicitly
+    marked as unconfined (which we discuss in [*Chapter 14*](B16276_14_Final_VK.xhtml#_idTextAnchor354),
+    *Dealing with New Applications*), showing that they are very liberal in their
+    allowed permissions. Fedora, CentOS, and Red Hat Enterprise Linux even start application
+    policies as permissive and only start enforcing access controls for those applications
+    after a few releases (and additional testing).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second misconception is the exploit itself. If an application's vulnerability
+    allows an unauthenticated user to use the application services as if the user
+    were a regular, authorized user, then SELinux will not play a role in reducing
+    the impact of the vulnerability; it will only notice the behavior of the application
+    itself and not of the sessions internal to the application. As long as the application
+    itself behaves as expected (such as accessing its own files and not poking around
+    in other filesystems), SELinux will happily allow the actions to take place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is only when the application starts behaving erratically that SELinux stops
+    the exploit from continuing. SELinux will prevent exploits such as **remote command
+    execution (RCE)** against applications that should not be executing random commands
+    (such as database management systems or web servers, excluding CGI-like functionality),
+    whereas session hijacking or SQL injection attacks are not controllable through
+    SELinux policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enabling SELinux support
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Enabling SELinux on a Linux system is not just a matter of enabling the SELinux
+    LSM module within the Linux kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An SELinux implementation contains the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SELinux kernel subsystem, implemented in the Linux kernel through LSM
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Libraries, used by applications that need to interact with SELinux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Utilities, used by administrators to interact with SELinux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Policies, which define the access controls themselves
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The libraries and utilities are bundled by the SELinux user space project ([https://github.com/SELinuxProject/selinux](https://github.com/SELinuxProject/selinux)).
+    Next to the applications and libraries provided by the SELinux user space project,
+    various components on a Linux system are updated with SELinux-specific code, including
+    the `init` system and several core utilities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Because SELinux isn''t just a switch that needs to be toggled, Linux distributions
+    that support it usually come with SELinux predefined and loaded: Fedora, CentOS,
+    and Red Hat Enterprise Linux (with its derivatives, such as Oracle Linux) are
+    well-known examples. Other supporting distributions might not automatically have
+    SELinux enabled but can easily support it through the installation of additional
+    packages (which is the case with Debian and Ubuntu), and others have a well-documented
+    approach to how to convert a system to SELinux (for example, Gentoo and Arch Linux).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throughout the book, we will show examples for Gentoo and CentOS 8 (which is
+    based on the free software of the Red Hat Enterprise Linux releases and is sponsored
+    by Red Hat). These two distributions have different implementation details, which
+    allow us to demonstrate the full potential of SELinux. To ensure the commands
+    used within this book are available, some SELinux support tools might need to
+    be installed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On Gentoo Linux, install at least the following packages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On CentOS Linux, install at least the following packages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: As packages can change over time, it is sensible to look up which package provides
+    a particular command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the mentioned packages no longer exist or do not cover all commands, please
+    consult your distribution's documentation on which software packages to install.
+    Most distributions allow searching for the most appropriate package as well, such
+    as with `e-file` in Gentoo, or `yum whatprovides` on CentOS or related distributions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the SELinux main functionality described, let's look at how SELinux knows
+    what is on the system, and which abstraction it uses to allow policies to be developed
+    for a wide set of users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Labeling all resources and objects
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When SELinux has to decide whether it has to allow or deny a particular action,
+    it makes a decision based on the context of both the **subject** (who is initiating
+    the action) and the **object** (which is the target of the action). These contexts
+    (or parts of the context) are mentioned in the policy rules that SELinux enforces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **context** of a process is what identifies the process to SELinux. SELinux
+    has no notion of Linux process ownership and does not care how the process is
+    called, which process ID it has, and what account the process runs as. All it
+    wants to know is what the context of that process is, represented to users and
+    administrators as a **label**. *Label* and *context* are often used interchangeably,
+    and although there is a technical distinction (one is a representation of the
+    other), we will not dwell on that much.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s look at an example label – the context of the current user:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `id` command, which returns information about the current user, is shown
+    executing with the `-Z` switch (a commonly agreed upon switch for displaying additional
+    security information obtained from the LSM-based security subsystem). It shows
+    us the context of the current user (actually the context of the `id` process itself
+    when it was executing). As we can see, the context has a string representation
+    and looks as if it has five fields (it doesn't; it has four fields – the last
+    field just happens to contain a colon character).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'SELinux developers decided to use labels instead of real process and file (or
+    other resource) metadata for its access controls. This is different from MAC systems
+    such as AppArmor, which uses the path of the binary (and thus the process name)
+    and the paths of the resources to handle permission checks. The following reasons
+    inspired the decision to make SELinux a label-based mandatory access control:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using paths might be easier to comprehend for administrators, but this doesn't
+    allow us to keep the context information close to the resource. If a file or directory
+    moves or remounts, or if a process has a different namespace view on the files,
+    then the access controls might behave differently as they look at the path instead
+    of the file. With label-based contexts, the system retains this information and
+    keeps controlling the resource's access properly.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Contexts reveal the purpose of the process very well. The same binary application
+    can be launched in different contexts depending on how it got started. The context
+    value (such as the one shown in the `id -Z` output earlier) is exactly what the
+    administrator needs. With it, they know what the rights are of each of the running
+    instances, but they can also deduce from it how the process was launched and what
+    its purpose is.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Contexts also make abstractions of the object itself. We are used to talking
+    about processes and files, but contexts are also applicable to less tangible resources
+    such as pipes (inter-process communication) or database objects. Path-based identification
+    only works as long as you can write a path.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As an example, consider the following policy statements:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allow the `httpd` processes to bind to TCP port `80`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Allow the processes labeled with `httpd_t` to bind to TCP ports labeled with
+    `http_port_t`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In the first example, we cannot easily reuse this policy when the web server
+    process isn''t using the `httpd` binary (perhaps because it was renamed or it
+    isn''t Apache but another web server) or when we want to have HTTP access on a
+    different port. With the labeled approach, the binary could be called `apache2`
+    or `MyWebServer.py`; as long as the process is labeled with `httpd_t`, the policy
+    applies. The same happens with the port definition: you can label the port `8080`
+    with `http_port_t` and thus allow the web servers to bind to that port as well
+    without having to write another policy statement.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dissecting the SELinux context
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To come to a context, SELinux uses at least three, and sometimes four, values.
+    Let''s look at the context of the SSH server as an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we can see, the process is assigned a context that contains the following
+    fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SELinux user `system_u`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SELinux role `system_r`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SELinux type (also known as the domain when we are looking at a running
+    process) `sshd_t`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The sensitivity level `s0-s0:c0.c1023`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When we work with SELinux, knowing the contexts is extremely important. In most
+    cases, it is the third field (called the **domain** or **type**) that is most
+    important since the majority of SELinux policy rules (over 99 percent) consist
+    of rules related to the interaction between two types (without mentioning roles,
+    users, or sensitivity levels).
+  prefs: []
+  type: TYPE_NORMAL
+- en: SELinux contexts are aligned with LSM security attributes and exposed to the
+    user space in a standardized manner (compatible with multiple LSM implementations),
+    allowing end users and applications to easily query the contexts. An easily accessible
+    location where these attributes are presented is within the `/proc` pseudo filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Inside each process''s `/proc/<pid>` location, we find a subdirectory called
+    `attr`, inside of which the following files can be found:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: All these files, if read, display either nothing or an SELinux context. If it
+    is empty, then that means the application has not explicitly set a context for
+    that particular purpose, and the SELinux context will be deduced either from the
+    policy or inherited from its parent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The meaning of the files are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `current` file displays the current SELinux context of the process.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `exec` file displays the SELinux context that will be assigned by the next
+    application execution done through this application. It is usually empty.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `fscreate` file displays the SELinux context that will be assigned to the
+    next file written by the application. It is usually empty.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `keycreate` file displays the SELinux context that will be assigned to the
+    keys cached in the kernel by this application. It is usually empty.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `prev` file displays the previous SELinux context for this particular process.
+    This is usually the context of its parent application.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `sockcreate` file displays the SELinux context that will be assigned to
+    the next socket created by the application. It is usually empty.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If an application has multiple subtasks, then the same information is available
+    in each subtask directory at `/proc/<pid>/task/<taskid>/attr`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enforcing access through types
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The SELinux type (the third part of an SELinux context) of a process (called
+    the **domain**) is the basis of the fine-grained access controls of that process
+    with respect to itself and other types (which can be processes, files, sockets,
+    network interfaces, and more). In most SELinux literature, SELinux''s label-based
+    access control mechanism is fine-tuned to say that SELinux is a **type enforcement**
+    mandatory access control system: when some actions are denied, the (absence of
+    the) fine-grained access controls on the type level are most likely to blame.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With type enforcement, SELinux can control an application''s behavior based
+    on how it got executed in the first place: a web server launched by a user will
+    run with a different type than a web server executed through the `init` system,
+    even though the process binary and path are the same. The web server launched
+    from the `init` system is most likely trusted (and thus allowed to do whatever
+    web servers are supposed to do), whereas a manually launched web server is less
+    likely to be considered *normal behavior* and as such will have different privileges.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The majority of SELinux's online resources focus on types. Even though the SELinux
+    type is just the third part of an SELinux context, it is the most important one
+    for most administrators. Most documentation will even just talk about a type such
+    as `sshd_t` rather than a full SELinux context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take a look at the following `dbus-daemon` processes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, one `dbus-daemon` process is the system D-Bus daemon running
+    with the aptly named `system_dbusd_t` type, whereas two other ones are running
+    with the `swift_dbusd_t` type assigned to it. Even though their binaries are the
+    same, they both serve a different purpose on the system and as such have a different
+    type assigned. SELinux then uses this type to govern the actions allowed by the
+    process toward other types, including how `system_dbusd_t` can interact with `swift_dbusd_t`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SELinux types are by convention suffixed with `_t`, although this is not mandatory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Granting domain access through roles
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: SELinux roles (the second part of an SELinux context) allow SELinux to support
+    role-based access controls. Although type enforcement is the most used (and known)
+    part of SELinux, role-based access control is an important method to keep a system
+    secure, especially from malicious user attempts. SELinux roles define which types
+    (domains) can be accessed from the current context. These types (domains) on their
+    part define the permissions. As such, SELinux roles help define what a user (who
+    has access to one or more roles) can and cannot do.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By convention, SELinux roles are defined with an `_r` suffix. On most SELinux-enabled
+    systems, the administrator can assign the following SELinux roles to users:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `user_r` role is meant for restricted users. This role is only allowed to
+    have processes with types specific to end-user applications. Privileged types,
+    including those used to switch to another Linux user, are not allowed for this
+    role.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `staff_r` role is meant for non-critical operations. This role is generally
+    restricted to the same applications as the restricted user, but it has the ability
+    to switch roles. It is the default role for operators to have (so as to keep those
+    users in their least privileged role as long as possible).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `sysadm_r` role is meant for system administrators. This role is very privileged,
+    enabling various system administration tasks. However, certain end-user application
+    types might not be supported (especially if those types are used for potentially
+    vulnerable or untrusted software) to keep the system free from infections.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `secadm_r` role is meant for security administrators. This role allows changing
+    the SELinux policy and manipulating the SELinux controls. It is generally used
+    when a separation of duties is needed between system administrators and system
+    policy management.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `system_r` role is meant for daemons and background processes. This role
+    is quite privileged, supporting the various daemon and system process types. However,
+    end-user application types and other administrative types are not allowed in this
+    role.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `unconfined_r` role is meant for end users. This role allows a limited number
+    of types, but those types are very privileged as they allow running any application
+    launched by a user (or another unconfined process) in a more or less unconfined
+    manner (not restricted by SELinux rules). This role, as such, is only available
+    if the system administrator wants to protect certain processes (mostly daemons)
+    while keeping the rest of the system operations almost untouched by SELinux.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Other roles might exist, such as `guest_r` and `xguest_r`, depending on the
+    distribution. It is wise to consult the distribution documentation for more information
+    about the supported roles. The `seinfo` command is the most common method to obtain
+    an overview of available roles:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: With the SELinux roles identified, let's look at how we assign roles to users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Limiting roles through users
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An SELinux user (the first part of an SELinux context) is not the same as a
+    Linux (account) user. Unlike Linux user information, which can change while the
+    user is working on the system (through tools such as `sudo` or `su`), the SELinux
+    policy can (and generally will) enforce that the SELinux user remains the same
+    even when the Linux user itself has changed. Because of the immutable state of
+    the SELinux user, we can implement specific access controls to ensure that users
+    cannot work around the set of permissions granted to them, even when they get
+    privileged access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An example of such an access control is the **user-based access control** (**UBAC**)
+    feature that some Linux distributions (optionally) enable, which prevents users
+    from accessing files of different SELinux users even when those users try to use
+    the Linux DAC controls to grant access to each other's files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The most important feature of SELinux users, however, is that SELinux user
+    definitions restrict which roles the (Linux) user can assume. A Linux user is
+    first assigned to an SELinux user, which does not need to be unique: multiple
+    Linux users can be assigned to the same SELinux user. Once set, that user cannot
+    switch to an SELinux role not associated with that SELinux user.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram shows the role-based access control implementation of
+    SELinux:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.2 – Mapping Linux accounts to SELinux users ](img/B16276_01_002.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.2 – Mapping Linux accounts to SELinux users
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`_u` suffix, although this is not mandatory. The SELinux users that most distributions
+    have available are named after the role they represent, but instead of ending
+    with `_r`, they end with `_u`. For instance, for the `sysadm_r` role, we have
+    the `sysadm_u` SELinux user.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Controlling information flow through sensitivities
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The fourth part of an SELinux context, the sensitivity, is not always present
+    (some Linux distributions, by default, do not enable sensitivity labels, but most
+    do). This part of the label is needed for the `s`) and a category value (prefixed
+    with `c`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In many larger organizations and companies, documents are labeled internal,
+    confidential, or strictly confidential. SELinux can assign processes certain clearance
+    levels for these resources. With MLS, we can configure SELinux to follow the **Bell-LaPadula**
+    model, a security model characterized by *no read up, no write down*: based on
+    a process''s clearance level, that process cannot read anything with a higher
+    confidentiality level nor write to (or communicate otherwise with) any resource
+    with a lower confidentiality level. SELinux does not use internal, confidential,
+    and other labels. Instead, it uses numbers from zero (the lowest confidentiality)
+    to whatever the system administrator has defined as the highest value (this is
+    configurable and set when the SELinux policy is built).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Categories allow us to assign resources with one or more categories, and to
+    define access controls across categories. One of the functionalities resulting
+    from using categories is to support multitenancy (for example, systems hosting
+    applications for multiple customers) within a Linux system. Multitenancy is provided
+    by assigning a set of categories to the processes and resources of one tenant,
+    whereas the processes and resources of another tenant get a different set of categories.
+    When a process does not have the proper categories assigned, it cannot touch the
+    resources (or other processes) that have other categories assigned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: An unwritten convention in the SELinux world is that (at least) two categories
+    are used to differentiate between tenants. By having services randomly pick two
+    categories for a tenant out of a predefined set of categories, while ensuring
+    each tenant has a unique combination, these services receive proper isolation.
+    The use of two categories is not mandatory, but services such as sVirt and Docker
+    successfully implement this methodology.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In that sense, categories are like tags, allowing us to grant access only when
+    the tags of the process and the target resource match. As multilevel security
+    is not often used, the benefits of only using categories are persisted in what
+    is called `s0`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know how labels are used by SELinux policies, let's look at how
+    SELinux policies are defined and distributed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining and distributing policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Enabling SELinux does not automatically start the enforcement of access. If
+    SELinux is enabled and it cannot find a policy, it will refuse to start because
+    the policy defines the behavior of the system (what SELinux should allow). SELinux
+    policies are generally distributed in a compiled form (just like with software)
+    as policy modules. These modules are then aggregated into a single policy store
+    and loaded in memory to allow SELinux to enforce the policy rules on the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Gentoo, a source-based meta-distribution, distributes SELinux policies as (source)
+    code, compiled and built at install time, just like it does with other software.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram shows the relationship between **policy rules** (**policy
+    code**), **policy modules**, and a **policy package** (which is often a one-to-one
+    mapping toward a **policy store**):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.3 – Relationship between policy rules (code), policy modules, and
+    policy store ](img/B16276_01_003.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.3 – Relationship between policy rules (code), policy modules, and policy
+    store
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can see, policies are first written, then compiled in modules, after which
+    they are bundled and distributed. The next few sections describe each of these
+    phases in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing SELinux policies
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'An SELinux policy writer can write down the policy rules in three possible
+    languages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In standard SELinux source format – a human-readable and well-established language
+    for writing SELinux policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In reference policy style, which extends the standard SELinux source format
+    with M4 macros to facilitate the development of policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the SELinux **common intermediate language** (**CIL**) – a computer-readable
+    (and with some effort, human-readable) format for SELinux policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Most SELinux supporting distributions base their policy on the reference policy
+    ([https://github.com/SELinuxProject/refpolicy/](https://github.com/SELinuxProject/refpolicy/)),
+    a fully functional SELinux policy set managed as a free software project. This
+    allows distributions to ship with a functional policy set rather than having to
+    write one themselves. Many project contributors are distribution developers, trying
+    to push changes of their distribution to the reference policy project itself,
+    where the changes are peer-reviewed to ensure no rules are brought into the project
+    that might jeopardize the security of any platform. Writing policies without the
+    extensive set of M4 macros offered by the reference policy project is hard, which
+    is why the reference policy has become the de facto source for policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The SELinux CIL format is reasonably recent, and although it is very much in
+    use already (the SELinux user space converts everything to CIL in the background),
+    it is not that common yet for policy writers to use it directly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To show the differences between these three languages, consider the web server
+    rule we discussed earlier, repeated here for your convenience: allow the processes
+    labeled with `httpd_t` to bind to TCP ports labeled with `http_port_t`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the standard SELinux source format, we write this down as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Using reference policy style, this rule is part of the following macro call:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the CIL language, the rule expression is like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In most representations, we can see what the rule is about:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The subject (who is taking the action); in this case, this is the set of processes
+    labeled with the `httpd_t` type.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The target resource or object (the target for the action); in this case, it
+    is the set of TCP sockets (`tcp_socket`) labeled with the `http_port_t` type.
+    In reference policy style, this is implied by the function name.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The action or permission; in this case, it is the action of binding to a port
+    (`name_bind`). In reference policy style, this is implied by the function name.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The result that the policy will enforce; in this case, it is that the action
+    is allowed (`allow`). In reference policy style, this is implied by the function
+    name.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A policy is generally written for an application or set of applications. So,
+    the preceding example will be part of the policy written for web servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Policy writers will generally create three files per application or application
+    set:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A `.te` file, which contains the type enforcement rules.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `.if` file, which contains interface and template definitions, allowing policy
+    writers to easily use the newly-generated policy rules to enhance other policies.
+    You can compare this to header files in other programming languages.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `.fc` file, which contains file context expressions. These are rules that
+    assign labels to resources on the filesystem.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A finished policy is then packaged into an SELinux policy module.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distributing policies through modules
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Initially, SELinux used a single, monolithic policy approach: all possible
+    access control rules were maintained in a single policy file. It quickly became
+    clear that this is not manageable in the long term, and the idea of developing
+    a modular policy approach was born.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Within the modular approach, policy developers can write isolated policy sets
+    for a particular application (or set of applications), roles, and so on. These
+    policies then get built and distributed as policy modules. Platforms that need
+    access controls for a particular application load the SELinux policy module that
+    defines the access rules for that application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram shows the building of policy modules. It also shows where
+    CIL comes into play, even when the policy rules themselves are not written in
+    CIL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.4 – Build process from policy rule to policy store ](img/B16276_01_004.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.4 – Build process from policy rule to policy store
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The binary `*.pp` files (which are the SELinux policy modules) are considered
+    to be written in a **high-level language** (**HLL**). Do not assume that this
+    means they are human-readable: these files are binary files. The consideration
+    here is that SELinux wants to support writing SELinux policies in a number of
+    formats, which it calls high-level languages, as long as it has a parser that
+    can convert the files into CIL. Marking the binary module formats (which in previous
+    SELinux versions were the binary blobs loaded in memory) as high-level allows
+    the SELinux project to introduce the distinction between high-level languages
+    and CIL in a backward-compatible manner.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When distributing SELinux policy modules, most Linux distributions place the
+    `*.pp` SELinux policy modules inside `/usr/share/selinux`, usually within a subdirectory
+    named after the policy store (such as `targeted`). There, these modules are ready
+    for administrators to activate them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When activating a module, the `semodule` command will copy those modules into
+    a dedicated directory (`/var/lib/selinux/mcs/active/modules`). When all modules
+    are aggregated in a single location, the final policy binary is compiled, resulting
+    in `/etc/selinux/targeted/policy/policy.32` (or some other number) and loaded
+    in memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On CentOS, the SELinux policies are provided by the `selinux-policy-targeted`
+    (or `-minimum` or `-mls`) package. On Gentoo, they are provided by the various
+    `sec-policy/selinux-*` packages (Gentoo uses separate packages for each module,
+    reducing the number of SELinux policies loaded on an average system).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bundling modules in a policy store
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A **policy store** contains a single comprehensive policy, and only a single
+    policy can be active on a system at any point in time. Administrators can switch
+    policy stores, although this often requires rebooting the system and might even
+    require relabeling the entire system (relabeling is the act of resetting the contexts
+    on all files and resources available on that system).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The active policy on the system can be queried using `sestatus` (an SELinux
+    status) as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, `mcs` is the currently loaded policy (store). The policy name
+    that SELinux will use upon its next reboot is defined in the `/etc/selinux/config`
+    configuration file as the `SELINUXTYPE` parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The system's `init` system (be it a `SysV`-compatible `init` system or `systemd`)
+    is generally responsible for loading the SELinux policy, effectively activating
+    SELinux support on the system. The `init` system reads the configuration, locates
+    the policy store, and loads the policy file in memory. If the `init` system does
+    not support this (in other words, it is not SELinux-aware) then the policy should
+    be loaded through the `load_policy` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we now have a better view of the flow used in policy development and distribution,
+    let's see how Linux distributions can differentiate their SELinux offering.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distinguishing between policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The most common SELinux policy store names are `strict`, `targeted`, `mcs`,
+    and `mls`. None of the names assigned to policy stores are fixed though, so it
+    is a matter of convention. Hence, we recommend consulting the distribution documentation
+    to verify what the proper name of the policy should be. Still, the name often
+    provides some information about the SELinux options enabled through the policy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Supporting MLS
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'One of the options that can be enabled is MLS support. The SELinux context
+    will not have a fourth field with sensitivity information in it if this option
+    is disabled, making the contexts of processes and files look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To check whether MLS is enabled, it is sufficient to see whether a process
+    context doesn''t contain such a fourth field. Another way is to check the `Policy
+    MLS Status` line in the output of `sestatus`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Yet another method would be to look into the pseudo file, `/sys/fs/selinux/mls`.
+    A value of `0` means disabled, whereas a value of `1` means enabled:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Policy stores that have MLS enabled are generally `targeted`, `mcs`, and `mls`,
+    whereas `strict` generally has MLS disabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dealing with unknown permissions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Permissions (such as read, open, and lock) are defined both in the Linux kernel
+    and in the policy itself. However, sometimes, newer Linux kernels support permissions
+    that the current policy does not yet understand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take the `block_suspend` permission (to be able to block system suspension)
+    as an example. If the Linux kernel supports (and checks) this permission but the
+    loaded SELinux policy does not understand that permission yet, then SELinux has
+    to decide how it should deal with the permission. We can configure SELinux to
+    perform one of the following actions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allow every action related to an unknown permission (`allow`).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deny every action related to an unknown permission (`deny`).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Stop and halt the system when an unknown permission is checked (`reject`).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We configure this through the `deny_unknown` value. To see the state for unknown
+    permissions, look for the `Policy deny_unknown status` line in `sestatus`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Administrators can set this for themselves in the `/etc/selinux/semanage.conf`
+    file through the `handle-unknown` variable (with `allow`, `deny`, or `reject`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Supporting unconfined domains
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An SELinux policy can be very strict, limiting applications as close as possible
+    to their actual behavior, but it can also be very liberal in what applications
+    are allowed to do. One of the concepts available in many SELinux policies is the
+    idea of unconfined domains. When enabled, it means that certain SELinux domains
+    (process contexts) are allowed to do almost anything they want (of course, within
+    the boundaries of the regular Linux DAC permissions, which still hold) and only
+    a select number of domains are truly confined (restricted) in their actions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unconfined domains are introduced to allow SELinux to be active on desktops
+    and servers where administrators do not want to fully restrict the entire system,
+    but only a few of the applications running on it. Generally, these implementations
+    focus on constraining network-facing services (such as web servers and database
+    management systems) while allowing end users and administrators to roam around
+    unrestricted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With other MAC systems, such as AppArmor, *unconfinement* is inherently part
+    of the design of the system as they only restrict actions for well-defined applications
+    or users. However, SELinux is designed to be a full mandatory access control system
+    and thus needs to provide access control rules even for those applications that
+    aren't the security administrator's primary focus. By marking these applications
+    as unconfined, almost no restrictions are imposed by SELinux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can see whether unconfined domains are enabled on the system using `seinfo`,
+    by querying the policy and asking it whether the `unconfined_t` SELinux type is
+    defined. On a system where unconfined domains are supported, this type will be
+    available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For a system where unconfined domains are not supported, the type will not
+    be part of the policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Most distributions that enable unconfined domains call their policy `targeted`,
+    but this convention is not always followed. Hence, it is always best to consult
+    the policy using `seinfo`. CentOS enables unconfined domains, whereas with Gentoo,
+    this is a configurable setting through the `unconfined USE` flag.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Limiting cross-user sharing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When UBAC is enabled, certain SELinux types will be protected by additional
+    constraints. This will ensure that one SELinux user cannot access the files (or
+    other specific resources) of another user, even when those users are sharing their
+    data through the regular Linux permissions. UBAC provides some additional control
+    over information flow between resources, but it is far from perfect. Essentially,
+    it is made to isolate SELinux users from one another.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: A constraint in SELinux is an access control rule that uses all parts of a context
+    to make its decision. Unlike type enforcement rules, which are purely based on
+    the type, constraints can take the SELinux user, SELinux role, or sensitivity
+    label into account. Constraints are generally developed once and left untouched
+    – most policy writers will not touch constraints during their development efforts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many Linux distributions, including CentOS, disable UBAC. Gentoo allows users
+    to decide whether they want UBAC through the Gentoo `ubac USE` flag (which is
+    enabled by default).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Incrementing policy versions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'While checking the output of `sestatus`, we see that there is also a reference
+    to a policy version:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: This version has nothing to do with the versioning of policy rules but with
+    the SELinux features that the currently running kernel supports. In the preceding
+    output, 32 is the highest policy version that the running kernel supports. Every
+    time a new feature is added to SELinux, the version number is increased. We can
+    find the policy file itself (which contains all the SELinux rules loaded at boot
+    time by the system) in `/etc/selinux/targeted/policy` (where targeted refers to
+    the policy store used, so if the system uses a policy store named `mcs`, then
+    the path will be `/etc/selinux/mcs/policy`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If multiple policy files exist, use `seinfo` to discover which policy version
+    file is used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A list of policy feature enhancements and the Linux kernel version in which
+    that given feature is introduced is provided next. Many of the features are only
+    of concern to policy developers, but knowing the evolution of the features gives
+    us a good idea about the evolution of SELinux:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Version 12 represents the "old API" for SELinux, which is now deprecated.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 15, introduced in Linux 2.6.0, provided the new API for SELinux.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 16, introduced in Linux 2.6.5, added support for conditional policy
+    extensions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 17, introduced in Linux 2.6.6, added support for IPv6.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 18, introduced in Linux 2.6.8, added support for fine-grained netlink
+    socket permissions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 19, introduced in Linux 2.6.12, added support for MLS.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 20, introduced in Linux 2.6.14, reduced the size of the access vector
+    table.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 21, introduced in Linux 2.6.19, added support for MLS range transitions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 22, introduced in Linux 2.6.25, added policy capabilities.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 23, introduced in Linux 2.6.26, added support for per-domain permissive
+    mode.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 24, introduced in Linux 2.6.28, added support for explicit hierarchy
+    (type bounds).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 25, introduced in Linux 2.6.39, added support for filename-based transitions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 26, introduced in Linux 3.0, added support for role-transitions for
+    non-process classes, as well as support for role attributes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 27, introduced in Linux 3.5, added support for the flexible inheritance
+    of the SELinux user and SELinux role for newly-created objects.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 28, introduced in Linux 3.5, added support for the flexible inheritance
+    of the SELinux type for newly-created objects.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 29, introduced in Linux 3.14, added support for attributes within SELinux
+    constraints.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 30, introduced in Linux 4.3, added support for extended permissions,
+    implemented first on ioctl controls. It also introduced enhanced SELinux Xen support.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 31, introduced in Linux 4.13, added support for InfiniBand access controls.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Version 32, introduced in Linux 5.5, added support for automatically deducing
+    the intersection in sensitivity labels, called **greatest lower bound, largest
+    upper bound** (**glblub**).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By default, when an SELinux policy is built, the highest supported version as
+    defined by the Linux kernel and `libsepol` (the library responsible for building
+    the SELinux policy binary) is used. Administrators can force a version to be lower
+    using the `policy-version` parameter in `/etc/selinux/semanage.conf`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Different policy content
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Besides the policy capabilities described in the previous section, the main
+    difference between policies (and distributions) is the policy content itself.
+    We already covered that most distributions base their policy on the reference
+    policy project. Although the reference policy project is considered the *master*
+    for most distributions, each distribution has its own set of deviations from this
+    main policy set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Many distributions make extensive additions to the policy without directly
+    passing the policies to the upstream reference policy project. There are several
+    possible reasons why this is not directly done:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The policy enhancements or additions are still immature: Fedora, CentOS, and
+    Red Hat initially start with active, permissive policies, meaning the policies
+    are not enforced. Instead, SELinux logs what it would have prevented and, based
+    on those logs, the policies are then enhanced. This means that a policy is only
+    ready after a few releases.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The policy enhancements or additions are too specific to the distribution:
+    If a policy set is not reusable for other distributions, then some distributions
+    will opt to keep those policies to themselves as the act of pushing changes to
+    *upstream* projects takes quite some effort.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The policy enhancements or additions haven''t followed the upstream rules and
+    guidelines: The reference policy has a set of guidelines that policies need to
+    adhere to. If a policy set does not comply with these rules, then the reference
+    policy will not accept the contribution.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The policy enhancements or additions are not implementing the same security
+    model as the reference policy project wants: As SELinux is a very extensive mandatory
+    access control system, it is possible to write completely different policies.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The distribution does not have the time or resources to push changes upstream.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This means that SELinux policies can differ between distributions (and even
+    releases of the same distribution).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With this, we can conclude on some of the differentiation that distributions
+    can put into their SELinux policies: they can opt to enable or disable MLS support,
+    allow or deny unknown permissions, add distribution-provided unconfined domains,
+    support user-based access controls, and/or deviate from the reference policy project
+    to suit the distribution''s principles.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we saw that SELinux offers a more fine-grained access control
+    mechanism on top of the Linux access controls. SELinux is implemented through
+    Linux Security Modules and uses labels to identify its resources and processes
+    based on ownership (user), role, type, and even the security sensitivity and categorization
+    of the resource. We covered how SELinux policies are handled within an SELinux-enabled
+    system and briefly touched upon how policy writers structure policies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux distributions implement SELinux policies, which can differ between distributions
+    based on supported features, such as sensitivity labels, the default behavior
+    for unknown permissions, support for confinement levels, or specific constraints
+    put in place, such as UBAC. However, most of the policy rules themselves are similar
+    and are even based on the same upstream reference policy project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Switching between SELinux enforcement modes and understanding the log events
+    that SELinux creates when it prohibits certain access is the subject of our next
+    chapter. In it, we will also cover how to approach the often-heard requirement
+    of disabling SELinux, and why doing so is the wrong way forward.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the most important difference between a DAC and a MAC system?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How does Linux support the different MAC technologies?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What four fields constitute an SELinux context?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How does SELinux support role-based access controls?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why isn't there a single SELinux policy for all Linux distributions?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

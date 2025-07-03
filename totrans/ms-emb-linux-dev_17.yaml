@@ -1,0 +1,925 @@
+- en: '14'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Managing Power
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For devices operating on battery power, power management is critical. Anything
+    we can do to reduce power usage will increase battery life. Even for devices running
+    on mains power, reducing power usage lowers energy costs and decreases the need
+    for cooling. In this chapter, I will introduce the four principles of power management:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Don’t rush if you don’t have to.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Don’t be ashamed of being idle.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Turn off things you are not using.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sleep when there is nothing else to do.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In more technical terms, the power management system should reduce the CPU clock
+    frequency. During idle periods, it should choose the deepest sleep state possible;
+    it should reduce the load by powering down unused peripherals; and it should put
+    the whole system into a suspended state while ensuring power state transitions
+    are quick.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux has features that address each of these points. I will describe each one
+    in turn with examples and advice on how to apply them to an embedded system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of the terms, such as **C-states** and **P-states**, are taken from the
+    **Advanced Configuration and Power Interface** (**ACPI**) specification. I will
+    describe these as we get to them. The full reference to the specification is given
+    in the *Further study* section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Measuring power usage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Scaling the clock frequency
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Selecting the best idle state
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Powering down peripherals
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Putting the system to sleep
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To follow along with the examples, make sure you have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An Ubuntu 24.04 or later LTS host system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A microSD card reader and card
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: balenaEtcher for Linux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An Ethernet cable and router with an available port for network connectivity
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A USB-to-TTL serial cable with 3.3 V logic level
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: BeaglePlay
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A 5 V USB-C power supply capable of delivering 3 A
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The code used in this chapter can be found in the chapter folder in this book’s
+    GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Measuring power usage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For the examples in this chapter, we need to use real hardware rather than virtual.
+    This means that we need a BeaglePlay with working power management. The necessary
+    firmware for BeaglePlay’s **Power Management Integrated Circuit** (**PMIC**) might
+    exist in the `meta-ti` layer but I did not investigate that. We will use a pre-built
+    Debian image instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The procedure for installing Debian on BeaglePlay is the same as in [*Chapter
+    12*](Chapter_04.xhtml#_idTextAnchor126). Revisit the *Installing Debian on BeaglePlay*
+    section and flash the eMMC with Debian Bookworm if you have not already. Remove
+    any microSD from your BeaglePlay and boot from the eMMC. SSH to `beaglebone.local`
+    and log in as the `debian` user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Verify that the correct version of Debian is running:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now check whether the power management is working:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you see all three states, then everything is working fine. If you see only
+    `freeze`, then the power management subsystem is not working. Go back and double-check
+    the previous steps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we can move on to measuring power usage. There are two approaches: *external*
+    and *internal*. To measure power externally, we need an ammeter to measure the
+    current and a voltmeter to measure the voltage, then multiply the two together
+    to get the wattage. You can use basic meters that give a readout that you then
+    jot down, or they can be much more sophisticated and integrate data logging so
+    that you can see the change in power as the load fluctuates millisecond by millisecond.
+    For the purposes of this chapter, I powered the BeaglePlay from the USB-C port
+    and used a cheap USB-C power monitor of the type that costs a few dollars.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The other approach is to use the monitoring systems that are built into Linux.
+    You will find that plenty of information is reported to you via `sysfs`. There
+    is also a very useful program called **PowerTOP**, which gathers information together
+    from various sources and presents it in a single place. PowerTOP is a package
+    for both The Yocto Project and Buildroot. It is also available for installation
+    on Debian.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install PowerTOP on BeaglePlay from Debian Bookworm, run the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Don’t forget to plug your BeaglePlay into Ethernet before updating the list
+    of available packages and installing PowerTOP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is an example of PowerTOP running on BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 14.1 – PowerTOP overview](img/B18466_14_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.1 – PowerTOP overview
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this screenshot, we can see that the system is quiet, with only 2.7% of CPU
+    used. I will show more interesting examples later in the *Using CPUFreq* and *CPUIdle
+    driver* subsections of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have a way to measure power consumption, let’s look at one of the
+    biggest knobs for managing power in an embedded Linux system: the clock frequency.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scaling the clock frequency
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If running for a kilometer takes more energy than walking, then maybe running
+    the CPU at a lower frequency can save energy. Let’s see.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The power consumption of a CPU when executing code is the sum of a static component,
+    caused primarily by gate leakage current, and a dynamic component, caused by the
+    gate switching:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*P*[cpu] *= P*[static] *+ P*[dyn]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The dynamic power component is dependent on the total capacitance of the logic
+    gates being switched, the clock frequency, and the square of the voltage:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*P*[dyn] *= CFV*[2]'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Changing the frequency by itself does not save energy because the same number
+    of CPU cycles need to be completed for a given task. If we reduce the frequency
+    by half while keeping the voltage constant, then it will take twice as long to
+    complete the task, even though the total amount of energy expended is the same.
+    In fact, reducing the frequency may actually increase the power budget because
+    it takes longer for the CPU to enter an idle state. This is especially the case
+    when there are no other competing tasks to run, and the CPU’s idle state is extremely
+    energy efficient. So, under these conditions, it is best to use the highest frequency
+    possible so that the CPU can go back to idle quickly. This is called the **race
+    to idle**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is another motivation to reduce frequency: **thermal management**. It
+    may become necessary to operate at a lower frequency just to keep the temperature
+    of the package within bounds. But that is not our focus here.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Therefore, if we want to reduce power consumption, we must be able to change
+    the voltage that the CPU core operates at. But for any given voltage, there is
+    a maximum frequency beyond which the switching of the gates becomes unreliable.
+    Higher frequencies need higher voltages, and so the two need to be adjusted together.
+    Many SoCs implement such a feature. It is called **Dynamic Voltage and Frequency
+    Scaling** (**DVFS**). Manufacturers calculate optimum combinations of core frequency
+    and voltage. Each combination is called an **Operating Performance Point** (**OPP**).
+    The ACPI specification refers to them as **P-states**, with `P0` being the OPP
+    with the highest frequency. Although an OPP is a combination of a frequency and
+    a voltage, it is most often referred to by the frequency component alone.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A kernel driver is needed to switch between P-states. Next, we will look at
+    that driver and the governors that control it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CPUFreq driver
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Linux has a component named **CPUFreq** that manages the transitions between
+    OPPs. It is part of the board support for the package for each SoC. CPUFreq consists
+    of drivers that make the transition from one OPP to another and a set of governors
+    that implement the policy of when to switch. It is controlled per CPU via the
+    `/sys/devices/system/cpu/cpuN/cpufreq` directory, with `N` being the CPU number.
+    In there, we find a number of files, the most interesting of which are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`cpuinfo_cur_freq`, `cpuinfo_max_freq`, and `cpuinfo_min_freq`: These are the
+    current frequencies for this CPU, together with the maximum and minimum in KHz.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cpuinfo_transition_latency`: This is the time in nanoseconds to switch from
+    one OPP to another. If the value is unknown, it is set to `-1`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scaling_available_frequencies`: This is a list of OPP frequencies available
+    on this CPU.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scaling_available_governors`: This is a list of governors available on this
+    CPU.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scaling_governor`: This is the CPUFreq governor currently being used.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scaling_min_freq` and `scaling_max_freq`: This is the range of frequencies
+    available to the governor in KHz.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scaling_setspeed`: This is a file that allows you to manually set the frequency
+    when the governor is `userspace`, which I will describe at the end of this subsection.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The governor sets the policy to change the OPP. It can set the frequency between
+    the limits of `scaling_min_freq` and `scaling_max_freq`. The governors are named:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`performance`: This always selects the highest frequency.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`powersave`: This always selects the lowest frequency.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`userspace`: This is where the frequency is set by a user-space program.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ondemand`: This changes the frequency based on the CPU utilization. If the
+    CPU is idle less than 20% of the time, it sets the frequency to the maximum. If
+    the CPU is idle more than 30% of the time, it lowers the frequency as idle time
+    increases.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`conservative`: This is like `ondemand` except it switches to higher frequencies
+    in 5% steps rather than going immediately to the maximum.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`schedutil`: This aims at better integration with the Linux scheduler.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The default governor when Debian Bookworm starts up is `performance`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The TI Linux kernel for BeaglePlay comes with only two governors built-in:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The other governors can be loaded dynamically using `cpupower` or `modprobe`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To install `cpupower` on BeaglePlay from Debian Bookworm, run the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To switch to the `ondemand` governor, run the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The parameters that the `ondemand` governor uses to decide when to change OPP
+    can be found and set in `/sys/devices/system/cpu/cpufreq/ondemand/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Both the `ondemand` and `conservative` governors take into account the effort
+    required to change frequency and voltage. This CPUFreq value is `cpuinfo_transition_latency`.
+    This calculation only applies to threads with a normal scheduling policy. If a
+    thread is being scheduled in real time, both governors will immediately select
+    the highest OPP so that the thread can meet its scheduling deadline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `userspace` governor allows the logic of selecting the OPP to be performed
+    by a user-space daemon. Examples include `cpudyn` and `powernowd`, although both
+    are orientated toward x86-based laptops rather than embedded devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know where the runtime details about the CPUFreq driver are located,
+    let’s look at how to define the OPPs at compile time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using CPUFreq
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Looking at BeaglePlay, we find that the OPPs are coded in the device tree.
+    Here is an extract from `k3`-`am625.dtsi`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can confirm that these are the OPPs in use at runtime by viewing the available
+    frequencies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Select the `userspace` governor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'List the available frequency steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now we can measure the power consumed at each OPP with a USB-C power monitor.
+    These measurements are not very accurate, so do not take them too seriously.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Set the frequency by writing to `scaling_setspeed`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Build and run the `MELD/Chapter14/do-work` program on BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we run this constant load while varying the frequency, then we observe the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Frequency (MHz)** | **CPU utilization (%)** | **Power (mW)** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 200 | 88 | 1,160 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 400 | 44 | 1,160 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 600 | 29 | 1,160 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 800 | 22 | 1,210 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1,000 | 18 | 1,210 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1,250 | 14 | 1,210 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1,400 | 13 | 1,210 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 14.1 – Power consumed at different frequencies
+  prefs: []
+  type: TYPE_NORMAL
+- en: This shows power savings of about 4% at the lower frequencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In most cases, the `ondemand` governor is the best one to use since it switches
+    between OPPs based on CPU load. To select a particular governor, you can either
+    configure the kernel with a default governor like `CPU_FREQ_DEFAULT_GOV_ONDEMAND`,
+    or you can use an `init` script to change the governor at boot time. See `MELD/Chapter14/cpufrequtils`
+    for an example of how Debian does this with SysVinit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more information on the CPUFreq driver, look at the files in the `Documentation/cpu-freq`
+    directory of the Linux kernel source tree.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we were concerned about the power used when the CPU is busy.
+    In the next section, we will look at how to save power when the CPU is idle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Selecting the best idle state
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When a processor has no more work to do, it executes a **halt instruction**
+    and enters an idle state. While idle, the CPU uses less power. It exits the idle
+    state when an event such as a hardware interrupt occurs. Most CPUs have multiple
+    idle states that use varying amounts of power. Usually, there is a trade-off between
+    the power usage and the latency, or the length of time, it takes to exit the state.
+    In the ACPI specification, they are called **C-states**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the deeper C-states, more circuitry is turned off at the expense of losing
+    some state, so it takes longer to return to normal operation. For example, in
+    some C-states, the CPU caches may be powered off, and so when the CPU runs again,
+    it may have to reload some information from the main memory. This is expensive,
+    so you only want to do this if there is a good chance that the CPU will remain
+    in this state for some time. The number of states varies from one system to another.
+    Each takes some time to recover from sleeping to being fully active.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The key to selecting the right idle state is to have a good idea of how long
+    the CPU is going to be inactive. Predicting the future is always tricky, but there
+    are some things that can help. One is the current CPU load: if it is high now,
+    it is likely to continue to be so in the immediate future, so a deep sleep would
+    not be beneficial. Even if the load is low, it is worth looking to see whether
+    there is a timer event that expires soon. If there is no load and no timer, then
+    a deeper idle state is justified.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The part of Linux that selects the best idle state is the CPUIdle driver. There
+    is a good deal of information about it available in the `Documentation/driver-api/pm/cpuidle.rst`
+    file inside the Linux kernel source tree.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CPUIdle driver
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Like the CPUFreq subsystem, **CPUIdle** consists of a driver that is part of
+    the BSP and a governor that determines the policy. Unlike CPUFreq, the governor
+    cannot be changed at runtime and there is no interface for user-space governors.
+    There was no CPUIdle support in Debian Bookworm for BeaglePlay at the time of
+    writing, so I can only describe it here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'CPUIdle exposes information about each of the idle states in the `/sys/devices/system/cpu/cpu0/cpuidle`
+    directory. Inside that directory, there is a subdirectory for each of the sleep
+    states named `state0` to `stateN`. `state0` is the lightest sleep and `stateN`
+    is the deepest. Note that the numbering does not match that of the C-states and
+    that CPUIdle does not have a state equivalent to `C0` (running). Each state has
+    these files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`desc`: A short description of the state'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`disable`: An option to disable this state by writing `1` to this file'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`latency`: The time in microseconds that the CPU core takes to resume normal
+    operation when exiting this state'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`name`: The name of this state'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`power`: The power in milliwatts consumed while in this idle state'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`time`: The total time in microseconds spent in this idle state'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`usage`: The count of the number of times this state was entered'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'CPUIdle has two governors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ladder`: Steps idle states down or up, one at a time, depending on the time
+    spent in the last idle period. It works well with a regular timer tick but not
+    with a dynamic tick.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`menu`: Selects an idle state based on the expected idle time. It works well
+    with dynamic tick systems.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You should choose one or the other depending on your configuration of `NO_HZ`,
+    which I will describe at the end of this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once again, user interaction is via the `sysfs` filesystem. In the `/sys/devices/system/cpu/cpuidle`
+    directory, you will find two files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`current_driver`: This is the name of the CPUIdle driver.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`current_governor_ro`: This is the name of the governor.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These show which driver and which governor are being used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Even with the CPU fully idling, most Linux systems are still configured to wake
+    up periodically on receipt of a system timer interrupt. To save more power, we
+    need to configure the Linux kernel for tickless operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tickless operation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A related topic is the tickless, or `NO_HZ`, option. If the system is truly
+    idle, the most likely source of interruptions will be the system timer, which
+    is programmed to generate a regular time tick at a rate of `HZ` per second, where
+    `HZ` is typically `100`. Historically, Linux uses the timer tick as the main time
+    base for measuring timeouts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And yet it is plainly wasteful to wake the CPU up to process a timer interrupt
+    if no timer events are registered for that given moment. The dynamic tick kernel
+    configuration option, `CONFIG_NO_HZ_IDLE`, looks at the timer queue at the end
+    of the timer processing routine and schedules the next interruption at the time
+    of the next event. This avoids unnecessary wakeups and allows the CPU to be idle
+    for long periods. In any power-sensitive application, the kernel should be configured
+    with this option enabled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the CPU consumes much of the power in an embedded Linux system, there
+    are other components of the system that can also be powered down for energy savings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Powering down peripherals
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The discussion up to now has been about CPUs and how to reduce power consumption
+    when they are running or idling. Now it is time to focus on other parts of the
+    system and see whether we can achieve power savings here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the Linux kernel, this is managed by the **runtime power management system**,
+    or **runtime pm** for short. It works with drivers that support runtime pm by
+    shutting down those that are not in use and waking them again when they are next
+    needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is dynamic and should be transparent to user space. It is up to the device
+    driver to decide how to power down the hardware. Typically, runtime pm includes
+    turning off the clock to the subsystem, also known as clock gating, and turning
+    off core circuitry where possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Runtime power management is exposed via a `sysfs` interface. Each device has
+    a subdirectory named `power` where you will find these files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`control`: This allows user space to determine whether runtime pm is used on
+    this device. If it is set to `auto`, then runtime pm is enabled, but by setting
+    it to `on`, the device is always on and does not use runtime pm.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`runtime_enabled`: This reports that runtime pm is `enabled` or `disabled`,
+    or, if `control` is `on`, it reports `forbidden`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`runtime_status`: This reports the current state of the device. It may be `active`,
+    `suspended`, or `unsupported`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`autosuspend_delay_ms`: This is the time before the device is suspended. `-1`
+    means wait forever. Some drivers implement this if there is a significant cost
+    to suspending the device hardware since it prevents rapid suspend/resume cycles.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For a concrete example, let’s look at the MMC driver on BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, runtime pm is disabled, the device is currently unsupported, and we cannot
+    determine how much delay there will be when it is suspended again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more information on runtime pm, look in the Linux kernel source code at
+    `Documentation/power/runtime_pm.rst`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know what the runtime pm is and what it does, let’s see it in action.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Putting the system to sleep
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There is one more power management technique to consider: putting the whole
+    system into sleep mode with the expectation that it will not be used again for
+    a while. In the Linux kernel, this is known as **system sleep**. It is usually
+    user-initiated: the user decides that the device should be shut down for a while.
+    For example, I shut the lid of my laptop and put it in my bag when it is time
+    to go home. Much of the support for system sleep in Linux comes from the support
+    for laptops. In the laptop world, there are usually two options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Suspend
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Hibernate
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The first, also known as **suspend to RAM**, shuts everything down except the
+    system memory, so the machine is still consuming a little power. When the system
+    wakes up, the memory retains all the previous state, and my laptop is operational
+    within a few seconds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If I select the **hibernate** option, the contents of the memory are saved to
+    the hard drive. The system consumes no power at all, and so it can stay in this
+    state indefinitely. On wake up, it takes some time to restore the memory from
+    disk. Hibernate is very seldom used in embedded systems, mostly because the flash
+    storage tends to be quite slow on read/write, but also because it is intrusive
+    to the flow of work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For more information, look at the `Documentation/power` directory in the kernel
+    source tree.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The suspend to RAM and hibernate options map to two of the four sleep states
+    supported by Linux. We’ll look at these two types of system sleep and the rest
+    of the ACPI power states next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Power states
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In the ACPI specification, the sleep states are called **S-states**. Linux
+    supports four sleep states (**freeze**, **standby**, **mem**, and **disk**), which
+    are shown in the following list along with the corresponding ACPI S-state ([`S0`],
+    `S1`, `S3`, and `S4`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`freeze` ([S0]): This stops (freezes) all activity in user space while the
+    CPU and memory continue to operate as normal.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The power savings result from the fact that no user-space code is being run.
+    ACPI does not have an equivalent state so S0 is the closest match. S0 is the state
+    for a running system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`standby` (S1): This is like `freeze` except that, in addition, it takes all
+    CPUs offline except for the boot CPU.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mem` (S3): This powers down the system and puts the memory in self-refresh
+    mode. Also known as **suspend to RAM**.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`disk` (S4): This saves the memory to the hard disk and powers the system down.
+    Also known as **suspend to disk**.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Not all systems have support for all states. To find out which are available,
+    read the `/sys/power/state` file as shown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: To enter one of the system sleep states, just write the desired state to `/sys/power/state`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For embedded devices, the most common need is to suspend to RAM using the `mem`
+    option. For example, I can suspend BeaglePlay like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: The device powers down in less than a second and then power usage drops down
+    to 10 milliwatts, as measured by my basic multimeter. But how do I wake it up
+    again? That is the next topic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Wakeup events
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Before you suspend a device, you must have some way of waking it up again.
+    The kernel tries to help you here. If there is not at least one wakeup source,
+    the system will refuse to suspend and will return the following message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Of course, this means that some parts of the system have to remain powered on
+    even during the deepest sleep. This usually involves the **power management IC**
+    (**PMIC**) and the **real-time clock** (**RTC**), and may additionally include
+    interfaces such as GPIO, UART, Ethernet, and Wi-Fi.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Wakeup events are controlled through `sysfs`. Each device in `/sys/device`
+    has a subdirectory named `power` containing a `wakeup` file with one of these
+    strings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`enabled`: Means this device will generate wakeup events'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`disabled`: Means this device will not generate wakeup events'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '(empty): Means this device is not capable of generating wakeup events'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To get a list of devices that can generate wakeups, search for all devices
+    where `wakeup` contains either `enabled` or `disabled`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: We’ve seen how to put a device to sleep and then wake it up with an event from
+    a peripheral interface like a UART. What if we want a device to wake itself up
+    without any outside interaction? This is where the RTC comes into play.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Timed wakeups from the real-time clock
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: BeaglePlay has an RTC that can generate alarm interrupts up to 24 hours in the
+    future. If so, the `/sys/class/rtc/rtc1` directory will exist. It should contain
+    the `wakealarm` file. Writing a number to `wakealarm` will cause it to generate
+    an alarm that number of seconds later. If you also enable wakeup events from `rtc1`,
+    the RTC will resume a suspended device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, the following `rtcwake` command puts the system in `freeze` with
+    the RTC waking it up after 5 seconds:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The corresponding `journalctl` output looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The **Power** button on BeaglePlay is also a wakeup source so you can use that
+    to resume from `freeze` in the absence of a serial console. Make sure to press
+    the **Power** button and not the **Reset** button, which is next to it; otherwise,
+    the board will reboot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This concludes our coverage of the four Linux system sleep modes. We learned
+    how to suspend a device to the `mem` or `freeze` power state and then wake it
+    up via an event from an RTC or the **Power** button. While the runtime pm in Linux
+    was created mostly for laptops, we can leverage this support for embedded systems
+    that also run on battery power.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Linux has sophisticated power management functions. In this chapter, I described
+    four main components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**CPUFreq** changes the OPP of each processor core to reduce power on those
+    that are busy but have some bandwidth to spare, thereby allowing us to scale the
+    frequency back. OPPs are known as P-states in the ACPI specification.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**CPUIdle** selects deeper idle states when the CPU is not expected to be woken
+    up for a while. Idle states are known as C-states in the ACPI specification.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Runtime pm** will shut down peripherals that are not needed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**System sleep** modes will put the whole system into a low-power state. They
+    are usually under end user control, for example, by pressing a standby button.
+    System sleep states are known as S-states in the ACPI specification.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Most of the power management is done for you by the BSP. Your main task is to
+    make sure that it is configured correctly for your intended use cases. Only the
+    last component, selecting a system sleep state, requires you to write some code
+    that will allow the end user to enter and exit the state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next part of the book is about writing embedded applications. We will start
+    with packaging and deploying Python code and then explore containerization techniques.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further study
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Advanced Configuration and Power Interface Specification*, UEFI Forum, Inc.
+    – [https://uefi.org/sites/default/files/resources/ACPI_Spec_6_5_Aug29.pdf](https://uefi.org/sites/default/files/resources/ACPI_Spec_6_5_Aug29.pdf)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Join our community on Discord
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Join our community’s Discord space for discussions with the authors and other
+    readers: https://packt.link/embeddedsystems'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/QR_Code12308107448340296.png)'
+  prefs: []
+  type: TYPE_IMG

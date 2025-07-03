@@ -1,0 +1,779 @@
+- en: '*Chapter 15*: Using systemd-networkd and systemd-resolved'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The systemd ecosystem has its own networking components. Using these components
+    is purely optional, and you might even find that you'll never need to use them.
+    However, there are times when using systemd's networking components might help
+    you do things that you can't do with the traditional Linux NetworkManager.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding `networkd` and `resolved`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding Netplan on Ubuntu
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding networkd and resolved on RHEL-type machines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using `networkctl` and `resolvectl`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Viewing the networkd and resolved unit files
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All right, let's jump in!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We'll start with the Ubuntu Server virtual machine. (Note that you need to use
+    Ubuntu *Server* because the desktop versions of Ubuntu still use the old NetworkManager
+    by default.) Later in this chapter, we'll work with AlmaLinux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, let's start by providing a brief explanation of networkd and resolved.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Check out the following link to see the Code in Action video: [https://bit.ly/31mmXXZ](https://bit.ly/31mmXXZ)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding networkd and resolved
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The traditional NetworkManager has been around for quite some time, and it's
+    still the most appropriate solution for most Linux desktops and laptops. The main
+    reason that Red Hat developed it was to enable Linux-powered laptops to instantly
+    switch back and forth between wired and wireless networks, or from one wireless
+    domain to another. NetworkManager also still works well for just normal Linux
+    servers. All RHEL-type distros and all desktop versions of Ubuntu still use NetworkManager
+    by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: I'm not always going to type `systemd-networkd` or `systemd-resolved`. Unless
+    I'm typing actual commands, I'm just going to shorten the names to `networkd`
+    and `resolved`, which is what most people do anyway.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You already know that I have this creepy habit of reading your mind. So, I know
+    that you're thinking, *But Donnie, if NetworkManager is so good, why do we need
+    networkd and resolved?* Ah, I'm glad you asked. It's just that you can do certain
+    things with `networkd` and `resolved` that you can't do quite as easily with NetworkManager.
+    For example, you can use networkd to set up a bridged network for running containers.
+    This allows you to directly assign IP addresses to your containers so that they
+    can be directly accessed from the outside world. With resolved, you can set up
+    split DNS resolution, obtain DNS server addresses from either a DHCP server or
+    an IPv6 router advertisement, and use DNSSEC, MulticastDNS, and DNS-over-TLS.
+    On the other hand, NetworkManager is still the best solution for normal desktop
+    and laptop usage, due to its ability to instantly switch between networks whenever
+    needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On a system that's running a pure networkd environment, the network configuration
+    would be stored in one or more `.network` files in the `/etc/systemd/network/`
+    directory. However, as I've already said, the RHEL distros don't use networkd
+    by default, so at this point, there are no `.network` files on the AlmaLinux machine
+    to show you. Ubuntu Server does use networkd by default, but the Ubuntu engineers
+    have done something that makes things a bit more interesting. Instead of configuring
+    either networkd or NetworkManager in the normal way, they created Netplan, which
+    we'll look at next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding Netplan on Ubuntu
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Netplan is the new network configuration tool for Ubuntu. On a desktop machine,
+    it doesn't do much except tell the system to use NetworkManager. On a server,
+    you would create the networkd configuration in a `.yaml` file in the `/etc/netplan/`
+    directory. Netplan will take this `.yaml` file and translate its contents into
+    networkd format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Viewing installer-generated Netplan configurations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To begin, I''d like to show you the default configuration on an Ubuntu desktop
+    machine. (Yeah, I know. I didn''t tell you that you''d need an Ubuntu desktop
+    virtual machine, but that''s okay. This is the only time we''ll need it, so you
+    can just look at what I''m showing you here.) In the `/etc/netplan/` directory,
+    we have the default configuration file that was created when I created the virtual
+    machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Inside the `01-network-manager-all.yaml` file, we have this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here''s the breakdown:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `network:` line is flush with the left-hand side of the screen, which means
+    that this is a new node. The next two lines are indented by one space, which means
+    that they are part of this node definition.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'What the `version: 2` line means is unclear. The `netplan` man page says that
+    it''s a *network mapping*, but doesn''t explain it further, other than to indicate
+    that it *might* have something to do with the version of YAML that Netplan uses.
+    Or, it could be the syntax version of the `netplan` configuration. It''s hard
+    to say for sure because there appears to be no documentation that clears up the
+    mystery. At any rate, the man page does indicate that this `version: 2` line always
+    has to be present in the definition for a `network:` node.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `renderer:` line tells the system to use NetworkManager, and all the other
+    configuration is done within the normal NetworkManager files. Since this is a
+    desktop machine, most people would just use the GUI management utilities to reconfigure
+    the network. (Most GUI-type utilities are self-explanatory, so we won't say anything
+    more about them.) If no `renderer:` line is present, then the system will use
+    networkd instead of NetworkManager.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: When creating or editing `.yaml` files, remember that proper indentation is
+    very important. If the indentation isn't correct, things won't work. Also, tab
+    characters aren't allowed in `.yaml` files, so you'll need to use the spacebar
+    to do the indentation.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'In contrast, Ubuntu Server is configured to use networkd. So, the Netplan configuration
+    that was created by the Ubuntu Server installer looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `network:` node is always the top-level node. Under that, we see the `ethernets:`
+    node, which defines the network interface. (In this case, the interface''s name
+    is `enp0s3`.) The `dhcp4: true` line tells the system to obtain an IPv4 address
+    from a *DHCP* server. (In this case, the DHCP server is built into my internet
+    gateway router.)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the network starts, Netplan will take this `.yaml` file and translate
+    it into networkd format. However, it doesn''t store a permanent copy of the `.network`
+    file. Instead, it creates a transient `.network` file in the `/run/systemd/network/`
+    directory, as we see here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Inside this file, we can see this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: At long last, we get to see what an actual networkd configuration file looks
+    like, and we see that's it's divided into the `[Match]`, `[Network]`, and `[DHCP]`
+    sections. As I mentioned previously, though, this isn't a permanent file. It will
+    disappear when you shut down or reboot the machine, and reappear when the machine
+    boots back up. (On a non-Ubuntu machine that doesn't use Netplan, you would have
+    a permanent copy of this file in the `/etc/systemd/network/` directory.) Most
+    of this file is self-explanatory, but there are a couple of interesting things.
+    Under the `[Network]` section, we see that IPv6 `.yaml` file. Under the `[DHCP]`
+    section, we see that the value for the *Maximum Transmission Unit* for this network
+    link will be obtained from the DHCP server. (Most of the time, that value will
+    be set to `1500`.) `RouteMetric=100` defines the priority that will be given to
+    this network link. (Of course, there's only one network link here, so this isn't
+    doing anything for us.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To show what a static IP address configuration looks like, I created a new
+    Ubuntu Server machine and told the installer to create a static configuration.
+    The Netplan `.yaml` file on that machine looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The generated transient `.network` file looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, all we have is just the `[Match]` and `[Network]` sections. Since
+    we're not using DHCP on this machine, there's no `[DHCP]` section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, keep in mind that you don't have to use the default Netplan configuration
+    that was created when you installed the operating system. You can edit or replace
+    the default `.yaml` configuration file as your needs dictate. Let's look at that
+    next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating Netplan configurations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that we want to convert our first Ubuntu Server machine from
+    DHCP addressing into static addressing. The first thing I''ll do is rename the
+    current `.yaml` file to keep it as a backup in case I ever want to revert back:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, I''ll create the new `00-static-config.yaml` file, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s make this new file look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Okay, I''ll confess that I cheated a bit by copying and pasting this from the
+    other virtual machine. I then changed the IP address and added the addresses for
+    two other DNS servers. For the record, the DNS servers I''m using here are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`192.168.0.1`: This is the address of my internet gateway router. This router
+    has been configured to use the DNS servers that are run by my ISP, which is TDS
+    Telecom. So, the `192.168.0.1` address isn''t the real DNS server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`8.8.8.8`: This is one of the addresses for Google''s DNS servers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`208.67.222.222` and `208.67.220.220`: These addresses are for the DNS servers
+    that are maintained by the OpenDNS organization.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: So, the more the merrier when it comes to `nameservers:` addresses. If one nameserver
+    goes down, we'll just use another one, which eliminates one single-point-of network
+    failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After saving the new file, you need to *apply* it, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Be aware that if you do this from a remote terminal, you might not ever see
+    the command prompt come back, which will make you think that things got stuck.
+    It's not that, it's just that if you assign a different IP address from what the
+    machine had to begin with, you'll break the SSH connection. (In fact, that's what
+    just happened for me.) So, in real life, you might want to do this from the server's
+    local terminal instead of remotely.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you use the apply operation, you''re generating the new networkd configuration
+    and restarting the networkd service. The generated networkd configuration should
+    now look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let''s try something else. Let''s pretend that our virtual machine has
+    multiple network interfaces, and we want to make doubly sure that this network
+    configuration always gets applied to the correct interface. We''ll do that by
+    assigning this configuration to the MAC address of the desired interface. First,
+    we''ll use `ip a` to get the MAC address, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you likely already know, the hardware address of a network interface goes
+    by many names. Most of us know it as the *MAC address*. It''s also known as the
+    *physical address*, the *hardware address*, or, as we see here, the *link/ether*
+    address. Anyway, let''s copy that address so that we can paste it into the `.yaml`
+    file. Under the `enp0s3:` node of the configuration file that we just created,
+    we''ll insert a new `match:` node with the `macaddress:` property of the desired
+    network interface. The modified file should now look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This time, instead of using an `apply` operation, we''ll try a `try` operation,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `netplan try` command does the same thing as `netplan apply`, except that
+    it gives you a chance to revert back to the old configuration if the new one doesn't
+    work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, I've shown you a few examples of how to set up networking with the combination
+    of Netplan and networkd. There's a lot more to this, of course. If you want to
+    see some more complex network setups, your best bet is to consult the `netplan`
+    man page. Toward the bottom, you'll see some really good examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, let's move on and learn how to use networkd in the Red Hat world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding networkd and resolved on RHEL-type machines
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We''ve already established that all RHEL-type machines, such as our AlmaLinux
+    machine, use NetworkManager by default. Now, let''s say that we have an AlmaLinux
+    server and that we need the added capabilities of networkd. The `systemd-networkd`
+    package isn''t installed by default, and it isn''t in the normal Alma repositories.
+    However, it is in the third-party EPEL repository, so we''ll install it by doing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can install the `systemd-networkd` package, which includes both networkd
+    and resolved:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, disable NetworkManager and enable networkd and resolved. Note that I''m
+    not stopping NetworkManager or starting networkd and resolved just yet (I''m logged
+    in remotely and don''t want to break my network connection. Besides, I still haven''t
+    created a networkd configuration):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When configuring networkd, we can''t use the `systemctl edit` command because
+    it will create the `.network` files in the wrong location. Instead, we''ll just
+    `cd` into the `/etc/systemd/network/` directory and use a normal text editor.
+    Let''s name this file `99-networkconfig.network` and add the following content:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The networkd `.network` files are set up the same way as any other systemd unit
+    file. Instead of having to worry about proper indentation as you would with the
+    Netplan `.yaml` files, you just place all the parameters into the proper sections.
+    In the `[Match]` section, we have the name of the network adapter. In the `[Network]`
+    section, we're saying that we want to get an IP address from DHCP and accept IPv6
+    router advertisements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step is to get rid of the static `/etc/resolv.conf` file and create
+    a symbolic link to the one that gets generated by resolved. We''ll do that with
+    these two commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you do an `ls -l /etc/resolv.conf` command at this point, it will appear
+    that the symbolic link is broken. That's because we haven't started `systemd-resolved.service`
+    yet. So, resolved still hasn't generated the dynamic `resolv.conf` file in the
+    `/run/systemd/resolve/` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final step is to reboot the machine and then test for proper network operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s say that we want to convert this machine into a static configuration,
+    and we also want to add a few features. Let''s edit the `/etc/systemd/network/99-networkconfig.network`
+    file and make it look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the `[Match]` section, I've added the `MACAddress=` equal line to ensure
+    that this configuration will always apply to this specific network adapter. As
+    I did previously, I obtained the MAC address by doing an `ip a` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the `[Network]` section, I assigned the IP address with its netmask, the
+    default gateway address, and four DNS server addresses. I'm also forcing this
+    machine to use `DNSSEC`, as well as to use `DNSOverTLS` whenever it's available.
+    Once you save this file, either reboot the machine or do a `sudo networkctl reload`
+    command. Then, verify that the networking works. (Note that you don't need to
+    do a `daemon-reload` when configuring networkd.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we move on, I want to talk about those two strange DNS options that you
+    can see here. `yes`, be sure to test things thoroughly to ensure that you can
+    access everything that you need to access. So far, it's working well here. That
+    surprises me because most websites still aren't set up with DNSSEC cryptographic
+    keys. However, the public DNS root servers and the top-level domain servers are
+    set up with DNSSEC keys, so we can at least verify the responses from them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: To get a good idea of how widely DNSSEC is used on the public internet, go to
+    [https://dnssec-analyzer.verisignlabs.com/](https://dnssec-analyzer.verisignlabs.com/)
+    and enter a domain name of a website. This will show you a simple graphic of what
+    uses DNSSEC and what doesn't.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `opportunistic`, which allows this machine to use it if it's available.
+    (Your IT team will need to get together with company management to determine if
+    the advantages of **DNSOverTLS** outweigh the disadvantages.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When you use networkd without Netplan, there will be no dynamic `.network`
+    file in the `/run/systemd/network/` directory, as you saw on the Ubuntu machine.
+    However, resolved will create a dynamic `resolv.conf` file in the `/run/systemd/resolve/`
+    directory. We don''t need to go there to see it because we created a symbolic
+    link for it in the `/etc/` directory. Let''s see what''s in it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Oh, dear. It appears that resolved only wants to see up to three DNS servers
+    in its configuration. For now, that's okay. This will enable us to see something
+    else that we need to see a bit later.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, I've shown you a couple of simple examples of what you can do with networkd
+    and resolved. If you want to be truly amazed, open the `systemd.network` man page
+    and look at all that's there. (And yes, that is *systemd.network*, without the
+    *d* after *network*.) You can create some very complex setups, and you can view
+    some examples toward the bottom of the man page. What I find especially interesting
+    is that with networkd, you can do some things that you used to have to do with
+    either `iptables` or `nftables`. It seems to me that doing these things with networkd
+    would be somewhat simpler. You'll also see that by adding a `[DHCPSERVER]` section,
+    networkd can function as a simple DHCP server. Adding a `[CAN]` section allows
+    you to control the `[BRIDGE]` configuration allows you to assign normal IP addresses
+    to containers so that the outside world can access them without having to use
+    port forwarding. Well, the list of what you can do with networkd is quite long,
+    and there's no way that I can cover it all here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, I'd like you to open the `netplan` man page on your Ubuntu Server machine.
+    Even though Netplan is supposed to be a frontend for networkd, you'll see that
+    what you can do with Netplan is only a subset of what you can do when working
+    directly with networkd.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we've seen the basics of configuring networkd and resolved, let's look
+    at a pair of network diagnostic utilities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using networkctl and resolvectl
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'On both the Ubuntu and the Alma machines, you can try out two cool utilities
+    that can help you see what''s going on with your network configuration. To see
+    the list of network links and their statuses, use either `networkctl` or `networkctl
+    list`. (The `list` option is the default, so you don''t have to type it.) What
+    you will see on the Alma machine should look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: On this machine, we only have two links. The `OPERATIONAL` status of the loopback
+    link shows as `carrier`, which means that this link is operational but that it's
+    not routable. `SETUP` shows that the loopback is `unmanaged`, which means that
+    we can't reconfigure it. The `enp0s3` link is our normal Ethernet link, which
+    shows as `routable` and `configured`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the Ubuntu Server machine, things are a bit more interesting. As shown here,
+    there are a few more links:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: In addition to the two normal links, we have three links that were created when
+    the `docker` package was installed. The `docker0` link is an `unmanaged` bridge
+    that's currently in a `no-carrier` `OPERATIONAL` status. I don't have any containers
+    running, so nothing is using it. The bottom two links are for Kubernetes, which
+    is an orchestration manager for Docker containers. (The *calico* reference comes
+    from *Project Calico*, the maintainer of this Kubernetes networking code.) The
+    `cali659bb8bc7b1` link is listed as `degraded`, which means that it is online
+    with a `carrier`, but it's only valid for link-local addresses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `status` option shows you the links with their associated IP addresses,
+    the default gateway address, and the addresses of the DNS servers that we want
+    to use. Here''s what that looks like on the Ubuntu Server machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Of course, we've already seen how to reload a modified network configuration.
+    On Ubuntu with Netplan, you'd do either `sudo netplan apply` or `sudo netplan
+    try`. On the Alma machine, you'd do `sudo networkctl reload`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To look at DNS server information, we''d use `resolvectl`. The main thing to
+    note here is that the output is divided into sections. First, there''s the `Global`
+    section, which shows the settings from the `/etc/systemd/resolved.conf` file.
+    On the Alma machine, these settings look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After the `Global` section, each link has its own settings, which can override
+    the `Global` settings. Here are the settings for the `enp0se` link on the Alma
+    machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Look carefully, and you'll see a few `Link` settings that override the `Global`
+    settings. Previously, we saw that the `resolv.conf` file for this machine has
+    a warning about how we've listed too many nameservers, and that resolved might
+    ignore the fourth one. But we see all four nameservers here, so everything is
+    good.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are lots more options for both networkctl and resolvectl. I'll let you
+    read about them in the `networkctl` and `resolvectl` man pages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, let's take a brief look at the networkd and resolved unit files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Viewing the networkd and resolved unit files
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before we go, I''d like you to take a quick look at the unit files for networkd
+    and resolved. Here''s the list of them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: I'm not going to take the time to trace through them for you because by now,
+    you should be able to do that yourself. I mean, it's mainly a matter of looking
+    everything up in the `systemd.directives` man page, as we've done quite a few
+    times before. Once you've done that, we'll wrap this baby up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As always, we've covered a lot of ground in this chapter. We started by comparing
+    NetworkManager to systemd-networkd and systemd-resolved. Next, we looked at how
+    to deal with the Netplan tool on Ubuntu. The RHEL-type distros use NetworkManager
+    by default and don't use Netplan, so we looked at how to convert your Alma machine
+    over to use networkd and resolved. After that, we worked with a couple of diagnostic
+    utilities, and then wrapped things up by briefly looking at the networkd and resolved
+    unit files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, it's time to talk about *time*, which we'll do in the next chapter. I'll
+    see you there!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Answer the following questions to test your knowledge of this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Which of the following statements is true?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. NetworkManager is better for servers because it can instantly switch between
+    networks.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. NetworkManager is better for servers because it's more versatile.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. NetworkManager is better for desktops and laptops because it can instantly
+    switch between networks.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. networkd is better for desktops and laptops because it can instantly switch
+    between networks.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'True or False: If there''s no `renderer:` line in a Netplan `.yaml` file, the
+    system will default to using NetworkManager.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: On an Ubuntu Server machine, which of the following would you do after you've
+    edited the network configuration file?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. `sudo netplan reload`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. `sudo networkctl reload`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. `sudo netplan restart`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. `sudo networkctl restart`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: E. `sudo netplan apply`
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: What does it mean when a `networkctl` command shows a link as `degraded`?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A. The link is offline.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: B. The link is online, but not operating at full speed.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: C. The link is online, but is only valid for link-local addresses.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: D. The link is unreliable.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'False'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: E
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Configuring the network with Netplan on Ubuntu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://ubuntu.com/server/docs/network-configuration](https://ubuntu.com/server/docs/network-configuration)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'How to configure networking on Ubuntu 20.04 with Netplan:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.serverlab.ca/tutorials/linux/administration-linux/how-to-configure-networking-in-ubuntu-20-04-with-netplan/](https://www.serverlab.ca/tutorials/linux/administration-linux/how-to-configure-networking-in-ubuntu-20-04-with-netplan/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'YAML Tutorial:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.tutorialspoint.com/yaml/index.htm](https://www.tutorialspoint.com/yaml/index.htm)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'YAML for Beginners:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.redhat.com/sysadmin/yaml-beginners](https://www.redhat.com/sysadmin/yaml-beginners)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`systemd-resolved`: Introduction to split DNS:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://fedoramagazine.org/systemd-resolved-introduction-to-split-dns/](https://fedoramagazine.org/systemd-resolved-introduction-to-split-dns/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Multicast DNS: Name resolution on a small scale:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.ionos.com/digitalguide/server/know-how/multicast-dns/](https://www.ionos.com/digitalguide/server/know-how/multicast-dns/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'DNS over TLS: An improved security concept:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.ionos.com/digitalguide/server/security/dns-over-tls/](https://www.ionos.com/digitalguide/server/security/dns-over-tls/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Project Calico:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[https://www.tigera.io/project-calico/](https://www.tigera.io/project-calico/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

@@ -1,0 +1,669 @@
+- en: 30\. Adding a New Disk to a CentOS 8 Volume Group and Logical Volume
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the previous chapter we looked at adding a new disk drive to a CentOS 8 system,
+    creating a partition and file system and then mounting that file system so that
+    the disk can be accessed. An alternative to creating fixed partitions and file
+    systems is to use Logical Volume Management (LVM) to create logical disks made
+    up of space from one or more physical or virtual disks or partitions. The advantage
+    of using LVM is that space can be added to or removed from logical volumes as
+    needed without the need to spread data over multiple file systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let us take, for example, the root (/home) file system of a CentOS 8-based server.
+    Without LVM this file system would be created with a certain size when the operating
+    system is installed. If a new disk drive is installed there is no way to allocate
+    any of that space to the /home file system. The only option would be to create
+    new file systems on the new disk and mount them at particular mount points. In
+    this scenario you would have plenty of space on the new file system but the /home
+    file system would still be nearly full. The only option would be to move files
+    onto the new file system. With LVM, the new disk (or part thereof) can be assigned
+    to the logical volume containing the root file system thereby dynamically extending
+    the space available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter we will look at the steps necessary to add new disk space to
+    both a volume group and a logical volume for the purpose of adding additional
+    space to the root file system of a CentOS 8 system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.1 An Overview of Logical Volume Management (LVM)
+  prefs: []
+  type: TYPE_NORMAL
+- en: LVM provides a flexible and high level approach to managing disk space. Instead
+    of each disk drive being split into partitions of fixed sizes onto which fixed
+    size file systems are created, LVM provides a way to group together disk space
+    into logical volumes which can be easily resized and moved. In addition, LVM allows
+    administrators to carefully control disk space assigned to different groups of
+    users by allocating distinct volume groups or logical volumes to those users.
+    When the space initially allocated to the volume is exhausted the administrator
+    can simply add more space without having to move the user files to a different
+    file system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'LVM consists of the following components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.1.1 Volume Group (VG)
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Volume Group is the high level container which holds one or more logical
+    volumes and physical volumes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.1.2 Physical Volume (PV)
+  prefs: []
+  type: TYPE_NORMAL
+- en: A physical volume represents a storage device such as a disk drive or other
+    storage media.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.1.3 Logical Volume (LV)
+  prefs: []
+  type: TYPE_NORMAL
+- en: A logical volume is the equivalent to a disk partition and, as with a disk partition,
+    can contain a file system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.1.4 Physical Extent (PE)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each physical volume (PV) is divided into equal size blocks known as physical
+    extents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.1.5 Logical Extent (LE)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each logical volume (LV) is divided into equal size blocks called logical extents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Suppose we are creating a new volume group called VolGroup001\. This volume
+    group needs physical disk space in order to function so we allocate three disk
+    partitions /dev/sda1, /dev/sdb1 and /dev/sdb2\. These become physical volumes
+    in VolGroup001\. We would then create a logical volume called LogVol001 within
+    the volume group made up of the three physical volumes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we run out of space in LogVol001 we simply add more disk partitions as physical
+    volumes and assign them to the volume group and logical volume.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.2 Getting Information about Logical Volumes
+  prefs: []
+  type: TYPE_NORMAL
+- en: As an example of using LVM with CentOS 8 we will work through an example of
+    adding space to the / file system of a standard CentOS 8 installation. Anticipating
+    the need for flexibility in the sizing of the root partition, CentOS 8 sets up
+    the / file system as a logical volume (called root) within a volume group called
+    cl. Before making any changes to the LVM setup, however, it is important to first
+    gather information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the mount command will output information about a range of mount points,
+    including the following entry for the root filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: /dev/mapper/cl-root on / type xfs (rw,relatime,seclabel,attr2,inode64,noquota)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Information about the volume group can be obtained using the vgdisplay command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: vgdisplay
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '--- Volume group ---'
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG Name cl
+  prefs: []
+  type: TYPE_NORMAL
+- en: System ID
+  prefs: []
+  type: TYPE_NORMAL
+- en: Format lvm2
+  prefs: []
+  type: TYPE_NORMAL
+- en: Metadata Areas 1
+  prefs: []
+  type: TYPE_NORMAL
+- en: Metadata Sequence No 3
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG Access read/write
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG Status resizable
+  prefs: []
+  type: TYPE_NORMAL
+- en: MAX LV 0
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cur LV 2
+  prefs: []
+  type: TYPE_NORMAL
+- en: Open LV 2
+  prefs: []
+  type: TYPE_NORMAL
+- en: Max PV 0
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cur PV 1
+  prefs: []
+  type: TYPE_NORMAL
+- en: Act PV 1
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG Size <44.70 GiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: PE Size 4.00 MiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: Total PE 11442
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alloc PE / Size 11442 / <44.70 GiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: Free PE / Size 0 / 0
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG UUID fANXsd-8l0S-0zO1-BJVN-rnBa-gNf4-eIgjG8
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we can see in the above example, the cl volume group has a physical extent
+    size of 4.00MB and has a total of 44.7GB available for allocation to logical volumes.
+    Currently 11442 physical extents are allocated equaling the total 44.7GB capacity.
+    If we want to increase the space allocated to any logical volumes in the cl volume
+    group, therefore, we will need to add one or more physical volumes. The vgs tool
+    is also useful for displaying a quick overview of the space available in the volume
+    groups on a system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: vgs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'VG #PV #LV #SN Attr VSize VFree'
+  prefs: []
+  type: TYPE_NORMAL
+- en: cl 1 2 0 wz--n- <44.70g 0
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Information about logical volumes in a volume group may similarly be obtained
+    using the lvdisplay command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: lvdisplay
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '--- Logical volume ---'
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Path /dev/cl/swap
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Name swap
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG Name cl
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV UUID FDSEXC-XawV-QhsZ-0CIq-IwV5-rxH6-Q6ATg2
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Write Access read/write
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Creation host, time localhost, 2019-11-15 15:59:58 -0500
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Status available
+  prefs: []
+  type: TYPE_NORMAL
+- en: '# open 2'
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Size 4.57 GiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: Current LE 1170
+  prefs: []
+  type: TYPE_NORMAL
+- en: Segments 1
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allocation inherit
+  prefs: []
+  type: TYPE_NORMAL
+- en: Read ahead sectors auto
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- currently set to 8192'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Block device 253:1
+  prefs: []
+  type: TYPE_NORMAL
+- en: '--- Logical volume ---'
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Path /dev/cl/root
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Name root
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG Name cl
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV UUID Nysd1Y-483C-IKLf-P4ez-c3Kq-s2hZ-eumSB5
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Write Access read/write
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Creation host, time localhost, 2019-11-15 15:59:58 -0500
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Status available
+  prefs: []
+  type: TYPE_NORMAL
+- en: '# open 1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: LV Size 40.12 GiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: Current LE 10272
+  prefs: []
+  type: TYPE_NORMAL
+- en: Segments 1
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allocation inherit
+  prefs: []
+  type: TYPE_NORMAL
+- en: Read ahead sectors auto
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- currently set to 8192'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Block device 253:0
+  prefs: []
+  type: TYPE_NORMAL
+- en: As shown in the above example 40.12 GiB of the space in volume group cl is allocated
+    to logical volume root (for the / file system) and 4.57 GiB to swap (for swap
+    space).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we know what space is being used it is often helpful to understand
+    which devices are providing the space (in other words which devices are being
+    used as physical volumes). To obtain this information we need to run the pvdisplay
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: pvdisplay
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '--- Physical volume ---'
+  prefs: []
+  type: TYPE_NORMAL
+- en: PV Name /dev/sda2
+  prefs: []
+  type: TYPE_NORMAL
+- en: VG Name cl
+  prefs: []
+  type: TYPE_NORMAL
+- en: PV Size <44.70 GiB / not usable 3.00 MiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allocatable yes (but full)
+  prefs: []
+  type: TYPE_NORMAL
+- en: PE Size 4.00 MiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: Total PE 11442
+  prefs: []
+  type: TYPE_NORMAL
+- en: Free PE 0
+  prefs: []
+  type: TYPE_NORMAL
+- en: Allocated PE 11442
+  prefs: []
+  type: TYPE_NORMAL
+- en: PV UUID Gq547r-HUyj-hPeZ-7be0-CvFx-206v-Hy2xmj
+  prefs: []
+  type: TYPE_NORMAL
+- en: Clearly the space controlled by logical volume cl is provided via a physical
+    volume located on /dev/sda2\.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know a little more about our LVM configuration we can embark on
+    the process of adding space to the volume group and the logical volume contained
+    within.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.3 Adding Additional Space to a Volume Group from the Command-Line
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just as with the previous steps to gather information about the current Logical
+    Volume Management configuration of a CentOS 8 system, changes to this configuration
+    can be made from the command-line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the remainder of this chapter we will assume that a new disk has been added
+    to the system and that it is being seen by the operating system as /dev/sdb. We
+    shall also assume that this is a new disk that does not contain any existing partitions.
+    If existing partitions are present they should be backed up and then the partitions
+    deleted from the disk using the fdisk utility. For example, assuming a device
+    represented by /dev/sdb containing two partitions as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: fdisk -l /dev/sdb
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Disk /dev/sdb: 8 GiB, 8589934592 bytes, 16777216 sectors'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Units: sectors of 1 * 512 = 512 bytes'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Sector size (logical/physical): 512 bytes / 512 bytes'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'I/O size (minimum/optimal): 512 bytes / 512 bytes'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Disklabel type: dos'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Disk identifier: 0xbd09c991'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Device Boot Start End Sectors Size Id Type
+  prefs: []
+  type: TYPE_NORMAL
+- en: /dev/sdb1 2048 5678545 5676498 2.7G 83 Linux
+  prefs: []
+  type: TYPE_NORMAL
+- en: /dev/sdb2 5679104 16777215 11098112 5.3G 83 Linux
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the filesystems on these partitions have been unmounted, they can be deleted
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: fdisk /dev/sdb
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Welcome to fdisk (util-linux 2.32.1).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Changes will remain in memory only, until you decide to write them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Be careful before using the write command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Command (m for help): d'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Partition number (1,2, default 2): 1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Partition 1 has been deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Command (m for help): d'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Selected partition 2
+  prefs: []
+  type: TYPE_NORMAL
+- en: Partition 2 has been deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Command (m for help): w'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The partition table has been altered.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Calling ioctl() to re-read partition table.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Syncing disks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before moving to the next step, be sure to remove any entries in the /etc/fstab
+    file for these filesystems so that the system does not attempt to mount them on
+    the next reboot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the disk is ready, the next step is to convert this disk into a physical
+    volume using the pvcreate command (also wiping the dos signature if one exists):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: pvcreate /dev/sdb
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Physical volume "/dev/sdb" successfully created.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the creation fails with a message that reads “Device /dev/<device> excluded
+    by a filter”, it may be necessary to wipe the disk using the wipefs command before
+    creating the physical volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: wipefs -a /dev/sdb
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '/dev/sdb: 8 bytes were erased at offset 0x00000200 (gpt): 45 46 49 20 50 41
+    52 54'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '/dev/sdb: 8 bytes were erased at offset 0x1fffffe00 (gpt): 45 46 49 20 50 41
+    52 54'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '/dev/sdb: 2 bytes were erased at offset 0x000001fe (PMBR): 55 aa'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '/dev/sdb: calling ioctl to re-read partition table: Success'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With the physical volume created we now need to add it to the volume group
+    (in this case cl) using the vgextend command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: vgextend cl /dev/sdb
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Volume group "cl" successfully extended
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The new physical volume has now been added to the volume group and is ready
+    to be allocated to a logical volume. To do this we run the lvextend tool providing
+    the size by which we wish to extend the volume. In this case we want to extend
+    the size of logical volume root by 7 GB. Note that we need to provide the path
+    to the logical volume which can be obtained from the lvdisplay command (in this
+    case /dev/cl/root):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: lvextend -L+7G /dev/cl/root
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Size of logical volume cl/root changed from 40.12 GiB (10272 extents) to 47.12
+    GiB (12064 extents).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Logical volume cl/root successfully resized.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last step in the process is to resize the file system residing on the logical
+    volume so that it uses the additional space. Since we are assuming a default CentOS
+    8 installation using the XFS filesystem, this can be achieved using the xfs_growfs
+    utility:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: xfs_growfs /
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: meta-data=/dev/mapper/cl-root isize=512 agcount=4, agsize=2629632 blks
+  prefs: []
+  type: TYPE_NORMAL
+- en: = sectsz=512 attr=2, projid32bit=1
+  prefs: []
+  type: TYPE_NORMAL
+- en: = crc=1 finobt=1, sparse=1, rmapbt=0
+  prefs: []
+  type: TYPE_NORMAL
+- en: = reflink=1
+  prefs: []
+  type: TYPE_NORMAL
+- en: data = bsize=4096 blocks=10518528, imaxpct=25
+  prefs: []
+  type: TYPE_NORMAL
+- en: = sunit=0 swidth=0 blks
+  prefs: []
+  type: TYPE_NORMAL
+- en: naming =version 2 bsize=4096 ascii-ci=0, ftype=1
+  prefs: []
+  type: TYPE_NORMAL
+- en: log =internal log bsize=4096 blocks=5136, version=2
+  prefs: []
+  type: TYPE_NORMAL
+- en: = sectsz=512 sunit=0 blks, lazy-count=1
+  prefs: []
+  type: TYPE_NORMAL
+- en: realtime =none extsz=4096 blocks=0, rtextents=0
+  prefs: []
+  type: TYPE_NORMAL
+- en: data blocks changed from 10518528 to 12353536
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If, on the other hand, the filesystem is of type ext2, ext3, or ext4, the resize2fs
+    utility should be used instead when performing the filesystem resize:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: resize2fs /dev/cl/root
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once the resize completes, the file system will have been extended to use the
+    additional space provided by the new disk drive. All this has been achieved without
+    moving a single file or even having to restart the server. As far as any users
+    on the system are concerned nothing has changed (except, of course, that there
+    is now more disk space).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.4 Adding Additional Space to a Volume Group using Cockpit
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In addition to the command-line utilities outlined so far in this chapter,
+    it is also possible to access information about logical volumes and make volume
+    group and logical volume changes from within the Cockpit web interface using the
+    Storage page as shown in [Figure 30-1](../Text/Volume_Groups.xhtml#_idTextAnchor385):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/centos_8_cockpit_volume_groups.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 30-1
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the Storage option is not listed, the cockpit-storaged package will need
+    to be installed and the cockpit service restarted as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: dnf install cockpit-storaged
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: systemctl restart cockpit.socket
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Once the Cockpit service has restarted, log back into the Cockpit interface
+    at which point the Storage option should now be visible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To add a new disk drive to an existing volume group from within the Cockpit
+    console, start at the above Storage page and click on a filesystem associated
+    with the volume group to be extended from the list marked A above.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the resulting screen, click on the + button highlighted in [Figure 30-2](../Text/Volume_Groups.xhtml#_idTextAnchor386)
+    below to add a physical volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/centos_8_cockpit_volume_group_selection.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 30-2
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Select the new drive to be added to the volume group and click on the Add button:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_cockpit_storage_add_device.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 30-3
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On returning to the volume group screen, scroll down to the logical volume
+    that is to be extended and click on it to unfold additional information. [Figure
+    30-4](../Text/Volume_Groups.xhtml#_idTextAnchor387), for example, shows details
+    of the root logical volume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/centos_8_cockpit_volume_grow_button.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 30-4
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To extend the logical volume using the new space, click on the Grow button
+    and use the slider in the resulting dialog to select how much space should be
+    added to the volume. Click the Grow button to commit the change (the available
+    space can be shared among different volume groups if required):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/centos_8_cockpit_volume_grow_dialog.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 30-5
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once these steps are complete, the volume group will have been configured to
+    use the newly added space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 30.5 Summary
+  prefs: []
+  type: TYPE_NORMAL
+- en: Volume groups and logical volumes provide an abstract layer on top of the physical
+    storage devices on a CentOS 8 system to provide a flexible way to allocate the
+    space provided by multiple disk drives. This allows disk space allocations to
+    be made and changed dynamically without the need to repartition disk drives and
+    move data between filesystems. This chapter has outlined the basic concepts of
+    volume groups, logical volumes and physical volumes while demonstrating how to
+    manage these using both command-line tools and the Cockpit web interface.
+  prefs: []
+  type: TYPE_NORMAL

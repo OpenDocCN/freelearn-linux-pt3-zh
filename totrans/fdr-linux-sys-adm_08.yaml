@@ -1,0 +1,890 @@
+- en: '4'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Optimizing Storage Usage
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapter, during the installation of the OS, we mentioned the
+    importance of the local storage configuration. Local storage resource optimization
+    is vital to the well-being of the system. It is time to review basic storage management
+    concepts that help with optimization, such as the format, filesystem, and sizing,
+    as well as management tools such as logical volumes and Stratis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding file formats and filesystems
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Optimizing storage space size
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deep diving into Logical Volume Manager
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Discovering Stratis storage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s get started!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To perform some of the configurations included in this chapter, you require
+    free local storage space, if possible, on a local disk independent of the operating
+    system. No matter how large it is, this should do the job. In case of not having
+    extra space, some configurations can be done in local free space on the same disk
+    where the operating system was installed, although it is not recommended.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will be mentioned when some configuration needs to be performed on a disk
+    independent of the operating system or an alternate disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following table shows the storage arrangement in the test setup:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Device** | **Size** | **Used as:** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/``dev/vda` | 50 GiB | OS |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/``dev/vdb` | 50 GiB | Btrfs, Stratis |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/``dev/vdc` | 10 GiB | Stratis |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/``dev/vdd` | 20 GiB | Stratis |'
+  prefs: []
+  type: TYPE_TB
+- en: Understanding file formats and filesystems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A **filesystem** allows the operating system to find the data it stores on its
+    local disk. These basic addressable storage units make a **block** (usually about
+    4,096 bytes in size). To find the contents of files, among the large number of
+    available storage blocks, it uses inodes. An **inode** contains information about
+    a file in a particular formatted storage block, such as its size, location, access
+    rules (i.e., who can read, write, or execute the file), and much more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Starting with Fedora Linux 33, the default filesystem format on Workstation
+    Edition is `xfs` or even `ext4`, Btrfs is a **copy-on-write** (**COW**) filesystem
+    for Linux that implements many advanced features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a COW filesystem, once modified, a file is not written back to the same block
+    on disk; it’s more like a redirect. This is for the preservation of the original
+    data and to ensure writing the new data to unoccupied inodes. This allows for
+    references to the old versions of the file for easy access as in a **snapshot**,
+    keeping a snapshot of the state of the system at a given moment in time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The downside of this is that this behavior could lead to file fragmentation
+    faster than in other filesystems, although, for regular desktop usage, it is unlikely
+    to make a difference.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To make the modified file appear in the filesystem, all directory entries that
+    contain a reference to it get updated as well, in a recursive way. And because
+    a directory is itself a file pointer with an inode (since it indicates the files
+    inside it), any file modification also creates a new inode for the directory,
+    and this happens through the filesystem to the root directory (`/`). So, as long
+    as a reference to the old directories remain and is not modified, the entire filesystem
+    could still refer to a previous state, as in a snapshot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Besides cheap and fast snapshots, Btrfs includes other features such as error
+    detection, fault tolerance, recovery, transparent compression, and integrated
+    volume management, and provides multiple device storage pooling, RAID-like functionality,
+    and checksumming of data and metadata, all with easy-to-use administration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s create a test Btrfs filesystem to show its capabilities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a Btrfs filesystem
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'For the development of this example, use an alternative local disk to the OS
+    installed. This introduces you to the capabilities of the Btrfs filesystem from
+    scratch. Follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Storage administration requires superuser access, so switch to the **root**
+    user using the **sudo** command and create the **/btrfs** directory that will
+    host the filesystem:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Identify the device to use. Ensure that the test storage device is not in use.
+    Formatting implies total destruction of the data.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Several commands provide information about the use of storage devices. A recommendation
+    is to use more than one command to verify them. These recommendations include
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: (**s**)**fdisk -l**
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**parted -l**'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**cat /proc/partitions**'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**ls -****l /dev/disk/by-path**'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**lsblk -p**'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 4.1 – Identifying storage device](img/B19121_04_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.1 – Identifying storage device
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our example, the storage device that is not in use is `/dev/vdb`, since
+    it shows that it does not contain any partition. Still, it should be managed by
+    **Logical Volume Manager** (**LVM**). Run the following command to display the
+    devices managed by LVM:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![Figure 4.2 – Discarding LVM on the storage device](img/B19121_04_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.2 – Discarding LVM on the storage device
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In case of using a partition, you need to confirm that the partition is not
+    in use by another filesystem and does not have a directory mounted. Use the following
+    basic commands: **fdisk**, **parted**, **mount**, **df**, **lsblk**, and **blkid**.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create a storage pool. With Btrfs, it is not necessary to create physical partitions
+    on the storage device. Create a storage pool and then create subvolumes. These
+    subvolumes can have quotas and snapshots since these resizable partitions can
+    share blocks of data.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Run the `mkfs.btrfs` command to format `/dev/vdb` as `Btrfs`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: "![Figure 4.3 – Creating \uFEFFa Btrfs storage pool](img/B19121_04_03.jpg)"
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.3 – Creating a Btrfs storage pool
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Mount the storage device on the directory where subvolumes should be created.
+    Use the **mount** command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: With the Btrfs filesystem mounted, let’s analyze the usage of its storage space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To show the structure of a filesystem, run the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'To measure the available space on the filesystem, run the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following section will explain in detail the meaning of the command output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In Btrfs, a subvolume is similar to a filesystem contained in the host. A Btrfs
+    filesystem contains a single subvolume, but extra subvolumes could exist. The
+    subvolumes appear as directories within the mounted Btrfs filesystem. A subvolume
+    could access it like any other user-accessible directory, or it could mount as
+    a separate filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Btrfs separates each volume. By default, the Btrfs filesystem contains a subvolume.
+    This is set as the top-level subvolume and is mounted even if not specified. Subvolumes,
+    as they're being created, could nest into each other. But not the top-level subvolume.
+    So each of them has a mountable root and could contain more than one tree of files.
+    This sets a relative location for each subvolume and the mount point of the main
+    subvolume.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A **Btrfs subvolume** is considered more like a namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Some basic layouts exist for subvolumes (including snapshots), and they include
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flat – Subvolumes are children of the top level
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Nested – Subvolumes are located anywhere in the file hierarchy, below other
+    subvolumes, not the top-level subvolume
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Mixed – The two basic schemes could be mixed, for example, the base structure
+    follows a flat layout, with certain parts of the filesystem placed in nested subvolumes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let’s create a subvolume:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the **btrfs subvolume create** command to create the **test** subvolume:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Review the subvolume information with the **btrfs** **subvolume** command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '![Figure 4.4 – Subvolume information](img/B19121_04_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.4 – Subvolume information
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create the **/test** directory and mount the subvolume on it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: In this example, the subvolume doesn’t have an allocated space, so it can use
+    all the available space in the pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Verify the used space of the pool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'To get more details on space usage, run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![Figure 4.5 – Storage space used by Btrfs pool](img/B19121_04_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.5 – Storage space used by Btrfs pool
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s create an empty file of 1 GB to observe the change in the allocated usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the **dd** command to create an empty 1 GB file in the **/****test** directory:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Verify the change of the allocated space in the pool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '![Figure 4.6 – Change in storage space used by the Btrfs pool](img/B19121_04_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.6 – Change in storage space used by the Btrfs pool
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is the end of the example. We started by identifying a free-of-use storage
+    device to format it as `Btrfs`, created a storage pool on it, created a subvolume,
+    and mounted it in a filesystem and analyzed the storage space usage in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will continue revisiting the basic concepts of storage
+    administration in Fedora Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Optimizing storage space size
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous section, we reviewed some of the features of the Btrfs filesystem.
+    Now it is time to learn how to optimize this used storage space in more detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Btrfs reserves some raw storage at its lowest level because the volume needs
+    to contain file data or volume metadata. For that, it allocates pieces of raw
+    storage for use by the filesystem. A piece of storage gets referred to as a **chunk**.
+    Its main function is to contain file data or volume metadata to replicate on the
+    same volume or another similar device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storage space gets allocated to the chunks, and the space is used by the blocks.
+    A chunk with no blocks used is unallocated; a chunk with one or more blocks used
+    is allocated. All chunks can get allocated even if not all the space is used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Btrfs uses **delayed allocation** to enable better disk allocation. Btrfs only
+    allocates disk space when the system needs to get rid of dirty pages, so in the
+    end, you get much larger allocations and much larger chunks of sequential data,
+    which makes data reading faster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Btrfs allocates space on its disks by assigning chunks of 1 GB for data and
+    256 MB chunks for metadata. This implies that a chunk has a specific profile associated
+    with it: once allocated a chunk for data or metadata, that space is only usable
+    for one or the other. So, Btrfs has different allocation profiles for metadata
+    and data.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This division of metadata and data might get confusing: a filesystem might
+    show 10 GB of data but only 2 GB free. Common operating system commands, such
+    as `df` or `du`, do not show the full information about space usage and chunk
+    allocation in Btrfs. For this reason, Btrfs incorporates its own commands that
+    show the used space and allocated chunks.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the filesystem created in the previous section, let’s take a closer look
+    at storage space usage and chunk allocation. Use the `btrfs filesystem df` command
+    to display the `/``btrfs` information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Observe the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Data**, **System**, and **Metadata** are separate block group types:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**single** is the allocation profile, defined at **mkfs** time.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**DUP** means *duplicate*. It guarantees the existence of two copies on the
+    same disk. This mode protects against data or metadata corruption but not against
+    disk failure.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**total** is the sum of space reserved for all allocation profiles of the given
+    type, that is, all **Data**/**single**. Note that *it’s not the total size of*
+    *the filesystem*.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**used** is the sum of the used space of the data, that is, file extents, and
+    metadata blocks.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**GlobalReserve** is artificial and internal emergency space:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **GlobalReserve** space is part of the metadata used. It is used when the
+    filesystem metadata gets exhausted. While it is not allocated, it appears as unused
+    metadata space.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'From here, you could add other storage devices to the `/btrfs` filesystem to
+    make it a single partition that spans all the devices you add. For this, follow
+    these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Format the extra devices as **Btrfs** with the **mkfs.btrfs** command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Add devices to the mounted device:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'If we rerun the `btrfs filesystem df` command, the output shows no change:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is because the disks that are added are neither allocated for data nor
+    metadata. Using the `btrfs filesystem show` command, the following output shows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `size` value is the size of each disk, and the `used` value is the size
+    of the chunks allocated on that disk. So, the new filesystem size is 80 GB, but
+    no chunks from the new devices are allocated, leaving 79 GB of free space to allocate.
+    Use the usual `df` command to show this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Btrfs could redistribute space and reclaim any wasted space. If you add a disk,
+    you can run the `balance` command to make sure everything gets spread across the
+    disks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is very useful to balance any `Btrfs` volume subject to updates and to prevent
+    the allocation of every chunk in the volume. It is usually enough to balance chunks
+    that are 50% or 70% used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To auto-balance the mounted `/btrfs` filesystem, run the `btrfs filesystem`
+    `balance` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'By re-running the `btrfs filesystem df` command, it shows the new distribution
+    of chunks in the filesystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: When adding a device, it is generally a good idea to run a balance on the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Btrfs itself doesn’t perform periodic rebalancing on filesystems and might experience
+    problems with disk space management. If left unattended, these error messages
+    could make it impossible to rebalance the partitions or devices on the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The issue usually occurs when there is the right pattern of disk I/O and file
+    sizes. This causes inefficient use of disk space and prevents new writes to the
+    disk, generating `No space left on` `device` errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To prevent this, run a long space allocation check now and then, usually based
+    on the work cycle of our system. The simplest way to explain this period of time
+    could involve a *cash cut* for some businesses. For example: if the business does
+    the cash cut every 30th day of the month, we have a window of time one day before
+    and one day after that date, which leaves us with 28 or 29 *productive* days in
+    which the system cannot change. On both dates, we could check the allocated space
+    to confirm that everything is OK.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s see how to perform this space allocation check.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Space allocation check
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Btrfs allocates chunks as large as 1/10 of the partition size, up to a maximum
+    of 1 GB. Ideally, at least one chunk must remain unallocated for use during the
+    rebalance operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is not necessary to run a rebalance if Btrfs has not allocated a significant
+    part of the filesystem. A significant part of the filesystem is greater than 80%
+    of the size or the entire filesystem size minus 2 GB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To determine whether a rebalance would free up space, compare the amount of
+    space allocated to the data with the amount of space used by the data. If the
+    difference between these is greater than the largest chunk size, then a rebalance
+    would probably free up some space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `btrfs filesystem usage` command provides the information needed to find
+    both values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.7 – The Btrfs filesystem usage output](img/B19121_04_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.7 – The Btrfs filesystem usage output
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s create an extra file to better exemplify the check:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that we have a filesystem with 49 GB used, let’s see how they got allocated:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the `btrfs filesystem usage` command with the `–b` (bytes) parameter to
+    calculate whether rebalancing is necessary:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.8 – The Btrfs filesystem usage output](img/B19121_04_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.8 – The Btrfs filesystem usage output
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From the output, highlight the size of the device, the allocation on the device,
+    and the size and usage of the data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this information, follow these steps to perform the calculation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The device size is **85899345920**. Calculate 80%:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'The device size is **85899345920**. Subtract 2 GB (**2147483648**):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Compare both results. Take the highest amount (**83751862272**) to compare
+    against the amount allocated on the device:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the device allocation is smaller than the calculated condition, then this
+    part of the check is negative, and there should be no need to run a rebalance
+    on this filesystem. But a data storage efficiency check must be performed to confirm
+    that a rebalance is not necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Estimate the difference between the space allocated and the space used:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Calculate the chunk size:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Compare both results:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: If the chunk size is greater than the difference, then the check is also negative.
+    Rebalancing is not necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Rebalancing is only necessary if the device allocation is greater than 80% of
+    the device size (or the device size minus 2 GB) and the space allocated and used
+    is greater than the chunk size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember, *both conditions must not meet*. If the first check is negative, it
+    is necessary to run the second check to confirm that rebalancing is not required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fedora Linux provides a tool to help us get a detailed report of the Btrfs filesystem’s
+    usage. Let’s see how to use it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the btrfs-usage-report command
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The primary purpose of the `python-btrfs` module is to inspect Btrfs filesystems,
+    acting as a wrapper around low-level kernel calls and Btrfs data structures. This
+    module includes the `btrfs-usage-report` tool to show a report of the Btrfs filesystem
+    usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install the tool, install the `python3-btrfs` package with the `dnf` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: lvcreate -s -n snapshot_name -L snapshot_size target_lv disk
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: lvremove /dev/vg_name/snapshot_name
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[root@workstation ~]# btrfs subvolume list /btrfs'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: ID 256 gen 72 top level 5 path test
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# btrfs subvolume snapshot \'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: /btrfs/test /btrfs/test_snapshot
+  prefs:
+  - PREF_IND
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: Create a snapshot of '/btrfs/test' in '/btrfs/test_snapshot'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# btrfs subvolume list /btrfs'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: ID 256 gen 76 top level 5 path test
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: ID 257 gen 76 top level 5 path test_snapshot
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[root@workstation ~]# ls /btrfs/'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: test  test_snapshot
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# tree /btrfs/'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: /btrfs/
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: ├── test
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: │   └── example
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: └── test_snapshot
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: └── example
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 3 directories, 2 files
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# umount /btrfs/test'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[root@workstation ~]# umount /btrfs'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[root@workstation ~]# rm -rf /btrfs'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# wipefs /dev/vdb --all –f'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[root@workstation ~]# wipefs /dev/vdc --all -f'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[root@workstation ~]# wipefs /dev/vdd --all -f'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# dnf install stratis-cli stratisd'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# systemctl enable --now stratisd'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# stratis pool create test /dev/vdb'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# stratis filesystem create test data'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[root@workstation ~]# stratis filesystem list test'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pool   Filesystem   Total / Used / Free
+  prefs: []
+  type: TYPE_NORMAL
+- en: test   data         1 TiB / 546 MiB / 1023.47 GiB
+  prefs: []
+  type: TYPE_NORMAL
+- en: '...output omitted...'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE

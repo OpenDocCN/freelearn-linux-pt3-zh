@@ -1,0 +1,613 @@
+- en: 23\. Creating a CentOS 8 KVM Networked Bridge Interface
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, the KVM virtualization environment on CentOS 8 creates a virtual
+    network to which virtual machines may connect. It is also possible to configure
+    a direct connection using a MacVTap driver, though as outlined in the chapter
+    entitled [“An Overview of Virtualization Techniques”](../Text/Virtualization_Overview.xhtml#_idTextAnchor248),
+    this approach does not allow the host and guest systems to communicate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The goal of this chapter is to cover the steps involved in creating a network
+    bridge on CentOS 8 enabling guest systems to share one or more of the host system’s
+    physical network connections while still allowing the guest and host systems to
+    communicate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the remainder of this chapter we will cover the steps necessary to configure
+    a CentOS 8 network bridge for use by KVM-based guest operating systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 23.1 Getting the Current Network Settings
+  prefs: []
+  type: TYPE_NORMAL
+- en: A network bridge can be created using the NetworkManager command-line interface
+    tool (nmcli). The NetworkManager is installed and enabled by default on CentOS
+    8 systems and is responsible for detecting and connecting to network devices in
+    addition to providing an interface for managing networking configurations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A list of current network connections on the host system can be displayed as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con show
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: NAME UUID TYPE DEVICE
+  prefs: []
+  type: TYPE_NORMAL
+- en: eno1 99d40009-6bb1-4182-baad-a103941c90ff ethernet eno1
+  prefs: []
+  type: TYPE_NORMAL
+- en: virbr0 7cb1265e-ffb9-4cb3-aaad-2a6fe5880d38 bridge virbr0
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the above output we can see that the host has an Ethernet network connection
+    established via a device named eno1 and the default bridge interface named virbr0
+    provides access to the NAT-based virtual network to which KVM guest systems are
+    connected by default.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, the following command can be used to identify the devices (both
+    virtual and physical) that are currently configured on the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli device show
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'GENERAL.DEVICE: eno1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.TYPE: ethernet'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.HWADDR: AC:16:2D:11:16:73'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.MTU: 1500'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.STATE: 100 (connected)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.CONNECTION: eno1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.CON-PATH: /org/freedesktop/NetworkManager/ActiveConnection/1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'WIRED-PROPERTIES.CARRIER: on'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.ADDRESS[1]: 192.168.86.59/24'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.GATEWAY: 192.168.86.1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.ROUTE[1]: dst = 0.0.0.0/0, nh = 192.168.86.1, mt = 100'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.ROUTE[2]: dst = 192.168.86.0/24, nh = 0.0.0.0, mt = 100'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.DNS[1]: 192.168.86.1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.DOMAIN[1]: lan'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP6.ADDRESS[1]: fe80::6deb:f739:7d67:2242/64'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP6.GATEWAY: --'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP6.ROUTE[1]: dst = fe80::/64, nh = ::, mt = 100'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP6.ROUTE[2]: dst = ff00::/8, nh = ::, mt = 256, table=255'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.DEVICE: virbr0'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.TYPE: bridge'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.HWADDR: 52:54:00:59:30:22'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.MTU: 1500'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.STATE: 100 (connected)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.CONNECTION: virbr0'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'GENERAL.CON-PATH: /org/freedesktop/NetworkManager/ActiveConnection/2'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.ADDRESS[1]: 192.168.122.1/24'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.GATEWAY: --'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP4.ROUTE[1]: dst = 192.168.122.0/24, nh = 0.0.0.0, mt = 0'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'IP6.GATEWAY: --'
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: .
+  prefs: []
+  type: TYPE_NORMAL
+- en: The above partial output indicates that the host system on which the command
+    was executed contains a physical Ethernet device (eno1) and the virtual bridge
+    (virbr0).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The virsh command may also be used to list the virtual networks currently configured
+    on the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: virsh net-list --all
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Name State Autostart
+  prefs: []
+  type: TYPE_NORMAL
+- en: '-----------------------------------------'
+  prefs: []
+  type: TYPE_NORMAL
+- en: default active yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, the only virtual network present is the default network provided
+    by virbr0\. Now that some basic information about the current network configuration
+    has been obtained, the next step is to create a network bridge connected to the
+    physical network device (in this case the device named eno1).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 23.2 Creating a Network Bridge from the Command-Line
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step in creating the network bridge is to add a new connection to
+    the network configuration. This can be achieved using the nmcli tool, specifying
+    that the connection is to be a bridge and providing names for both the connection
+    and the interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con add ifname br0 type bridge con-name br0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the connection has been added, a bridge slave interface needs to be established
+    between physical device eno1 (the slave) and the bridge connection br0 (the master)
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con add type bridge-slave ifname eno1 master br0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'At this point, the NetworkManager connection list should read as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con show
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: NAME UUID TYPE DEVICE
+  prefs: []
+  type: TYPE_NORMAL
+- en: eno1 66f0abed-db43-4d79-8f5e-2cbf8c7e3aff ethernet eno1
+  prefs: []
+  type: TYPE_NORMAL
+- en: virbr0 0fa934d5-0508-47b7-a119-33a232b03f64 bridge virbr0
+  prefs: []
+  type: TYPE_NORMAL
+- en: br0 59b6631c-a283-41b9-bbf9-56a60ec75653 bridge br0
+  prefs: []
+  type: TYPE_NORMAL
+- en: bridge-slave-eno1 395bb34b-5e02-427a-ab31-762c9f878908 ethernet --
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next step is to start up the bridge interface. If the steps to configure
+    the bridge are being performed over a network connection (i.e. via SSH) this step
+    can be problematic because the current eno1 connection must be closed down before
+    the bridge connection can be brought up. This means that the current connection
+    will be lost before the bridge connection can be enabled to replace it, potentially
+    leaving the remote host unreachable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you are accessing the host system remotely this problem can be avoided by
+    creating a shell script to perform the network changes. This will ensure that
+    the bridge interface is enabled after the eno1 interface is brought down, allowing
+    you to reconnect to the host after the changes are complete. Begin by creating
+    a shell script file named bridge.sh containing the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '#!/bin/bash'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con down eno1
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con up br0
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the script has been created, execute it as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: sh ./bridge.sh
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When the script executes, the connection will be lost when the eno1 connection
+    is brought down. After waiting a few seconds, however, it should be possible to
+    reconnect to the host once the br0 connection has been activated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you are working locally on the host, the two nmcli commands can be run within
+    a terminal window without any risk of losing connectivity:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con down eno1
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: nmcli con up br0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the bridge is up and running, the connection list should now include both
+    the bridge and the bridge-slave connections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con show
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: NAME UUID TYPE DEVICE
+  prefs: []
+  type: TYPE_NORMAL
+- en: br0 59b6631c-a283-41b9-bbf9-56a60ec75653 bridge br0
+  prefs: []
+  type: TYPE_NORMAL
+- en: bridge-slave-eno1 395bb34b-5e02-427a-ab31-762c9f878908 ethernet eno1
+  prefs: []
+  type: TYPE_NORMAL
+- en: virbr0 0fa934d5-0508-47b7-a119-33a232b03f64 bridge virbr0
+  prefs: []
+  type: TYPE_NORMAL
+- en: eno1 66f0abed-db43-4d79-8f5e-2cbf8c7e3aff ethernet --
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note that the eno1 connection is still listed but is actually no longer active.
+    To exclude inactive connections from the list, simply use the --active flag when
+    requesting the list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con show --active
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: NAME UUID TYPE DEVICE
+  prefs: []
+  type: TYPE_NORMAL
+- en: br0 c2fa30cb-b1a1-4107-80dd-b1765878ab4f bridge br0
+  prefs: []
+  type: TYPE_NORMAL
+- en: bridge-slave-eno1 21e8c945-cb94-4c09-99b0-17af9b5a7319 ethernet eno1
+  prefs: []
+  type: TYPE_NORMAL
+- en: virbr0 a877302e-ea02-42fe-a3c1-483440aae774 bridge virbr0
+  prefs: []
+  type: TYPE_NORMAL
+- en: 23.3 Declaring the KVM Bridged Network
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this point, the bridge connection is present on the system but is not visible
+    to the KVM environment. Running the virsh command should still list the default
+    network as being the only available network option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: virsh net-list --all
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Name State Autostart Persistent
+  prefs: []
+  type: TYPE_NORMAL
+- en: '----------------------------------------------------------'
+  prefs: []
+  type: TYPE_NORMAL
+- en: default active yes yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before the bridge can be used by a virtual machine it must be declared and added
+    to the KVM network configuration. This involves the creation of a definition file
+    and, once again, the use of the virsh command-line tool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Begin by creating a definition file for the bridge network named bridge.xml
+    that reads as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <network>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <name>br0</name>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <forward mode="bridge"/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <bridge name="br0" />
+  prefs: []
+  type: TYPE_NORMAL
+- en: </network>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, use the file to define the new network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: virsh net-define ./bridge.xml
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the network has been defined, start it and, if required, configure it
+    to autostart each time the system reboots:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: virsh net-start br0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: virsh net-autostart br0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once again list the networks to verify that the bridge network is now accessible
+    within the KVM environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: virsh net-list --all
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Name State Autostart Persistent
+  prefs: []
+  type: TYPE_NORMAL
+- en: '----------------------------------------------------------'
+  prefs: []
+  type: TYPE_NORMAL
+- en: br0 active yes yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: default active yes yes
+  prefs: []
+  type: TYPE_NORMAL
+- en: 23.4 Using a Bridge Network in a Virtual Machine
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a virtual machine that makes use of the bridge network, use the virt-install
+    --network option and specify the br0 bridge name. For example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: virt-install --name MyFedora --memory 1024 --disk path=/tmp/myFedora.img,size=10
+    --network network=br0 --os-variant fedora29 --cdrom /home/demo/Downloads/Fedora-Server-dvd-x86_64-29-1.2.iso
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When the guest operating system is running it will appear on the same physical
+    network as the host system and will no longer be on the NAT-based virtual network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To modify an existing virtual machine so that it uses the bridge, use the virsh
+    edit command. This command loads the XML definition file into an editor where
+    changes can be made and saved:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: virsh edit GuestName
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'By default, the file will be loaded into the vi editor. To use a different
+    editor, simply change the $EDITOR environment variable, for example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: export EDITOR=gedit
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To change from the default virtual network, locate the <interface> section
+    of the file which will read as follows for a NAT based configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <interface type='network'>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <mac address='<your mac address here>'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <source network='default'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <model type='virtio'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: </interface>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alternatively, if the virtual machine was using a direct connection, the entry
+    may read as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <interface type='direct'>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <mac address='<your mac address here>'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <source dev='eno1' mode='vepa'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <model type='virtio'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To use the bridge, change the source network property to read as follows before
+    saving the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <interface type='network'>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <mac address='<your mac address here>'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <source network='br0'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <model type='virtio'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+  prefs: []
+  type: TYPE_NORMAL
+- en: </interface>
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the virtual machine is already running, the change will not take effect until
+    it is restarted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 23.5 Creating a Bridge Network using nm-connection-editor
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If either local or remote desktop access is available on the host system, much
+    of the bridge configuration process can be performed using the nm-connection-editor
+    graphical tool. To use this tool, open a Terminal window within the desktop and
+    enter the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nm-connection-editor
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When the tool has loaded, the window shown in [Figure 23-1](../Text/KVM_Network_Bridge.xhtml#_idTextAnchor293)
+    will appear listing the currently configured network connections (essentially
+    the same output as that generated by the nmcli con show command):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_nm_connection_editor_home.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 23-1
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a new connection, click on the ‘+’ button located in the bottom left-hand
+    corner of the window. From the resulting dialog ([Figure 23-2](../Text/KVM_Network_Bridge.xhtml#_idTextAnchor294))
+    select the Bridge option from the menu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_connection_editor_new_bridge.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 23-2
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With the bridge option selected, click on the Create... button to proceed to
+    the bridge configuration screen. Begin by changing both the connection and interface
+    name fields to br0 before clicking on the Add button located to the right of the
+    Bridge connections list as highlighted in [Figure 23-3](../Text/KVM_Network_Bridge.xhtml#_idTextAnchor295):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_nm_connection_editor_bridge_config.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 23-3
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From the connection type dialog ([Figure 23-4](../Text/KVM_Network_Bridge.xhtml#_idTextAnchor296))
+    change the menu setting to Ethernet before clicking on the Create... button:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_nm_connection_manager_bridge_type.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 23-4
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another dialog will now appear in which the bridge slave connection needs to
+    be configured. Within this dialog, select the physical network to which the bridge
+    is to connect (for example eno1) from the Device menu:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_nm_connection_editor_slave_device.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 23-5
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Click on the Save button to apply the changes and return to the Editing br0
+    dialog (as illustrated in [Figure 23-3](../Text/KVM_Network_Bridge.xhtml#_idTextAnchor295)
+    above). Within this dialog, click on the Save button to create the bridge. On
+    returning to the main window, the new bridge and slave connections should now
+    be listed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_nm_connection_editor_bridge_listed.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 23-6
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All that remains is to bring down the original eno1 connection and bring up
+    the br0 connection using the steps outlined in the previous chapter (remembering
+    to perform these steps in a shell script if the host is being accessed remotely):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: nmcli con down eno1
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: nmcli con up br0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: It will also be necessary, as it was when creating the bridge using the command-line
+    tool, to add this bridge to the KVM network configuration. To do so, simply repeat
+    the steps outlined in the section above entitled [“Declaring the KVM Bridged Network”](../Text/KVM_Network_Bridge.xhtml#_idTextAnchor290).
+    Once this step has been taken, the bridge is ready to be used by guest virtual
+    machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 23.6 Summary
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, KVM virtual machines are connected to a virtual network that uses
+    NAT to provide access to the network to which the host system is connected. If
+    the guests are required to appear on the network with their own IP addresses,
+    the guests need to be configured to share the physical network interface of the
+    host system. As outlined in this chapter, this can be achieved using either the
+    nmcli or nm-connection-editor tools to create a networked bridge interface.
+  prefs: []
+  type: TYPE_NORMAL

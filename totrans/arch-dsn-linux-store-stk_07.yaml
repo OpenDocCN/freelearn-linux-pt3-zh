@@ -1,0 +1,704 @@
+- en: '7'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The SCSI Subsystem
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Throughout this book, we’ve gradually traversed from the higher layers in the
+    storage stack to the lower layer. We started from VFS, explored the major VFS
+    structures and filesystems, and explored the structures and scheduling techniques
+    in the block layer. The VFS and block layer represent a major portion of the software
+    side of things in the I/O hierarchy. As we gradually move down the ladder and
+    enter the physical layer, things are slightly more generic, as the lower-level
+    standards used to address physical drives are the same for most systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *third part* of this book contains two chapters that are dedicated to building
+    an understanding of the physical side of things. In this chapter, we’ll mainly
+    focus on one particular subsystem that has existed for a while and is the most
+    common standard and protocol for addressing physical devices, **Small Computer
+    System** **Interface** (**SCSI**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The development of the SCSI protocol aimed to facilitate seamless data transfer
+    between computers and peripheral devices, including disk drives, CD-ROMs, printers,
+    scanners, and various other resources, ensuring efficient and reliable communication.
+    Since we’re focusing on storage here, we’re only going to discuss its role in
+    terms of disk drives. Any read or write request that is handed to SCSI from the
+    upper layers is transformed into an equivalent SCSI command. It’s important to
+    understand that SCSI does not handle the arrangement of blocks for transportation
+    or their physical placement on disk. That comes under the ownership of the upper
+    layers in the I/O hierarchy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we dive into SCSI, it is important to get a basic understanding of the
+    device model in Linux. The `kobject` structure in the kernel, provides a range
+    of constructs that enable smooth communication and interaction between hardware
+    devices and their corresponding device drivers. After getting some basic knowledge
+    of the device model, we’ll try to explain the major components of the SCSI subsystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will discuss the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The device driver model
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SCSI subsystem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As SCSI is a protocol used to communicate with peripheral devices, such as hard
+    drives, some basic knowledge about the functioning of these devices will aid in
+    understanding the SCSI subsystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The commands and examples presented in this chapter are distribution-agnostic
+    and can be run on any Linux operating system, such as Debian, Ubuntu, Red Hat,
+    or Fedora. There are quite a few references to the kernel source code. If you
+    want to download the kernel source, you can download it from [https://www.kernel.org](https://www.kernel.org).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The device driver model
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are different subsystems in the kernel, such as the **system call interface**,
+    **VFS**, **process and memory management**, and the **network stack**. Throughout
+    this book, we’ve strictly kept our focus on the structures and entities that are
+    a part of the I/O hierarchy in Linux. However, in reality, the process of reading
+    and writing data to a storage device has to pass through most of these subsystems.
+    As we saw, abstraction layers are the alpha and omega of the I/O stack, but this
+    abstracted approach is not just limited to storage devices. For the kernel, the
+    disk is just one of several pieces of hardware that it must manage. If there was
+    a unique subsystem for managing the different types of devices, it would result
+    in a bloated piece of code. Of course, different types of devices tend to be treated
+    differently, as they might have contrasting roles, but for the end user, there
+    should be a general abstract view of the system structure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To achieve this unification, the Linux Device Model extracts the common attributes
+    of device operations, abstracts them, and implements these common attributes in
+    the kernel, providing a unified interface for newly added devices. This makes
+    the driver development process much easier and smoother, as the developers only
+    need to familiarize themselves with the interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The device model’s main objective is to maintain internal data structures that
+    accurately represent a system’s state and configuration. This encompasses vital
+    information such as the presence of devices, their associated buses and drivers,
+    as well as the overall hierarchy and structure of buses, devices, and drivers
+    within the system. To keep track of this information, the device model makes use
+    of the following entities to map them to their physical counterparts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Bus**: There are several components in a system, such as CPU, memory, and
+    input and output devices. Communication between these devices is dependent on
+    a channel, which is the bus. The bus is a channel to transmit data. Think of it
+    as a linear channel for the conveyance of traffic, similar to a road. In order
+    to facilitate the abstraction of the device model, all devices should be connected
+    to a bus. The bus in the device model is an abstraction based on the physical
+    bus.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Device**: This represents a physical device that is attached to a bus. In
+    the device model, the *device* abstracts all hardware devices in the system and
+    describes their attributes, the bus it is connected to, and other information.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Device driver**: The driver is a software entity that is associated with
+    a device. The device model uses the driver to abstract the driver of the hardware
+    device, which includes device initialization and power management-related interface
+    implementations.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Class**: The concept of class is a bit interesting. A class represents a
+    collection of devices with similar functions or attributes. For example, there
+    are SCSI and **Advanced Technology Attachment** (**ATA**) drivers, which fall
+    under the same disk class. Classes serve as a means of categorizing devices based
+    on their functionality rather than their connectivity or operational mechanisms.
+    This is a bit similar to the concept of classes in object-oriented programming.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The device model provides a generic mechanism to represent and operate on every
+    device in the system. As we explained in [*Chapter 1*](B19430_01.xhtml#_idTextAnchor015)
+    of this book, the kernel provides a window to export information about various
+    kernel subsystems through VFS. The representation of the device model in user
+    space can be viewed through the `Sysfs` VFS. The `Sysfs` filesystem is mounted
+    on the `/sys` directory, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.1 – The contents of Sysfs](img/B19430_07_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.1 – The contents of Sysfs
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The directories contain the following information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`block`: This encompasses all available block devices within the system, including
+    disks and partitions'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bus`: This represents various types of buses to which physical devices are
+    connected, such as PCI, IDE, and USB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`class`: This denotes the available driver classes in the system, such as network,
+    sound, and USB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`devices`: This signifies the hierarchical structure of connected devices within
+    the system'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`firmware`: This contains information retrieved from system firmware, particularly
+    ACPI'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`fs`: This provides details regarding the mounted file systems'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`kernel`: This offers kernel status information, including logged-in users
+    and hotplug events'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`module`: This presents the current list of loaded modules'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`power`: This encompasses information pertaining to the power management subsystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'There is a correlation between the kernel data structures within the described
+    model and the sub-directories in the `Sysfs` VFS. There are a number of structures
+    in the device model that allow communication between a device driver and the corresponding
+    hardware device. We’re not going to explore these structures, but just so you
+    know, the basic structure of the Linux Device Model is `kobject`. Think of `kobject`
+    as the glue that holds the device model and the `Sysfs` interface together. The
+    structures in the higher levels of the model, as depicted in *Figure 7**.2*, are
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`struct bus_type`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct device`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`struct device_driver`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Here is *Figure 7**.2*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.2 – The device model components](img/B19430_07_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.2 – The device model components
+  prefs: []
+  type: TYPE_NORMAL
+- en: To summarize, the Linux device model classifies hardware devices and implements
+    abstraction through a set of standard data structures and interfaces. This model
+    can be seen through user space by viewing the contents of the `Sysfs` filesystem.
+    The entities present in `Sysfs` have a close association with the actual physical
+    implementations. Let’s move on and explore the architecture of the SCSI subsystem
+    in more detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the SCSI subsystem
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'People can mean a couple of things when referring to the **SCSI (**pronounced
+    SKUZ-ee):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A hardware bus to connect peripherals to a computer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A command set to communicate with devices over different types of buses
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For a long time, SCSI was the primary technology for I/O buses in computers.
+    SCSI defines both an interface and a data protocol for connecting different types
+    of devices to a computer. As a medium, SCSI defines a bus for data transmission.
+    As a protocol, it defines how devices communicate with each other via the SCSI
+    bus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Initially, the connectivity of peripheral devices was achieved through a parallel
+    SCSI bus. Over the years, the SCSI parallel bus has fallen out of favor and has
+    been replaced with serial interfaces. The most common of these interfaces include
+    **Serial Attached SCSI** (**SAS**) and **SCSI over Fibre Channel**. The serial
+    interfaces provide far better data transfer rates and reliability. There is also
+    an implementation of the SCSI protocol over TCP/IP, known as **Internet** **SCSI**
+    (**iSCSI**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will keep our focus here on the Linux side of things and discuss the organization
+    of the SCSI subsystem in the I/O hierarchy. The SCSI standard defines command
+    sets for a wide variety of devices, not just for hard drives. The SCSI commands
+    can be sent over just about any kind of transporting mechanism. This makes SCSI
+    the ipso facto standard for storage devices accessed via the SATA, SAS, or Fibre
+    Channel protocol.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SCSI architecture
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The SCSI subsystem uses a three-level architecture. The layer at the top represents
+    the kernel’s highest interface for end user applications. The layer at the center
+    provides some common services to the upper and lower layers of the SCSI stack.
+    At the very bottom is the lower layer. The lower layer contains the actual drivers
+    that interact with the underlying physical devices. Every operation involving
+    the SCSI subsystem uses one driver at each of three layers. *Figure 7**.3* highlights
+    the multilayered design of the SCSI subsystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.3 – SCSI architecture](img/B19430_07_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.3 – SCSI architecture
+  prefs: []
+  type: TYPE_NORMAL
+- en: The three layers are described in a bit more detail in the following subsections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upper layer
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The **upper layer** contains specific device-type drivers that are closest
+    to the user space applications. These upper-layer drivers provide the interface
+    between user space and kernel space. The most commonly used upper-layer drivers
+    include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`sd`: The disk driver'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sr`: The CD-ROM driver'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sg`: The generic SCSI driver'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: After looking at these driver names, it should come as no surprise that the
+    device names for the corresponding device types are abbreviated with the prefix
+    of the driver, such as `sda`. The upper layer accepts requests from higher layers
+    in the storage stack, such as VFS, and translates them into equivalent SCSI requests
+    with the help of the middle and lower layers. After the completion of SCSI commands,
+    the upper-level drivers inform the higher layers. The generic SCSI driver, `sg`,
+    allows you to directly send SCSI commands to SCSI devices, bypassing the filesystem
+    layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The upper-level SCSI disk drivers are implemented in `/linux/drivers/scsi/sd.c`.
+    The upper-layer SCSI disk drivers self-initialize by calling `register_blkdev`
+    to register as block devices, providing a set of functions through the `scsi_register_driver`
+    function to represent all the SCSI devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mid layer
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The **mid layer** is common to all SCSI operations and contains the core of
+    the SCSI support. The mid layer stitches together the upper and lower layers by
+    defining internal interfaces and providing common services to the upper- and lower-level
+    drivers. It oversees the management of SCSI command queues, ensures efficient
+    error handling, and facilitates power management functions. The upper- and lower-level
+    drivers cannot function without the functionality provided by the mid layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The generic mid-level SCSI driver is implemented in `linux/drivers/scsi/scsi.c`.
+    The mid layer abstracts the implementation of the lower-level drivers and transforms
+    commands from the upper layers into equivalent SCSI requests. The mid layer also
+    implements command queuing. When a request is received from the upper layer, the
+    mid layer queues the requests for processing. Once the requests have been served,
+    it receives the response from the lower layer and notifies the upper layer. If
+    a request times out, it is the responsibility of the mid layer to perform error
+    handling or resend the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are a couple of important functions through which the mid layer serves
+    as a bridge between the upper and lower layers, `sd_probe` and `sd_init`. During
+    driver initialization and whenever a new SCSI device is connected to the system,
+    the `sd_probe` function plays a crucial role in determining whether the device
+    is under the management of a SCSI disk driver. If the device falls within the
+    purview of management, `sd_probe` generates a fresh `scsi_disk` structure to serve
+    as its representative entity. When a read or write request is received from higher
+    layers in the storage stack, such as a filesystem, the `sd_init_command` function
+    converts that request into an equivalent SCSI read or write command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Lower layer
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The `lpfc` is the device driver for Emulex HBAs. The lower-level drivers are
+    present in the `linux/drivers/scsi/` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s delve deeper into how the SCSI subsystem can be classified as operating
+    within a client-server model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client and server model
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The SCSI subsystem receives requests from higher layers in the storage stack
+    to send or retrieve blocks of data from a storage device. When an application
+    initiates a read or write request, the SCSI layer treats this request by transforming
+    it into the equivalent SCSI command. The SCSI subsystem does not handle how data
+    blocks are organized and placed on the storage device; that is the job of the
+    higher layers in the I/O stack. SCSI sends blocks to a destination device, which
+    can either be an individual disk or a **redundant array of independent disks**
+    (**RAID**) controller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the SCSI layer on the operating system side commences an operation on the
+    storage device and the storage device, in turn, responds by performing said operation,
+    this flow of events can be categorized as a client-server exchange model. In SCSI
+    parlance, the two parties are referred to as **initiators** and **targets**. The
+    host operating system that initiates the request is said to act as an SCSI initiator.
+    The destination storage device that receives and processes this request is known
+    as an SCSI target.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The SCSI initiator resides on the host and generates requests on behalf of
+    the higher layers in the I/O stack, such as applications and filesystems. The
+    SCSI target waits for the initiator’s commands and then performs the requested
+    data transfers. There has to be an underlying transport mechanism that ensures
+    that the SCSI command from the initiator is delivered to the target. This is implemented
+    through the SCSI transport layer. There are multiple transfer protocols available,
+    such as **Serial Attached SCSI** (**SAS**) for direct attached disks, and the
+    Fibre Channel or iSCSI for SCSI targets that are part of a **Storage Area Network**
+    (**SAN**). The relationship between the SCSI initiator and the target is shown
+    in *Figure 7**.4*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.4 – The SCSI initiator and the target](img/B19430_07_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.4 – The SCSI initiator and the target
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let us move on to the addressing scheme.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Device addressing
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Linux uses a four-part hierarchical addressing scheme to identify SCSI devices.
+    This combination of four numbers uniquely identifies the location of a SCSI device
+    within a system. If you run `lsscsi` or `sg_map -x` on the command line, you’ll
+    see that a sequence of four numbers is used to represent every SCSI device in
+    your system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This quad addressing scheme is known as **Host, Bus, Target, and LUN** (**HBTL**),
+    and its fields are explained as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Host**: The host represents a controller that can send and receive SCSI commands.
+    The SCSI Host ID is the ID of the HBA, also referred to as the SCSI controller
+    or SCSI adapter. The identifier represents an arbitrary numbering assigned to
+    adapter cards present on the internal system buses. The kernel assigns this number
+    in an ascending manner on the basis of the adapter discovery order. For instance,
+    the first adapter will be assigned zero, the second will be assigned one, and
+    so on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Bus**: This is the bus or channel used within the SCSI controller. A controller
+    can have more than one SCSI bus. This identifier is assigned by the kernel and
+    reflects part of the hardware and firmware architecture of the SCSI controller.
+    Usually, SCSI controllers will only have a single bus. High-end devices such as
+    RAID controllers can have multiple buses.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Target**: Each bus can have multiple devices or targets connected to it.
+    The target is the destination device within the bus. This identifier is also assigned
+    by the kernel in the order of target discovery within a given SCSI controller.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**The Logical Unit Number (LUN)**: This is the logical device within the SCSI
+    target, as seen by the host operating system. The LUN is the entity capable of
+    receiving SCSI commands from the host, meaning a disk drive. Each LUN has an exclusive
+    request queue in the kernel’s block layer. The LUN identifier is assigned by the
+    storage, making it the only part in the SCSI addressing scheme that is not assigned
+    by the kernel.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following figure illustrates this addressing mechanism and the path from
+    a host to a SCSI disk. Note that there is a relative SCSI target index associated
+    with a SCSI controller or an HBA. The first SCSI storage target discovered attached
+    to `host0` is assigned the SCSI target (relative index) 0, then 1, and 2, and
+    so on:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.5 – SCSI addressing](img/B19430_07_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.5 – SCSI addressing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you look inside `/sys/class/scsi_host/`, you will see that hosts 0 to 6
+    correspond to SCSI controllers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.6 – The SCSI hosts in Sysfs](img/B19430_07_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.6 – The SCSI hosts in Sysfs
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, a structure of the `targetX:Y:Z` format exists in `/sys/bus/scsi/devices/`
+    and is attached to the SCSI bus:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.7 – The SCSI targets in Sysfs](img/B19430_07_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.7 – The SCSI targets in Sysfs
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The LUNs can be identified through the unique four-level hierarchical addressing
+    scheme, as discussed earlier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.8 – The SCSI LUNs in Sysfs](img/B19430_07_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.8 – The SCSI LUNs in Sysfs
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll now explore some major data structures in the kernel that are relevant
+    to the SCSI subsystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Major data structures
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The preceding concepts are implemented in the kernel using three major data
+    structures – `Scsi_Host`, `scsi_target`, and `scsi_device`. Of course, these are
+    not the only SCSI-related structures in the kernel. In addition to these three,
+    there are several auxiliary structures, such as `scsi_host_template` and `scsi_transport_template`.
+    As the name might suggest, these structures are used to represent some common
+    features for SCSI adapters and transport types. For instance, `scsi_host_template`
+    provides common content for the host adapters of the same model, including the
+    request queue depth, the SCSI command processing callback function, and the error
+    handling recovery functions. SCSI devices include hard disks, SSDs, optical drives,
+    and so on, and all of these devices have some common functions. These common functions
+    are extracted into templates in the kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These three major structures are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Scsi_Host`: This is the data structure corresponding to the controller or
+    the HBA, which is located under the SCSI bus. It contains information about the
+    HBA, such as its unique identifier, maximum transfer size, supported features,
+    and host-specific data. Multiple SCSI host structures can exist in the system,
+    each representing a separate host adapter. The `SCSI``_``Host` structure acts
+    as the top-level structure for managing SCSI communication.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scsi_target`: This structure corresponds to a target device that is attached
+    to a specific host adapter. It contains information about the target, such as
+    its SCSI ID, **LUN**, and some other flags and parameters. The SCSI target structure
+    is associated with a specific SCSI Host structure and is used to manage communication
+    and commands specific to that target device. The target device can be either physical
+    or virtual.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`scsi_device`: This structure represents a LUN within a SCSI target device.
+    It denotes a specific device or partition within a target. When the operating
+    system scans for a logical device connected to the host adapter, it creates a
+    `scsi_device` structure for the upper-level SCSI driver to communicate with the
+    device. It includes information such as the device’s SCSI ID, LUN, and queue depth.
+    It is associated with both a SCSI Target structure and a SCSI Host structure and
+    is used to manage communication and I/O operations for that specific device.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This hierarchical scheme allows the kernel to manage SCSI devices and their
+    communication efficiently. Commands and data transfers can be directed to specific
+    SCSI devices or logical units, and error handling and status tracking can be performed
+    at each level of the hierarchy. The interplay of these structures is highlighted
+    in *Figure 7**.9*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.9 – Major SCSI structures](img/B19430_07_09.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.9 – Major SCSI structures
+  prefs: []
+  type: TYPE_NORMAL
+- en: Please note that the actual implementation of SCSI devices in the Linux kernel
+    is far more complex and involves additional data structures and interfaces. However,
+    this simplified diagram demonstrates the basic interconnections between the SCSI
+    Host, SCSI Target, and SCSI Device structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Communicating with SCSI devices
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'As shown in *Figure 7**.10*, there are three different ways of communicating
+    with SCSI devices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.10 – Communicating with SCSI devices](img/B19430_07_10.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7.10 – Communicating with SCSI devices
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are explained as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Filesystem-based**: The most common method is to access the SCSI device through
+    the interface provided by the filesystem. This is how most regular user-space
+    applications interact with SCSI devices.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`dd` command in Linux. Using a raw access method does not require address mapping
+    by the filesystem.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sg3_utils` package available in Linux provides a set of utilities that can
+    send SCSI commands to a device via the SCSI pass-through interface provided by
+    the host operating system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Interaction between the SCSI and block layers
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The SCSI layer and the block layer work together to facilitate the interaction
+    between SCSI devices and the filesystem. The SCSI layer acts as an intermediate
+    layer between the block layer and the device driver specific to the SCSI Host
+    adapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following provides an overview of how the SCSI layer interacts with the
+    block layer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When a filesystem sends an I/O request, such as a read or write operation, it
+    gets translated into a SCSI command by the block layer. The block layer constructs
+    a SCSI **Command Descriptor Block** (**CDB**) that corresponds to the requested
+    operation and passes it to the SCSI layer.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The SCSI mid layer receives the SCSI command from the block layer and performs
+    the necessary processing, including command queuing, error handling, and data
+    transfer.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The SCSI mid layer forwards the SCSI command to the appropriate lower-level
+    SCSI device driver associated with the specific SCSI host adapter. The device
+    driver interacts directly with the hardware and sends the SCSI command to the
+    target device over the SCSI bus.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the SCSI command is executed by the target device, the lower-level SCSI
+    device driver receives the command completion status and communicates this information
+    back to the SCSI mid layer, which then passes it to the block layer.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The block layer receives the command completion status from the SCSI mid layer
+    and uses this information to handle any errors, update the I/O request status,
+    and notify the filesystem about the completion or failure of the I/O request.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Please note that this is a summarized view of the interaction between the block
+    and SCSI layers. The block layer provides a standardized interface to the higher
+    layers, such as filesystems. The SCSI layer handles the translation of block-level
+    I/O requests into equivalent SCSI commands, and it manages the communication with
+    the SCSI devices through lower-level device drivers specific to the SCSI host
+    adapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter focused on two major topics, the device model and the SCSI subsystem
+    in Linux. We started by giving a brief overview of the device model in Linux and
+    how the kernel provides its view in user space through the `Sysfs` VFS. We then
+    moved on to the exploration of the SCSI subsystem and explained its three-level
+    architecture.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As explained in this chapter, SCSI defines both an interface and a data protocol
+    to connect different types of devices to a system. As a medium, it defines a bus
+    for data transmission, and as a protocol, it defines how devices communicate with
+    each other via the SCSI bus. When an application in user space initiates a write
+    request to store data, the SCSI subsystem converts this write request into a SCSI
+    command, to write the requested data on the specified disk location. It acts as
+    a mediator between the higher layers in the I/O stack and the physical storage.
+    SCSI does not assume responsibility for the assembly of blocks during transport
+    or their physical placement on disk. The side that initiates a request is known
+    as the initiator, while the destination side is known as the target in SCSI terminology.
+    The target of the SCSI protocol can encompass a single physical drive, an HBA,
+    or a RAID controller. The primary duty of the SCSI protocol is to guarantee the
+    successful completion of the write task and report its status to the higher layers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll discuss the different physical storage options available
+    in today’s world, such as mechanical drives, SSDs, and NVMe drives. We’ll describe
+    the differences in their design and see how they compare to each other.
+  prefs: []
+  type: TYPE_NORMAL

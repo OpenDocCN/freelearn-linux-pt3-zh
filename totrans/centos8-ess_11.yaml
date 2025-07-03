@@ -1,0 +1,713 @@
+- en: 13\. Basic CentOS 8 Firewall Configuration with firewalld
+  prefs: []
+  type: TYPE_NORMAL
+- en: A firewall is a vital component in protecting a computer system or network of
+    computers from external attack (typically from an external source via an internet
+    connection). Any computer connected directly to an internet connection must run
+    a firewall to protect against malicious activity. Similarly, any internal network
+    must have some form of firewall between it and an external internet connection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All Linux distributions are provided with a firewall solution of some form.
+    In the case of CentOS 8 this takes the form of a service named firewalld.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the subject of firewall configuration can be complex, fortunately CentOS
+    8 provides command-line, web-based and graphical tools that ease the firewall
+    configuration process. This chapter will introduce the basic concepts of firewalld
+    and cover the steps necessary to configure a firewall using the tools provided
+    with the operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.1 An Introduction to firewalld
+  prefs: []
+  type: TYPE_NORMAL
+- en: The firewalld service uses a set a rules to control incoming network traffic
+    and define which traffic is to be blocked and which is to be allowed to pass through
+    to the system and is built on top of a more complex firewall tool named iptables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The firewalld system provides a flexible way to manage incoming traffic. The
+    firewall could, for example, be configured to block traffic arriving from a specific
+    external IP address, or to prevent all traffic arriving on a particular TCP/IP
+    port. Rules may also be defined to forward incoming traffic to different systems
+    or to act as an internet gateway to protect other computers on a network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In keeping with common security practices, a default firewalld installation
+    is configured to block all access with the exception of SSH remote login and the
+    DHCP service used by the system to obtain a dynamic IP address (both of which
+    are essential if the system administrator is to be able to gain access to the
+    system after completing the installation).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The key elements of firewall configuration on CentOS 8 are zones, interfaces,
+    services and ports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.1.1 Zones
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By default, firewalld is installed with a range of pre-configured zones. A
+    zone is a preconfigured set of rules which can be applied to the system at any
+    time to quickly implement firewall configurations for specific scenarios. The
+    block zone, for example, blocks all incoming traffic, while the home zone imposes
+    less strict rules on the assumption that the system is running in a safer environment
+    where a greater level of trust is expected. New zones may be added to the system,
+    and existing zones modified to add or remove rules. Zones may also be deleted
+    entirely from the system. [Table 13-1](../Text/Firewall_Configuration.xhtml#_idTextAnchor161)
+    lists the set of zones available by default on a CentOS 8 system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| Zone | Description |'
+  prefs: []
+  type: TYPE_TB
+- en: '| --- | --- |'
+  prefs: []
+  type: TYPE_TB
+- en: '| drop | The most secure zone. Only outgoing connections are permitted and
+    all incoming connections are dropped without any notification to the connecting
+    client. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| block | Similar to the drop zone with the exception that incoming connections
+    are rejected with an icmp-host-prohibited or icmp6-adm-prohibited notification.
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| public | Intended for use when connected to public networks or the internet
+    where other computers are not known to be trustworthy. Allows select incoming
+    connections. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| external | When a system is acting as the internet gateway for a network
+    of computers, the external zone is applied to the interface that is connected
+    to the internet.This zone is used in conjunction with the internal zone when implementing
+    masquerading or network address translation (NAT) as outlined later in this chapter.
+    Allows select incoming connections |'
+  prefs: []
+  type: TYPE_TB
+- en: '| internal | Used with the external zone and applied to the interface that
+    is connected to the internal network. Assumes that the computers on the internal
+    network are trusted. Allows select incoming connections. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| dmz | For use when the system is running in the demilitarized zone (DMZ).
+    These are generally computers that are publicly accessible but isolated from other
+    parts of your internal network. Allows select incoming connections. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| work | For use when running a system on a network in a work environment where
+    other computers are trusted. Allows select incoming connections. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| home | For use when running a system on a home network where other computers
+    are trusted. Allows select incoming connections. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| trusted | The least secure zone. All incoming connections are accepted. |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 13-1
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.1.2 Interfaces
+  prefs: []
+  type: TYPE_NORMAL
+- en: Any CentOS 8 system connected to the internet or a network (or both) will contain
+    at least one interface in the form of either a physical or virtual network device.
+    When firewalld is active, each of these interfaces is assigned to a zone allowing
+    different levels of firewall security to be assigned to different interfaces.
+    Consider a server containing two interfaces, one connected externally to the internet
+    and the other to an internal network. In such a scenario, the external facing
+    interface would most likely be assigned to the more restrictive external zone
+    while the internal interface might use the internal zone.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.1.3 Services
+  prefs: []
+  type: TYPE_NORMAL
+- en: TCP/IP defines a set of services that communicate on standard ports. Secure
+    HTTPS web connections, for example, use port 443, while the SMTP email service
+    uses port 25\. To selectively enable incoming traffic for specific services, firewalld
+    rules can be added to zones. The home zone, for example, does not permit incoming
+    HTTPS connections by default. This traffic can be enabled by adding rules to a
+    zone to allow incoming HTTPS connections without having to reference the specific
+    port number.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.1.4 Ports
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although common TCP/IP services can be referenced when adding firewalld rules,
+    situations will arise where incoming connections need to be allowed on a specific
+    port that is not allocated to a service. This can be achieved by adding rules
+    that reference specific ports instead of services. This technique was used in
+    the chapter entitled [“An Overview of the CentOS 8 Cockpit Web Interface”](../Text/Cockpit_Overview.xhtml#_idTextAnchor081)
+    when port 9090 was opened to allow access to the Cockpit web interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.2 Checking firewalld Status
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The firewalld service is installed and enabled by default on all CentOS 8 installations.
+    The status of the service can be checked via the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: systemctl status firewalld
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: firewalld.service - firewalld - dynamic firewall daemon
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Loaded: loaded (/usr/lib/systemd/system/firewalld.service; enabled; vendor
+    preset: enabled)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Active: active (running) since Thu 2019-02-14 14:24:31 EST; 3 days ago'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Docs: man:firewalld(1)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Main PID: 816 (firewalld)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Tasks: 2 (limit: 25026)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Memory: 30.6M'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'CGroup: /system.slice/firewalld.service'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 816 /usr/libexec/platform-python -s /usr/sbin/firewalld --nofork --nopid
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If necessary, the firewalld service may be installed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: dnf install firewalld
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The firewalld service is enabled by default so will start automatically both
+    after installation is complete and each time the system boots.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.3 Configuring Firewall Rules with firewall-cmd
+  prefs: []
+  type: TYPE_NORMAL
+- en: The firewall-cmd command-line utility allows information about the firewalld
+    configuration to be viewed and changes to be made to zones and rules from within
+    a terminal window.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When making changes to the firewall settings, it is important to be aware of
+    the concepts of runtime and permanent configurations. By default, any rule changes
+    are considered to be runtime configuration changes. This means that while the
+    changes will take effect immediately, they will be lost next time the system restarts
+    or the firewalld service reloads, for example by issuing the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --reload
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To make a change permanent, the --permanent command-line option must be used.
+    Permanent changes do not take effect until the firewalld service reloads but will
+    remain in place until manually changed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.3.1 Identifying and Changing the Default Zone
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To identify the default zone (in other words the zone to which all interfaces
+    will be assigned unless a different zone is specifically selected) use the firewall-cmd
+    tool as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --get-default-zone
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: public
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To change the default to a different zone:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --set-default-zone=home
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: success
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.3.2 Displaying Zone Information
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To list all of the zones available on the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --get-zones
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: block dmz drop external home internal libvirt public trusted work
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Obtain a list of zones currently active together with the interfaces to which
+    they are assigned as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --get-active-zones
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: external
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'interfaces: eth0'
+  prefs: []
+  type: TYPE_NORMAL
+- en: internal
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'interfaces: eth1'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All of the rules currently configured for a specific zone may be listed as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=home --list-all
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: home (active)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'target: default'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'icmp-block-inversion: no'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'interfaces: eth0'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'sources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'services: cockpit dhcpv6-client http mdns samba-client ssh'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'ports:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'protocols:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'masquerade: no'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'forward-ports:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'source-ports:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'icmp-blocks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'rich rules:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the following command to list the services currently available for inclusion
+    in a firewalld rule:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --get-services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: RH-Satellite-6 amanda-client amanda-k5-client amqp amqps apcupsd audit bacula
+    bacula-client bgp bitcoin bitcoin-rpc bitcoin-testnet bitcoin-testnet-rpc ceph
+    ceph-mon cfengine cockpit ...
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To list the services currently enabled for a zone:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --list-services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: cockpit dhcpv6-client ssh
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A list of port rules can be obtained as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --list-ports
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 9090/tcp
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.3.3 Adding and Removing Zone Services
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To add a service to a zone, in this case adding HTTPS to the public zone, the
+    following command would be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --add-service=https
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: success
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By default this is a runtime change, so the added rule will be lost after a
+    system reboot. To add a service permanently so that it remains in effect next
+    time the system restarts, use the --permanent flag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --permanent --add-service=https
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: success
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To verify that a service has been added permanently, be sure to include the
+    --permanent flag when requesting the service list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --permanent --list-services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: cockpit dhcpv6-client http https ssh
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note that as a permanent change, this new rule will not take effect until the
+    system restarts or firewalld reloads:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --reload
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Remove a service from a zone using the --remove-service option. Since this
+    is a runtime change, the rule will be re-instated the next time the system restarts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --remove-service=https
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To remove a service permanently use the --permanent flag, remembering to reload
+    firewalld if the change is required to take immediate effect.:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --permanent --remove-service=https
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 13.3.4 Working with Port-based Rules
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To enable a specific port, use the --add-port option. Note that when manually
+    defining the port, both the port number and protocol (TCP or UDP) will need to
+    be provided:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --permanent --add-port=5000/tcp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It is also possible to specify a range of ports when adding a rule to a zone:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --permanent --add-port=5900-5999/udp
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 13.3.5 Creating a New Zone
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An entirely new zone may be created by running the following command. Once
+    created, the zone may be managed in the same way as any of the predefined zones:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --permanent --new-zone=myoffice
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: success
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After adding a new zone, firewalld will need to be restarted before the zone
+    becomes available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --reload
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: success
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.3.6 Changing Zone/Interface Assignments
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As previously discussed, each interface on the system must be assigned to a
+    zone. The zone to which an interface is assigned can also be changed using the
+    firewall-cmd tool. In the following example, the eth0 interface is assigned to
+    the public zone:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --change-interface=eth0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: success
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.3.7 Masquerading
+  prefs: []
+  type: TYPE_NORMAL
+- en: Masquerading is better known in networking administration circles as Network
+    Address Translation (NAT). When using a CentOS 8 system as a gateway to the internet
+    for a network of computers, masquerading allows all of the internal systems to
+    use the IP address of that CentOS 8 system when communicating over the internet.
+    This has the advantage of hiding the internal IP addresses of any systems from
+    malicious external entities and also avoids the necessity to allocate a public
+    IP address to every computer on the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Use the following command to check whether masquerading is already enabled
+    on the firewall:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=external --query-masquerade
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Use the following command to enable masquerading (remembering to use the --permanent
+    flag if the change is to be permanent):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=external --add-masquerade
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.3.8 Adding ICMP Rules
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Internet Control Message Protocol (ICMP) is used by client systems on networks
+    to send information such as error messages to each other. It is also the foundation
+    of the ping command which is used by network administrators and users alike to
+    detect whether a particular client is alive on a network. The ICMP category allows
+    for the blocking of specific ICMP message types. For example, an administrator
+    might choose to block incoming ping (Echo Request) ICMP messages to prevent the
+    possibility of a ping based denial of service (DoS) attack (where a server is
+    maliciously bombarded with so many ping messages that it becomes unable to respond
+    to legitimate requests).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To view the ICMP types available for inclusion in firewalld rules, run the
+    following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --get-icmptypes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: address-unreachable bad-header beyond-scope communication-prohibited destination-unreachable
+    echo-reply ...
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following command, for example, permanently adds a rule to block echo-reply
+    (ping request) messages for the public zone:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=public --permanent --add-icmp-block=echo-reply
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 13.3.9 Implementing Port Forwarding
+  prefs: []
+  type: TYPE_NORMAL
+- en: Port forwarding is used in conjunction with masquerading when the CentOS 8 system
+    is acting as a gateway to the internet for an internal network of computer systems.
+    Port forwarding allows traffic arriving at the firewall via the internet on a
+    specific port to be forwarded to a particular system on the internal network.
+    This is perhaps best described by way of an example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Suppose that a CentOS 8 system is acting as the firewall for an internal network
+    of computers and one of the systems on the network is configured as a web server.
+    Let’s assume the web server system has an IP address of 192.168.2.20\. The domain
+    record for the web site hosted on this system is configured with the public IP
+    address behind which the CentOS 8 firewall system sits. When an HTTP web page
+    request arrives on port 80 the CentOS 8 system acting as the firewall needs to
+    know what to do with it. By configuring port forwarding it is possible to direct
+    all web traffic to the internal system hosting the web server (in this case, IP
+    address 192.168.2.20), either continuing to use port 80 or diverting the traffic
+    to a different port on the destination server. In fact, port forwarding can even
+    be configured to forward the traffic to a different port on the same system as
+    the firewall (a concept known as local forwarding).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To use port forwarding, begin by enabling masquerading as follows (in this
+    case the assumption is made that the interface connected to the internet has been
+    assigned to the external zone):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=external --add-masquerade
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To forward from a port to a different local port, a command similar to the
+    following would be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=external --add-forward-port=port=22:proto=tcp:toport=2750
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the above example, any TCP traffic arriving on port 22 will be forwarded
+    to port 2750 on the local system. The following command, on the other hand, forwards
+    port 20 on the local system to port 22 on the system with the IP address of 192.168.0.19:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=external \
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: --add-forward-port=port=20:proto=tcp:toport=22:toaddr=192.168.0.19
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similarly, the following command forwards local port 20 to port 2750 on the
+    system with IP address 192.168.0.18:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: firewall-cmd --zone=external --add-forward-port=port=20:proto=tcp:toport=2750:toaddr=192.168.0.18
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 13.4 Managing firewalld from the Cockpit Interface
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far this chapter has provided an overview of firewalld and explored the use
+    of the firewall-cmd command-line tool to manage firewall zones and interfaces.
+    While firewall-cmd provides the most flexible way to manage the firewalld configuration,
+    it is also possible to view and manage the services for the default zone within
+    the Cockpit web console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To access the firewalld settings, sign into the Cockpit interface and select
+    Networking from the navigation panel. On the networking page, select the Firewall
+    option as highlighted in [Figure 13-1](../Text/Firewall_Configuration.xhtml#_idTextAnchor177)
+    below:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_firewall_link_cockpit.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-1
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Firewall page displays the current service rules configured for the default
+    zone (and allows services to be removed using the trash can buttons), new services
+    to be added to the zone and for the firewall to be turned on and off:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_firewall_cockpit_page.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-2
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.5 Managing firewalld using firewall-config
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you have access to the graphical desktop environment, the firewall may also
+    be configured using the firewall-config tool. Though not installed by default,
+    firewall-config may be installed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: dnf install firewall-config
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When launched, the main firewall-config screen appears as illustrated in [Figure
+    13-3](../Text/Firewall_Configuration.xhtml#_idTextAnchor179):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/rhel_8_firewall-config.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-3
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The key areas of the tool can be summarized as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A - Displays all of the currently active interfaces and the zones to which they
+    are assigned. To assign an interface to a different zone, select it from this
+    panel, click on the Change Zone button and select the required zone from the resulting
+    dialog.
+  prefs: []
+  type: TYPE_NORMAL
+- en: B - Controls whether the information displayed and any changes made within the
+    tool apply to the runtime or permanent rules.
+  prefs: []
+  type: TYPE_NORMAL
+- en: C - The list of zones, services or IPSets configured on the system. The information
+    listed in this panel depends on the selection made from toolbar F. Selecting an
+    item from the list in this panel updates the main panel marked D.
+  prefs: []
+  type: TYPE_NORMAL
+- en: D - The main panel containing information about the current category selection
+    in toolbar E. In this example, the panel is displaying services for the public
+    zone. The checkboxes next to each service control whether the service is enabled
+    or not within the firewall. It is within these category panels that new rules
+    can be added or existing rules configured or removed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: E - Controls the content displayed in panel D. Selecting items from this bar
+    displays the current rule for the chosen category.
+  prefs: []
+  type: TYPE_NORMAL
+- en: F - Controls the list displayed in panel C.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The firewall-config tool is straightforward and intuitive to use and allows
+    many of the tasks available with firewall-cmd to be performed in a visual environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 13.6 Summary
+  prefs: []
+  type: TYPE_NORMAL
+- en: A carefully planned and implemented firewall is a vital component of any secure
+    system. In the case of CentOS 8, the firewalld service provides a firewall system
+    that is both flexible and easy to administer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The firewalld service uses the concept of zones to group together sets of firewall
+    rules and includes a suite of pre-defined zones designed to meet a range of firewall
+    protection requirements. These zones may be modified to add or remove rules, or
+    entirely new zones created and configured. The network devices on the system that
+    connect to networks or the internet are referred to as interfaces. Each interface,
+    in turn, is assigned to a zone. The primary tools for working with firewalld are
+    the firewall-cmd command-line tool and the firewall-config graphical utility.
+    Minimal firewall management options are also available via the Cockpit web interface.
+  prefs: []
+  type: TYPE_NORMAL

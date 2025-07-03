@@ -1,0 +1,836 @@
+- en: '12'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Prototyping with Add-On Boards
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Custom board bring-up** is what embedded Linux engineers are called on to
+    do time and time again. Say a consumer electronics manufacturer wants to build
+    a new device and that device needs to run Linux. The process of assembling the
+    Linux image starts before the hardware is ready and is done with prototypes pieced
+    together from SBCs and add-on boards. Once a proof of concept has been validated
+    then an initial run of prototype PCBs is fabricated with peripherals on board.
+    There is no more satisfying experience than seeing a custom board boot into Linux
+    for the very first time.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The BeaglePlay is unique among SBCs in that it has a mikroBUS socket for quick
+    plug and play peripheral expansion. There is a MikroE Click add-on board for just
+    about any hardware peripheral you can think of. In this chapter, we will integrate
+    a GNSS receiver, environmental sensor module, and OLED display with the BeaglePlay.
+    Leveraging mikroBUS eliminates the need to read schematics and wire up breadboards
+    so that you spend less time troubleshooting hardware and more time coding your
+    application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Rapid prototyping with real hardware involves lots of trial and error. With
+    a full Debian Linux distribution at our disposal, we can use mainstream tools
+    such as `git`, `pip3`, and `python3` to develop software directly on the BeaglePlay.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mapping schematics to pins
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Prototyping with add-on boards
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Testing hardware peripherals
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To follow along with the examples, make sure you have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An Ubuntu 24.04 or later LTS host system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A microSD card reader and card
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: balenaEtcher for Linux
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A BeaglePlay
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A 5V USB-C power supply capable of delivering 3A
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A USB to TTL serial cable with 3.3V logic level
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An Ethernet cable and router with an available port for network connectivity
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A MikroE-5764 GNSS 7 Click add-on board
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An external active GNSS antenna
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A MikroE-5546 Environment Click add-on board
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A MikroE-5545 OLED C Click add-on board
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The code used in this chapter can be found in the chapter folder in this book’s
+    GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter12](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter12).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mapping schematics to pins
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Because the BeaglePlay’s **Bill Of Materials** (**BOM**), PCB design files,
+    and schematics are all open source, anyone can manufacture a BeaglePlay as part
+    of their consumer product. Since the BeaglePlay is intended for development, it
+    contains several components that may not be needed for production, such as Ethernet
+    ports, USB ports, and a microSD slot. As a dev board, the BeaglePlay may also
+    be missing one or more peripherals needed for your application such as sensors,
+    an LTE modem, or an OLED display.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The BeaglePlay is built around Texas Instruments’ AM6254, a quad-core 64-bit
+    Arm Cortex-A53 SoC with **Programmable Real-Time Unit** (**PRU**) and M4 microcontrollers.
+    Like the Raspberry Pi 4, the BeaglePlay has built-in Wi-Fi and Bluetooth. Unlike
+    other SBCs, it also has a programmable radio capable of sub-GHz and 2.4 GHz low-power
+    wireless communication. While the BeaglePlay is extremely versatile, at some point
+    you may want to design your own custom PCB around the AM6254 to reduce the cost
+    of your finished product.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 11*](Chapter_11.xhtml#_idTextAnchor373), we looked at an example
+    of how to bind an Ethernet adapter to a Linux device driver. Binding peripherals
+    is done with device tree source or C structs known as platform data. Over the
+    years, device tree source has become the preferred means of binding to Linux device
+    drivers, especially on Arm SoCs. As with U-Boot, compiling device tree source
+    into DTBs is also part of the Linux kernel build process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you need to transfer lots of packets from a local network to and from the
+    cloud, then running Linux is a sensible choice since it has an extremely mature
+    TCP/IP network stack. The BeaglePlay’s Arm Cortex-A53 CPU meets the requirements
+    (enough addressable RAM and a memory management unit) for running mainstream Linux.
+    This means your product can benefit from security and bug fixes that have been
+    done to the Linux kernel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have selected our SBC let’s look at the BeaglePlay’s schematic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reading schematics
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The BeaglePlay has a mikroBUS socket as well as Grove and QWIIC connectors for
+    add-on boards. Of the three standards, mikroBUS is the only one with UART, I2C,
+    and SPI communications ports as well as **Analog to Digital Converter** (**ADC**),
+    **Pulse Width Modulation** (**PWM**), and GPIO functionality. Consider I/O expansion
+    options when selecting an SBC for development. More options mean more peripheral
+    modules to choose from when prototyping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When given the choice, I usually pick SPI over UART and I2C for production.
+    UARTs are scarce on many SoCs and reserved for things such as Bluetooth and/or
+    a serial console. I2C drivers and hardware can have serious bugs. Some I2C kernel
+    drivers are so poorly implemented that the bus locks up when there are too many
+    connected peripherals talking at once. Other times the bugs are in hardware. The
+    I2C controllers found in Broadcom SoCs such as the one in the Raspberry Pi 4 are
+    notorious for glitching when peripherals attempt to perform **clock stretching**.
+    Clock stretching is when an I2C subnode device temporarily slows down or stops
+    the bus clock.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Every mikroBUS socket consists of two pairs of 1x8 female headers. We can find
+    both header strips on page 22 of the BeaglePlay’s schematic ([https://github.com/beagleboard/beagleplay/blob/main/BeaglePlay_sch.pdf](https://github.com/beagleboard/beagleplay/blob/main/BeaglePlay_sch.pdf)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the right header strip of the BeaglePlay’s mikroBUS socket:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.1 – mikroBUS socket (right header strip)](img/B18466_12_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.1 – mikroBUS socket (right header strip)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pin 1 is tied to ground and pin 2 outputs 5V. Pins 3 (I2C3_SDA) and 4 (I2C3_CL)
+    are connected to the BeaglePlay’s I2C3 bus. Pins 5 (UART5_TXD) and 6 (UART5_RXD)
+    are connected to UART5 on the BeaglePlay. Pins 7 (GPIO1_9) and 8 (GPIO1_11) are
+    GPIOs, with pin 7 acting as an interrupt and pin 8 functioning as a PWM.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the left header strip of the BeaglePlay’s mikroBUS socket:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.2 – mikroBUS socket (left header strip)](img/B18466_12_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.2 – mikroBUS socket (left header strip)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pins 9 (GPIO1_10) and 10 (GPIO1_12) are GPIOs, with pin 9 acting as an analog
+    input and pin 10 functioning as a reset. Pins 11 (SPI2_CS0), 12 (SPI2_CLK), 13
+    (SPI2_D0), and 14 (SPI2_D1) are connected to the BeaglePlay’s SPI2 bus. Lastly,
+    pin 15 outputs 3.3V, and pin 16 is tied to ground.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice that the SPI2 bus has CS0, CLK, D0, and D1 lines. CS stands for chip
+    select. Since each SPI bus is a main-subnode interface, pulling a CS signal line
+    low typically selects which peripheral to transmit to on the bus. This kind of
+    negative logic is known as **active low**. CLK stands for clock and is always
+    generated by the bus main, which is the AM6254 in this case. Data transmitted
+    over the SPI bus is synchronized to this CLK signal. SPI supports much higher
+    clock frequencies than I2C. The D0 data line corresponds to main in, subnode out
+    (MISO).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The D1 data line corresponds to main out, subnode in (MOSI). SPI is a full-duplex
+    interface, which means that both the main and selected subnode can send data at
+    the same time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a block diagram showing the directions of all four SPI signals:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.3 – SPI signals](img/B18466_12_03.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 12.3 – SPI signals
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now let’s enable mikroBUS on the BeaglePlay. The quickest way to do this is
+    to install a prebuilt Debian image from BeagleBoard.org.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing Debian on the BeaglePlay
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '[BeagleBoard.org](https://BeagleBoard.org) provides Debian images for their
+    various dev boards. Debian is a popular Linux distribution that includes a comprehensive
+    set of open source software packages. It is a massive effort, with contributors
+    from all over the world. Building Debian for the various BeagleBoards is unconventional
+    by embedded Linux standards because the process does not rely on cross-compilation.
+    Rather than attempting to build Debian for the BeaglePlay yourself, simply download
+    a finished image directly from BeagleBoard.org.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To download and decompress the Debian Bookworm minimal eMMC flasher image for
+    the BeaglePlay, use the following command::'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the above link is broken, visit [https://beagleboard.org/distros](https://beagleboard.org/distros)
+    for a current list of Debian images available for download. [BeagleBoard.org](https://BeagleBoard.org)
+    can decide to delete links to Debian images as those images age out. Long-term
+    maintenance of Debian releases is costly and labor-intensive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the time of writing, 12.7 was the latest Debian image for AM6254-based BeaglePlay
+    boards. The major version number of 12 indicates that 12.7 is a Bookworm LTS release
+    of Debian. Since Debian 12.0 was originally released on June 10, 2023, Bookworm
+    should receive updates for up to 5 years from that date.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If possible, download version 12.7 (also known as Bookworm) rather than the
+    latest Debian image from [BeagleBoard.org](https://BeagleBoard.org) for the exercises
+    in this chapter. The BeaglePlay bootloader, kernel, DTBs, and command-line tools
+    are in constant flux, so the following instructions may not work with a later
+    Debian release.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that you have a Debian flasher image for the BeaglePlay, write it out to
+    a microSD card:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Insert a microSD card into your Linux host machine.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Launch balenaEtcher.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Flash from file** from **Etcher**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Locate the `img` file that you downloaded from BeagleBoard.org and open it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Select target** from **Etcher**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Select the microSD card that you inserted in *step 1*.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Click **Flash from Etcher** to write the image.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Eject the microSD card when Etcher is done flashing.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Next, boot the flasher image from the microSD and flash Debian onto the BeaglePlay’s
+    eMMC. Before proceeding, make sure that your USB to TTL serial cable has a 3.3
+    V logic level. The three-pin UART connector is right next to the USB-C connector
+    on the BeaglePlay. Do not connect any fourth red wire from your cable. A red wire
+    typically indicates power, which is unnecessary in this instance and could damage
+    the board.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To copy the Debian image from the microSD to the BeaglePlay’s eMMC:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unplug the BeaglePlay from USB-C power.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Plug the USB side of your serial cable into your host machine.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Connect the TX wire from the serial cable to the RX pin on the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Connect the RX wire from the serial cable to the TX pin on the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Connect the GND (black) wire from the serial cable to the GND pin on the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Start a suitable terminal program such as `gtkterm`, `minicom`, or `picocom`,
+    and attach it to the port at 115,200 bits per second (bps) with no flow control.
+    `gtkterm` is probably the easiest to set up and use:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Insert the microSD card into the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Press and hold the USR button on the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Apply power to the BeaglePlay by way of the USB-C port.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Release the USR button once the BeaglePlay begins to boot from the microSD card.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Wait for the following prompt:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Enter `2`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It takes several minutes for the image to copy. Progress is reported on the
+    serial console. If garbled or no output appears on the serial console, then swap
+    the wires connected to the RX and TX pins on the BeaglePlay. Once the eMMC is
+    done flashing, power off the BeaglePlay and remove the microSD card. Apply power
+    to the BeaglePlay by way of the USB-C port. Plug an Ethernet cable from the BeaglePlay
+    into a free port on your router. When the onboard Ethernet lights start blinking,
+    the BeaglePlay should be online. Internet access allows us to install packages
+    and fetch code from Git repos from within Debian.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To SSH into the BeaglePlay from your Linux host:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Enter `temppwd` at the `debian` user’s password prompt. Change the password
+    when prompted. SSH and log in again with your new password when the connection
+    closes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that Debian is running on your target, let’s downgrade the Linux kernel
+    to a version with the necessary mikroBUS driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Prototyping with add-on boards
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: ClickID is MikroE’s plug and play solution for MikroE Click add-on boards. ClickID
+    enables Linux to automatically identify a Click add-on board and instructs the
+    mikroBUS driver to load the correct interface driver (UART, I2C, SPI, ADC, or
+    PWM) for communicating with the peripheral. All the information about a peripheral
+    is located on an EEPROM chip soldered to the bottom right of the add-on board.
+    Linux talks to this EEPROM via 1-Wire at startup to perform the plug and play
+    process. Not all Click add-on boards have this EEPROM so only some support ClickID.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Debian automatically upgrades packages including the Linux kernel without prompting
+    the user. This is problematic because we will use an older Linux 5.10 kernel to
+    talk to MikroE Click add-on boards.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To disable auto-upgrades in Debian:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To downgrade the Linux kernel from 6.6 to 5.10:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: SSH back into the BeaglePlay once it is back online.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To confirm that the Linux kernel on the BeaglePlay was built with the necessary
+    mikroBUS driver:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Every ClickID EEPROM has a manifest section containing board specifics like
+    pinout, interfaces, or Linux driver. Even if your Click add-on board does not
+    have ClickID, a manifest may already exist for it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install the latest manifests on the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To view the complete list of manifest files installed on the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To load a manifest with the mikroBUS driver, write that manifest to the `mikrobus-0/new_device`
+    entry:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The manifest doesn’t stick so you must reload it every time you reboot the BeaglePlay.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Even if you can’t find a manifest for your Click add-on board, not all is lost.
+    BeagleBoard.org has created a simple Python tool for creating new Click add-on
+    manifests called Manifesto ([https://github.com/beagleboard/manifesto](https://github.com/beagleboard/manifesto)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**IMPORTANT NOTE**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Loading the GNSS Click 7 manifest manually as shown is completely unnecessary
+    because the GNSS Click 7 has a ClickID EEPROM built in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many Click add-on boards appear as Linux **Industrial I/O** (**IIO**) devices.
+    The `iio_info` tool can be used to discover IIO driver-enabled devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install the `iio_info` tool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are peripheral test scripts in the book’s code repository. Debian comes
+    with Git installed, so you can clone the book’s repository to fetch the code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now we are ready to test each Click add-on board.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing hardware peripherals
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We will incorporate three peripherals into the BeaglePlay: a u-blox NEO-M9N
+    GNSS receiver, a Bosch BME680 environmental sensor, and a Shenzhen Boxing World
+    Technology PSP27801 OLED display. There are three test programs under *Chapter12*
+    in the book’s code repository. The `parse_nmea.py` program tests the NEO-M9N;
+    the `sensors.py` program tests the BME680; and the `display.py` program tests
+    the PSP27801\. While it is possible to stack multiple Click add-on boards on a
+    single mikroBUS socket, we will test each peripheral individually one at a time.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching the GNSS Click 7 add-on board
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Global Navigation Satellite System** (**GNSS**) receivers send **National
+    Marine Electronics Association** (**NMEA**) data over UART (serial port), I2C,
+    or SPI. Many GNSS user space tools like `gpsd` only work with modules connected
+    via serial port.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Download the NEO-M9N series data sheet from u-blox’s product page at [https://www.u-blox.com/en/product/neo-m9n-module](https://www.u-blox.com/en/product/neo-m9n-module).
+    Jump to the section describing SPI. It says that SPI is disabled by default because
+    its pins are shared with the UART and I2C interfaces. To enable SPI on the NEO-M9N,
+    we must connect the D_SEL pin to GND. Pulling down D_SEL converts the two UART
+    and two 12C pins into four SPI pins. This explains why the GNSS 7 Click add-on
+    board defaults to operating over I2C and UART. To select SPI communication on
+    the GNSS 7 Click, you need to insert a jumper.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To attach your GNSS Click 7 add-on board to the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unplug the BeaglePlay from USB-C power.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Insert the GNSS Click 7 add-on board into the mikroBUS socket on the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Screw the external active GNSS antenna onto the GNSS SMA connector.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Apply power to the BeaglePlay by way of the USB-C port.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Reconnect the Ethernet cable from the BeaglePlay to a free port on your router
+    if disconnected.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: SSH back into the BeaglePlay once it is back online.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To confirm that your GNSS Click 7 add-on board was correctly attached and recognized:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the output from `dmesg` looks like what’s above, then you have successfully
+    attached your add-on board to the BeaglePlay.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To examine your newly attached GNSS device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means that a GNSS device is now available for use at `/dev/gnss0`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Receiving NMEA messages
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Lastly, we will install the Python test program and run it on the target. This
+    program simply outputs the live message stream from the GNSS module to the console.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NMEA is a data message format supported by most GNSS receivers. The NEO-M9N
+    outputs NMEA sentences by default. These sentences are ASCII text starting with
+    the `$` character followed by comma-separated fields. What we want to do first
+    is read the stream of NMEA sentences from the NEO-M9N out of the `/dev/gnss0`
+    interface. Raw NMEA messages are not always easy to read, so we will use a parser
+    to add helpful annotations to the data fields.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To stream the ASCII input from the GNSS module to `stdout`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: You should see a spurt of NMEA sentences once every second. Hit *Ctrl + C* to
+    cancel the stream and return to the command-line prompt.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An NMEA parser script is included in the GitHub repo. That `parse_nmea.py` script
+    depends on the `pynmea2` library.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install `pynmea2` on the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To pipe the output from `/dev/gnss0` into the NMEA parser:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The parsed NMEA output looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Don’t be discouraged if your GNSS module can’t see any satellites or acquire
+    a fixed position. This could be due to any number of reasons, such as choosing
+    the wrong GNSS antenna or no clear line of sight to the sky. RF is complicated
+    and the goal of this chapter was only to prove we could get communications with
+    the GNSS module working. Now we can experiment with alternate GNSS antennas and
+    more of the NEO-M9N’s advanced features, like the much richer UBX message protocol.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With NMEA data now streaming out to the terminal, our first project is finished.
+    We succeeded in verifying that the AM6254 can communicate with the NEO-M9N via
+    a combination of I2C and UART.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching the Environment Click add-on board
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The BME680 environmental sensor measures temperature, relative humidity, pressure,
+    and gas. It communicates with the AM6254 SoC over SPI or I2C from the Environment
+    Click add-on board. Like the GNSS 7 Click, the Environment Click defaults to I2C.
+    To select SPI communication on the Environment Click, you need to insert a jumper.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To attach your Environment Click add-on board to the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unplug the BeaglePay from USB-C power.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Insert the Environment Click add-on board into the mikroBUS socket on the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Apply power to the BeaglePlay by way of the USB-C port.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Reconnect the Ethernet cable from the BeaglePlay to a free port on your router
+    if disconnected.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: SSH back into the BeaglePlay once it is back online.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To confirm that your Environment Click add-on board was correctly attached
+    and recognized:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the output from `dmesg` looks like what’s above, then you have successfully
+    attached your add-on board to the BeaglePlay.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To examine your newly attached environmental sensor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that the `bme680` appears as `iio:device0`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reading sensor values
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Like other Linux IIO devices, the BME680’s register values are accessible from
+    `sysfs`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To read the humidity, pressure, gas, and temperature values from the BME680:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: A script to continually poll all four channels is included in the GitHub repo.
+    That `sensors.py` script has no dependencies outside of the Python standard library.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To run the script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: With sensor values now streaming out to the terminal, our second project is
+    finished. We succeeded in verifying that the AM6254 can communicate with the BME680
+    via I2C.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Attaching the OLED C Click add-on board
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The OLED C Click comes with a Solomon Systech SSD1351 controller to drive the
+    PSP27801 OLED display. You write to the 128x128 pixel SRAM display buffer inside
+    the SSD1351 over SPI. The SSD1351 supports two color modes: 65K (6:5:6) and 262K
+    (6:6:6). An (r:g:b) triplet indicates how many bits are used to represent the
+    individual RGB components of a pixel. The PSP27801 has a resolution of 96x96 pixels,
+    noticeably less than that of the SD1351’s display buffer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To attach your OLED C Click add-on board to the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unplug the BeaglePay from USB-C power.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Insert the OLED C Click add-on board into the mikroBUS socket on the BeaglePlay.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Apply power to the BeaglePlay by way of the USB-C port.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Reconnect the Ethernet cable from the BeaglePlay to a free port on your router
+    if disconnected.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: SSH back into the BeaglePlay once it is back online.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To confirm that your OLED C Click add-on board was correctly attached and recognized:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the output from `dmesg` looks like what’s above, then you have successfully
+    attached your add-on board to the BeaglePlay.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To examine your newly attached OLED display:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Exposing the SSD1351 as a Linux framebuffer greatly simplifies how we interact
+    with the OLED display. You do not need to link a mikroSDK library and deal with
+    its clumsy C API. Just write directly to the `fb0` device any way you like.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Displaying an animation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'A test script for the OLED display is included in the GitHub repo. That `display.py`
+    script depends on the `luma.core` and `numpy` libraries:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install `luma.core` and `numpy` on the BeaglePlay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To run the test script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: A continuous animation involving a red, a green, and a blue square appears on
+    the OLED display. As the three squares move towards each other, they overlap to
+    form a white square in the center. The squares then separate and move back to
+    their starting places so that the animation repeats itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our third and final project is now done. We succeeded in verifying that the
+    AM6254 can display moving images on the PSP27801 via SPI.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we learned how to integrate peripherals with an SoC. To do
+    that, we first had to glean knowledge from schematics and data sheets. Without
+    finished hardware in hand, we also had to select and plug in add-on boards. Lastly,
+    we coded simple test programs in Python and ran them to verify peripheral functionality.
+    Now that we have working hardware, we can begin to develop our embedded application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next two chapters are all about system startup and the different options
+    you have for the `init` program, from the simple BusyBox `init` to more complex
+    systems such as System V `init` and `systemd`. Your choice of `init` program can
+    have a big impact on the user experience of your product, both in terms of boot
+    times and fault tolerance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further study
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Introduction to SPI Interface*, by Piyu Dhaker – [https://www.analog.com/en/analog-dialogue/articles/introduction-to-spi-interface.html](https://www.analog.com/en/analog-dialogue/articles/introduction-to-spi-interface.html%0D%0A)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Soldering is Easy*, by Mitch Altman, Andie Nordgren, and Jeff Keyzer – [https://mightyohm.com/blog/2011/04/soldering-is-easy-comic-book](https://mightyohm.com/blog/2011/04/soldering-is-easy-comic-book)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
