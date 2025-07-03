@@ -1,11 +1,15 @@
 - en: '8'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '8'
 - en: Yocto under the Hood
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Yocto的内部工作原理
 - en: In this chapter, we’ll dive deeper into **Yocto**, embedded Linux’s premier
     build system. We will begin with a tour of Yocto’s architecture, taking you through
     the entire build workflow step by step. Next, we’ll look at Yocto’s multi-layer
@@ -13,66 +17,95 @@
     As more and more **BitBake** layers stack up inside your projects, problems will
     inevitably arise. We will examine a number of ways to debug Yocto build failures,
     including task logs, `devshell`, and dependency graphs.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将深入探讨**Yocto**，嵌入式Linux的顶级构建系统。我们将从Yocto的架构开始，带你一步一步地了解整个构建工作流。接着，我们将讨论Yocto的多层架构以及为什么将元数据分离到不同的层中是个好主意。随着项目中**BitBake**层级的逐步增多，问题必然会出现。我们将探讨一些调试Yocto构建失败的方法，包括任务日志、`devshell`和依赖关系图。
 - en: After taking apart the build system, we’ll revisit the topic of BitBake from
     the previous chapter. This time around, we’ll cover more of the basic syntax and
     semantics so that you can write your own recipes from scratch. We’ll look at real-world
     examples of a BitBake shell and Python code from actual recipe, include, and configuration
     files so that you know what to expect when you begin to venture out into Yocto’s
     ocean of metadata.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 拆解构建系统后，我们将重新回顾上一章中提到的BitBake。此次，我们将更深入地讲解基本语法和语义，以便你能够从零开始编写自己的配方。我们将通过实际的配方、包含文件和配置文件中的BitBake
+    shell和Python代码的真实示例，帮助你了解当你开始进入Yocto的元数据海洋时需要预期什么。
 - en: 'In this chapter, we will cover the following topics:'
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将覆盖以下主题：
 - en: Decomposing Yocto’s architecture and workflow
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 拆解Yocto的架构与工作流
 - en: Separating metadata into layers
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将元数据分离成层
 - en: Troubleshooting build failures
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 排查构建失败
 - en: Understanding BitBake’s syntax and semantics
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 理解BitBake的语法和语义
 - en: Technical requirements
+  id: totrans-9
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: 'To follow along with the examples, make sure you have the following:'
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了跟随本章中的示例，请确保你具备以下内容：
 - en: A Linux-based host system with at least 90 GB of free disk space
+  id: totrans-11
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个基于Linux的主机系统，至少有90GB的可用磁盘空间
 - en: Yocto 5.0 (scarthgap) LTS release
+  id: totrans-12
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Yocto 5.0 (scarthgap) LTS版本
 - en: You should have already built the 5.0 (scarthgap) LTS release of Yocto in [*Chapter
     6*](Chapter_04.xhtml#_idTextAnchor110). If you have not, then please refer to
     the *Compatible Linux Distribution* and *Build Host Packages* sections of the
     *Yocto Project Quick Build* guide ([https://docs.yoctoproject.org/brief-yoctoprojectqs/](https://docs.yoctoproject.org/brief-yoctoprojectqs/))
     before building Yocto on your Linux host according to the instructions in [*Chapter
     6*](Chapter_04.xhtml#_idTextAnchor110).
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 你应该已经在[*第6章*](Chapter_04.xhtml#_idTextAnchor110)中构建了Yocto的5.0 (scarthgap) LTS版本。如果尚未完成，请参阅*兼容的Linux发行版*和*构建主机包*部分，按照[*Yocto项目快速构建*](https://docs.yoctoproject.org/brief-yoctoprojectqs/)指南中的说明在Linux主机上构建Yocto。
 - en: 'The code used in this chapter can be found in the chapter folder in this book’s
     GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development).'
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章中使用的代码可以在本书的GitHub仓库中的章节文件夹找到：[https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development)。
 - en: Decomposing Yocto’s architecture and workflow
+  id: totrans-15
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 拆解Yocto的架构与工作流
 - en: 'Yocto is a complex beast. Taking it apart is the first step toward understanding
     it. The architecture of a build system can be organized in terms of its workflow.
     Yocto gets its workflow from the **OpenEmbedded** project it is based on. Source
@@ -81,46 +114,68 @@
     the source code into binary package feeds. These individual output packages are
     assembled inside a staging area before the finished Linux image and SDK are generated,
     complete with a manifest that includes a license for each package that’s on board:'
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: Yocto是一个复杂的系统，拆解它是理解它的第一步。构建系统的架构可以通过其工作流来组织。Yocto的工作流来自于其基础的**OpenEmbedded**项目。源材料通过BitBake配方的元数据形式作为输入流入系统。构建系统利用这些元数据来获取、配置并编译源代码，最终生成二进制包。这些单独的输出包会在暂存区内汇集，最后生成完整的Linux镜像和SDK，其中包括每个包的许可证信息：
 - en: '![Figure 8.1 – OpenEmbedded architecture workflow](img/B18466_08_01.png)'
+  id: totrans-17
   prefs: []
   type: TYPE_IMG
+  zh: '![图 8.1 – OpenEmbedded架构工作流](img/B18466_08_01.png)'
 - en: Figure 8.1 – OpenEmbedded architecture workflow
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 8.1 – OpenEmbedded架构工作流
 - en: 'Here are the seven steps of Yocto’s build system workflow, as shown in the
     preceding diagram:'
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是 Yocto 构建系统工作流的七个步骤，如前图所示：
 - en: Define layers for policy, machine, and software metadata.
+  id: totrans-20
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 定义用于策略、机器和软件元数据的层。
 - en: Fetch sources from the source URI of a software project.
+  id: totrans-21
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从软件项目的源 URI 拉取源代码。
 - en: Extract the source code, apply any patches, and compile the software.
+  id: totrans-22
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 提取源代码，应用补丁，并编译软件。
 - en: Install the build artifacts into a staging area for packaging.
+  id: totrans-23
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将构建产物安装到用于打包的暂存区域。
 - en: Bundle the installed build artifacts into a package feed for the root filesystem.
+  id: totrans-24
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将已安装的构建产物打包成根文件系统的包源。
 - en: Run QA checks on a binary package feed before submitting it.
+  id: totrans-25
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在提交二进制包源之前对其进行 QA 检查。
 - en: Generate the finished Linux image and an SDK in parallel.
+  id: totrans-26
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 并行生成完成的 Linux 镜像和 SDK。
 - en: Except for the first and last steps, all of the steps in this workflow are performed
     on a per-package basis. Code linting, sanitizing, and other forms of static analysis
     may occur before or after compilation. Unit and integration tests can run directly
@@ -129,50 +184,74 @@
     deployed to a group of dedicated devices for further testing. As the gold standard
     for embedded Linux build systems, Yocto is a vital component of the software CI/CD
     pipeline for many products.
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了第一步和最后一步，工作流中的所有步骤都是按每个包的基础进行操作的。在编译前后，可能会进行代码检查、清理和其他静态分析。单元测试和集成测试可以直接在构建机器上运行，也可以在作为目标
+    SoC 代替的 QEMU 实例上运行，或在目标设备本身上运行。当构建完成后，生成的镜像可以部署到一组专用设备上进行进一步的测试。作为嵌入式 Linux 构建系统的金标准，Yocto
+    是许多产品软件 CI/CD 管道中的关键组件。
 - en: 'The packages Yocto generates can be in either `rpm`, `deb`, or `ipk` format.
     In addition to the main binary package, the build system attempts to generate
     all of the following packages for a recipe by default:'
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: Yocto 生成的包可以是 `rpm`、`deb` 或 `ipk` 格式。除了主二进制包外，构建系统默认尝试为一个配方生成所有以下包：
 - en: '`dbg`: Binary files, including debug symbols'
+  id: totrans-29
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`dbg`：二进制文件，包括调试符号'
 - en: '`static-dev`: Header files and static libraries'
+  id: totrans-30
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`static-dev`：头文件和静态库'
 - en: '`dev`: Header files and shared library symlinks'
+  id: totrans-31
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`dev`：头文件和共享库符号链接'
 - en: '`doc`: Documentation, including man pages'
+  id: totrans-32
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`doc`：文档，包括手册页'
 - en: '`locale`: Language translation information'
+  id: totrans-33
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`locale`：语言翻译信息'
 - en: Packages that would contain no files are not generated unless the `ALLOW_EMPTY`
     variable is enabled. The set of packages to be generated by default is determined
     by the `PACKAGES` variable. Both variables are defined in `meta/classes-recipe/packagegroup.bbclass`,
     but their values can be overridden by package group recipes that inherit from
     that BitBake class.
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果没有启用 `ALLOW_EMPTY` 变量，则不会生成不包含任何文件的包。默认生成的包集合由 `PACKAGES` 变量决定。这两个变量都定义在 `meta/classes-recipe/packagegroup.bbclass`
+    中，但其值可以被继承该 BitBake 类的包组配方重写。
 - en: Building an SDK enables a whole other development workflow for manipulating
     individual package recipes. In the *Capturing changes with devtool* section of
     the previous chapter, we learned how to use `devtool` to add and modify SDK software
     packages so that we can integrate them back into an image.
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 构建 SDK 启用了一种全新的开发工作流，用于操作单独的包配方。在上一章的 *通过 devtool 捕获更改* 部分中，我们学习了如何使用 `devtool`
+    添加和修改 SDK 软件包，以便将它们重新集成到镜像中。
 - en: Metadata
+  id: totrans-36
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 元数据
 - en: '**Metadata** is the input that goes into the build system. It controls what
     gets built and how. Metadata is more than just recipes. BSPs, policies, patches,
     and other forms of configuration files are also metadata. Which version of a package
@@ -181,50 +260,74 @@
     commands. These configuration actions, argument values, and their resulting artifacts
     are yet another form of metadata. Yocto parses all of these inputs and transforms
     them into a complete Linux image.'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: '**元数据** 是输入到构建系统的内容。它控制了构建什么以及如何构建。元数据不仅仅是配方。BSP、策略、补丁和其他形式的配置文件也是元数据。构建哪个版本的包以及从哪里拉取源代码，当然也是元数据的形式。开发人员通过命名文件、设置变量和运行命令来做出这些选择。这些配置操作、参数值及其生成的产物是另一种形式的元数据。Yocto
+    解析所有这些输入，并将其转化为一个完整的 Linux 镜像。'
 - en: The first choice a developer makes with respect to building with Yocto is what
     machine architecture to target. You do this by setting the `MACHINE` variable
     in the `conf/local.conf` file for your project. When targeting QEMU, I like to
     use `MACHINE ?= "qemuarm64"` to specify `aarch64` as the machine architecture.
     Yocto ensures that the correct compiler flags propagate from a BSP down to the
     other build layers.
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 开发人员在使用 Yocto 构建时首先做出的选择是目标机器架构。你可以通过在项目的 `conf/local.conf` 文件中设置 `MACHINE`
+    变量来指定这一点。在针对 QEMU 时，我喜欢使用 `MACHINE ?= "qemuarm64"` 来指定 `aarch64` 作为机器架构。Yocto
+    会确保正确的编译器标志从 BSP 传播到其他构建层。
 - en: Architecture-specific settings are defined in files called *tunes*, which are
     located in Yocto’s `meta/conf/machine/include` directory, and the individual BSP
     layers themselves. A number of BSP layers are included with every Yocto release.
     We worked extensively with the `meta-raspberrypi` BSP layer in the previous chapter.
     The source for each BSP resides inside its own Git repository.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 特定架构的设置定义在名为 *tunes* 的文件中，这些文件位于 Yocto 的 `meta/conf/machine/include` 目录中，以及各个
+    BSP 层本身。每个 Yocto 版本都包含若干 BSP 层。我们在上一章中广泛使用了 `meta-raspberrypi` BSP 层。每个 BSP 的源代码都存储在其自己的
+    Git 仓库中。
 - en: 'To clone Xilinx’s BSP layer, which contains support for their Zynq family of
     SoCs, use the following command:'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 要克隆 Xilinx 的 BSP 层，该层支持他们的 Zynq 系列 SoC，请使用以下命令：
 - en: '[PRE0]'
+  id: totrans-41
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: This is just one example of the many BSP layers that accompany Yocto. You won’t
     need this layer for any of the subsequent exercises, so feel free to discard it.
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是 Yocto 附带的众多 BSP 层中的一个例子。后续的练习中不需要使用此层，因此可以随意丢弃它。
 - en: 'Metadata needs source code to act upon. BitBake’s `do_fetch` task can obtain
     recipe source files in a number of different ways. Here are the two most prominent
     methods:'
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 元数据需要源代码来执行操作。BitBake 的 `do_fetch` 任务可以通过多种不同的方式获取配方源文件。以下是最常见的两种方法：
 - en: When someone else develops some software that you need, the easiest way to get
     it is to tell BitBake to download a tarball release of the project.
+  id: totrans-44
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当别人开发了你需要的软件时，最简单的方式是告诉 BitBake 下载该项目的 tarball 发布版本。
 - en: To extend someone else’s open source software, simply fork the repository on
     GitHub. BitBake’s `do_fetch` task can then use Git to clone the source files from
     a given `SRC_URI`.
+  id: totrans-45
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要扩展其他人的开源软件，只需在 GitHub 上 fork 该仓库。然后，BitBake 的 `do_fetch` 任务可以使用 Git 从给定的 `SRC_URI`
+    克隆源文件。
 - en: If your team is responsible for the software, then you can choose to embed it
     into your work environment as a local project. You can do this either by nesting
     it as a subdirectory or defining it out-of-tree using the `externalsrc` class.
@@ -233,8 +336,11 @@
     identical paths on all building instances and sabotage reproducibility. Both of
     these techniques are merely tools used to expedite development. Neither should
     be used in production.
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你的团队负责该软件，你可以选择将其作为本地项目嵌入到你的工作环境中。你可以通过将其嵌套为子目录或使用 `externalsrc` 类将其定义为树外项目来实现。嵌入意味着源代码与您的层仓库绑定，不能轻易地在其他地方使用。使用
+    `externalsrc` 的树外项目需要在所有构建实例中具有相同的路径，这会破坏可重现性。这两种技术只是加速开发的工具，不应在生产环境中使用。
 - en: Policies are properties that are bundled together as a distribution layer. These
     include things such as which features (`systemd`, for example), C library implementation
     (`glibc` or `musl`), and package manager are required by a Linux distribution.
@@ -244,17 +350,25 @@
     distribution layer includes `.conf` files for building default, tiny, bleeding-edge,
     and alternative flavors of Poky for your target device. We covered this in the
     previous chapter, in the *Building your own distro* section.
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 策略是作为发行层捆绑在一起的属性。这些策略包括 Linux 发行版所需的功能（例如 `systemd`）、C 库实现（如 `glibc` 或 `musl`）以及包管理器。每个发行层都有自己的
+    `conf/distro` 子目录。该目录中的 `.conf` 文件定义了分发或映像的顶级策略。有关发行层的示例，请查看 `meta-poky` 子目录。此
+    Poky 参考发行层包括用于构建默认、精简、前沿和替代版本的 `.conf` 文件，以便为目标设备构建。我们在上一章的 *构建你自己的发行版* 部分已经介绍过这一内容。
 - en: Build tasks
+  id: totrans-48
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 构建任务
 - en: 'We already saw how BitBake’s `do_fetch` task downloads the source for a recipe.
     The next steps in the build process are extracting, patching, configuring, and
     compiling said source code: `do_unpack`, `do_patch`, `do_configure`, and `do_compile`.'
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们已经看到BitBake的`do_fetch`任务是如何下载配方的源代码的。构建过程的下一步是提取、修补、配置和编译该源代码：`do_unpack`、`do_patch`、`do_configure`和`do_compile`。
 - en: The `do_patch` task uses the `FILESPATH` variable and a recipe’s `SRC_URI` variable
     to locate patch files and apply them to the intended source code. The `FILESPATH`
     variable, found in `meta/classes/base.bbclass`, defines the default set of directories
@@ -264,18 +378,27 @@
     in a subdirectory below where the corresponding recipe file is located. This default
     behavior can be extended and overridden by defining a `FILESEXTRAPATHS` variable
     and appending file pathnames to the recipe’s `SRC_URI` variable.
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: '`do_patch`任务使用`FILESPATH`变量和配方的`SRC_URI`变量来定位补丁文件并将其应用到目标源代码。`FILESPATH`变量位于`meta/classes/base.bbclass`中，定义了构建系统用来搜索补丁文件的默认目录集（*Yocto项目参考手册*，
+    [https://docs.yoctoproject.org/ref-manual/index.html](https://docs.yoctoproject.org/ref-manual/index.html)）。按照约定，补丁文件的名称以`.diff`和`.patch`结尾，并位于与相应配方文件相对应的子目录下。此默认行为可以通过定义`FILESEXTRAPATHS`变量并将文件路径追加到配方的`SRC_URI`变量中进行扩展和覆盖。'
 - en: 'After patching the source code, the `do_configure` and `do_compile` tasks configure,
     compile, and link it:'
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 在修补源代码后，`do_configure`和`do_compile`任务配置、编译并链接它：
 - en: '![Figure 8.2 – Package feeds](img/B18466_08_02.png)'
+  id: totrans-52
   prefs: []
   type: TYPE_IMG
+  zh: '![图 8.2 – 包源](img/B18466_08_02.png)'
 - en: Figure 8.2 – Package feeds
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 8.2 – 包源
 - en: When `do_compile` is done, the `do_install` task copies the resulting files
     to a staging area where they are readied for packaging. There, the `do_package`
     task processes the build artifacts and assembles them into one or more packages.
@@ -285,37 +408,53 @@
     tasks create the individual packages and send them to the package feeds area.
     Once the package feeds area has been populated, BitBake is ready for image and
     SDK generation.
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 当`do_compile`完成时，`do_install`任务将生成的文件复制到一个暂存区，在那里它们会为打包做准备。然后，`do_package`任务处理构建产物，并将它们组装成一个或多个包。在提交到包源区之前，`do_package_qa`任务会对包产物进行一系列质量检查。这些自动生成的质量检查定义在`meta/classes-global/insane.bbclass`中。最后，`do_package_write_*`任务创建各个包并将其发送到包源区。一旦包源区被填充，BitBake就准备好进行镜像和SDK的生成。
 - en: Image generation
+  id: totrans-55
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 镜像生成
 - en: 'Generating an image is a multi-stage process that relies on several variables
     to perform a series of tasks. The `do_rootfs` task creates the root filesystem
     for an image. These variables determine what packages get installed onto the image:'
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 生成镜像是一个多阶段的过程，依赖于多个变量来执行一系列任务。`do_rootfs`任务为镜像创建根文件系统。这些变量决定了哪些包将被安装到镜像中：
 - en: '`IMAGE_INSTALL`: Packages to install onto the image'
+  id: totrans-57
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`IMAGE_INSTALL`: 安装到镜像中的包'
 - en: '`PACKAGE_EXCLUDE`: Packages to omit from the image'
+  id: totrans-58
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`PACKAGE_EXCLUDE`: 从镜像中排除的包'
 - en: '`IMAGE_FEATURES`: Additional packages to install onto the image'
+  id: totrans-59
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`IMAGE_FEATURES`: 安装到镜像中的附加包'
 - en: '`PACKAGE_CLASSES`: Package format (`rpm`, `deb`, or `ipk`) to use'
+  id: totrans-60
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`PACKAGE_CLASSES`: 要使用的包格式（`rpm`、`deb`或`ipk`）'
 - en: '`IMAGE_LINGUAS`: Languages (cultures) to include support packages for'
+  id: totrans-61
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`IMAGE_LINGUAS`: 要包含支持包的语言（文化）'
 - en: 'Recall that we added packages to the `IMAGE_INSTALL` variable back in [*Chapter
     6*](Chapter_04.xhtml#_idTextAnchor110)*,* as part of the *Writing an image recipe*
     section. The list of packages from the `IMAGE_INSTALL` variable is passed to a
@@ -326,8 +465,10 @@
     included on the target. If there is no package manager onboard, then installation
     scripts and package metadata get deleted from the image at the end of this phase
     for hygiene purposes and to save space.'
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 回想一下，我们在[*第6章*](Chapter_04.xhtml#_idTextAnchor110)*中将软件包添加到`IMAGE_INSTALL`变量中*，作为*编写镜像配方*部分的一部分。`IMAGE_INSTALL`变量中的软件包列表会传递给包管理器（`dnf`、`apt`或`opkg`），以便将它们安装到镜像中。调用哪个包管理器取决于软件包源的格式：`do_package_write_rpm`、`do_package_write_deb`或`do_package_write_ipk`。无论目标是否包含运行时包管理器，软件包安装都会进行。如果镜像中没有包管理器，那么安装脚本和包元数据将在此阶段结束时被删除，以保证清洁并节省空间。
 - en: Once package installation is complete, the package’s post-installation scripts
     are run. These post-installation scripts come included with the packages. If all
     the post-installation scripts run successfully, a manifest is written and optimizations
@@ -335,8 +476,10 @@
     all the packages that have been installed on the image. The default library size
     and executable startup time optimizations are defined by the `ROOTFS_POSTPROCESS_COMMAND`
     variable.
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦软件包安装完成，软件包的后安装脚本将被执行。这些后安装脚本是与软件包一起提供的。如果所有后安装脚本成功运行，则会生成一个清单文件，并对根文件系统镜像执行优化操作。这个顶层的`.manifest`文件列出了所有已安装的软件包。默认的库大小和可执行文件启动时间优化由`ROOTFS_POSTPROCESS_COMMAND`变量定义。
 - en: Now that the root filesystem has been fully populated, the `do_image` task can
     begin image processing. First, all the pre-processing commands defined by the
     `IMAGE_PREPROCESS_COMMAND` variable get executed. Next, the process creates the
@@ -347,36 +490,52 @@
     image files are compressed when the specified filesystem format allows for it.
     Lastly, the `do_image_complete` task finishes the image by executing every post-processing
     command defined by the `IMAGE_POSTPROCESS_COMMAND` variable.
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在根文件系统已经完全填充，`do_image`任务可以开始处理镜像。首先，执行`IMAGE_PREPROCESS_COMMAND`变量定义的所有预处理命令。接下来，系统创建最终的镜像输出文件。它通过为`IMAGE_FSTYPES`变量中指定的每种镜像类型（例如`cpio.lz4`、`ext4`和`squashfs-lzo`）启动一个`do_image_*`任务来实现。构建系统然后将`IMAGE_ROOTFS`目录的内容转换为一个或多个镜像文件。如果指定的文件系统格式允许，这些输出的镜像文件将被压缩。最后，`do_image_complete`任务通过执行`IMAGE_POSTPROCESS_COMMAND`变量定义的每个后处理命令完成镜像制作。
 - en: Now that we have traced through Yocto’s entire build workflow from end to end,
     let’s look at some best practices for structuring large projects.
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经从头到尾梳理了Yocto的整个构建工作流，让我们来看看一些结构化大型项目的最佳实践。
 - en: Separating metadata into layers
+  id: totrans-66
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 将元数据分为多个层次
 - en: 'Yocto metadata is organized around the following concepts:'
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: Yocto元数据围绕以下概念进行组织：
 - en: '**distro**: OS features, including choice of C library, init system, and window
     manager'
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**发行版**：操作系统功能，包括C库的选择、初始化系统和窗口管理器'
 - en: '**machine**: CPU architecture, kernel, drivers, and bootloader'
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**机器**：CPU架构、内核、驱动程序和引导加载程序'
 - en: '**recipe**: Application binaries and/or scripts'
+  id: totrans-70
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**配方**：应用程序二进制文件和/或脚本'
 - en: '**image**: Development, manufacturing, or production'
+  id: totrans-71
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**镜像**：开发、制造或生产'
 - en: These concepts map directly to actual byproducts of the build system, thus offering
     us guidance when designing our projects. We could rush to assemble everything
     inside a single layer, but that would likely result in a project that is inflexible
@@ -384,8 +543,10 @@
     device quickly multiplies into a series of products. For these reasons, it is
     better to adopt a multi-layered approach early on so that we end up with software
     components that we can easily modify, swap out, and reuse.
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些概念直接映射到构建系统的实际副产品，从而为我们设计项目时提供指导。我们可以匆忙将所有内容组装到单一的层中，但那样很可能导致一个不灵活且无法维护的项目。硬件不可避免地会被修订，而一个成功的消费电子产品很快就会变成一系列产品。基于这些原因，最好从一开始就采用多层次的方法，这样我们最终得到的软件组件可以轻松修改、更换和重用。
 - en: At a minimum, you should create individual distribution, BSP, and application
     layers for every major project that you start with Yocto. The distribution layer
     builds the target OS (Linux distro) that your application(s) will run on. Frame
@@ -393,8 +554,11 @@
     The BSP layer specifies the bootloader, kernel, and device tree needed for the
     hardware to operate. The application layer contains the recipes needed to build
     all the packages that comprise your custom application(s).
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: 最低要求是为你开始使用 Yocto 的每个主要项目创建单独的分发层、BSP 层和应用层。分发层构建你的目标操作系统（Linux 发行版），你的应用程序将在其上运行。帧缓冲和窗口管理器配置文件属于分发层。BSP
+    层指定启动加载程序、内核和设备树，这些是硬件操作所需的。应用层包含构建所有组成你自定义应用程序的软件包所需的食谱。
 - en: 'We first encountered the `MACHINE` variable back in [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110)*,*
     when we performed our first builds with Yocto. We looked at the `DISTRO` variable
     toward the end of the previous chapter when we created our own distribution layer.
@@ -402,33 +566,52 @@
     Layers are added to your build by inserting them into the `BBLAYERS` variable
     within the `conf/bblayers.conf` file in your active build directory. Here is an
     example of Poky’s default `BBLAYERS` definition:'
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们第一次遇到 `MACHINE` 变量是在[*第6章*](Chapter_04.xhtml#_idTextAnchor110)*，*当时我们进行第一次的
+    Yocto 构建时。我们在上一章的末尾查看了 `DISTRO` 变量，当时我们创建了自己的分发层。本书中的其他 Yocto 练习依赖于 `meta-poky`
+    作为它们的分发层。层通过将它们插入到你当前构建目录中的 `conf/bblayers.conf` 文件中的 `BBLAYERS` 变量中来添加到你的构建中。以下是
+    Poky 默认的 `BBLAYERS` 定义示例：
 - en: '[PRE1]'
+  id: totrans-75
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Rather than edit `bblayers.conf` directly, use the `bitbake-layers` command-line
     tool to work with project layers. Resist the temptation to modify the Poky source
     tree directly. Always create your own layer (for example, `meta-mine`) above Poky
     and make your changes there.
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 不要直接编辑 `bblayers.conf` 文件，使用 `bitbake-layers` 命令行工具来处理项目层。不要冲动地直接修改 Poky 源代码树。始终在
+    Poky 上方创建自己的层（例如，`meta-mine`），并在此处进行更改。
 - en: 'Here is what the `BBLAYERS` variable should look like within the `conf/bblayers.conf`
     file in your active build directory (for example, `build-mine`) during development:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 在开发过程中，`BBLAYERS` 变量在你当前构建目录（例如，`build-mine`）中的 `conf/bblayers.conf` 文件中的样子应该是这样的：
 - en: '[PRE2]'
+  id: totrans-78
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: '`workspace` is a special temporary layer we encountered in the previous chapter
     when we experimented with `devtool`. Every BitBake layer has the same basic directory
     structure regardless of what type of layer it is. Layer directory names typically
     start with the `meta` prefix by convention. Take the following dummy layer:'
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: '`workspace` 是我们在上一章遇到的一个特殊临时层，当时我们使用 `devtool` 进行实验。每个 BitBake 层无论是什么类型的层，其基本目录结构都是相同的。层目录的名称通常约定以
+    `meta` 为前缀。以下是一个虚拟层的例子：'
 - en: '[PRE3]'
+  id: totrans-80
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: Every layer must have a conf directory with a `layer.conf` file so that BitBake
     can set up paths and search patterns for metadata files. We looked closely at
     the contents of `layer.conf` back in [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110)*,*
@@ -437,16 +620,26 @@
     with more `.conf` files. We examined the structure of the machine and distro layers
     in the previous chapter when we built on top of the `meta-raspberrypi` layer and
     created our own `meta-mackerel` distro layer.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个层次都必须有一个 `conf` 目录，其中包含一个 `layer.conf` 文件，这样 BitBake 才能设置路径和搜索模式，以查找元数据文件。我们在
+    [*第 6 章*](Chapter_04.xhtml#_idTextAnchor110)*中仔细查看了 `layer.conf` 的内容，当时我们为我们的
+    Nova 板创建了一个 `meta-nova` 层。BSP 和分发层也可能在 `conf` 目录下有一个 `machine` 或 `distro` 子目录，其中包含更多的
+    `.conf` 文件。我们在前一章中检查了机器和分发层的结构，当时我们在 `meta-raspberrypi` 层之上构建并创建了我们自己的 `meta-mackerel`
+    分发层。
 - en: The `classes` subdirectory is only needed for layers that define their own BitBake
     classes. Recipes are organized by category, such as *connectivity*, so `recipes-a`
     is actually a placeholder for `recipes-connectivity` and so on. A category can
     contain one or more packages each with its own set of BitBake recipe files (`.bb`).
     The recipe files are versioned by package release number. Again, names such as
     `package-a` and `package-z` are merely placeholders for real packages.
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: '`classes` 子目录仅在定义了自己 BitBake 类的层中需要。配方按照类别组织，比如 *connectivity*，因此 `recipes-a`
+    实际上是 `recipes-connectivity` 的占位符，依此类推。一个类别可以包含一个或多个包，每个包都有自己的一组 BitBake 配方文件（`.bb`）。这些配方文件按包的发布版本号进行版本控制。同样，像
+    `package-a` 和 `package-z` 这样的名称只是实际包的占位符。'
 - en: It’s very easy to get lost in all these different layers. Even as you become
     more proficient with Yocto, there will be many times when you find yourself asking
     how a particular file ended up on your image. Or, more likely, where are the recipe
@@ -454,231 +647,345 @@
     some command-line tools to help you answer these questions. I recommend that you
     explore `recipetool`, `oe-pkgdata-util`, and `oe-pkgdata-browser` and familiarize
     yourself with them. You could save yourself many hours of frustration.
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这些不同的层次中，很容易迷失。即使你变得更加熟练使用 Yocto，仍然会有很多时候你会问自己，为什么某个特定的文件出现在你的镜像中。或者，更可能的情况是，你需要修改或扩展哪些配方文件来完成你需要做的事情？幸运的是，Yocto
+    提供了一些命令行工具来帮助你回答这些问题。我建议你探索 `recipetool`、`oe-pkgdata-util` 和 `oe-pkgdata-browser`，并熟悉它们。这样可以为你节省很多烦恼的时间。
 - en: Troubleshooting build failures
+  id: totrans-84
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 构建失败的故障排除
 - en: In the two preceding chapters, we learned how to build bootable images for QEMU,
     our Nova board, and Raspberry Pi 4\. But what happens when things go wrong? In
     this section, we will cover a number of useful debugging techniques that should
     make the prospect of wrangling Yocto build failures less intimidating.
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前两章中，我们学习了如何为 QEMU、Nova 板和 Raspberry Pi 4 构建可启动的镜像。但当事情出错时怎么办？在本节中，我们将介绍一些有用的调试技术，这些技术应该能让你应对
+    Yocto 构建失败时不再感到那么害怕。
 - en: 'To execute the commands in the subsequent exercises, you need to activate a
     BitBake environment:'
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 要执行后续练习中的命令，你需要激活 BitBake 环境：
 - en: First, navigate one level above the directory where you cloned Yocto.
+  id: totrans-87
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，导航到你克隆 Yocto 的目录的上一级。
 - en: 'Next, set up your BitBake work environment:'
+  id: totrans-88
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，设置你的 BitBake 工作环境：
 - en: '[PRE4]'
+  id: totrans-89
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: This sets a bunch of environment variables and puts you back in the `build-rpi`
     directory that we created in the previous chapter.
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 这会设置一堆环境变量，并将你带回到我们在前一章中创建的 `build-rpi` 目录。
 - en: Isolating errors
+  id: totrans-91
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 错误隔离
 - en: 'So, your build failed, but where did it fail? You have an error message, but
     what does it mean and where did it come from? Do not despair. The first step in
     debugging is reproducing the bug. Once you can reproduce the bug, you can narrow
     the problem down to a series of known steps. Retracing those steps is how you
     spot the malfunction:'
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: 所以，你的构建失败了，但失败的原因在哪里呢？你有一个错误信息，但它是什么意思，来自哪里？不要绝望。调试的第一步是重现错误。一旦你能够重现错误，你就可以将问题缩小到一系列已知的步骤。回溯这些步骤就是找出故障的方式：
 - en: 'First, look at the BitBake build error message and see if you recognize any
     package or task names. If you’re not sure what packages are in your workspace,
     you can use the following command to get a list of them:'
+  id: totrans-93
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，查看 BitBake 构建错误信息，看看是否能认出其中的任何包或任务名称。如果你不确定工作区中有哪些包，可以使用以下命令获取它们的列表：
 - en: '[PRE5]'
+  id: totrans-94
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Once you have identified which package failed to build, then search your current
     layers for any recipe or appends files related to that package like so:'
+  id: totrans-95
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 一旦你确定了哪个软件包构建失败了，接下来可以在当前层中搜索与该软件包相关的任何配方或附加文件，如下所示：
 - en: '[PRE6]'
+  id: totrans-96
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: The package to search for is `connman` in this instance. The `../poky` argument
     in the preceding find command assumes your build directory is adjacent to `poky`
     like `build-rpi` from the previous chapter.
+  id: totrans-97
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要搜索的软件包是 `connman`。前面 `find` 命令中的 `../poky` 参数假设你的构建目录与 `poky` 相邻，就像前一章中的 `build-rpi`
+    一样。
 - en: 'Next, list all the tasks available for the `connman` recipe:'
+  id: totrans-98
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来，列出所有可用的 `connman` 配方任务：
 - en: '[PRE7]'
+  id: totrans-99
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'To reproduce the error, you can rebuild `connman` as follows:'
+  id: totrans-100
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为了重现错误，你可以按照以下方式重新构建 `connman`：
 - en: '[PRE8]'
+  id: totrans-101
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: Now that you know the recipe and task where your build failed, you are ready
     to move on to the next stage of debugging.
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在你已经知道了构建失败的配方和任务，可以继续进行调试的下一个阶段。
 - en: Dumping the environment
+  id: totrans-103
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 转储环境
 - en: 'While you are debugging a build failure, you are going to want to see the current
     values of the variables within BitBake’s environment. Let’s start from the top
     and work our way down:'
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 在调试构建失败时，你将需要查看 BitBake 环境中变量的当前值。我们从顶部开始，一步步往下看：
 - en: 'First, dump the global environment and search for the value of `DISTRO_FEATURES`:'
+  id: totrans-105
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 首先，转储全局环境并搜索 `DISTRO_FEATURES` 的值：
 - en: '[PRE9]'
+  id: totrans-106
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'Enter `/DISTRO_FEATURES=` (note the leading forward slash); `less` should jump
     to a line that looks kind of like this:'
+  id: totrans-107
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 输入 `/DISTRO_FEATURES=`（注意前面的斜杠）；`less` 应该跳转到一个类似这样的行：
 - en: '[PRE10]'
+  id: totrans-108
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'To dump BusyBox’s package environment and locate its source directory, use
     the following command:'
+  id: totrans-109
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要转储 BusyBox 的软件包环境并定位其源代码目录，请使用以下命令：
 - en: '[PRE11]'
+  id: totrans-110
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'To locate ConnMan’s working directory, use the following command:'
+  id: totrans-111
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 要定位 ConnMan 的工作目录，请使用以下命令：
 - en: '[PRE12]'
+  id: totrans-112
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: A package’s working directory is where its recipe task logs are saved during
     BitBake builds.
+  id: totrans-113
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 软件包的工作目录是 BitBake 构建过程中保存其配方任务日志的地方。
 - en: In *step 1*, we could have piped the output from `bitbake -e` into `grep`, but
     `less` allows us to trace the evaluation of the variable more easily. Enter `/DISTRO_FEATURES`
     without the trailing equal sign in less to search for more occurrences of the
     variable. Hit *n* to jump forward to the next occurrence and *N* to jump back
     to the previous occurrence.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 *步骤 1* 中，我们本可以将 `bitbake -e` 的输出通过管道传递给 `grep`，但 `less` 让我们更容易追踪变量的评估过程。输入
+    `/DISTRO_FEATURES`（不带尾部等号）来搜索更多该变量的出现位置。按 *n* 跳转到下一个出现位置，按 *N* 跳转回上一个出现位置。
 - en: 'The same commands work for image as well as package recipes:'
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 相同的命令适用于图像以及软件包配方：
 - en: '[PRE13]'
+  id: totrans-116
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: In this case, the target environment to dump belongs to `core-image-minimal`.
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这种情况下，目标环境的转储属于 `core-image-minimal`。
 - en: Now that you know where the source and task log files are, let’s look at some
     task logs.
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在你知道了源代码和任务日志文件的位置，让我们来看看一些任务日志。
 - en: Reading the task log
+  id: totrans-119
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 阅读任务日志
 - en: 'BitBake creates a log file for every shell task and saves it to a temp folder
     in the package’s working directory. In the case of ConnMan, the path to that temp
     folder looks sort of like this:'
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 会为每个 Shell 任务创建一个日志文件，并将其保存到软件包工作目录中的临时文件夹。以 ConnMan 为例，该临时文件夹的路径大致如下所示：
 - en: '[PRE14]'
+  id: totrans-121
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: The format of the log filenames is `log.do_<task>.<pid>`. There are also symlinks
     with no `<pid>` at the end of their names, which point to the latest log files
     for each task. The log files contain the output of the task run, which in most
     cases is all the information you need to debug the problem. If not, guess what
     you can do?
+  id: totrans-122
   prefs: []
   type: TYPE_NORMAL
+  zh: 日志文件名的格式是 `log.do_<task>.<pid>`。也有没有 `<pid>` 后缀的符号链接，它们指向每个任务的最新日志文件。日志文件包含任务运行的输出，通常这是调试问题所需的所有信息。如果没有，猜猜看你能做什么？
 - en: Adding more logging
+  id: totrans-123
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 添加更多日志记录
 - en: 'Logging from Python is different from logging from shell in BitBake. To log
     from Python, you can use BitBake’s `bb` module, which calls out to Python’s standard
     `logger` module, as shown here:'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 从 Python 进行日志记录与从 Shell 进行日志记录有所不同。要从 Python 记录日志，你可以使用 BitBake 的 `bb` 模块，它调用了
+    Python 标准的 `logger` 模块，如下所示：
 - en: '[PRE15]'
+  id: totrans-125
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'To log from shell, you can use BitBake’s `logging` class, whose source can
     be found at `meta/classes-global/logging.bbclass`. All recipes that inherit `base.bbclass`
     automatically inherit `logging.bbclass`. This means that all of the following
     logging functions should already be available to you from most shell recipe files:'
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 要从 Shell 日志记录，你可以使用 BitBake 的 `logging` 类，其源代码可以在 `meta/classes-global/logging.bbclass`
+    找到。所有继承了 `base.bbclass` 的配方都自动继承了 `logging.bbclass`。这意味着以下所有日志记录函数应该已经可以在大多数 Shell
+    配方文件中使用：
 - en: '[PRE16]'
+  id: totrans-127
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'According to the `logging.bbclass` source, the `bbdebug` function takes an
     integer debug log level as its first argument:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 根据 `logging.bbclass` 源代码，`bbdebug` 函数的第一个参数是一个整数调试日志级别：
 - en: '[PRE17]'
+  id: totrans-129
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: Depending on the debug log level, a `bbdebug` message may or may not go to the
     console.
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 根据调试日志级别，`bbdebug` 消息可能会或可能不会输出到控制台。
 - en: Running commands from devshell
+  id: totrans-131
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 从 devshell 运行命令
 - en: 'BitBake provides a development shell so that you can run build commands manually
     in a more interactive environment. Spawning a `devshell` requires a terminal multiplexer
     like `tmux`. To install `tmux`, use the following:'
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 提供了一个开发 shell，以便你可以在更交互的环境中手动运行构建命令。启动 `devshell` 需要一个终端复用器，比如 `tmux`。要安装
+    `tmux`，请使用以下命令：
 - en: '[PRE18]'
+  id: totrans-133
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: 'To get into a `devshell` for building ConnMan, use the following command:'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 要进入构建 ConnMan 的 `devshell`，使用以下命令：
 - en: '[PRE19]'
+  id: totrans-135
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: First, this command extracts and patches the source code for ConnMan. Next,
     it opens a new terminal in ConnMan’s source directory with the environment correctly
     set up for building. Once inside a `devshell`, you can run commands such as `./configure`
@@ -687,53 +994,81 @@
     to tools such as CMake and Autotools as command-line arguments or environment
     variables. At the very least, you can increase the verbosity level of build commands
     if the error messages you are reading aren’t meaningful.
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，该命令提取并修补 ConnMan 的源代码。接下来，它会打开一个新的终端，进入 ConnMan 的源目录，并正确设置构建环境。一旦进入 `devshell`，你可以运行诸如
+    `./configure` 和 `make` 等命令，或者直接使用 `$CC` 调用交叉编译器。`devshell` 非常适合用来尝试修改诸如 `CFLAGS`
+    或 `LDFLAGS` 等值，这些值会作为命令行参数或环境变量传递给 CMake 和 Autotools 等工具。至少，如果你正在阅读的错误消息没有意义，你可以增加构建命令的详细程度。
 - en: Graphing dependencies
+  id: totrans-137
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 图示依赖关系
 - en: 'Sometimes, the cause of the build error cannot be located inside the package
     recipe files because the error actually occurred when building one of the package’s
     dependencies. To get a list of dependencies for the ConnMan package, use the following
     command:'
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: 有时，构建错误的原因无法在软件包的配方文件中找到，因为错误实际上发生在构建某个软件包的依赖项时。要获取 ConnMan 包的依赖项列表，请使用以下命令：
 - en: '[PRE20]'
+  id: totrans-139
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'We can use BitBake’s built-in task explorer to display and navigate dependencies:'
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以使用 BitBake 内置的任务资源管理器来显示和导航依赖关系：
 - en: '[PRE21]'
+  id: totrans-141
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: 'The preceding command launches the task explorer’s graphical UI after analyzing
     ConnMan:'
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述命令在分析 ConnMan 后启动任务资源管理器的图形界面：
 - en: '**IMPORTANT NOTE**'
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: '**重要提示**'
 - en: Some larger images like core-image-x11 have complex package dependency trees
     that will likely crash the task explorer.
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 一些较大的镜像，如 core-image-x11，具有复杂的软件包依赖树，这些树很可能会导致任务资源管理器崩溃。
 - en: '![](img/B18466_08_03.png)'
+  id: totrans-145
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/B18466_08_03.png)'
 - en: Figure 8.3 – Task explorer
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 8.3 – 任务资源管理器
 - en: Now, let’s move away from the topic of builds and build failures and immerse
     ourselves in the raw materials of The Yocto Project. I am talking about BitBake
     metadata.
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们暂时离开构建和构建失败的话题，深入探讨 Yocto 项目的核心内容。我指的是 BitBake 的元数据。
 - en: Understanding BitBake syntax and semantics
+  id: totrans-148
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解 BitBake 的语法和语义
 - en: BitBake is a task runner. It is similar to GNU Make in that respect, except
     that it operates on recipes instead of makefiles. The metadata in these recipes
     defines tasks in shell and Python. BitBake itself is written in Python. The OpenEmbedded
@@ -742,8 +1077,13 @@
     to run tasks in parallel while still satisfying inter-task dependencies. Its layered
     and inheritance-based approach to metadata enables Yocto to scale in ways Buildroot-based
     build systems simply cannot.
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 是一个任务运行器。它在这方面类似于 GNU Make，不同之处在于它操作的是配方（recipes）而不是 Makefile。这些配方中的元数据定义了使用
+    shell 和 Python 编写的任务。BitBake 本身是用 Python 编写的。Yocto 项目基于的 OpenEmbedded 项目由 BitBake
+    和大量用于构建嵌入式 Linux 发行版的配方组成。BitBake 的强大之处在于它能够在满足任务间依赖关系的同时并行运行任务。它基于层次和继承的元数据方法使得
+    Yocto 在扩展性上具有 Buildroot 构建系统无法比拟的优势。
 - en: 'In [*Chapter 6*](Chapter_04.xhtml#_idTextAnchor110), we learned about the five
     types of BitBake metadata files: `.bb`, `.bbappend`, `.inc`, `.bbclass`, and `.conf`.
     We also wrote BitBake recipes for building a basic `helloworld` program and `nova-image`
@@ -753,63 +1093,96 @@
     them? How do we compose metadata to build our applications? Before you can harness
     the full power of Yocto, you need to learn to read and write BitBake metadata.
     To do that, you need to learn BitBake’s syntax and semantics.'
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 [*第6章*](Chapter_04.xhtml#_idTextAnchor110)中，我们学习了五种类型的 BitBake 元数据文件：`.bb`、`.bbappend`、`.inc`、`.bbclass`
+    和 `.conf`。我们还编写了用于构建基本 `helloworld` 程序和 `nova-image` 镜像的 BitBake 食谱。现在，我们将更仔细地查看
+    BitBake 元数据文件的内容。我们知道任务是用 shell 和 Python 的混合语言编写的，但代码分布在哪里，为什么要这样做？有哪些语言构造可供我们使用？我们能用它们做什么？我们如何编排元数据来构建我们的应用程序？在你能够充分利用
+    Yocto 的强大功能之前，你需要学习如何读写 BitBake 元数据。为此，你需要学习 BitBake 的语法和语义。
 - en: Tasks
+  id: totrans-151
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 任务
 - en: 'Tasks are functions that BitBake needs to run in sequence to execute a recipe.
     Recall that task names start with the `do_` prefix. Here is a task from `recipes-core/systemd`:'
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: 任务是 BitBake 需要按顺序执行以运行食谱的函数。回想一下，任务名称以 `do_` 前缀开头。以下是来自 `recipes-core/systemd`
+    的一个任务：
 - en: '[PRE22]'
+  id: totrans-153
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: In this example, a function named `do_deploy` is defined and immediately elevated
     to a task using the `addtask` command. The `addtask` command also specifies inter-task
     dependencies. For instance, this `do_deploy` task depends on the `do_compile`
     task completing, while the `do_build` task depends on the `do_deploy` task completing.
     The dependencies expressed by `addtask` can only be internal to the recipe file.
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 在此示例中，定义了一个名为 `do_deploy` 的函数，并通过 `addtask` 命令立即将其提升为任务。`addtask` 命令还指定了任务间的依赖关系。例如，这个
+    `do_deploy` 任务依赖于 `do_compile` 任务完成，而 `do_build` 任务依赖于 `do_deploy` 任务完成。`addtask`
+    表示的依赖关系只能是食谱文件内部的依赖关系。
 - en: 'Tasks can also be deleted using the `deltask` command. This stops BitBake from
     executing the task as part of the recipe. To delete the preceding `do_deploy`
     task, use the following command:'
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 任务也可以使用 `deltask` 命令删除。这将停止 BitBake 将任务作为食谱的一部分执行。要删除之前的 `do_deploy` 任务，可以使用以下命令：
 - en: '[PRE23]'
+  id: totrans-156
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: This deletes the task from the recipe, but the original `do_deploy` function
     definition remains and can still be called.
+  id: totrans-157
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将从食谱中删除任务，但原始的 `do_deploy` 函数定义仍然存在，并且仍然可以被调用。
 - en: Dependencies
+  id: totrans-158
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 依赖关系
 - en: To ensure efficient parallel processing, BitBake handles dependencies at the
     task level. We saw just how `addtask` can be used to express dependencies between
     tasks within a single recipe file. Dependencies between tasks in different recipes
     also exist. In fact, these inter-task dependencies are what we usually think of
     when we consider build-time and runtime dependencies between packages.
+  id: totrans-159
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了确保高效的并行处理，BitBake 在任务级别处理依赖关系。我们看到 `addtask` 如何用于表示单个食谱文件内任务之间的依赖关系。不同食谱中的任务之间也存在依赖关系。实际上，这些任务间依赖关系正是我们通常在考虑包之间的构建时依赖和运行时依赖时所想到的。
 - en: Inter-task dependencies
+  id: totrans-160
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 任务间依赖关系
 - en: 'Variable flags (**varflags**) are a means of attaching properties or attributes
     to variables. They behave like keys in a hash map in the sense that they let you
     set keys to values and retrieve values by their keys. BitBake defines a large
     set of varflags for use in recipes and classes. These varflags indicate what the
     components and dependencies of a task are. Here are some examples of varflags:'
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 变量标志（**varflags**）是将属性或特性附加到变量的一种方式。它们的行为像哈希映射中的键，允许你将键设置为值并通过键检索值。BitBake 定义了一大套用于食谱和类的
+    varflags。这些 varflags 表示任务的组件和依赖关系。以下是一些 varflags 的示例：
 - en: '[PRE24]'
+  id: totrans-162
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: The value that’s assigned to a varflag’s key is often one or more other tasks.
     This means that BitBake varflags offer us another way of expressing inter-task
     dependencies, different from `addtask`. The `addtask` command specifies when a
@@ -817,175 +1190,259 @@
     developers will probably never need to touch varflags in their day-to-day work.
     I have introduced them here so that we can make sense of the following `DEPENDS`
     and `RDEPENDS` examples.
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: 分配给 varflag 键的值通常是一个或多个其他任务。这意味着 BitBake 的 varflags 为我们提供了另一种表示任务间依赖关系的方式，这与
+    `addtask` 不同。`addtask` 命令指定任务的执行时机（例如，`before do_build after do_compile`）。大多数嵌入式
+    Linux 开发人员可能在日常工作中永远不需要接触 varflags。我在此引入它们，是为了让我们能够理解后面的 `DEPENDS` 和 `RDEPENDS`
+    示例。
 - en: Build-time dependencies
+  id: totrans-164
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 构建时依赖关系
 - en: 'BitBake uses the `DEPENDS` variable to manage build-time dependencies. The
     `deptask` varflag for a task signifies the task that must be completed for each
     item in `DEPENDS` before that task can be executed (*BitBake User Manual*, [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies)):'
+  id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 使用 `DEPENDS` 变量来管理构建时依赖。任务的 `deptask` varflag 表示在执行该任务之前，必须完成 `DEPENDS`
+    中每个项的任务（*BitBake 用户手册*，[https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#build-dependencies)）：
 - en: '[PRE25]'
+  id: totrans-166
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: In this example, the `do_packagedata` task of each item in `DEPENDS` must complete
     before `do_package` can execute.
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个示例中，`DEPENDS` 中每个项的 `do_packagedata` 任务必须在 `do_package` 执行之前完成。
 - en: 'Alternatively, you can bypass the `DEPENDS` variable and define your build-time
     dependencies explicitly using the `depends` flag:'
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 另外，你可以绕过 `DEPENDS` 变量，使用 `depends` 标志显式定义构建时依赖：
 - en: '[PRE26]'
+  id: totrans-169
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: In this example, the `do_populate_sysroot` task belonging to the `quilt-native`
     namespace must be completed before `do_patch` can execute. A recipe’s tasks are
     often grouped together inside their own namespace to enable this sort of direct
     access.
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个示例中，属于 `quilt-native` 命名空间的 `do_populate_sysroot` 任务必须在 `do_patch` 执行之前完成。配方的任务通常会被分组到各自的命名空间中，以便进行这种直接访问。
 - en: Runtime dependencies
+  id: totrans-171
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 运行时依赖
 - en: 'BitBake uses the `PACKAGES` and `RDEPENDS` variables to manage runtime dependencies.
     The `PACKAGES` variable lists all the runtime packages a recipe creates. Each
     of those packages can have `RDEPENDS` runtime dependencies. These are packages
     that must be installed for a given package to run. The `rdeptask` varflag for
     a task specifies which tasks must be completed for every runtime dependency before
     that task can be executed (*BitBake User Manual*, [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies)):'
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 使用 `PACKAGES` 和 `RDEPENDS` 变量来管理运行时依赖。`PACKAGES` 变量列出了配方创建的所有运行时包。每个包可以有
+    `RDEPENDS` 运行时依赖。这些是必须安装的包，以便给定的包能够运行。任务的 `rdeptask` varflag 指定了在执行该任务之前，必须完成每个运行时依赖的任务（*BitBake
+    用户手册*，[https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html#runtime-dependencies)）：
 - en: '[PRE27]'
+  id: totrans-173
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: In this example, the `do_package_data` task of each item in `RDEPENDS` must
     complete before `do_package_qa` can execute.
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个示例中，`RDEPENDS` 中每个项的 `do_package_data` 任务必须在 `do_package_qa` 执行之前完成。
 - en: Similarly, the `rdepends` flag works much like the `depends` flag by allowing
     you to bypass the `RDEPENDS` variable. The only difference is that `rdepends`
     is enforced at runtime instead of build time.
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 同样，`rdepends` 标志的作用类似于 `depends` 标志，允许你绕过 `RDEPENDS` 变量。唯一的区别是 `rdepends` 在运行时生效，而不是在构建时。
 - en: Variables
+  id: totrans-176
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 变量
 - en: BitBake variable syntax resembles the Make variable syntax. The scope of a variable
     in BitBake depends on the type of metadata file where a variable was defined.
     Every variable declared in a recipe file (`.bb`) is local. Every variable declared
     in a configuration file (`.conf`) is global. An image is just a recipe, so an
     image cannot affect what happens in another recipe.
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 变量语法类似于 Make 的变量语法。BitBake 中变量的作用域取决于变量定义所在的元数据文件类型。在配方文件（`.bb`）中声明的每个变量都是局部的。在配置文件（`.conf`）中声明的每个变量都是全局的。镜像只是一个配方，因此一个镜像无法影响另一个配方中的内容。
 - en: Assignment and expansion
+  id: totrans-178
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 赋值和展开
 - en: 'Variable assignment and expansion work like they do in shell. By default, the
     assignment occurs as soon as the statement is parsed and is unconditional. The
     `$` character triggers variable expansion. Enclosing braces are optional and serve
     to protect the variable from being expanded from characters immediately following
     it. Expanded variables are usually wrapped in double quotes to prevent accidental
     word splitting and globbing:'
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 变量赋值和展开的工作方式与 shell 中相似。默认情况下，赋值会在语句解析后立即发生，并且是无条件的。`$` 字符触发变量展开。花括号是可选的，主要用于保护变量不被紧随其后的字符展开。展开的变量通常会用双引号括起来，以防止意外的词分割和通配符扩展：
 - en: '[PRE28]'
+  id: totrans-180
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: Variables are mutable and normally evaluated at the time of reference, not assignment,
     like in Make. This means that if a variable is referenced on the right-hand side
     of an assignment, then that referenced variable is not evaluated until the variable
     on the left-hand side is expanded. So, if a value on the right-hand side changes
     over time, then so does the value of the variable on the left-hand side.
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 变量是可变的，通常在引用时进行评估，而不是在赋值时进行评估，这一点与Make中的行为不同。这意味着，如果变量在赋值语句的右侧被引用，那么在左侧的变量展开之前，右侧引用的变量不会被评估。因此，如果右侧的值随着时间变化，那么左侧变量的值也会随之变化。
 - en: 'Conditional assignment only defines a variable if it is undefined at the time
     of parsing. This prevents reassignment when you don’t want that behavior:'
+  id: totrans-182
   prefs: []
   type: TYPE_NORMAL
+  zh: 条件赋值仅在解析时变量未定义的情况下才定义该变量。这防止了在不希望发生的情况下进行重新赋值：
 - en: '[PRE29]'
+  id: totrans-183
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: Conditional assignment is employed at the top of makefiles to prevent variables
     that may have already been set by the build system (for example, `CC`, `CFLAGS`,
     and `LDFLAGS`) from being overwritten. Conditional assignment ensures that we
     don’t append or prepend to an undefined variable later on in a recipe.
+  id: totrans-184
   prefs: []
   type: TYPE_NORMAL
+  zh: 条件赋值通常用于makefile的顶部，以防止可能已被构建系统（例如`CC`、`CFLAGS`和`LDFLAGS`）设置的变量被覆盖。条件赋值确保我们不会在后续配方中向未定义的变量附加或前置值。
 - en: 'Lazy assignment using ??= behaves identically to ?= except that the assignment
     is made at the end of the parsing process rather than immediately (BitBake User
     Manual, HYPERLINK “[https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#setting-a-weak-default-value”):'
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用`??=`进行的延迟赋值与`?=`的行为相同，不同之处在于赋值发生在解析过程的末尾，而不是立即发生（BitBake用户手册，超链接 "[https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#setting-a-weak-default-value"）：
 - en: '[PRE30]'
+  id: totrans-186
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: What that means is that if a variable name is on the left-hand side of multiple
     lazy assignments, then the last lazy assignment statement wins.
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
+  zh: 这意味着，如果一个变量名出现在多个延迟赋值的左侧，那么最后一个延迟赋值语句会“胜出”。
 - en: 'Another form of variable assignment forces the right-hand side of the assignment
     to be evaluated immediately at the time of parsing:'
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一种形式的变量赋值会在解析时强制立即评估赋值的右侧：
 - en: '[PRE31]'
+  id: totrans-189
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: Note that the`:=` operator for immediate assignment comes from Make not shell.
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，`:=`操作符用于立即赋值，它来源于Make，而不是shell。
 - en: Appending and prepending
+  id: totrans-191
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 添加和前置
 - en: 'Appending or prepending to a variable or variable flags in BitBake is easy.
     The following two operators insert a single space in between the value on the
     left-hand side and the value being appended or prepended from the right-hand side:'
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: 在BitBake中，向变量或变量标志添加或前置值非常简单。以下两个操作符会在左侧的值和右侧附加或前置的值之间插入一个单独的空格：
 - en: '[PRE32]'
+  id: totrans-193
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: Note that the `+=` operator means increment not append when applied to an integer
     as opposed to string values.
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，当`+=`操作符应用于整数时，表示递增而不是附加，与应用于字符串值时的行为不同。
 - en: 'If you wish to omit the single space, there are assignment operators that do
     that as well:'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你希望省略单个空格，可以使用一些赋值操作符来实现：
 - en: '[PRE33]'
+  id: totrans-196
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: The single-space versions of the appending and prepending assignment operators
     are used throughout BitBake metadata files.
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake元数据文件中会使用单空格版本的添加和前置赋值操作符。
 - en: Overrides
+  id: totrans-198
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 覆盖
 - en: 'BitBake offers an alternative syntax for appending and prepending to variables.
     This style of concatenating is known as override syntax:'
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 提供了一种用于向变量添加或前置值的替代语法。这种连接方式被称为覆盖语法：
 - en: '[PRE34]'
+  id: totrans-200
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: While it may not be obvious at first glance, the two preceding lines are not
     defining new variables. The `:append` and `:prepend` suffixes modify or override
     the values of existing variables. They function more like BitBake’s `.=` and `=.`
     than the `+=` and `=+` operators in the sense that they omit the single space
     when combining strings. Unlike those operators, overrides are lazy, so assignment
     does not take place until all parsing has completed.
+  id: totrans-201
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管乍一看可能不太明显，前面两行并没有定义新变量。`：append`和`：prepend`后缀修改或覆盖现有变量的值。它们的作用更像是BitBake的`.=`和`=.`，与`+=`和`=+`操作符不同，后者在连接字符串时会省略单个空格。与这些操作符不同，覆盖是延迟的，因此赋值不会发生，直到所有解析完成。
 - en: 'Finally, let’s look at a more advanced form of conditional assignment involving
     the `OVERRIDES` variable defined in `meta/conf/bitbake.conf`. The `OVERRIDES`
     variable is a colon-separated list of conditions that you want satisfied. This
@@ -995,131 +1452,189 @@
     as a condition. Now, you can define a version of a variable that is conditional
     on a target CPU architecture of `aarch64`, such as the `VALGRINDARCH:aarch64`
     variable:'
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，让我们看一个更高级的条件赋值形式，它涉及到在`meta/conf/bitbake.conf`中定义的`OVERRIDES`变量。`OVERRIDES`变量是一个以冒号分隔的条件列表，用于指定需要满足的条件。该列表用于在多个相同变量的版本之间进行选择，每个版本都有不同的后缀。这些后缀对应条件的名称。假设`OVERRIDES`列表包含`${TRANSLATED_TARGET_ARCH}`作为条件。现在，您可以定义一个针对目标
+    CPU 架构为`aarch64`的变量版本，例如`VALGRINDARCH:aarch64`变量：
 - en: '[PRE35]'
+  id: totrans-203
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: When the `TRANSLATED_TARGET_ARCH` variable expands to `aarch64`, the V`ALGRINDARCH:aarch64`
     version of the `VALGRINDARCH` variable is selected over all the other overrides.
     Selecting variable values based on `OVERRIDES` is cleaner and less brittle than
     other methods of conditional assignment, such as `#ifdef` directives in C.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 当`TRANSLATED_TARGET_ARCH`变量扩展为`aarch64`时，`VALGRINDARCH:aarch64`版本的`VALGRINDARCH`变量将优先于所有其他覆盖项。基于`OVERRIDES`选择变量值比其他条件赋值方法（例如C语言中的`#ifdef`指令）更加简洁和不易出错。
 - en: 'BitBake also supports appending and prepending operations to variable values
     based on whether a specific item is listed in `OVERRIDES` (*BitBake User Manual*,
     [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#conditional-metadata).
     Here are various real-world examples:'
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake还支持基于是否在`OVERRIDES`中列出特定项目来对变量值进行附加和预加操作（*BitBake用户手册*，[https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#conditional-metadata）。以下是一些实际应用示例：
 - en: '[PRE36]'
+  id: totrans-206
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: Notice how `libc-musl` is a condition for appending string values to the `DEPENDS`,
     `EXTRA_OECONF`, and `EXTRA_OEMAKE` variables. Like the earlier unconditional override
     syntax for appending and prepending to variables, this conditional syntax is also
     lazy. Assignment does not occur until after the recipes and configuration files
     have been parsed.
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意`libc-musl`是将字符串值附加到`DEPENDS`、`EXTRA_OECONF`和`EXTRA_OEMAKE`变量的条件。与前面无条件覆盖语法的变量附加和预加操作一样，这种条件语法也是惰性求值的。赋值操作不会发生，直到食谱和配置文件被解析后。
 - en: Conditionally appending and prepending to variables based on the contents of
     `OVERRIDES` is complicated and can result in unwanted surprises. I recommend getting
     lots of practice with conditional assignments based on `OVERRIDES` before adopting
     these advanced BitBake features.
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于`OVERRIDES`的条件附加和预加操作可能会比较复杂，并且可能会导致意外的结果。我建议在采用这些高级BitBake特性之前，先通过大量实践掌握基于`OVERRIDES`的条件赋值方法。
 - en: Inline Python
+  id: totrans-209
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 内联 Python
 - en: 'The `@` symbol in BitBake lets us inject and execute Python code inside variables.
     An inline Python expression gets evaluated each time the variable on the left-hand
     side of the `=` operator is expanded. An inline Python expression on the right-hand
     side of the `:=` operator is evaluated only once at parse time. Here are some
     examples of inline Python variable expansion:'
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake中的`@`符号允许我们在变量内部注入并执行Python代码。每次扩展`=`运算符左侧的变量时，内联Python表达式都会被评估。在`:=`运算符右侧的内联Python表达式只会在解析时评估一次。以下是内联Python变量扩展的一些示例：
 - en: '[PRE37]'
+  id: totrans-211
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: Notice that `bb` and `oe` are aliases for BitBake and OpenEmbedded’s Python
     modules. Also, notice that `d.getVar("PV")` is used to retrieve the value of the
     `PV` variable from the task’s runtime environment. The `d` variable refers to
     a datastore object that BitBake saves a copy of the original execution environment
     to. This is largely how a BitBake shell and Python code interoperate.
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，`bb`和`oe`是BitBake和OpenEmbedded的Python模块的别名。还要注意，`d.getVar("PV")`用于从任务的运行时环境中获取`PV`变量的值。`d`变量指的是一个数据存储对象，BitBake将原始执行环境的副本保存到该对象中。这也是BitBake的Shell和Python代码相互操作的方式。
 - en: Functions
+  id: totrans-213
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 函数
 - en: Functions are the stuff that BitBake tasks are made of. They are written in
     either shell or Python and defined inside the `.bbclass`, `.bb`, and `.inc` files.
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: 函数是构成BitBake任务的基本单元。它们可以用Shell或Python编写，并定义在`.bbclass`、`.bb`和`.inc`文件中。
 - en: Shell
+  id: totrans-215
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: Shell
 - en: 'Functions written in shell are executed as functions or tasks. Functions that
     run as tasks usually have names that start with the `do_` prefix. This is what
     a function looks like in shell:'
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 用 shell 编写的函数作为函数或任务执行。作为任务运行的函数通常以 `do_` 前缀命名。这是一个 shell 中的函数样式：
 - en: '[PRE38]'
+  id: totrans-217
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: Remember to remain shell-agnostic when writing your functions. BitBake executes
     shell snippets with `/bin/sh`, which may or may not be a Bash shell, depending
     on the host distro. Avoid Bashisms by running the `scripts/verify-bashisms` linter
     against your shell scripts.
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
+  zh: 写函数时请记得保持与 shell 无关。BitBake 使用 `/bin/sh` 执行 shell 片段，具体是哪个 shell 取决于主机的发行版，可能是也可能不是
+    Bash shell。通过运行 `scripts/verify-bashisms` 这个 linter 来检查你的 shell 脚本，避免使用 Bash 特有的语法。
 - en: Python
+  id: totrans-219
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: Python
 - en: 'BitBake understands three types of Python functions: pure, BitBake style, and
     anonymous.'
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake 理解三种类型的 Python 函数：纯 Python 函数、BitBake 风格函数和匿名函数。
 - en: Pure Python functions
+  id: totrans-221
   prefs:
   - PREF_H4
   type: TYPE_NORMAL
+  zh: 纯 Python 函数
 - en: 'A **pure Python function** is written in regular Python and called by other
     Python code. By pure, I mean that the function lives exclusively within the realm
     of the Python interpreter’s execution environment, not pure in the functional
     programming sense. Here is an example from `meta/recipes-connectivity/bluez5/bluez5.inc`:'
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: '**纯 Python 函数**是用常规 Python 编写的，并由其他 Python 代码调用。这里的“纯”是指该函数完全在 Python 解释器的执行环境内运行，而不是在函数式编程的意义上。下面是来自
+    `meta/recipes-connectivity/bluez5/bluez5.inc` 的一个示例：'
 - en: '[PRE39]'
+  id: totrans-223
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: Notice that this function takes parameters just like a real Python function.
     There are a couple more noteworthy things I would also like to point out about
     this function. First, the datastore object is unavailable, so you need to pass
     it in as a function parameter (the `d` variable in this instance). Second, the
     `os` module is automatically available, so there is no need to import or pass
     it in.
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，这个函数像真正的 Python 函数一样接受参数。我还想指出一些关于这个函数的值得注意的事情。首先，数据存储对象不可用，因此需要将其作为函数参数传入（此处是
+    `d` 变量）。其次，`os` 模块是自动可用的，因此无需导入或传入它。
 - en: 'Pure Python functions can be called by inline Python assigned to shell variables
     using the `@` symbol. In fact, that is precisely what happens on the next line
     of this include file:'
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 纯 Python 函数可以通过内联 Python 被分配给 shell 变量，并使用 `@` 符号调用。实际上，这正是下行代码在该包含文件中发生的情况：
 - en: '[PRE40]'
+  id: totrans-226
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: Notice that both the `d` datastore object and the `bb` module are automatically
     available inside the inline Python scope after the `@` symbol.
+  id: totrans-227
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，在 `@` 符号后，`d` 数据存储对象和 `bb` 模块在内联 Python 范围内自动可用。
 - en: BitBake-style Python functions
+  id: totrans-228
   prefs:
   - PREF_H4
   type: TYPE_NORMAL
+  zh: BitBake 风格的 Python 函数
 - en: 'A **BitBake-style Python** function definition is denoted by the `python` keyword
     instead of Python’s native `def` keyword. These functions are executed by invoking
     `bb.build.exec_func()` from other Python functions, including BitBake’s own internal
@@ -1128,50 +1643,76 @@
     always available as a global variable (`d`, that is). While not as Pythonic, the
     BitBake style of defining functions is predominant throughout Yocto. Here is a
     BitBake-style Python function definition from `meta/classes/sign_rpm.bbclass`:'
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
+  zh: '**BitBake 风格的 Python** 函数定义通过 `python` 关键字表示，而不是 Python 原生的 `def` 关键字。这些函数通过调用
+    `bb.build.exec_func()` 从其他 Python 函数中执行，包括 BitBake 自身的内部函数。与纯 Python 函数不同，BitBake
+    风格的函数不接受参数。没有参数并不成问题，因为数据存储对象始终作为全局变量（即 `d`）可用。虽然这种定义方式不如 Python 风格优雅，但 BitBake
+    风格在 Yocto 中占主导地位。下面是来自 `meta/classes/sign_rpm.bbclass` 的一个 BitBake 风格 Python 函数定义：'
 - en: '[PRE41]'
+  id: totrans-230
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: Anonymous Python functions
+  id: totrans-231
   prefs:
   - PREF_H4
   type: TYPE_NORMAL
+  zh: 匿名 Python 函数
 - en: 'An **anonymous Python function** looks much like a BitBake-style Python function,
     but it executes during parsing. Because they run first, anonymous functions are
     good for operations that can be done at parse time, such as initializing variables
     and other forms of setup. Anonymous function definitions can be written with or
     without the `__anonymous` function name:'
+  id: totrans-232
   prefs: []
   type: TYPE_NORMAL
+  zh: '**匿名 Python 函数**看起来很像 BitBake 风格的 Python 函数，但它在解析时执行。由于它们首先执行，匿名函数非常适合在解析时完成的操作，例如初始化变量和其他设置。匿名函数的定义可以带有或不带有
+    `__anonymous` 函数名：'
 - en: '[PRE42]'
+  id: totrans-233
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: The `d` variable within an anonymous Python function represents the datastore
     for the entire recipe (*BitBake User Manual*, [https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#anonymous-python-functions).
     So, when you set a variable inside an anonymous function scope, that value will
     be available to other functions by way of the global datastore object when they
     run.
+  id: totrans-234
   prefs: []
   type: TYPE_NORMAL
+  zh: 匿名Python函数中的`d`变量代表整个配方的 datastore（数据存储）（*BitBake 用户手册*，[https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html](https://docs.yoctoproject.org/bitbake/bitbake-user-manual/bitbake-user-manual-metadata.html)#anonymous-python-functions)。因此，当你在匿名函数作用域内设置一个变量时，该值将在其他函数运行时通过全局数据存储对象可用。
 - en: RDEPENDS revisited
+  id: totrans-235
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: RDEPENDS 重访
 - en: 'Let’s return to the subject of runtime dependencies. These are packages that
     must be installed for a given package to run. This list is defined in the package’s
     `RDEPENDS` variable. Here is an interesting excerpt from `populate_sdk_base.bbclass`:'
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们回到运行时依赖的主题。这些是必须安装的包，以使某个特定包能够运行。这个列表在包的`RDEPENDS`变量中定义。以下是`populate_sdk_base.bbclass`中的一个有趣摘录：
 - en: '[PRE43]'
+  id: totrans-237
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: 'And here is the definition of the corresponding inline Python function:'
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里是相应的内联Python函数定义：
 - en: '[PRE44]'
+  id: totrans-239
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: 'There is quite a bit to unpack here. First, the function makes a copy of the
     datastore object so as not to modify the task runtime environment. Recall that
     the `OVERRIDES` variable is a list of conditions used to select between multiple
@@ -1180,14 +1721,21 @@
     returns the value of the `rdepends varflag` for the `do_populate_sdk` task. The
     difference now is that `rdepends` is evaluated using the `_task-populate-sdk-ext`
     versions of variables like the following:'
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里有很多内容需要解释。首先，函数会复制数据存储对象，以避免修改任务的运行时环境。回想一下，`OVERRIDES`变量是一个用于在多个版本的变量之间选择条件的列表。下一行将`task-populate-sdk-ext`的条件添加到本地复制数据存储的`OVERRIDES`列表中。最后，函数返回`do_populate_sdk`任务的`rdepends
+    varflag`值。现在的区别是，`rdepends`是使用`_task-populate-sdk-ext`版本的变量进行评估的，例如以下内容：
 - en: '[PRE45]'
+  id: totrans-241
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: I find this use of temporary `OVERRIDES` to be both clever and terrifying.
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
+  zh: 我发现这种临时使用`OVERRIDES`的方法既聪明又可怕。
 - en: BitBake syntax and semantics can seem daunting. Combining shell and Python makes
     for an interesting mix of language features. Not only do we now know how to define
     variables and functions, but we can also inherit from class files, override variables,
@@ -1196,12 +1744,16 @@
     become increasingly recognizable over time. As we strive to achieve proficiency
     in BitBake and begin to stretch our newfound abilities, mistakes are bound to
     occur.
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake的语法和语义看起来可能很令人生畏。将Shell和Python结合起来，形成了一种有趣的语言特性混合。我们不仅知道如何定义变量和函数，而且还可以继承类文件、重载变量，并通过编程改变条件。这些高级概念会反复出现在`.bb`、`.bbappend`、`.inc`、`.bbclass`和`.conf`文件中，随着时间的推移，它们会变得越来越容易识别。当我们努力提高BitBake的熟练度，并开始发挥我们新获得的能力时，错误是难以避免的。
 - en: Summary
+  id: totrans-244
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 总结
 - en: Even though you can build just about anything with Yocto, it’s not always easy
     to tell what the build system is doing or how. There is hope for us, though. There
     are command-line tools to help us find where something came from and how to change
@@ -1209,58 +1761,83 @@
     which we can use to configure and compile individual things from the command line.
     And if we divide our projects into multiple layers from the outset, we are likely
     to get much more mileage out of the work we do.
+  id: totrans-245
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管你可以使用Yocto构建几乎任何东西，但有时很难知道构建系统在做什么或者是怎么做的。不过，我们还是有希望的。有一些命令行工具可以帮助我们找到某个东西的来源以及如何修改它。我们也可以读取和写入任务日志。还有`devshell`，我们可以使用它从命令行配置和编译单个项目。如果我们从一开始就将项目分成多个层，那么我们可能会更好地利用我们所做的工作。
 - en: BitBake’s mix of shell and Python supports some powerful language constructs,
     such as inheritance, overrides, and conditional variable selection. That’s both
     good and bad. It’s good in the sense that layers and recipes are completely composable
     and customizable.
+  id: totrans-246
   prefs: []
   type: TYPE_NORMAL
+  zh: BitBake结合了Shell和Python，支持一些强大的语言构造，如继承、重载和条件变量选择。这既有好处也有坏处。好处在于层和配方是完全可组合和可定制的。
 - en: It’s bad in the sense that metadata in different recipe files and different
     layers can interact in strange and unexpected ways. Combine those powerful language
     features with the datastore object’s ability to act as a portal between the shell
     and Python execution environments and you have a recipe for countless hours of
     fun.
+  id: totrans-247
   prefs: []
   type: TYPE_NORMAL
+  zh: 这不好，原因在于不同食谱文件和不同层次中的元数据可能会以奇怪且出乎意料的方式相互作用。将这些强大的语言特性与数据存储对象作为Shell和Python执行环境之间的门户功能结合，你将获得无数小时的乐趣。
 - en: This concludes our in-depth exploration of The Yocto Project and the second
     section of this book, *Building Embedded Linux Images*. In the next section of
     this book, we switch gears and examine *System Architecture and Design Decisions*,
     beginning with [*Chapter 9*](Chapter_09.xhtml#_idTextAnchor293). We will get a
     chance to use Yocto again in [*Chapter 10*](Chapter_10.xhtml#_idTextAnchor341),
     when we evaluate Mender.
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
+  zh: 这就结束了我们对Yocto项目及本书第二部分《构建嵌入式Linux镜像》的深入探讨。在本书的下一部分，我们将换个角度，研究*系统架构与设计决策*，从[**第9章**](Chapter_09.xhtml#_idTextAnchor293)开始。我们将在[**第10章**](Chapter_10.xhtml#_idTextAnchor341)中再次使用Yocto，评估Mender。
 - en: Further study
+  id: totrans-249
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 深入学习
 - en: '*Yocto Project Overview and Concepts Manual*, Yocto Project – [https://docs.yoctoproject.org/overview-manual/](https://docs.yoctoproject.org/overview-manual/)'
+  id: totrans-250
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*Yocto项目概述与概念手册*，Yocto项目 – [https://docs.yoctoproject.org/overview-manual/](https://docs.yoctoproject.org/overview-manual/)'
 - en: '*What I wish I’d known about Yocto Project*, Yocto Project – [https://docs.yoctoproject.org/what-i-wish-id-known.html](https://docs.yoctoproject.org/what-i-wish-id-known.html)'
+  id: totrans-251
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*我希望自己早知道的Yocto项目知识*，Yocto项目 – [https://docs.yoctoproject.org/what-i-wish-id-known.html](https://docs.yoctoproject.org/what-i-wish-id-known.html)'
 - en: '*BitBake User Manual*, by Richard Purdie, Chris Larson, and Phil Blundell –
     [https://docs.yoctoproject.org/bitbake/](https://docs.yoctoproject.org/bitbake/)'
+  id: totrans-252
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*BitBake用户手册*，理查德·普迪（Richard Purdie）、克里斯·拉尔森（Chris Larson）和菲尔·布伦德尔（Phil Blundell）编著
+    – [https://docs.yoctoproject.org/bitbake/](https://docs.yoctoproject.org/bitbake/)'
 - en: '*Embedded Linux Development Using Yocto Project Cookbook*, by Alex Gonzalez'
+  id: totrans-253
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*使用Yocto项目的嵌入式Linux开发指南*，亚历克斯·冈萨雷斯（Alex Gonzalez）编著'
 - en: Join our community on Discord
+  id: totrans-254
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 加入我们的Discord社区
 - en: 'Join our community’s Discord space for discussions with the authors and other
     readers: https://packt.link/embeddedsystems'
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
+  zh: 加入我们社区的Discord空间，与作者及其他读者进行讨论：[https://packt.link/embeddedsystems](https://packt.link/embeddedsystems)
 - en: '![](img/QR_Code12308107448340296.png)'
+  id: totrans-256
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/QR_Code12308107448340296.png)'
