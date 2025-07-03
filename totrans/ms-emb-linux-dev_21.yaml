@@ -1,11 +1,15 @@
 - en: '17'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '17'
 - en: Learning about Processes and Threads
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进程和线程的学习
 - en: In the preceding chapters, we considered the various aspects of creating an
     embedded Linux platform. Now, it is time to start looking at how you can use the
     platform to create a working device. In this chapter, I will talk about the implications
@@ -14,69 +18,101 @@
     as well as asynchronous message passing between processes and coroutines. Lastly,
     I will look at scheduling and differentiate between timeshare and real-time scheduling
     policies.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前面的章节中，我们考虑了创建嵌入式 Linux 平台的各个方面。现在，到了开始了解如何利用该平台创建工作设备的时候了。在这一章中，我将讨论 Linux
+    进程模型的含义，以及它如何涵盖多线程程序。我将探讨使用单线程和多线程进程的优缺点，以及进程之间的异步消息传递和协程。最后，我将讲解调度，并区分时间共享调度和实时调度策略。
 - en: While these topics are not specific to embedded computing, it is important for
     a designer of any embedded device to have an overview of these topics. There are
     many good references on the subject, some of which I will list at the end of this
     chapter, but in general, they do not consider the embedded use cases. Due to this,
     I will be concentrating on the concepts and design decisions rather than on the
     function calls and code.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然这些话题并非嵌入式计算的专属内容，但对于任何嵌入式设备的设计师来说，了解这些话题是很重要的。关于这些主题有很多优秀的参考资料，其中一些我会在本章末尾列出，但一般来说，它们并没有考虑嵌入式的使用案例。因此，我将专注于概念和设计决策，而非函数调用和代码。
 - en: 'In this chapter, we will cover the following topics:'
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这一章中，我们将讨论以下主题：
 - en: Process or thread?
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 进程还是线程？
 - en: Processes
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 进程
 - en: Threads
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 线程
 - en: ZeroMQ
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: ZeroMQ
 - en: Scheduling
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 调度
 - en: Technical requirements
+  id: totrans-10
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: 'To follow along with the examples, make sure you have the following:'
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了跟上示例的进度，请确保你已经具备以下条件：
 - en: 'Python: Python 3 interpreter and standard library'
+  id: totrans-12
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Python：Python 3 解释器及标准库
 - en: 'Miniconda: Minimal installer for the conda package and virtual environment
     manager'
+  id: totrans-13
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Miniconda：用于 `conda` 包和虚拟环境管理的最小安装程序
 - en: See the section on `conda` in [*Chapter 15*](Chapter_15.xhtml#_idTextAnchor483)
     for directions on how to install Miniconda if you haven’t already. The GCC C compiler
     and GNU Make are also needed for this chapter’s exercises, but these tools already
     come with most Linux distributions.
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你还没有安装 Miniconda，请参见[**第 15 章**](Chapter_15.xhtml#_idTextAnchor483)中关于`conda`的部分，里面有安装
+    Miniconda 的步骤。本章的练习还需要 GCC C 编译器和 GNU Make，但这些工具通常在大多数 Linux 发行版中已经预装。
 - en: 'The code used in this chapter can be found in the `Chapter17` folder in this
     book’s GitHub repository: [https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter17](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter17).'
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章中使用的代码可以在本书 GitHub 仓库的`Chapter17`文件夹中找到：[https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter17](https://github.com/PacktPublishing/Mastering-Embedded-Linux-Development/tree/main/Chapter17)。
 - en: Process or thread?
+  id: totrans-16
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进程还是线程？
 - en: Many embedded developers who are familiar with **real-time operating systems**
     (**RTOSs**) consider the Unix process model to be cumbersome. On the other hand,
     they see a similarity between an RTOS task and a Linux thread, and they have a
@@ -85,8 +121,11 @@
     is implemented with one process containing 40 or more threads. I want to spend
     some time considering whether this is a good idea or not. Let’s begin with some
     definitions.
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 许多熟悉**实时操作系统**（**RTOS**）的嵌入式开发人员认为 Unix 进程模型较为繁琐。另一方面，他们发现 RTOS 任务与 Linux 线程之间存在相似性，并倾向于将现有设计通过将
+    RTOS 任务一对一映射到线程的方式进行转移。我曾多次看到设计中整个应用程序是通过一个包含 40 个以上线程的进程来实现的。我想花些时间考虑这种做法是否明智。让我们从一些定义开始。
 - en: 'A **process** is a memory address space and a thread of execution, as shown
     in the following diagram. The address space is private to the process, so threads
     running in different processes cannot access it. This **memory separation** is
@@ -95,47 +134,68 @@
     context switch. I will describe how this works in detail in [*Chapter 18*](Chapter_18.xhtml#_idTextAnchor581).
     Part of the address space is mapped to a file that contains the code and static
     data that the program is running, as shown here:'
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: '**进程**是一个内存地址空间和一个执行线程，如下图所示。地址空间对进程是私有的，因此不同进程中的线程无法访问它。这种**内存隔离**是由内核中的内存管理子系统创建的，它为每个进程维护一个内存页映射，并在每次上下文切换时重新编程内存管理单元。我将在[*第18章*](Chapter_18.xhtml#_idTextAnchor581)中详细描述这一过程。部分地址空间被映射到一个文件，该文件包含程序运行时的代码和静态数据，如下所示：'
 - en: '![Figure 17.1 – Process](img/B18466_17_01.png)'
+  id: totrans-19
   prefs: []
   type: TYPE_IMG
+  zh: '![图 17.1 – 进程](img/B18466_17_01.png)'
 - en: Figure 17.1 – Process
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 17.1 – 进程
 - en: 'As the program runs, it will allocate resources such as stack space, heap memory,
     references to files, and so on. When the process terminates, these resources are
     reclaimed by the system: all the memory is freed up and all the file descriptors
     are closed.'
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 随着程序的运行，它将分配资源，例如堆栈空间、堆内存、文件引用等。当进程终止时，这些资源将被系统回收：所有内存将被释放，所有文件描述符将被关闭。
 - en: Processes can communicate with each other using **inter-process communication**
     (**IPC**), such as local sockets. I will talk about IPC later on.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 进程可以通过**进程间通信**（**IPC**）进行相互通信，例如本地套接字。我稍后会谈到IPC。
 - en: 'A **thread** is a thread of execution within a process. All processes begin
     with one thread that runs the `main()` function and is called the main thread.
     You can create additional threads, for example, using the `pthread_create(3)`
     POSIX function, which results in multiple threads executing in the same address
     space, as shown in the following diagram:'
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: '**线程**是进程中的一个执行线程。所有进程从一个线程开始，该线程运行`main()`函数，并被称为主线程。你可以创建额外的线程，例如，使用`pthread_create(3)`
+    POSIX函数，这会导致多个线程在相同的地址空间中执行，如下图所示：'
 - en: '![Figure 17.2 – Multiple threads](img/B18466_17_02.png)'
+  id: totrans-24
   prefs: []
   type: TYPE_IMG
+  zh: '![图 17.2 – 多个线程](img/B18466_17_02.png)'
 - en: Figure 17.2 – Multiple threads
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 17.2 – 多个线程
 - en: Being in the same process, the threads share resources with each other. They
     can read and write the same memory and use the same file descriptors. Communication
     between threads is easy, as long as you take care of the synchronization and locking
     issues.
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 线程位于同一进程中，彼此共享资源。它们可以读取和写入相同的内存，并使用相同的文件描述符。线程之间的通信是简单的，只要你处理好同步和锁的问题。
 - en: So, based on these brief details, you can imagine two extreme designs for a
     hypothetical system with 40 RTOS tasks being ported to Linux.
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于这些简要细节，你可以想象出两种极端的设计方案，用于一个假设的系统，将40个RTOS任务移植到Linux。
 - en: You could map tasks to processes and have 40 individual programs communicating
     through IPC, for example, with messages being sent through sockets. You would
     greatly reduce memory corruption problems since the main thread running in each
@@ -147,8 +207,10 @@
     may terminate, perhaps because of a bug causing it to crash, leaving the other
     39 to carry on. Each process would have to handle the fact that its neighbors
     are no longer running and recover gracefully.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以将任务映射到进程，并通过IPC使40个独立程序相互通信，例如，通过套接字发送消息。你将大大减少内存损坏的问题，因为每个进程中运行的主线程都被保护起来，免受其他进程的影响，同时减少资源泄漏，因为每个进程在退出后都会被清理。然而，进程之间的消息接口相当复杂，当一组进程紧密协作时，消息的数量可能会很大，进而成为系统性能的限制因素。此外，其中任何一个进程可能会终止，可能是由于程序中的bug导致崩溃，剩下的39个进程继续运行。每个进程都必须处理其邻近进程不再运行的情况，并且能够优雅地恢复。
 - en: At the other extreme, you could map tasks to threads and implement the system
     as a single process containing 40 threads. Cooperation becomes much easier because
     they share the same address space and file descriptors. The overhead of sending
@@ -157,53 +219,76 @@
     of one task corrupting the heap or the stack of another. If any of the threads
     encounters a fatal bug, the whole process will terminate, taking all the threads
     with it. Finally, debugging a complex multithreaded process can be a nightmare.
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 在另一个极端，你可以将任务映射到线程，并将系统实现为一个包含 40 个线程的单一进程。因为它们共享相同的地址空间和文件描述符，合作变得更加容易。发送消息的开销减少或消除，线程之间的上下文切换比进程之间的切换更快。缺点是，你引入了一个可能性——即某个任务可能会破坏另一个任务的堆或栈。如果任何线程遇到致命错误，整个进程会终止，所有线程也会一起终止。最后，调试一个复杂的多线程进程可能会变得非常棘手。
 - en: The conclusion you should draw is that neither design is ideal and that there
     is a better way to do things. But before we get to that point, I will delve a
     little more deeply into the APIs and the behavior of processes and threads.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 你应该得出的结论是，没有一个设计是完美的，确实有更好的方式来处理。但在我们达到那个点之前，我会深入探讨一下进程和线程的 API 以及它们的行为。
 - en: Processes
+  id: totrans-31
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进程
 - en: 'A process holds the environment in which threads can run: it holds the memory
     mappings, the file descriptors, the user and group IDs, and more. The first process
     is the `init` process, which is created by the kernel during boot and has a PID
     of 1\. Thereafter, processes are created by duplication in an operation known
     as **forking**.'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个进程持有线程运行的环境：它包含内存映射、文件描述符、用户和组 ID 等。第一个进程是 `init` 进程，由内核在启动时创建，PID 为 1。此后，进程通过一种称为
+    **分叉** 的操作进行创建。
 - en: Creating a new process
+  id: totrans-33
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 创建新进程
 - en: 'The POSIX function to create a process is `fork(2)`. It is an odd function
     because, for each successful call, there are two returns: one in the process that
     made the call, known as the **parent**, and one in the newly created process,
     known as the **child**, as shown in the following diagram:'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建进程的 POSIX 函数是 `fork(2)`。这个函数很特别，因为对于每次成功调用，它会返回两次：一次是在发出调用的进程中，称为 **父进程**，另一次是在新创建的进程中，称为
+    **子进程**，如以下图所示：
 - en: '![Figure 17.3 – Forking](img/B18466_17_03.png)'
+  id: totrans-35
   prefs: []
   type: TYPE_IMG
+  zh: '![图 17.3 – 分叉](img/B18466_17_03.png)'
 - en: Figure 17.3 – Forking
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 17.3 – 分叉
 - en: 'Immediately after the call, the child is an exact copy of the parent: it has
     the same stack, the same heap, and the same file descriptors, and it executes
     the same line of code – the one following `fork`.'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 在调用之后，子进程是父进程的精确副本：它有相同的栈、相同的堆和相同的文件描述符，并且执行相同的代码行——也就是紧跟在 `fork` 后的那一行。
 - en: 'The only way the programmer can tell them apart is by looking at the return
     value of `fork`: it is *zero* for the child and *greater than zero* for the parent.
     Actually, the value that’s returned to the parent is the PID of the newly created
     child process. There is a third possibility, which is that the return value is
     negative, which means that the `fork` call failed and there is still only one
     process.'
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 程序员唯一可以区分它们的方式是查看 `fork` 的返回值：对于子进程来说，它是 *零*，对于父进程来说，它是 *大于零*。实际上，返回给父进程的值是新创建的子进程的
+    PID。还有第三种可能性，即返回值为负，这表示 `fork` 调用失败，仍然只有一个进程。
 - en: Although the two processes are mostly identical, they are in separate address
     spaces. Changes that are made to a variable by one will not be seen by the other.
     Under the hood, the kernel does not make a physical copy of the parent’s memory,
@@ -212,27 +297,37 @@
     parent or child modifies this memory, the kernel makes a copy and then writes
     to the copy. This makes it an efficient fork function that also retains the logical
     separation of process address spaces. I will discuss CoW in [*Chapter 18*](Chapter_18.xhtml#_idTextAnchor581).
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管这两个进程大体相同，但它们在不同的地址空间中。一个进程对变量的修改，另一个进程是无法看到的。在底层，内核并不会对父进程的内存做物理复制，这样的操作会非常慢，并且不必要地消耗内存。相反，内存是共享的，但会标记为
+    **写时复制** (**CoW**) 标志。如果父进程或子进程修改了这段内存，内核会进行复制，并写入复制后的内存。这使得分叉操作更加高效，同时也保持了进程地址空间的逻辑分离。我将在
+    [*第 18 章*](Chapter_18.xhtml#_idTextAnchor581) 中详细讨论 CoW。
 - en: Terminating a process
+  id: totrans-40
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 终止进程
 - en: A process may be stopped voluntarily by calling the `exit(3)` function or, involuntarily,
     by receiving a signal that is not handled. One signal in particular, `SIGKILL`,
     cannot be handled, so it will always kill a process. In all cases, terminating
     the process will stop all threads, close all file descriptors, and release all
     memory. The system sends a signal, `SIGCHLD`, to the parent so that it knows this
     has happened.
+  id: totrans-41
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个进程可以通过调用`exit(3)`函数自愿停止，或者通过接收到一个未处理的信号被强制停止。特别是`SIGKILL`信号，无法被处理，因此它将始终终止一个进程。在所有情况下，终止进程将停止所有线程，关闭所有文件描述符，并释放所有内存。系统会向父进程发送一个`SIGCHLD`信号，通知其子进程已经终止。
 - en: 'Processes have a return value that is composed of either the argument to `exit`,
     if it terminated normally, or the signal number if it was killed. The chief use
     for this is in shell scripts: it allows you to test the return value from a program.
     By convention, `0` indicates success and any other values indicate a failure of
     some sort.'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 进程有一个返回值，通常由`exit`的参数组成，如果进程正常终止；如果进程被终止，则由信号编号组成。这个返回值的主要用途是在shell脚本中：它允许你测试程序的返回值。按照惯例，`0`表示成功，其他任何值都表示某种类型的失败。
 - en: 'The parent can collect the return value with the `wait(2)` or `waitpid(2)`
     function. This causes a problem: there will be a delay between a child terminating
     and its parent collecting the return value. In that period, the return value must
@@ -246,38 +341,58 @@
     process listings. They will become a problem if the parent fails to collect the
     return value because, eventually, there will not be enough resources to create
     any more processes.'
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 父进程可以通过`wait(2)`或`waitpid(2)`函数收集返回值。这会导致一个问题：在子进程终止与父进程收集返回值之间会有延迟。在这段时间内，返回值必须存储在某个地方，并且已终止进程的PID号不能被重用。处于这种状态的进程被称为**僵尸进程**，在`ps`和`top`命令中显示为`state
+    Z`。只要父进程在接收到子进程终止通知时（通过`SIGCHLD`信号；有关信号处理的详细信息，请参阅*Linux系统编程*，Robert Love著，O'Reilly
+    Media，或*The Linux Programming Interface*，Michael Kerrisk著，No Starch Press），调用`wait`或`waitpid`，通常僵尸进程存在的时间太短，无法出现在进程列表中。如果父进程未能收集返回值，它们将成为问题，因为最终将没有足够的资源来创建更多进程。
 - en: 'The program in `MELD/Chapter17/fork-demo` illustrates process creation and
     termination:'
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: '`MELD/Chapter17/fork-demo`中的程序演示了进程创建和终止：'
 - en: '[PRE0]'
+  id: totrans-45
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'The `wait` function blocks until a child process exits and stores the exit
     status. When you run it, you will see something like this:'
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: '`wait`函数会阻塞，直到子进程退出并存储退出状态。运行时，您会看到类似如下的内容：'
 - en: '[PRE1]'
+  id: totrans-47
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: The child process inherits most of the attributes of the parent, including the
     user and group IDs, all open file descriptors, signal handling, and scheduling
     characteristics.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 子进程会继承父进程的大部分属性，包括用户和组ID、所有打开的文件描述符、信号处理和调度特性。
 - en: Running a different program
+  id: totrans-49
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 运行不同的程序
 - en: 'The `fork` function creates a copy of a running program, but it does not run
     a different program. For that, you need one of the `exec` functions:'
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: '`fork`函数创建一个运行中的程序的副本，但它并不运行不同的程序。要实现这一点，你需要使用`exec`系列函数之一：'
 - en: '[PRE2]'
+  id: totrans-51
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'Each takes a path to the program file to load and run. If the function succeeds,
     the kernel discards all the resources of the current process, including memory
     and file descriptors, and allocates memory to the new program being loaded. When
@@ -285,95 +400,140 @@
     the call but to the `main()` function of the new program. There is an example
     of a command launcher in `MELD/Chapter17/exec-demo`: it prompts for a command,
     such as `/bin/ls`, and forks and executes the string you enter. Here is the code:'
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个进程都会加载并运行一个程序文件路径。如果函数成功，内核会丢弃当前进程的所有资源，包括内存和文件描述符，并为正在加载的新程序分配内存。当调用`exec*`的线程返回时，它不会返回到调用后的代码行，而是返回到新程序的`main()`函数中。在`MELD/Chapter17/exec-demo`中有一个命令启动器示例：它会提示输入命令，例如`/bin/ls`，然后进行分叉并执行你输入的字符串。以下是代码：
 - en: '[PRE3]'
+  id: totrans-53
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'This is what you will see when you run it:'
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 运行时，你会看到如下内容：
 - en: '[PRE4]'
+  id: totrans-55
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: You can terminate the program by typing *Ctrl + C*.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以通过输入*Ctrl + C*来终止程序。
 - en: It might seem odd to have one function that duplicates an existing process and
     another that discards its resources and loads a different program into memory,
     especially since it is common for a `fork` to be followed almost immediately by
     one of the `exec` functions. Most operating systems combine the two actions into
     a single call.
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 可能看起来很奇怪，为什么会有一个函数来复制现有进程，而另一个函数则丢弃资源并将不同的程序加载到内存中，尤其是因为通常 `fork` 会紧接着调用 `exec`
+    函数。大多数操作系统将这两个操作合并为一个单独的调用。
 - en: 'There are distinct advantages to this, however. For example, it makes it very
     easy to implement redirection and pipes in the shell. Imagine that you want to
     get a directory listing. This is the sequence of events:'
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，这种方式有显著的优势。例如，它使得在 shell 中实现重定向和管道变得非常容易。假设你想获取一个目录列表。以下是事件的顺序：
 - en: You type `ls` in the shell prompt.
+  id: totrans-59
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你在 shell 提示符中输入 `ls`。
 - en: The shell forks a child copy of itself.
+  id: totrans-60
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Shell 创建了其子进程的副本。
 - en: The shell waits for the child process to finish.
+  id: totrans-61
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Shell 等待子进程完成。
 - en: The child execs `/bin/ls`.
+  id: totrans-62
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 子进程执行 `/bin/ls`。
 - en: The `ls` program prints the directory listing to `stdout` (file descriptor 1),
     which is attached to the terminal. You will see the directory listing.
+  id: totrans-63
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '`ls` 程序将目录列表打印到 `stdout`（文件描述符 1），即终端。你将看到目录列表。'
 - en: The `ls` program terminates, and the shell regains control.
+  id: totrans-64
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '`ls` 程序终止，shell 恢复控制。'
 - en: 'Now, imagine that you want the directory listing to be written to a file by
     redirecting the output using the > character. Now, the sequence is as follows:'
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，假设你希望将目录列表重定向到一个文件中，而不是直接显示在屏幕上。此时，事件顺序如下：
 - en: You type `ls > listing.txt`.
+  id: totrans-66
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你输入 `ls > listing.txt`。
 - en: The shell forks a child copy of itself.
+  id: totrans-67
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Shell 创建了其子进程的副本。
 - en: The shell waits for the child process to finish.
+  id: totrans-68
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Shell 等待子进程完成。
 - en: The child opens and truncates the `listing.txt` file and uses `dup2(2)` to copy
     the file descriptor of the file over file descriptor 1 (`stdout`).
+  id: totrans-69
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 子进程打开并截断 `listing.txt` 文件，并使用 `dup2(2)` 将文件描述符 1（`stdout`）复制到该文件的文件描述符上。
 - en: The child execs `/bin/ls`.
+  id: totrans-70
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 子进程执行 `/bin/ls`。
 - en: The program prints the listing as it did previously, but this time, it is writing
     to `listing.txt`.
+  id: totrans-71
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 程序像之前一样打印目录列表，但这次它将输出写入 `listing.txt` 文件。
 - en: The `ls` program terminates, and the shell regains control.
+  id: totrans-72
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '`ls` 程序终止，shell 恢复控制。'
 - en: '**IMPORTANT NOTE**'
+  id: totrans-73
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: '**重要提示**'
 - en: There was an opportunity in *step 4* to modify the environment of the child
     process before executing the program. The `ls` program does not need to know that
     it is writing to a file rather than a terminal. Instead of a file, `stdout` could
@@ -382,137 +542,200 @@
     components that each do a job well, as described in *The Art of Unix Programming*,
     by Eric Steven Raymond and Addison Wesley, especially in the *Pipes, Redirection,
     and Filters* section.
+  id: totrans-74
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 在*第4步*中，有机会在执行程序之前修改子进程的环境。`ls` 程序不需要知道它是在写入文件而不是终端。`stdout` 可以连接到管道，这样 `ls`
+    程序仍然保持不变，可以将输出发送到另一个程序。这是 Unix 哲学的一部分，强调将许多小组件组合在一起，每个组件都能高效地完成任务，正如 Eric Steven
+    Raymond 和 Addison Wesley 在《Unix 编程艺术》一书中描述的，特别是在*管道、重定向与过滤器*章节中。
 - en: So far, the programs we’ve looked at in this section all run in the foreground.
     But what about programs that run in the background, waiting for things to happen?
     Let’s take a look.
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，我们在本节中查看的所有程序都在前台运行。但后台程序如何呢？它们等待某些事件的发生。让我们来看一下。
 - en: Daemons
+  id: totrans-76
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 守护进程
 - en: 'We have encountered daemons in several places already. A **daemon** is a process
     that runs in the background, is owned by the `init` process, and is not connected
     to a controlling terminal. The steps to create a daemon are as follows:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们已经在多个地方遇到过守护进程。**守护进程**是一个在后台运行的进程，由 `init` 进程拥有，并且不连接到控制终端。创建守护进程的步骤如下：
 - en: Call `fork` to create a new process, after which the parent should exit, thus
     creating an orphan that will be re-parented to `init`.
+  id: totrans-78
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 调用 `fork` 来创建一个新进程，父进程退出，从而创建一个孤儿进程，这个孤儿进程将被重新归到 `init` 进程下。
 - en: The child process calls `setsid(2)`, creating a new session and process group
     that it is the sole member of. The exact details do not matter here; you can simply
     consider this a way of isolating the process from any controlling terminal.
+  id: totrans-79
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 子进程调用 `setsid(2)`，创建一个新的会话和进程组，子进程是唯一的成员。这里的具体细节并不重要；你可以简单地将其视为一种将进程与任何控制终端隔离的方法。
 - en: Change the working directory to the root directory.
+  id: totrans-80
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将工作目录更改为根目录。
 - en: Close all file descriptors and redirect `stdin`, `stdout`, and `stderr` (descriptors
     `0`, `1`, and `2`) to `/dev/null` so that there is no input, and all output is
     hidden.
+  id: totrans-81
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 关闭所有文件描述符，并将`stdin`、`stdout`和`stderr`（描述符`0`、`1`和`2`）重定向到`/dev/null`，以确保没有输入，且所有输出都被隐藏。
 - en: Thankfully, all of the preceding steps can be achieved with a single function
     call, `daemon(3)`.
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 幸运的是，所有前述步骤都可以通过一个函数调用`daemon(3)`来实现。
 - en: Inter-process communication
+  id: totrans-83
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 进程间通信
 - en: Each process is an island of memory. You can pass information from one to another
     in two ways. Firstly, you can move it from one address space to the other. Secondly,
     you can create an area of memory that both can access and share the data.
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个进程都是一个独立的内存岛。你可以通过两种方式将信息从一个进程传递到另一个进程。首先，你可以将其从一个地址空间移动到另一个地址空间。其次，你可以创建一个共享内存区域，两个进程都可以访问并共享数据。
 - en: 'The first is usually combined with a queue or buffer so that there is a sequence
     of messages passing between processes. This implies copying the message twice:
     first to a holding area and then to the destination. Some examples of this are
     sockets, pipes, and message queues.'
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 第一个通常与队列或缓冲区结合使用，以便在进程之间传递一系列消息。这意味着消息需要被复制两次：首先复制到一个临时存储区，然后再复制到目的地。一些例子包括套接字、管道和消息队列。
 - en: The second way requires not only a method of creating memory that is mapped
     to two (or more) address spaces at once, but it is also a means of synchronizing
     access to that memory, for example, using semaphores or mutexes.
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 第二种方式不仅需要一种方法来创建可以同时映射到两个（或更多）地址空间的内存，而且还需要一种同步访问该内存的方式，例如使用信号量或互斥锁。
 - en: POSIX has functions for all of these. There is an older set of APIs known as
     **System V IPC**, which provides message queues, shared memory, and semaphores,
     but it is not as flexible as the POSIX equivalents, so I will not describe them
     here. The manual page on `svipc(7)` gives an overview of these facilities, and
     there are more details in *The Linux Programming Interface*, by Michael Kerrisk,
     and *Unix Network Programming, Volume 2*, by W. Richard Stevens.
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: POSIX 为所有这些提供了函数。还有一个较老的API集，称为**System V IPC**，它提供了消息队列、共享内存和信号量，但它没有POSIX等价物灵活，因此我在这里不做描述。`svipc(7)`手册页提供了这些设施的概述，更多细节可以参阅Michael
+    Kerrisk的《Linux程序接口》和W. Richard Stevens的《Unix网络编程，第2卷》。
 - en: Message-based protocols are usually easier to program and debug than shared
     memory, but are slow if the messages are large or there are many of them.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于消息的协议通常比共享内存更易于编程和调试，但如果消息较大或数量很多，它们的速度会较慢。
 - en: Message-based IPC
+  id: totrans-89
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 基于消息的IPC
 - en: 'There are several options for message-based IPC, all of which I will summarize
     as follows. The attributes that differentiate one from the other are as follows:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 有几种基于消息的IPC选项，我将简要总结如下。区分它们的属性如下：
 - en: Whether the message flow is uni- or bi-directorial.
+  id: totrans-91
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 消息流是否是单向或双向。
 - en: Whether the data flow is a byte stream with no message boundary or discrete
     messages with boundaries preserved. In the latter case, the maximum size of a
     message is important.
+  id: totrans-92
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 数据流是否是没有消息边界的字节流，还是保留边界的离散消息。在后一种情况下，消息的最大大小是一个重要因素。
 - en: Whether messages are tagged with a priority.
+  id: totrans-93
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 消息是否带有优先级标签。
 - en: 'The following table summarizes these properties for FIFOs, sockets, and message
     queues:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下表格总结了这些属性在FIFO、套接字和消息队列中的表现：
 - en: '| **Property** | **FIFO** | **Unix socket: stream** | **Unix socket: datagram**
     | **POSIX message queue** |'
+  id: totrans-95
   prefs: []
   type: TYPE_TB
+  zh: '| **属性** | **FIFO** | **Unix 套接字：流** | **Unix 套接字：数据报** | **POSIX 消息队列** |'
 - en: '| Message boundary | Byte stream | Byte stream | Discrete | Discrete |'
+  id: totrans-96
   prefs: []
   type: TYPE_TB
+  zh: '| 消息边界 | 字节流 | 字节流 | 离散消息 | 离散消息 |'
 - en: '| Uni/bi-directional | Uni | Bi | Uni | Uni |'
+  id: totrans-97
   prefs: []
   type: TYPE_TB
+  zh: '| 单向/双向 | 单向 | 双向 | 单向 | 单向 |'
 - en: '| Max message size | Unlimited | Unlimited | In the range of 100 KB to 200
     KB | Fefault: 8 KB absolutemaximum: 1 MB |'
+  id: totrans-98
   prefs: []
   type: TYPE_TB
+  zh: '| 最大消息大小 | 无限 | 无限 | 100 KB至200 KB范围内 | 默认：8 KB，绝对最大：1 MB |'
 - en: '| Priority levels | None | None | None | 0 to 32767 |'
+  id: totrans-99
   prefs: []
   type: TYPE_TB
+  zh: '| 优先级级别 | 无 | 无 | 无 | 0到32767 |'
 - en: Table 17.1 – Properties for FIFOs, sockets, and message queues
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: 表17.1 – FIFO、套接字和消息队列的属性
 - en: The first form of message-based IPC we will look at is Unix sockets.
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将首先探讨的基于消息的IPC形式是Unix套接字。
 - en: Unix (or local) sockets
+  id: totrans-102
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: Unix（或本地）套接字
 - en: '**Unix sockets** fulfill most requirements and, coupled with the familiarity
     of the sockets API, are by far the most common mechanism.'
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: '**Unix 套接字**满足大多数要求，结合套接字API的熟悉度，是迄今为止最常见的机制。'
 - en: Unix sockets are created with the `AF_UNIX` address family and bound to a pathname.
     Access to the socket is determined by the access permission of the socket file.
     As with internet sockets, the socket type can be `SOCK_STREAM` or `SOCK_DGRAM`,
@@ -521,20 +744,30 @@
     means that they will not be dropped or reordered. The maximum size for a datagram
     is system-dependent and is available via `/proc/sys/net/core/wmem_max`. It is
     typically 100 KB or more.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: Unix 套接字通过 `AF_UNIX` 地址族创建，并绑定到一个路径名。对套接字的访问权限由套接字文件的访问权限决定。与互联网套接字一样，套接字类型可以是
+    `SOCK_STREAM` 或 `SOCK_DGRAM`，前者提供双向字节流，后者提供带有保留边界的离散消息。Unix 套接字的数据报是可靠的，这意味着它们不会丢失或重排序。数据报的最大大小是系统相关的，可以通过
+    `/proc/sys/net/core/wmem_max` 获取。通常是 100 KB 或更大。
 - en: Unix sockets do not have a mechanism to indicate the priority of a message.
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: Unix 套接字没有机制来指示消息的优先级。
 - en: FIFOs and named pipes
+  id: totrans-106
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: FIFO 和命名管道
 - en: '**FIFO** and **named pipe** are just different terms for the same thing. They
     are an extension of the anonymous pipe that is used to communicate between parent
     and child processes when implementing pipes in the shell.'
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: '**FIFO** 和 **命名管道** 只是同一事物的不同术语。它们是匿名管道的扩展，用于在实现 shell 中的管道时在父子进程之间进行通信。'
 - en: A FIFO is a special sort of file, created by the `mkfifo(1)` command. As with
     Unix sockets, the file access permissions determine who can read and write. They
     are unidirectional, which means that there is one reader and usually one writer,
@@ -546,158 +779,232 @@
     KB on modern kernels and can be increased using `fcntl(2)` with `F_SETPIPE_SZ`,
     up to the value in `/proc/sys/fs/pipe-max-size`, which is typically 1 MB. There
     is no concept of priority.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: FIFO 是一种特殊的文件，通过 `mkfifo(1)` 命令创建。与 Unix 套接字一样，文件的访问权限决定了谁可以读取和写入。它们是单向的，这意味着通常有一个读取者和一个写入者，虽然也可以有多个写入者。数据是纯字节流，但它保证了小于与管道相关的缓冲区大小的消息的原子性。换句话说，写入小于此大小的数据不会被分割成多个小的写入，因此只要你一端的缓冲区足够大，你就可以一次性读取整个消息。现代内核的默认
+    FIFO 缓冲区大小为 64 KB，可以通过 `fcntl(2)` 和 `F_SETPIPE_SZ` 增加，最大值为 `/proc/sys/fs/pipe-max-size`
+    中的值，通常为 1 MB。没有优先级的概念。
 - en: POSIX message queues
+  id: totrans-109
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: POSIX 消息队列
 - en: Message queues are identified by a name beginning with a forward slash and containing
     only one `/` character. Message queues are kept in a pseudo filesystem of the
     `mqueue` type. You create a queue and get a reference to an existing queue through
     `mq_open(3)`, which returns a file descriptor. Each message has a priority, and
     messages are read from the queue based on priority and then on the age order.
     Messages can be up to `/proc/sys/kernel/msgmax` bytes long.
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 消息队列通过一个以斜杠开头并仅包含一个 `/` 字符的名称来标识。消息队列保存在 `mqueue` 类型的伪文件系统中。你可以通过 `mq_open(3)`
+    创建一个队列并获取对现有队列的引用，该函数返回一个文件描述符。每个消息都有一个优先级，消息按优先级顺序读取，然后按年龄顺序读取。消息的最大长度是 `/proc/sys/kernel/msgmax`
+    字节。
 - en: The default value is 8 KB, but you can set it to be any size in the range of
     128 bytes to 1 MB by writing the value to `/proc/sys/kernel/msgmax`. Since the
     reference is a file descriptor, you can use `select(2)`, `poll(2)`, and other
     similar functions to wait for activity in the queue.
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 默认值为 8 KB，但你可以通过将值写入 `/proc/sys/kernel/msgmax` 设置为 128 字节到 1 MB 之间的任何大小。由于引用是文件描述符，因此可以使用
+    `select(2)`、`poll(2)` 和其他类似的函数来等待队列中的活动。
 - en: Refer to the Linux `mq_overview(7)` man page for more details.
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 有关更多细节，请参考 Linux `mq_overview(7)` 手册页。
 - en: Summary of message-based IPC
+  id: totrans-113
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 基于消息的进程间通信概述
 - en: Unix sockets are used the most often because they offer all that is needed,
     except perhaps message priority. They are implemented on most operating systems,
     so they confer maximum portability.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: Unix 套接字最常被使用，因为它们提供了所需的一切，除了可能的消息优先级。它们在大多数操作系统上实现，因此具有最大可移植性。
 - en: FIFOs are less frequently used, mostly because they lack an equivalent to a
     **datagram**. On the other hand, the API is very simple, since it provides the
     normal `open(2)`, `close(2)`, `read(2)`, and `write(2)` file calls.
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: FIFO（先进先出队列）较少使用，主要是因为它缺少类似于**数据报**的功能。另一方面，API非常简单，因为它提供了正常的`open(2)`、`close(2)`、`read(2)`和`write(2)`文件调用。
 - en: Message queues are the least commonly used of this group. The code paths in
     the kernel are not optimized in the way that socket (network) and FIFO (filesystem)
     calls are.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 消息队列是这一组中使用最少的。内核中的代码路径没有像套接字（网络）和FIFO（文件系统）调用那样得到优化。
 - en: There are also higher-level abstractions such as D-Bus, which are moving from
     mainstream Linux to embedded devices. D-Bus uses Unix sockets and shared memory
     under the surface.
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 还有一些更高层次的抽象，如D-Bus，它们正在从主流Linux转向嵌入式设备。D-Bus在底层使用Unix套接字和共享内存。
 - en: Shared memory-based IPC
+  id: totrans-118
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 基于共享内存的进程间通信（IPC）
 - en: Sharing memory removes the need to copy data between address spaces but introduces
     the problem of synchronizing accesses to it. Synchronization between processes
     is commonly achieved using semaphores.
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: 共享内存消除了在地址空间之间复制数据的需求，但引入了同步访问的难题。进程间同步通常通过使用信号量来实现。
 - en: POSIX shared memory
+  id: totrans-120
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: POSIX共享内存
 - en: 'To share memory between processes, you must create a new area of memory and
     then map it to the address space of each process that wants access to it, as shown
     in the following diagram:'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了在进程之间共享内存，必须创建一个新的内存区域，然后将其映射到每个想要访问它的进程的地址空间，如下图所示：
 - en: '![Figure 17.4 – POSIX shared memory](img/B18466_17_04.png)'
+  id: totrans-122
   prefs: []
   type: TYPE_IMG
+  zh: '![图17.4 – POSIX共享内存](img/B18466_17_04.png)'
 - en: Figure 17.4 – POSIX shared memory
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 图17.4 – POSIX共享内存
 - en: 'Naming POSIX shared memory segments follows the pattern we encountered with
     message queues. The segments are identified by names that begin with a / character
     and have exactly one such character:'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 命名POSIX共享内存段遵循我们在消息队列中遇到的模式。这些段通过以/字符开头并且仅包含一个这样的字符的名称来标识：
 - en: '[PRE5]'
+  id: totrans-125
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'The `shm_open(3)` function takes the name and returns a file descriptor for
     it. If it does not exist already and the `O_CREAT` flag is set, then a new segment
     is created. Initially, it has a size of zero. You can use the (misleadingly named)
     `ftruncate(2)` function to expand it to the desired size:'
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: '`shm_open(3)`函数接受名称并返回相应的文件描述符。如果该内存段尚不存在，并且设置了`O_CREAT`标志，则会创建一个新的段。最初，它的大小为零。你可以使用（名字具有误导性的）`ftruncate(2)`函数将其扩展到所需的大小：'
 - en: '[PRE6]'
+  id: totrans-127
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Once you have a descriptor for the shared memory, you map it to the address
     space of the process using `mmap(2)` so that threads in different processes can
     access the memory:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦你获得了共享内存的描述符，就可以使用`mmap(2)`将其映射到进程的地址空间，以便不同进程中的线程可以访问该内存：
 - en: '[PRE7]'
+  id: totrans-129
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'The program in `MELD/Chapter17/shared-mem-demo` provides an example of using
     a shared memory segment to communicate between processes. Here is the `main` function:'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: '`MELD/Chapter17/shared-mem-demo`中的程序提供了一个使用共享内存段进行进程间通信的示例。以下是`main`函数：'
 - en: '[PRE8]'
+  id: totrans-131
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: The program uses a shared memory segment to communicate a message from one process
     to another. The message is `Hello from process string`, followed by its PID. The
     `get_shared_memory` function is responsible for creating the memory segment, if
     it does not exist, or getting the file descriptor for it if it does. It returns
     a pointer to the memory segment. Notice that there is a semaphore to synchronize
     access to the memory so that one process does not overwrite a message from another.
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 该程序使用共享内存段来在进程之间传递消息。消息内容是`Hello from process string`，后跟其PID。`get_shared_memory`函数负责创建内存段（如果它不存在）或获取文件描述符（如果已存在）。它返回指向内存段的指针。请注意，存在一个信号量用于同步对内存的访问，以防止一个进程覆盖另一个进程的消息。
 - en: 'To try it out, you need two instances of the program running in separate terminal
     sessions. In the first terminal, you will see something like this:'
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 要尝试此功能，你需要在两个不同的终端会话中运行程序的两个实例。在第一个终端中，你会看到类似这样的内容：
 - en: '[PRE9]'
+  id: totrans-134
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'Because this is the first time the program is being run, it creates the memory
     segment. Initially, the message area is empty, but after one run through the loop,
     it contains the PID of this process, which is 271\. Now, you can run a second
     instance in another terminal:'
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 因为这是程序第一次运行，它会创建内存段。最初，消息区域是空的，但在执行一次循环后，它包含了该进程的PID，即271。现在，你可以在另一个终端中运行第二个实例：
 - en: '[PRE10]'
+  id: totrans-136
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: It does not create the shared memory segment because it exists already, and
     it displays the message that it contains already, which is the PID of the other
     program. Pressing *Enter* causes it to write its own PID, which the first program
     would be able to see. By doing this, the two programs can communicate with each
     other.
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 它不会创建共享内存段，因为该内存段已经存在，并且它显示已经包含的消息，即另一个程序的 PID。按下 *Enter* 后，它会写入自己的 PID，第一个程序能够看到它。通过这种方式，两个程序可以相互通信。
 - en: 'The POSIX IPC functions are part of the POSIX real-time extensions, so you
     need to link them with `librt`. Oddly, the POSIX semaphores are implemented in
     the POSIX threads library, so you need to link to the `pthreads` library as well.
     Hence, the compilation arguments are as follows when you’re targeting 64-bit Arm
     SoCs:'
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: POSIX IPC 函数是 POSIX 实时扩展的一部分，因此你需要将它们与 `librt` 链接。奇怪的是，POSIX 信号量是通过 POSIX 线程库实现的，因此你还需要将其与
+    `pthreads` 库链接。因此，在你针对 64 位 Arm SoC 进行编译时，编译参数如下所示：
 - en: '[PRE11]'
+  id: totrans-139
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: This concludes our survey of IPC methods. We will revisit message-based IPC
     when we cover ZeroMQ. Now, it is time to look at multithreaded processes.
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 这就结束了我们对 IPC 方法的调研。当我们介绍 ZeroMQ 时，会重新回到基于消息的 IPC。现在，是时候看看多线程进程了。
 - en: Threads
+  id: totrans-141
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 线程
 - en: 'The programming interface for threads is the POSIX threads API, which was first
     defined in the *IEEE POSIX 1003.1c standard (1995)* and is commonly known as **pthreads**.
     It is implemented as an additional part of the `libpthread.so.0` C library. There
@@ -706,36 +1013,56 @@
     with the specification, especially in regard to the handling of signals and process
     IDs. NPTL is dominant now. If you happen to come across any C standard library
     that still employs `LinuxThreads`, I would refrain from using it.'
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 线程的编程接口是 POSIX 线程 API，该接口最初在 *IEEE POSIX 1003.1c 标准（1995）* 中定义，通常称为 **pthreads**。它作为
+    `libpthread.so.0` C 库的附加部分实现。过去 20 年左右，`pthreads` 有过两种实现：**LinuxThreads** 和 **Native
+    POSIX Thread Library**（**NPTL**）。后者对规范的遵循更为严格，尤其是在信号和进程 ID 的处理方面。现在，NPTL 已占主导地位。如果你遇到任何仍然使用
+    `LinuxThreads` 的 C 标准库，我建议避免使用它。
 - en: Creating a new thread
+  id: totrans-143
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 创建一个新线程
 - en: 'The function you can use to create a thread is `pthread_create(3)`:'
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以用来创建线程的函数是 `pthread_create(3)`：
 - en: '[PRE12]'
+  id: totrans-145
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: It creates a new thread of execution that begins in the `start_routine` function
     and places a descriptor in `pthread_t`, which is pointed to by `thread`. It inherits
     the scheduling parameters of the calling thread, but these can be overridden by
     passing a pointer to the thread attributes in `attr`. The thread will start executing
     immediately.
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 它创建了一个新的执行线程，线程从 `start_routine` 函数开始执行，并将描述符放置在 `pthread_t` 中，该描述符由 `thread`
+    指向。它继承了调用线程的调度参数，但这些参数可以通过传递指向线程属性的指针 `attr` 来覆盖。线程将立即开始执行。
 - en: '`pthread_t` is the main way to refer to the thread within the program, but
     the thread can also be seen from outside using a command such as `ps -eLf`:'
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: '`pthread_t` 是在程序中引用线程的主要方式，但也可以使用诸如 `ps -eLf` 这样的命令从外部查看线程：'
 - en: '[PRE13]'
+  id: totrans-148
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: The BusyBox `ps` applet does not support the `-eLf` option so make sure to install
     the full `procps` package on embedded targets.
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: BusyBox `ps` 小程序不支持 `-eLf` 选项，因此请确保在嵌入式目标上安装完整的 `procps` 包。
 - en: 'In the preceding output, the `thread-demo` program has two threads. The `PID`
     and `PPID` columns show that they all belong to the same process and have the
     same parent, as you would expect. The column marked `LWP` is interesting, though.
@@ -746,52 +1073,79 @@
     states that you must give a PID, but be aware that this behavior is specific to
     Linux and is not portable. Here is a simple program that illustrates the life
     cycle of a thread (the code is in `MELD/Chapter17/thread-demo`):'
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前面的输出中，`thread-demo` 程序有两个线程。`PID` 和 `PPID` 列显示它们都属于同一个进程，并且具有相同的父进程，正如你所期望的那样。然而，`LWP`
+    列是很有趣的。**LWP** 代表 **Light Weight Process**，在这里，它是线程的另一种称呼。该列中的数字也被称为 **Thread
+    ID** 或 **TID**。在主线程中，TID 与 PID 相同，但对于其他线程，它是不同（更高）的值。你可以在文档中要求提供 PID 的地方使用 TID，但要注意，这种行为特定于
+    Linux，并不具有可移植性。下面是一个简单的程序，展示了线程的生命周期（代码位于 `MELD/Chapter17/thread-demo`）：
 - en: '[PRE14]'
+  id: totrans-151
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: Note that, in the `thread_fn` function, I am retrieving the TID using `syscall(SYS_gettid)`.
     Prior to `glibc` 2.30, you had to call Linux directly through a `syscall` because
     there was no C library wrapper for `gettid()`.
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，在 `thread_fn` 函数中，我通过 `syscall(SYS_gettid)` 获取线程 ID。在 `glibc` 2.30 之前，必须通过
+    `syscall` 直接调用 Linux，因为当时 C 库没有为 `gettid()` 提供包装函数。
 - en: There is a limit to the total number of threads that a given kernel can schedule.
     The limit scales according to the size of the system, from around 1,000 on small
     devices up to tens of thousands on larger embedded devices. The actual number
     is available in `/proc/sys/kernel/threads-max`. Once you reach this limit, fork
     and `pthread_create` will fail.
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 给定内核能够调度的线程总数是有限制的。这个限制会根据系统的大小而变化，从小型设备上的约 1,000 到大型嵌入式设备上的数万个不等。实际数字可以在 `/proc/sys/kernel/threads-max`
+    中查看。一旦达到此限制，`fork` 和 `pthread_create` 将会失败。
 - en: Terminating a thread
+  id: totrans-154
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 终止一个线程
 - en: 'A thread terminates when any of the following occurs:'
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 当以下任一情况发生时，线程会终止：
 - en: It reaches the end of its `start_routine`.
+  id: totrans-156
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它达到了其 `start_routine` 的结束。
 - en: It calls `pthread_exit(3)`.
+  id: totrans-157
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它调用了 `pthread_exit(3)`。
 - en: It is canceled by another thread calling `pthread_cancel(3)`.
+  id: totrans-158
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它被另一个线程通过调用 `pthread_cancel(3)` 取消。
 - en: The process that contains the thread terminates, for example, because of a thread
     calling `exit(3)`, or the process receiving a signal that is not handled, masked,
     or ignored.
+  id: totrans-159
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 包含线程的进程会终止，例如，因为某个线程调用了 `exit(3)`，或者进程收到了未处理、未屏蔽或未忽略的信号。
 - en: Note that if a multithreaded program calls `fork`, only the thread that made
     the call will exist in the new child process. Forking does not replicate all threads.
+  id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，如果多线程程序调用 `fork`，则只有发出调用的线程会在新的子进程中存在。`fork` 不会复制所有线程。
 - en: 'A thread has a return value, which is a void pointer. One thread can wait for
     another to terminate and collect its return value by calling `pthread_join(2)`.
     There is an example of this in the code for `thread-demo`, as we mentioned in
@@ -799,68 +1153,95 @@
     problem among processes: the resources of the thread, such as the stack, cannot
     be freed up until another thread has joined with it. If threads remain *unjoined*,
     there is a resource leak in the program.'
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 线程有一个返回值，是一个空指针。一个线程可以通过调用 `pthread_join(2)` 等待另一个线程终止并收集其返回值。正如我们在前面的部分提到的，`thread-demo`
+    代码中有一个这样的例子。这会产生一个类似于进程僵尸问题的问题：线程的资源，如堆栈，必须等到另一个线程与之连接后才能释放。如果线程保持 *未连接* 状态，程序将发生资源泄漏。
 - en: Compiling a program with threads
+  id: totrans-162
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 编译带有线程的程序
 - en: 'The support for POSIX threads is part of the C library in the `libpthread.so.0`
     library. However, there is more to building programs with threads than linking
     the library: there must be changes to the way the compiler generates code to make
     sure that certain global variables, such as `errno`, have one instance per thread
     rather than one for the whole process.'
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: POSIX 线程的支持是 `libpthread.so.0` 库中 C 库的一部分。然而，构建包含线程的程序不仅仅是链接库：必须对编译器生成代码的方式进行修改，以确保某些全局变量，如
+    `errno`，每个线程都有一个实例，而不是整个进程共享一个实例。
 - en: '**TIP**'
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: '**提示**'
 - en: When building a threaded program, add the `-pthread` switch. Adding `-pthread`
     will automatically add `-lpthread` to the linker command from the compiler driver.
+  id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: 在构建多线程程序时，添加 `-pthread` 开关。添加 `-pthread` 会自动将 `-lpthread` 添加到编译器驱动的链接命令中。
 - en: Inter-thread communication
+  id: totrans-166
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 线程间通信
 - en: The big advantage of threads is that they share the address space and can share
     memory variables. This is also a big disadvantage because it requires synchronization
     to preserve data consistency in a manner similar to memory segments shared between
     processes but with the provision that, with threads, all memory is shared. In
     fact, threads can create private memory using **thread local storage** (**TLS**),
     but I will not cover that here.
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 线程的一个大优点是它们共享地址空间，并且可以共享内存变量。这也是一个大缺点，因为它需要同步，以保持数据一致性，类似于进程之间共享内存段的方式，但提供了线程可以共享所有内存的条件。事实上，线程可以使用
+    **线程局部存储**（**TLS**）创建私有内存，但我在这里不会讨论这一点。
 - en: 'The `pthreads` interface provides the basics necessary to achieve synchronization:
     mutexes and condition variables. If you want more complex structures, you will
     have to build them yourself.'
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: '`pthreads` 接口提供了实现同步所需的基本功能：互斥锁和条件变量。如果你需要更复杂的结构，就必须自己构建。'
 - en: It is worth noting that all the IPC methods we described earlier – that is,
     sockets, pipes, and message queues – work equally well between threads in the
     same process.
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 值得注意的是，我们之前描述的所有IPC方法——即套接字、管道和消息队列——在同一进程中的线程之间同样有效。
 - en: Mutual exclusion
+  id: totrans-170
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 互斥
 - en: 'To write robust programs, you need to protect each shared resource with a mutex
     lock and make sure that every code path that reads or writes the resource has
     locked the mutex first. If you apply this rule consistently, most of the problems
     should be solved. The ones that remain are associated with the fundamental behavior
     of mutexes. I will list them briefly here but will not go into too much detail:'
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 要编写健壮的程序，你需要使用互斥锁保护每个共享资源，并确保每个读取或写入该资源的代码路径首先锁定互斥锁。如果你始终遵守这个规则，大多数问题应该能得到解决。剩下的问题与互斥锁的基本行为相关。我将在这里简要列出它们，但不会过多细谈：
 - en: '**Deadlock**: This occurs when mutexes become permanently locked. A classic
     situation is the **deadly embrace**, in which two threads each require two mutexes
     and have managed to lock one of them but not the other. Each thread blocks, waiting
     for the lock the other has, and so they remain as they are. One simple rule for
     avoiding the deadly embrace problem is to make sure that mutexes are always locked
     in the same order. Other solutions involve timeouts and back-off periods.'
+  id: totrans-172
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**死锁**：当互斥锁永远被锁住时，就会发生死锁。一个经典的情况是**致命的拥抱**，在这种情况下，两个线程各自需要两个互斥锁，并且成功锁住了其中一个，但没有锁住另一个。每个线程都会阻塞，等待对方持有的锁，因此它们保持在原地。避免致命拥抱问题的一个简单规则是确保互斥锁始终按照相同的顺序进行锁定。其他解决方案包括超时和回退时间。'
 - en: '**Priority inversion**: The delays caused by waiting for a mutex can cause
     a real-time thread to miss deadlines. The specific case of priority inversion
     happens when a high-priority thread becomes blocked, waiting for a mutex locked
@@ -869,31 +1250,41 @@
     length of time. There are mutex protocols called **priority inheritance** and
     **priority ceiling** that resolve the problem at the expense of greater processing
     overhead in the kernel for each lock and unlock call.'
+  id: totrans-173
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**优先级反转**：等待互斥锁造成的延迟可能导致实时线程错过截止日期。优先级反转的具体情况发生在一个高优先级线程被阻塞，等待一个低优先级线程持有的互斥锁。如果低优先级线程被其他中等优先级线程抢占，那么高优先级线程就会被迫等待一个不确定长度的时间。存在名为**优先级继承**和**优先级上限**的互斥锁协议，通过在内核中为每个锁定和解锁操作增加更多的处理开销来解决这一问题。'
 - en: '**Poor performance**: Mutexes introduce minimal overhead to the code, as long
     as threads don’t have to block on them most of the time. If your design has a
     resource that is needed by a lot of threads, however, the contention ratio becomes
     significant. This is usually a design issue that can be resolved using finer-grained
     locking or a different algorithm.'
+  id: totrans-174
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**性能差**：只要线程大部分时间不需要在互斥锁上阻塞，互斥锁对代码的开销是最小的。然而，如果你的设计中有一个资源被很多线程需要，那么竞争比例就会变得显著。这通常是一个设计问题，可以通过使用更细粒度的锁定或不同的算法来解决。'
 - en: Mutexes are not the only way to synchronize between threads. We witnessed how
     two processes can use a semaphore to notify each other back when we covered POSIX
     shared memory. Threads have a similar construct.
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 互斥锁并不是线程间同步的唯一方式。我们在讲解POSIX共享内存时见证了两个进程如何使用信号量互相通知对方。线程也有类似的机制。
 - en: Changing conditions
+  id: totrans-176
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 条件变化
 - en: Cooperating threads need to be able to alert one another that something has
     changed and needs attention. This is called a **condition**, and the alert is
     sent through a **condition variable**, or **condvar**.
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 协作线程需要能够相互提醒，告诉对方某些事情已经改变，需要关注。这就是所谓的**条件**，而这个提醒是通过**条件变量**（或**condvar**）发送的。
 - en: A condition is just something that you can test to give a true or false result.
     A simple example is a buffer that contains either zero or some items. One thread
     takes items from the buffer and sleeps when it is empty. Another thread places
@@ -901,78 +1292,105 @@
     the condition that the other thread is waiting on has changed. If it is sleeping,
     it needs to wake up and do something. The only complexity is that the condition
     is, by definition, a shared resource, so it must be protected by a mutex.
+  id: totrans-178
   prefs: []
   type: TYPE_NORMAL
+  zh: 条件只是你可以测试以得到真或假结果的东西。一个简单的例子是一个缓冲区，它包含零个或若干个项目。一个线程从缓冲区取出项目，缓冲区为空时它会休眠。另一个线程将项目放入缓冲区，并向其他线程发出信号，表明条件发生了变化。如果它正在休眠，它需要醒来并做点什么。唯一的复杂性是，条件根据定义是共享资源，因此必须通过互斥锁来保护。
 - en: 'Here is a simple program with two threads. The first is the producer: it wakes
     every second and puts some data into a global variable before signaling that there
     has been a change. The second thread is the consumer: it waits on the condition
     variable and tests the condition (that there is a string in the buffer of nonzero
     length) each time it wakes up. You can find the code in `MELD/Chapter17/condvar-demo`:'
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面是一个有两个线程的简单程序。第一个是生产者：它每秒醒来一次，将一些数据放入全局变量中，然后发出信号，表明数据已经发生变化。第二个线程是消费者：它等待条件变量，并在每次醒来时测试条件（即缓冲区中有一个非零长度的字符串）。你可以在`MELD/Chapter17/condvar-demo`中找到代码：
 - en: '[PRE15]'
+  id: totrans-180
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: Note that when the consumer thread blocks on the condvar, it does so while holding
     a locked mutex, which would seem to be a recipe for deadlock the next time the
     producer thread tries to update the condition. To avoid this, `pthread_cond_wait(3`)
     unlocks the mutex after the thread is blocked and then locks it again before waking
     it and returning from the wait.
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，当消费者线程在条件变量上阻塞时，它是在持有锁定的互斥锁的情况下进行的，这似乎为死锁埋下了伏笔——下次生产者线程尝试更新条件时会发生死锁。为了避免这种情况，`pthread_cond_wait(3)`在线程被阻塞后会解锁互斥锁，然后在线程醒来并从等待中返回之前再次锁定它。
 - en: Partitioning the problem
+  id: totrans-182
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 划分问题
 - en: Now that we have covered the basics of processes and threads and the ways in
     which they communicate, it is time to see what we can do with them.
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经覆盖了进程和线程的基础知识以及它们如何进行通信，是时候看看我们可以用它们做些什么了。
 - en: 'Here are some of the rules I use when building systems:'
+  id: totrans-184
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面是我在构建系统时使用的一些规则：
 - en: '**Rule 1**: Keep tasks that have a lot of interaction together: It is important
     to minimize overheads by keeping closely inter-operating threads together in one
     process.'
+  id: totrans-185
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**规则 1**：将交互较多的任务放在一起：重要的是通过将密切交互的线程放在同一个进程中来减少开销。'
 - en: '**Rule 2**: Don’t put all your threads in one basket: On the other hand, try
     and keep components with limited interaction in separate processes, in the interests
     of resilience and modularity.'
+  id: totrans-186
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**规则 2**：不要把所有线程放在一个篮子里：另一方面，尽量将相互作用有限的组件放在不同的进程中，以提高弹性和模块化。'
 - en: '**Rule 3**: Don’t mix critical and noncritical threads in the same process:
     This is an amplification of *Rule 2*: the critical part of the system, which might
     be a machine control program, should be kept as simple as possible and written
     in a more rigorous way than other parts. It must be able to continue, even if
     other processes fail. If you have real-time threads, by definition, they must
     be critical and should go into a process by themselves.'
+  id: totrans-187
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**规则 3**：不要在同一个进程中混合关键线程和非关键线程：这是对*规则 2*的进一步说明：系统的关键部分，可能是机器控制程序，应该尽可能保持简单，并且比其他部分写得更为严格。即使其他进程失败，它也必须能够继续运行。如果你有实时线程，按照定义，它们必须是关键线程，应该单独放入一个进程中。'
 - en: '**Rule 4**: Threads shouldn’t get too intimate: One of the temptations when
     writing a multithreaded program is to intermingle the code and variables between
     threads because it is an all-in-one program and easy to do. Keep the threads modular,
     with well-defined interactions.'
+  id: totrans-188
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**规则 4**：线程不应过于亲密：编写多线程程序时的一个诱惑是将线程之间的代码和变量交织在一起，因为这是一个集成的程序，做起来很容易。保持线程的模块化，并定义清晰的交互。'
 - en: '**Rule 5**: Don’t think that threads are free: It is very easy to create additional
     threads, but there is a high cost in terms of the additional complexity needed
     to coordinate their activities.'
+  id: totrans-189
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**规则 5**：不要认为线程是免费的：创建额外的线程非常容易，但协调它们的活动所需的额外复杂性代价很高。'
 - en: '**Rule 6**: Threads can work in parallel: Threads can run simultaneously on
     a multicore processor, giving higher throughput. If you have a large computing
     job, you can create one thread per core and make maximum use of the hardware.
     There are libraries to help you do this, such as OpenMP. You should probably not
     be coding parallel programming algorithms from scratch.'
+  id: totrans-190
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**规则 6**：线程可以并行工作：线程可以在多核处理器上同时运行，从而提供更高的吞吐量。如果有一个大型计算任务，您可以为每个核心创建一个线程，并充分利用硬件。有一些库可以帮助您做到这一点，比如
+    OpenMP。您应该避免从头开始编写并行编程算法。'
 - en: 'The Android design is a good illustration. Each application is a separate Linux
     process that helps modularize memory management and ensures that one app crashing
     does not affect the whole system. The process model is also used for access control:
@@ -982,20 +1400,28 @@
     to manage dynamic memory allocation and freeing up Java objects, and a worker
     pool of at least two threads for receiving messages from other parts of the system
     using the Binder protocol.'
+  id: totrans-191
   prefs: []
   type: TYPE_NORMAL
+  zh: Android 设计是一个很好的例证。每个应用程序都是一个独立的 Linux 进程，有助于模块化内存管理，并确保一个应用崩溃不会影响整个系统。该进程模型还用于访问控制：一个进程只能访问其
+    UID 和 GID 允许的文件和资源。每个进程中都有一组线程。有一个用于管理和更新用户界面，一个用于处理来自操作系统的信号，几个用于管理动态内存分配和释放
+    Java 对象，以及至少两个线程的工作池，用于使用 Binder 协议从系统其他部分接收消息。
 - en: To summarize, processes provide resilience because each process has a protected
     memory space, and when the process terminates, all resources, including memory
     and file descriptors, are freed up, reducing resource leaks. On the other hand,
     threads share resources, can communicate easily through shared variables, and
     can cooperate by sharing access to files and other resources. Threads give parallelism
     through worker pools and other abstractions, which is useful in multicore processors.
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结一下，进程提供了弹性，因为每个进程都有受保护的内存空间，当进程终止时，所有资源，包括内存和文件描述符，都会被释放，减少资源泄漏。另一方面，线程共享资源，可以通过共享变量轻松通信，并通过共享对文件和其他资源的访问来合作。线程通过工作池和其他抽象提供并行性，在多核处理器中非常有用。
 - en: ZeroMQ
+  id: totrans-193
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: ZeroMQ
 - en: Sockets, named pipes, and shared memory are the means by which inter-process
     communication takes place. They act as the transport layers for the message-passing
     process that makes up most non-trivial applications. Concurrency primitives such
@@ -1004,8 +1430,11 @@
     is notoriously difficult, and sockets and named pipes come with their own set
     of gotchas. A higher-level API is needed to abstract the complex details of asynchronous
     message passing. Enter ZeroMQ.
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 套接字、命名管道和共享内存是进程间通信的手段。它们充当大多数非平凡应用程序中的消息传递过程的传输层。并发原语如互斥锁和条件变量用于管理共享访问和协调同一进程内运行的线程之间的工作。多线程编程是非常困难的，套接字和命名管道也有它们自己的一套注意事项。需要一个更高级别的
+    API 来抽象异步消息传递的复杂细节。这就是 ZeroMQ 的用武之地。
 - en: '**ZeroMQ** is an asynchronous messaging library that acts like a concurrency
     framework. It has facilities for in-process, inter-process, TCP, and multicast
     transports, as well as bindings for various programming languages, including C,
@@ -1014,105 +1443,155 @@
     Support for common messaging patterns such as request/reply, publish/subscribe,
     and parallel pipeline is also built into the library. The *zero* in ZeroMQ stands
     for *zero cost*, while the *MQ* part stands for *message queue*.'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: '**ZeroMQ** 是一个异步消息传递库，类似于并发框架。它支持进程内、进程间、TCP 和多播传输，以及包括 C、C++、Go 和 Python 在内的各种编程语言绑定。这些绑定以及
+    ZeroMQ 基于套接字的抽象使团队可以轻松地在同一个分布式应用程序中混合使用不同的编程语言。该库还内置了常见的消息传递模式，如请求/回复、发布/订阅和并行管道。ZeroMQ
+    中的 *zero* 指的是 *零成本*，而 *MQ* 部分代表 *消息队列*。'
 - en: We will explore both inter-process and in-process message-based communication
     using ZeroMQ. Let’s start by installing ZeroMQ for Python.
+  id: totrans-196
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将使用 ZeroMQ 探索基于消息的进程间和进程内通信。让我们首先为 Python 安装 ZeroMQ。
 - en: Getting pyzmq
+  id: totrans-197
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 获取 pyzmq
 - en: 'We are going to use ZeroMQ’s official Python binding for the following exercises.
     I recommend installing this `pyzmq` package inside a new virtual environment.
     Creating a Python virtual environment is easy if you already have `conda` on your
     system. Here are the steps for provisioning the necessary virtual environment
     using `conda`:'
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将使用ZeroMQ的官方Python绑定来完成以下练习。我推荐在一个新的虚拟环境中安装`pyzmq`包。如果你的系统上已经安装了`conda`，创建一个Python虚拟环境非常简单。以下是使用`conda`提供所需虚拟环境的步骤：
 - en: 'Navigate to the `zeromq` directory containing the examples:'
+  id: totrans-199
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 导航到包含示例的`zeromq`目录：
 - en: '[PRE16]'
+  id: totrans-200
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'Create a new virtual environment named `zeromq`:'
+  id: totrans-201
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 创建一个名为`zeromq`的新虚拟环境：
 - en: '[PRE17]'
+  id: totrans-202
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'Activate your new virtual environment:'
+  id: totrans-203
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 激活你的新虚拟环境：
 - en: '[PRE18]'
+  id: totrans-204
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: 'Check that the version of Python is 3.12:'
+  id: totrans-205
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 检查Python版本是否为3.12：
 - en: '[PRE19]'
+  id: totrans-206
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'List the packages that have been installed in your environment:'
+  id: totrans-207
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 列出你环境中已安装的包：
 - en: '[PRE20]'
+  id: totrans-208
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: If you see `pyzmq` and its dependencies in the list of packages, then you are
     now ready to run the following exercises.
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果在包列表中看到`pyzmq`及其依赖项，那么你现在可以开始运行以下练习了。
 - en: Messaging between processes
+  id: totrans-210
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 进程间消息传递
 - en: 'We will begin our exploration of ZeroMQ with a simple echo server. The server
     expects a name in the form of a string from a client and replies with `Hello <name>`.
     The code is in `MELD/Chapter17/zeromq/server.py`:'
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将从一个简单的回显服务器开始探索ZeroMQ。服务器期望从客户端接收一个字符串形式的名称，并回复`Hello <name>`。代码位于`MELD/Chapter17/zeromq/server.py`：
 - en: '[PRE21]'
+  id: totrans-212
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: The server process creates a socket of the `REP` type for its response, binds
     that socket to port `5555`, and waits for messages. A 1-second sleep is used to
     simulate some work being done in between the time when a request is received and
     a reply is sent back.
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
+  zh: 服务器进程创建一个`REP`类型的套接字用于响应，将该套接字绑定到端口`5555`，并等待接收消息。在接收到请求并发送回回复之间，使用1秒的睡眠来模拟一些工作。
 - en: 'The code for the echo client is in `MELD/Chapter17/zeromq/client.py`:'
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: 回显客户端的代码位于`MELD/Chapter17/zeromq/client.py`：
 - en: '[PRE22]'
+  id: totrans-215
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: The client process takes a username as a command-line argument. The client creates
     a socket of the `REQ` type for requests, connects to the server process listening
     on port `5555`, and begins sending messages containing the username that was passed
     in. Like `socket.recv()` in the server, `socket.recv()` in the client blocks until
     a message arrives in the queue.
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 客户端进程接受一个用户名作为命令行参数。客户端为请求创建一个`REQ`类型的套接字，连接到在端口`5555`上监听的服务器进程，并开始发送包含传入用户名的消息。与服务器中的`socket.recv()`一样，客户端中的`socket.recv()`也会阻塞，直到队列中收到消息。
 - en: 'To see the echo server and client code in action, activate your `zeromq` virtual
     environment and run the `planets.sh` script from the `MELD/Chapter17/zeromq` directory:'
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了查看回显服务器和客户端代码的运行效果，激活你的`zeromq`虚拟环境，并在`MELD/Chapter17/zeromq`目录中运行`planets.sh`脚本：
 - en: '[PRE23]'
+  id: totrans-218
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: The `planets.sh` script spawns three client processes called `Mars`, `Jupiter`,
     and `Venus`. We can see that the requests from the three clients are interleaved
     because each client waits for a reply from the server before sending its next
@@ -1120,12 +1599,16 @@
     replies from the server. Message-based IPC is remarkably easy with ZeroMQ. Now,
     let’s use Python’s built-in `asyncio` module, along with ZeroMQ, to do in-process
     messaging.
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
+  zh: '`planets.sh`脚本会启动三个客户端进程，分别为`Mars`、`Jupiter`和`Venus`。我们可以看到，三个客户端的请求是交错进行的，因为每个客户端在发送下一个请求之前会等待来自服务器的回复。由于每个客户端发送五个请求，我们应该从服务器接收到总共15个回复。使用ZeroMQ进行基于消息的进程间通信非常简单。现在，让我们结合Python的内建`asyncio`模块和ZeroMQ来进行进程内消息传递。'
 - en: Messaging within processes
+  id: totrans-220
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 进程内消息传递
 - en: The `asyncio` module was introduced in version 3.4 of Python. It adds a pluggable
     event loop for executing single-threaded concurrent code using coroutines. **Coroutines**
     (also known as *green threads*) in Python are declared with the `async`/`await`
@@ -1133,15 +1616,22 @@
     threads and work more like resumable functions. Because coroutines operate in
     the single-threaded context of an event loop, we can use `pyzmq` in conjunction
     with `asyncio` for in-process socket-based messaging.
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
+  zh: '`asyncio`模块是在Python 3.4版本中引入的。它增加了一个可插拔的事件循环，用于通过协程执行单线程并发代码。**协程**（也称为*绿色线程*）在Python中使用`async`/`await`语法声明，这一语法从C#中引入。与POSIX线程相比，协程的开销更小，更像是可恢复的函数。由于协程在事件循环的单线程上下文中操作，我们可以将`pyzmq`与`asyncio`结合使用，实现基于套接字的进程内消息传递。'
 - en: 'Here is a slightly modified version of an example of coroutines taken from
     the [https://github.com/zeromq/pyzmq](https://github.com/zeromq/pyzmq) repository:'
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里是一个稍微修改过的协程示例，来自 [https://github.com/zeromq/pyzmq](https://github.com/zeromq/pyzmq)
+    仓库：
 - en: '[PRE24]'
+  id: totrans-223
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: Notice that the `receiver()` and `sender()` coroutines share the same context.
     The `inproc` transport method specified in the `url` part of the socket is meant
     for inter-thread communications and is much faster than the `tcp` transport we
@@ -1150,15 +1640,23 @@
     is intended for signaling between threads. Neither the `receiver()` or `sender()`
     coroutines returns. The `asyncio` event loop alternates between the two coroutines,
     suspending and resuming each on blocking or completing I/O.
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，`receiver()` 和 `sender()` 协程共享相同的上下文。`url` 部分指定的 `inproc` 传输方法用于线程间通信，比我们在前一个示例中使用的
+    `tcp` 传输要快得多。`PAIR` 模式将两个套接字独占连接。与 `inproc` 传输一样，这种消息传递模式仅在进程内工作，旨在实现线程间的信号传递。`receiver()`
+    和 `sender()` 协程都没有返回。`asyncio` 事件循环在两个协程之间交替执行，在线程阻塞或 I/O 完成时挂起和恢复每个协程。
 - en: 'To run the coroutines example from your active `zeromq` virtual environment,
     use the following command:'
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 要从你当前的 `zeromq` 虚拟环境中运行协程示例，使用以下命令：
 - en: '[PRE25]'
+  id: totrans-226
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: '`sender()` sends timestamps to `receiver()`, which displays them. Use *Ctrl
     + C* to terminate the process. Congratulations! You have just witnessed in-process
     asynchronous messaging without the use of explicit threads. There is much more
@@ -1166,12 +1664,18 @@
     give you a taste of what is now possible with Python when paired with ZeroMQ.
     Let’s leave single-threaded event loops behind for the time being and get back
     to the subject of Linux.'
+  id: totrans-227
   prefs: []
   type: TYPE_NORMAL
+  zh: '`sender()` 向 `receiver()` 发送时间戳，后者显示这些时间戳。使用 *Ctrl + C* 终止进程。恭喜！你刚刚见证了不使用显式线程的进程内异步消息传递。关于协程和
+    `asyncio` 还有很多内容可以学习和讨论。这个示例只是让你感受一下 Python 与 ZeroMQ 配合使用时的新功能。暂时让我们抛开单线程事件循环，回到
+    Linux 的话题。'
 - en: Scheduling
+  id: totrans-228
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 调度
 - en: The second big topic I want to cover in this chapter is scheduling. The Linux
     scheduler has a queue of threads that are ready to run, and its job is to schedule
     them on CPUs as they become available. Each thread has a scheduling policy that
@@ -1180,33 +1684,48 @@
     have **priority** in that a higher-priority thread will preempt a lower one. The
     scheduler works with threads, not processes. Each thread is scheduled regardless
     of which process it is running in.
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章我想要讨论的第二个大主题是调度。Linux 调度程序有一个准备好运行的线程队列，它的工作是将这些线程调度到可用的 CPU 上。每个线程都有一个调度策略，可能是时间共享的或实时的。时间共享线程有一个
+    **niceness** 值，决定了它们获得 CPU 时间的优先级。实时线程有 **优先级**，较高优先级的线程会抢占较低优先级的线程。调度程序是与线程打交道，而不是进程。每个线程都会被调度，无论它是在哪个进程中运行。
 - en: 'The scheduler runs when any of the following occurs:'
+  id: totrans-230
   prefs: []
   type: TYPE_NORMAL
+  zh: 调度程序在以下任何情况下都会运行：
 - en: A thread is blocked by calling `sleep()` or another blocking system call.
+  id: totrans-231
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 线程通过调用 `sleep()` 或其他阻塞系统调用被阻塞。
 - en: A time-shared thread exhausts its time slice.
+  id: totrans-232
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 时间共享线程耗尽了它的时间片。
 - en: An interruption causes a thread to be unblocked, for example, because of I/O
     completing.
+  id: totrans-233
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 中断会导致线程解除阻塞，例如，I/O 完成时。
 - en: For background information on the Linux scheduler, I recommend that you read
     the chapter on process scheduling in *Linux Kernel Development, 3rd Edition*,
     by Robert Love.
+  id: totrans-234
   prefs: []
   type: TYPE_NORMAL
+  zh: 关于 Linux 调度程序的背景信息，我推荐你阅读 Robert Love 的《*Linux 内核开发（第 3 版）*》中关于进程调度的章节。
 - en: Fairness versus determinism
+  id: totrans-235
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 公平性与确定性
 - en: 'I have grouped the scheduling policies into two categories: time-shared and
     real-time. Time-shared policies are based on the principle of *fairness*. They
     are designed to make sure that each thread gets a fair amount of processor time
@@ -1215,8 +1734,10 @@
     policy needs to adjust to threads that are doing a lot of work and give them the
     resources to get the job done. Time-shared scheduling is good because of the way
     it automatically adjusts to a wide range of workloads.'
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
+  zh: 我将调度策略分为两类：时间共享和实时。时间共享策略基于*公平性*原则。它们旨在确保每个线程获得公平的处理器时间，并且没有线程能够独占系统。如果一个线程运行时间过长，它将被放到队列的末尾，以便其他线程也能运行。同时，公平性策略需要适应那些执行大量工作的线程，并为它们提供足够的资源来完成任务。时间共享调度非常好，因为它能根据各种工作负载自动进行调整。
 - en: On the other hand, if you have a real-time program, fairness is not helpful.
     In this case, you want a policy that is **deterministic**, which will give you
     at least minimal guarantees that your real-time threads will be scheduled at the
@@ -1226,16 +1747,23 @@
     of them to run at once. The Linux real-time scheduler implements a fairly standard
     algorithm that runs the highest-priority real-time thread. Most RTOS schedulers
     are also written in this way.
+  id: totrans-237
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果你有一个实时程序，公平性就没有帮助了。在这种情况下，你需要一个**确定性**策略，它至少能保证实时线程在正确的时间被调度，以便它们不会错过截止时间。这意味着实时线程必须抢占时间共享线程。实时线程还有一个静态优先级，调度器可以根据这个优先级在有多个线程同时运行时选择哪个线程先执行。Linux
+    的实时调度器实现了一个相当标准的算法，它会运行优先级最高的实时线程。大多数实时操作系统调度器也是按照这种方式编写的。
 - en: Both types of thread can coexist. Those requiring deterministic scheduling are
     scheduled first, and any remaining time is divided between the time-shared threads.
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
+  zh: 两种类型的线程可以共存。需要确定性调度的线程会先被调度，其余的时间会分配给时间共享线程。
 - en: Time-shared policies
+  id: totrans-239
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 时间共享策略
 - en: Time-shared policies are designed for fairness. From Linux 2.6.23 onward, the
     scheduler that’s been used has been the **completely fair scheduler** (**CFS**).
     It does not use time slices in the normal sense of the word. Instead, it calculates
@@ -1244,52 +1772,76 @@
     time it has run for. If it exceeds its entitlement and there are other time-shared
     threads waiting to run, the scheduler will suspend the thread and run a waiting
     thread instead.
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 时间共享策略旨在实现公平性。从 Linux 2.6.23 开始，使用的调度器是**完全公平调度器**（**CFS**）。它不像传统的时间片轮转调度那样使用固定的时间片。相反，它会计算一个线程应该获得的
+    CPU 时间量，并将其与线程实际运行的时间进行平衡。如果线程超出了它的应得时间，并且有其他时间共享线程等待运行，调度器会暂停当前线程，改为运行一个等待的线程。
 - en: 'The time-shared policies are as follows:'
+  id: totrans-241
   prefs: []
   type: TYPE_NORMAL
+  zh: 时间共享策略如下：
 - en: '`SCHED_NORMAL` (also known as `SCHED_OTHER`): This is the default policy. The
     vast majority of Linux threads use this policy.'
+  id: totrans-242
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`SCHED_NORMAL`（也叫 `SCHED_OTHER`）：这是默认的调度策略。绝大多数 Linux 线程使用该策略。'
 - en: '`SCHED_BATCH`: This is similar to `SCHED_NORMAL`, except that threads are scheduled
     with a larger granularity; that is, they run for longer but have to wait longer
     until they are scheduled again. The intention is to reduce the number of context
     switches for background processing (batch jobs) and reduce the amount of CPU cache
     churn.'
+  id: totrans-243
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`SCHED_BATCH`：这与 `SCHED_NORMAL` 类似，唯一不同的是，线程的调度粒度较大；即线程运行的时间较长，但必须等待更长时间才能再次被调度。其目的是减少背景处理（批处理任务）中的上下文切换次数，并减少
+    CPU 缓存的切换。'
 - en: '`SCHED_IDLE`: These threads are run only when there are no threads from any
     other policy that are ready to run. It is the lowest possible priority.'
+  id: totrans-244
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`SCHED_IDLE`：这些线程只有在没有其他策略的线程准备好运行时才会运行。它的优先级是最低的。'
 - en: 'There are two pairs of functions you can use to get and set the policy and
     priority of a thread. The first pair takes a PID as a parameter and affects the
     main thread in a process:'
+  id: totrans-245
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以使用两对函数来获取和设置线程的策略和优先级。第一对函数以 PID 作为参数，影响进程中的主线程：
 - en: '[PRE26]'
+  id: totrans-246
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'The second pair operates on `pthread_t` and can change the parameters of the
     other threads in a process:'
+  id: totrans-247
   prefs: []
   type: TYPE_NORMAL
+  zh: 第二对函数操作 `pthread_t`，可以改变进程中其他线程的参数：
 - en: '[PRE27]'
+  id: totrans-248
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: See the `sched(7`) man page for more on thread policies and priorities. Now
     that we know what time-shared policies and priorities are, let’s talk about niceness.
+  id: totrans-249
   prefs: []
   type: TYPE_NORMAL
+  zh: 有关线程策略和优先级的更多信息，请参见`sched(7)`手册页。现在我们知道了时间共享策略和优先级是什么，让我们来谈谈nice值。
 - en: Niceness
+  id: totrans-250
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: nice值
 - en: Some time-shared threads are more important than others. You can indicate this
     with the nice value, which multiplies a thread’s CPU entitlement by a scaling
     factor. The name comes from the function call, `nice(2)`, which has been part
@@ -1297,14 +1849,18 @@
     system or moving in the opposite direction by increasing it. The range of values
     is from `19`, which is really nice, to `-20`, which is really not nice. The default
     value is `0`, which is averagely nice, or so-so.
+  id: totrans-251
   prefs: []
   type: TYPE_NORMAL
+  zh: 一些时间共享线程比其他线程更重要。你可以通过nice值来表示这一点，nice值通过缩放因子来调整线程的CPU分配。这个名字来自于函数调用`nice(2)`，它从Unix的早期就已经存在。通过减少对系统的负载或通过增加负载，线程变得更nice。nice值的范围是从`19`，表示非常nice，到`-20`，表示非常不nice。默认值是`0`，表示适中或一般nice。
 - en: The nice value can be changed for `SCHED_NORMAL` and `SCHED_BATCH` threads.
     To reduce niceness, which increases the CPU load, you need the `CAP_SYS_NICE`
     capability, which is available to the `root` user. See the `capabilities(7)` man
     page for more information on capabilities.
+  id: totrans-252
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以改变`SCHED_NORMAL`和`SCHED_BATCH`线程的nice值。要降低nice值，这会增加CPU负载，你需要`CAP_SYS_NICE`权限，该权限默认只授予`root`用户。有关权限的更多信息，请参见`capabilities(7)`手册页。
 - en: 'Almost all the documentation for functions and commands that change the `nice`
     value (`nice(2)` and the `nice` and `renice` commands) talk in terms of processes.
     However, it really relates to threads. As we mentioned in the preceding section,
@@ -1313,124 +1869,172 @@
     the `nice` value is referred to as the priority of a thread (or sometimes, mistakenly,
     a process). I believe this is misleading and confuses the concept with real-time
     priority, which is a completely different thing.'
+  id: totrans-253
   prefs: []
   type: TYPE_NORMAL
+  zh: 几乎所有关于改变`nice`值的函数和命令的文档（如`nice(2)`及`nice`和`renice`命令）都从进程角度讨论。然而，它实际上是与线程相关的。正如我们在前一节中提到的，你可以使用TID代替PID来改变单个线程的`nice`值。`nice`的标准描述中还有另一个不一致之处：`nice`值被称为线程的优先级（或有时错误地被称为进程的优先级）。我认为这是误导性的，并将概念与实时优先级混淆了，而实时优先级是完全不同的概念。
 - en: Real-time policies
+  id: totrans-254
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 实时策略
 - en: Real-time policies are intended for determinism. The real-time scheduler will
     always run the highest-priority real-time thread that is ready to run. Real-time
     threads always preempt timeshare threads. In essence, by selecting a real-time
     policy over a timeshare policy, you are saying that you have inside knowledge
     of the expected scheduling of this thread and wish to override the scheduler’s
     built-in assumptions.
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
+  zh: 实时策略旨在确保确定性。实时调度器总是会运行准备好的优先级最高的实时线程。实时线程总是抢占时间共享线程。本质上，通过选择实时策略而非时间共享策略，你表示你已经掌握了该线程预期调度的内部信息，并希望覆盖调度器内置的假设。
 - en: 'There are two real-time policies:'
+  id: totrans-256
   prefs: []
   type: TYPE_NORMAL
+  zh: 有两种实时策略：
 - en: '`SCHED_FIFO`: This is a **run-to-completion** algorithm, which means that once
     the thread starts to run, it will continue until it is preempted by a higher-priority
     real-time thread, it is blocked in a system call, or until it terminates (completes).'
+  id: totrans-257
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`SCHED_FIFO`：这是一种**运行至完成**算法，意味着一旦线程开始运行，它将继续执行，直到被更高优先级的实时线程抢占，或在系统调用中被阻塞，或者直到它终止（完成）。'
 - en: '`SCHED_RR`: This a **round-robin** algorithm that will cycle between threads
     of the same priority if they exceed their time slice, which is 100 ms by default.
     Since Linux 3.9, it has been possible to control the `timeslice` value through
     `/proc/sys/kernel/sched_rr_timeslice_ms`. Apart from this, it behaves in the same
     way as `SCHED_FIFO`.'
+  id: totrans-258
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`SCHED_RR`：这是一种**轮转**算法，如果线程超出了时间片（默认是100毫秒），它将在同一优先级的线程之间进行轮换。从Linux 3.9开始，可以通过`/proc/sys/kernel/sched_rr_timeslice_ms`控制`timeslice`值。除此之外，它的行为与`SCHED_FIFO`相同。'
 - en: Each real-time thread has a priority in the range of `1` to `99`, with `99`
     being the highest.
+  id: totrans-259
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个实时线程的优先级范围是`1`到`99`，其中`99`是最高优先级。
 - en: To give a thread a real-time policy, you need `CAP_SYS_NICE`, which is given
     only to the root user by default.
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
+  zh: 要给线程分配实时策略，你需要`CAP_SYS_NICE`权限，默认情况下该权限仅授予root用户。
 - en: One problem with real-time scheduling, both in terms of Linux and elsewhere,
     is that a thread that becomes compute-bound, often because a bug has caused it
     to loop indefinitely, will prevent real-time threads of a lower priority from
     running along with all the timeshare threads. In this case, the system becomes
     erratic and may lock up completely. There are a couple of ways to guard against
     this possibility.
+  id: totrans-261
   prefs: []
   type: TYPE_NORMAL
+  zh: 实时调度的一个问题，无论是在Linux还是其他地方，都是当一个线程变成计算密集型时，通常是因为某个bug导致它无限循环，这将阻止低优先级的实时线程与所有共享时间线程一起运行。在这种情况下，系统会变得不稳定，甚至可能完全死锁。防止这种情况发生的方法有几种。
 - en: 'First, since Linux 2.6.25, the scheduler has, by default, reserved 5% of its
     CPU time for non-real-time threads so that even a runaway real-time thread cannot
     completely halt the system. It is configured via two kernel controls:'
+  id: totrans-262
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，自Linux 2.6.25以来，调度器默认将5%的CPU时间保留给非实时线程，这样即使一个失控的实时线程也无法完全停止系统。通过两个内核控制来配置：
 - en: '`/proc/sys/kernel/sched_rt_period_us`'
+  id: totrans-263
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`/proc/sys/kernel/sched_rt_period_us`'
 - en: '`/proc/sys/kernel/sched_rt_runtime_us`'
+  id: totrans-264
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`/proc/sys/kernel/sched_rt_runtime_us`'
 - en: They have default values of 1,000,000 (1 second) and 950,000 (950 ms), respectively,
     which means that every second, 50 ms is reserved for non-real-time processing.
     If you want real-time threads to be able to take 100%, then set `sched_rt_runtime_us`
     to `-1`.
+  id: totrans-265
   prefs: []
   type: TYPE_NORMAL
+  zh: 它们的默认值分别为1,000,000（1秒）和950,000（950毫秒），这意味着每秒保留50毫秒用于非实时处理。如果希望实时线程能够占用100%的时间，则将`sched_rt_runtime_us`设置为`-1`。
 - en: The second option is to use a watchdog, either hardware or software, to monitor
     the execution of key threads and take action when they begin to miss deadlines.
     I mentioned watchdogs in [*Chapter 13*](Chapter_13.xhtml#_idTextAnchor431).
+  id: totrans-266
   prefs: []
   type: TYPE_NORMAL
+  zh: 第二个选项是使用看门狗，无论是硬件还是软件，来监控关键线程的执行，并在它们开始错过截止日期时采取行动。我在[*第13章*](Chapter_13.xhtml#_idTextAnchor431)中提到了看门狗。
 - en: Choosing a policy
+  id: totrans-267
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 选择一种策略
 - en: In practice, time-shared policies satisfy the majority of computing workloads.
     Threads that are I/O-bound spend a lot of time blocked and always have some spare
     entitlement in hand. When they are unblocked, they will be scheduled almost immediately.
     Meanwhile, CPU-bound threads will naturally take up any CPU cycles left over.
     Positive nice values can be applied to the less important threads and negative
     values to the more important ones.
+  id: totrans-268
   prefs: []
   type: TYPE_NORMAL
+  zh: 实际上，时间共享策略满足了大多数计算工作负载。I/O密集型线程会花费大量时间被阻塞，并且总是有一些剩余的配额。当它们解除阻塞时，将几乎立即被调度。同时，CPU密集型线程自然会占用所有剩余的CPU周期。可以对不太重要的线程应用正的nice值，对更重要的线程应用负的nice值。
 - en: 'Of course, this is only average behavior; there are no guarantees that this
     will always be the case. If more deterministic behavior is needed, then real-time
     policies will be required. The things that mark out a thread as being real-time
     are as follows:'
+  id: totrans-269
   prefs: []
   type: TYPE_NORMAL
+  zh: 当然，这只是平均行为；没有保证每次都会这样。如果需要更确定的行为，则需要实时策略。将线程标记为实时的标准如下：
 - en: It has a deadline by which it must generate an output.
+  id: totrans-270
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它有一个必须生成输出的截止日期。
 - en: Missing the deadline would compromise the effectiveness of the system.
+  id: totrans-271
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 错过截止日期会影响系统的有效性。
 - en: It is event-driven.
+  id: totrans-272
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它是事件驱动的。
 - en: It is not compute-bound.
+  id: totrans-273
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它不是计算密集型的。
 - en: Examples of real-time tasks include the classic robot arm servo controller,
     multimedia processing, and communication processing. I will discuss real-time
     system design later, in [*Chapter 21*](Chapter_19.xhtml#_idTextAnchor654).
+  id: totrans-274
   prefs: []
   type: TYPE_NORMAL
+  zh: 实时任务的例子包括经典的机器人臂伺服控制器、多媒体处理和通信处理。我将在稍后的[*第21章*](Chapter_19.xhtml#_idTextAnchor654)中讨论实时系统设计。
 - en: Choosing a real-time priority
+  id: totrans-275
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 选择实时优先级
 - en: Choosing real-time priorities that work for all expected workloads is a tricky
     business and a good reason to avoid real-time policies in the first place.
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
+  zh: 选择适合所有预期工作负载的实时优先级是一项复杂的任务，也是避免使用实时策略的一个充分理由。
 - en: 'The most widely used procedure for choosing priorities is known as **rate monotonic
     analysis** (**RMA**), after the 1973 paper by Liu and Layland. It applies to real-time
     systems with periodic threads, which is a very important class. Each thread has
@@ -1438,83 +2042,121 @@
     The goal is to balance the load so that all the threads can complete their execution
     phase before the next period. RMA states that this can be achieved if the following
     occurs:'
+  id: totrans-277
   prefs: []
   type: TYPE_NORMAL
+  zh: 选择优先级的最常用方法被称为**速率单调分析**（**RMA**），它来源于Liu和Layland在1973年发表的论文。它适用于具有周期性线程的实时系统，这是一个非常重要的类别。每个线程都有一个周期和一个利用率，利用率是该周期内线程将执行的时间比例。目标是平衡负载，使所有线程能够在下一个周期开始前完成执行阶段。RMA指出，如果以下条件成立，就能实现这一目标：
 - en: The highest priorities are given to the threads with the shortest periods.
+  id: totrans-278
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 优先级最高的线程是那些周期最短的线程。
 - en: The total utilization is less than 69%.
+  id: totrans-279
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 总利用率小于69%。
 - en: The total utilization is the sum of all the individual utilizations. It also
     makes the assumption that the interaction between threads or the time spent blocked
     on mutexes and the like is negligible.
+  id: totrans-280
   prefs: []
   type: TYPE_NORMAL
+  zh: 总利用率是所有单个利用率之和。它还假设线程之间的交互或在互斥锁等上被阻塞的时间可以忽略不计。
 - en: Summary
+  id: totrans-281
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: The long Unix heritage that is built into Linux and the accompanying C libraries
     provides almost everything you need in order to write stable and resilient embedded
     applications. The issue is that for every job, there are at least two ways to
     achieve the end you desire.
+  id: totrans-282
   prefs: []
   type: TYPE_NORMAL
+  zh: Linux中内建的悠久Unix遗产和随附的C库几乎提供了编写稳定且具有韧性的嵌入式应用所需的一切。问题在于，对于每项工作，至少有两种方法可以实现你想要的结果。
 - en: 'In this chapter, I focused on two aspects of system design: partitioning into
     separate processes, each with one or more threads to get the job done, and scheduling
     those threads. I hope that I shed some light on this and have given you the basis
     to study them further.'
+  id: totrans-283
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章重点讨论了系统设计的两个方面：将任务划分为多个独立进程，每个进程有一个或多个线程来完成工作，以及调度这些线程。我希望我能对这些内容有所阐明，并为你们进一步学习打下基础。
 - en: 'In the next chapter, I will examine another important aspect of system design:
     memory management.'
+  id: totrans-284
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章，我将探讨系统设计的另一个重要方面：内存管理。
 - en: Further study
+  id: totrans-285
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进一步学习
 - en: '*The Art of Unix Programming*, by Eric Steven Raymond'
+  id: totrans-286
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*《Unix编程艺术》*，作者：Eric Steven Raymond'
 - en: '*Linux System Programming, 2nd Edition*, by Robert Love'
+  id: totrans-287
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*《Linux系统编程，第2版》*，作者：Robert Love'
 - en: '*Linux Kernel Development, 3rd Edition*, by Robert Love'
+  id: totrans-288
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*《Linux内核开发，第3版》*，作者：Robert Love'
 - en: '*The Linux Programming Interface*, by Michael Kerrisk'
+  id: totrans-289
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*《Linux编程接口》*，作者：Michael Kerrisk'
 - en: '*UNIX Network Programming, Volume 2: Interprocess Communications, 2nd Edition*,
     by W. Richard Stevens'
+  id: totrans-290
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*《UNIX网络编程，第2卷：进程间通信，第2版》*，作者：W. Richard Stevens'
 - en: '*Programming with POSIX Threads*, by David R. Butenhof'
+  id: totrans-291
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*《POSIX线程编程》*，作者：David R. Butenhof'
 - en: '*Scheduling Algorithms for Multiprogramming in a Hard-Real-Time Environment*,
     by C. L. Liu and James W. Layland, Journal of ACM, 1973, vol 20, no 1, pp. 46-61'
+  id: totrans-292
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*《硬实时环境中的多程序调度算法》*，作者：C. L. Liu 和 James W. Layland，发表于《ACM期刊》，1973年，第20卷，第1期，第46-61页'
 - en: Join our community on Discord
+  id: totrans-293
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 加入我们社区的Discord
 - en: 'Join our community’s Discord space for discussions with the authors and other
     readers: https://packt.link/embeddedsystems'
+  id: totrans-294
   prefs: []
   type: TYPE_NORMAL
+  zh: 加入我们社区的Discord空间，与作者和其他读者进行讨论：[https://packt.link/embeddedsystems](https://packt.link/embeddedsystems)
 - en: '![](img/QR_Code12308107448340296.png)'
+  id: totrans-295
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/QR_Code12308107448340296.png)'
