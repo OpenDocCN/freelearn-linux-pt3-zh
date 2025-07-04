@@ -14,7 +14,7 @@
 
 以下是只有一个硬盘驱动器连接到 SATA 控制器的系统输出：
 
-# ls /dev/sd*
+# 第二十八章：ls /dev/sd*
 
 /dev/sda /dev/sda1 /dev/sda2
 

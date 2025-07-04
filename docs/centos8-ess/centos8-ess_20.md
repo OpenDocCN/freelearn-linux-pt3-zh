@@ -30,7 +30,7 @@ $ man virt-install
 
 以下命令创建一个新的 KVM 虚拟机，配置为使用 KVM 半虚拟化运行 Fedora 29。它创建了一个新的 10GB 磁盘镜像，为虚拟机分配了 1024MB 的内存，并为安装介质 ISO 镜像配置了一个虚拟 CD 设备：
 
-# virt-install --name MyFedora --memory 1024 --disk path=/tmp/myFedora.img, size=10 --network network=default --os-variant fedora29 --cdrom /tmp/Fedora-Server-dvd-x86_64-29-1.2.iso
+# 第二十一章：virt-install --name MyFedora --memory 1024 --disk path=/tmp/myFedora.img, size=10 --network network=default --os-variant fedora29 --cdrom /tmp/Fedora-Server-dvd-x86_64-29-1.2.iso
 
 在创建过程中，virt-install 命令将显示创建进度的状态更新：
 

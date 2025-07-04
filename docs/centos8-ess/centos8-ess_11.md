@@ -50,7 +50,7 @@ TCP/IP 定义了一组在标准端口上进行通信的服务。例如，安全�
 
 firewalld 服务在所有 CentOS 8 安装中默认已安装并启用。可以通过以下命令检查服务的状态：
 
-# systemctl status firewalld
+# 第十二章：systemctl status firewalld
 
 firewalld.service - firewalld - 动态防火墙守护进程
 

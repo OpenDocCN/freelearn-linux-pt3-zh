@@ -26,7 +26,7 @@ NetworkManager 是一个服务和一组专门设计的工具，旨在简化 Linu
 
 NetworkManager 应该在大多数 CentOS 8 安装中默认安装。使用 rpm 命令查看是否需要安装：
 
-# rpm -q NetworkManager
+# 第十一章：rpm -q NetworkManager
 
 NetworkManager-1.14.0-14.el8.x86_64
 

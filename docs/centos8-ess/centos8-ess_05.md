@@ -12,7 +12,7 @@ CentOS 8 包含 GNOME 3 桌面环境。尽管缺乏 Windows 和 macOS 桌面环�
 
 如果安装配置中未包括 GNOME 桌面，可以随时使用以下命令进行安装：
 
-# dnf groupinstall "Workstation"
+# 第六章：dnf groupinstall "Workstation"
 
 安装完成后，可以通过命令行提示符在显示器上启动桌面环境，如下所示：
 

@@ -1,6 +1,6 @@
 
 
-# Linux 和 macOS 的 PowerShell 7
+# 第十四章：Linux 和 macOS 的 PowerShell 7
 
 通常说，Linux 是最受欢迎的服务器操作系统，虽然这是真的，但这并没有说明几乎每台服务器都有几种不同类型的 Linux。与 Windows 和 macOS 的紧密工程化和维护不同，这些系统的公司致力于确保每个人都在运行同质、安全、并且经常强制更新的代码，而 Linux 世界则更加自由，拥有多种免费、开源且常常维护不足的变种，这些变种可能在服务器上存活多年甚至几十年。在本章中，我们将看看如何在一些常见的 Linux 版本上使用 PowerShell；在我们的例子中，使用 Ubuntu 和 CentOS，它们是免费的 **Red Hat Enterprise Linux** (**RHEL**) 版本。
 

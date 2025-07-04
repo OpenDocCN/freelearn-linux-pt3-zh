@@ -1,6 +1,6 @@
 
 
-# 开始使用 Shell
+# 第一章：开始使用 Shell
 
 在我们讨论 Shell 脚本之前，我们需要了解什么是 Shell，以及 Linux、Unix 和类 Unix 操作系统中有哪些不同的 Shell。我们还将讨论一些其他重要的主题，这些都将帮助你进入 Shell 脚本的广阔世界。
 

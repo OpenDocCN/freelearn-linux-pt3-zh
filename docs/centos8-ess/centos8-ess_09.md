@@ -34,7 +34,7 @@ CentOS 8 可以配置为启动到多个状态（称为目标），每个目标�
 
 可以通过在终端窗口中运行以下命令来查看指定目标所依赖的目标和服务的列表：
 
-# systemctl list-dependencies <target>
+# 第十章：systemctl list-dependencies <target>
 
 图 11-1，例如，显示了 multi-user 目标的部分 systemd 单元依赖项列表（完整列表包含超过 120 个目标和服务，必要时用于完全功能的多用户系统）：
 

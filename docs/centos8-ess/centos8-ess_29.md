@@ -25,7 +25,7 @@
 
 可以通过多种方式识别 CentOS 8 系统当前使用的交换空间。一种方法是输出 /proc/swaps 文件：
 
-# cat /proc/swaps
+# 第三十章：cat /proc/swaps
 
 文件名 类型 大小 已用 优先级
 

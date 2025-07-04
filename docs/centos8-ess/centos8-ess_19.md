@@ -8,7 +8,7 @@
 
 默认情况下，虚拟机模块不会包含在标准的 Cockpit 安装中。假设 Cockpit 已经安装并配置好，可以按照以下步骤安装虚拟机模块：
 
-# dnf install cockpit-machines
+# 第二十章：dnf install cockpit-machines
 
 安装完成后，下次登录 Cockpit 界面时，虚拟机选项（如图 21-1 中标记的 A）将出现在导航面板中：
 

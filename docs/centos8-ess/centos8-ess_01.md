@@ -1,3 +1,5 @@
+# 第二章
+
 2. Linux 简史
 
 CentOS 是 Linux 操作系统的众多变种之一（也称为发行版）。它基于由美国公司 Red Hat, Inc. 开发的 Red Hat 企业版 Linux 发行版的源代码，总部位于北卡罗来纳州的罗利市。该公司成立于 1990 年代中期，由当时由 Marc Ewing 和 Bob Young 拥有的两家公司合并而成。然而，Linux 的起源更为悠久。本章将概述 Linux 操作系统和 Red Hat, Inc. 的历史，然后解释 CentOS 如何融入这一背景。

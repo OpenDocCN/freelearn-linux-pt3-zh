@@ -12,7 +12,7 @@
 
 当前主机系统上的网络连接列表可以如下显示：
 
-# nmcli con show
+# 第二十二章：nmcli con show
 
 NAME UUID TYPE DEVICE
 

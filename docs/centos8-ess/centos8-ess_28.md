@@ -46,7 +46,7 @@ LVM 由以下组件组成：
 
 可以使用 `vgdisplay` 命令获取有关卷组的信息：
 
-# vgdisplay
+# 第二十九章：vgdisplay
 
 --- 卷组 ---
 

@@ -1,6 +1,6 @@
 天生是极客，选择 Linux，当然也选择 Fedora。
 
-# 关于审阅者
+# 第二章：关于审阅者
 
 **本·科顿**（Ben Cotton）在 Fedora 和其他开源社区活跃了十多年。他的职业生涯涵盖了公共和私人部门，曾担任桌面支持、高性能计算管理、市场营销和项目管理等多个角色。本是《开源项目的程序管理》一书的作者，他还为《远程人类》一书、*The Next Platform*、Opensource.com、*Scientific Computing* 等杂志和网站撰写过文章。
 

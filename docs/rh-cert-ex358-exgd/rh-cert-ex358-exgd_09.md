@@ -1,6 +1,6 @@
 
 
-# 综合复习与模拟考试问题
+# 第九章：综合复习与模拟考试问题
 
 在本章中，我们将回顾整个书籍中所学的内容。我们将通过模拟考试题目，帮助你熟悉考试中可能遇到的题型格式。我们将尽量覆盖根据 Red Hat 公开的考试目标可能出现在考试中的所有内容，详情请见：[`www.redhat.com/en/services/training/ex358-red-hat-certified-specialist-services-management-automation-exam?section=Objectives`](https://www.redhat.com/en/services/training/ex358-red-hat-certified-specialist-services-management-automation-exam?section=Objectives)。
 

@@ -18,7 +18,7 @@ Cockpit 的模块化设计还允许许多功能嵌入到其他基于网页的应
 
 默认情况下，CentOS 8 通常没有安装 Cockpit，但可以通过几个简单的步骤进行设置和启用。第一步是按照如下方式安装 Cockpit 软件包：
 
-# dnf install cockpit
+# 第七章：dnf install cockpit
 
 接下来，需要启用 Cockpit 套接字服务：
 

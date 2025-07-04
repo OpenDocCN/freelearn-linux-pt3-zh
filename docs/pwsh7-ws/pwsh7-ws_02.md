@@ -1,6 +1,6 @@
 
 
-# 探索 PowerShell Cmdlet 和语法
+# 第二章：探索 PowerShell Cmdlet 和语法
 
 现在我们已经安装了 PowerShell，是时候开始使用它了。PowerShell 的强大之处在于它提供了大量的 cmdlet。在本章中，我们将学习这些 cmdlet。首先，我们将了解命名约定如何工作，然后学习如何通过参数控制它们的行为。
 

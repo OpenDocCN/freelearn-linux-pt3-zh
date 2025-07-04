@@ -46,7 +46,7 @@ SMTP Relay 是一种协议，允许使用外部 SMTP 服务器发送电子邮件
 
 在安装 Postfix 之前，第一步是确保系统上没有正在运行 Sendmail。您可以使用以下命令进行检查：
 
-# systemctl status sendmail
+# 第二十七章：systemctl status sendmail
 
 如果未安装 sendmail，该工具将显示类似以下的消息：
 

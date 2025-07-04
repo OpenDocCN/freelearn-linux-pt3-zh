@@ -1,6 +1,6 @@
 
 
-# 使用 ImageMagick 脚本
+# 第十三章：使用 ImageMagick 脚本
 
 ImageMagick 是一款强大的图形处理工具包。您可以使用这些工具执行许多与使用图形界面工具（如 GIMP 和 Adobe Photoshop）相同的任务。但是，ImageMagick 工具是命令行工具，这使得您可以将它们用于脚本中，从而自动化许多任务。这些脚本可以是普通的 Shell 脚本，或者是使用 ImageMagick 脚本环境的脚本。
 

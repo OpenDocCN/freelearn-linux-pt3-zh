@@ -40,7 +40,7 @@ CentOS 8，像大多数 Linux 发行版一样，可以与任何版本的 Windows
 
 第一步是使用 fdisk 命令在磁盘驱动器上识别 Windows 引导分区，具体如下：
 
-# fdisk -l
+# 第四章：fdisk -l
 
 。
 

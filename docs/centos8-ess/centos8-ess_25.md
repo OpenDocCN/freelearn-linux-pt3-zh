@@ -20,7 +20,7 @@ CentOS 8 操作系统中包含了 Apache Web 服务器等多个软件包。事�
 
 当前版本的 CentOS 通常默认不安装 Apache Web 服务器。要检查服务器是否已安装，可以运行以下命令：
 
-# rpm -q httpd
+# 第二十六章：rpm -q httpd
 
 如果 rpm 生成的输出类似于以下内容，则表示 Apache 服务器已安装：
 

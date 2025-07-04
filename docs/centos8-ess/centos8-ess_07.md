@@ -245,7 +245,7 @@ $ echo $NOW
 
 如果每次进入 Shell 环境时需要配置环境变量或别名设置，可以将它们添加到位于主目录中的 .bashrc 文件中。例如，以下示例 .bashrc 文件配置了 DATAPATH 环境变量和一个别名：
 
-# .bashrc
+# 第八章：.bashrc
 
 # 加载全局定义
 

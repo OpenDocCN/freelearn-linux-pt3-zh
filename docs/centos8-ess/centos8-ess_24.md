@@ -6,7 +6,7 @@
 
 在这个例子中，CentOS 8 基础镜像将从仓库中拉取。然而，在拉取镜像之前，可以使用 skopeo 工具获取有关镜像仓库的信息，例如：
 
-# skopeo inspect docker://docker.io/library/centos
+# 第二十五章：skopeo inspect docker://docker.io/library/centos
 
 {
 

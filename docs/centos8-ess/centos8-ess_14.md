@@ -8,7 +8,7 @@
 
 其次，运行应用程序的系统（与显示应用程序的系统不同）必须配置为允许 SSH 访问。在 CentOS 8 系统上配置 SSH 的详细信息可以在名为“在 CentOS 8 上配置基于 SSH 密钥的身份验证”的章节中找到。该系统还必须运行来自 X.org 的 X Window 系统，而不是 Wayland。要查找正在使用的系统，请打开一个终端窗口并运行以下命令：
 
-# echo $XDG_SESSION_TYPE
+# 第十五章：echo $XDG_SESSION_TYPE
 
 x11
 

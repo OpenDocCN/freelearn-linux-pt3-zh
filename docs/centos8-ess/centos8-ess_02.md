@@ -38,7 +38,7 @@ CentOS-8-x86_64-1905-dvd1.iso
 
 在 Linux 上将 ISO 镜像写入 USB 驱动器的第一步是识别设备名称。在插入 USB 驱动器之前，通过列出 /dev 中已检测到的存储设备来识别系统中已有的设备，方法如下：
 
-# ls /dev/sd*
+# 第三章：ls /dev/sd*
 
 /dev/sda /dev/sda1 /dev/sda2
 

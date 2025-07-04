@@ -52,7 +52,7 @@ $ date
 
 如果命令需要 root 权限，则命令前将会有 # 提示符：
 
-# dnf install openssh
+# 第一章：dnf install openssh
 
 1.2 反馈
 

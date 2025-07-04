@@ -1,6 +1,6 @@
 
 
-# 使用 PowerShell 7 和 Windows
+# 第十三章：使用 PowerShell 7 和 Windows
 
 欢迎来到本书的最后一部分，在接下来的四个章节中，我们将讨论如何在不同的环境中使用 PowerShell 7。在本章中，我们将重点介绍基于 Windows 系统的特殊性，并探讨现有的各种解决方法，以便我们能够有效地使用 PowerShell 7。我们还将讨论何时必须使用原生的 Windows PowerShell。需要记住的是，PowerShell 7 是一个开源产品，并且会快速变化。本章及随后的示例在写作时是准确的，但在阅读时可能不再适用。另外，PowerShell 7 也存在一些 bug。PowerShell GitHub 页面是一个强大的信息来源，可以提供有关最新变化的信息，同时也有一些功能不按预期工作的情况：[`github.com/PowerShell/PowerShell`](https://github.com/PowerShell/PowerShell)。
 

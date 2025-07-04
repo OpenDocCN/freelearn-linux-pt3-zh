@@ -12,7 +12,7 @@ NFS 与 Windows SMB 资源共享技术（由 Samba 使用）非常不同。在�
 
 在幕后，NFS 利用远程过程调用（RPC）以 rpcbind 服务的形式在网络中共享文件系统。从终端窗口运行以下命令安装 rpcbind 和 NFS 服务：
 
-# dnf install rpcbind nfs-utils
+# 第十六章：dnf install rpcbind nfs-utils
 
 接下来，配置这些服务，使它们在启动时自动启动：
 

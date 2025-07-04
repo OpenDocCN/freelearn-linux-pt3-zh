@@ -1,6 +1,6 @@
 
 
-# PowerShell 7 和 Raspberry Pi
+# 第十五章：PowerShell 7 和 Raspberry Pi
 
 这是我最期待写的章节之一。我家里有一堆 Raspberry Pi（还有 Arduino、micro:bit 和 ESP32 等）。我用它们来教孩子们（和成年人）编程，还用它们运行广告拦截器、媒体中心、野生动物监控摄像头和园艺系统。我有一个 Raspberry Pi，配有按钮，能够随机选择我最喜欢的广播节目并播放（叫做 Shendomizer）。大多数时候，我用 Python 来编程，但 PowerShell 也是一个选择。我们甚至可以在它们上安装简化版的 Windows 10，不过这本书不会讲到这个。相反，我们将讨论如何安装 PowerShell 7 和 **Visual Studio** (**VS**) Code，如何使用 PowerShell 和 VS Code 通过 SSH 远程连接到没有显示器的 Pi，以及 Raspberry Pi 上与 PowerShell 配合使用的默认模块，最后创建一个脚本，完成物理计算的第一步：让 LED 灯闪烁。
 

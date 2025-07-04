@@ -1,6 +1,6 @@
 
 
-# 在 Linux 上使用 PowerShell
+# 第二十三章：在 Linux 上使用 PowerShell
 
 **PowerShell** 最初是一个封闭源代码的专有产品，只能安装在 Windows 操作系统上。然而现在，它是自由开源软件，并且可以在基于 Linux 和 macOS 的机器上自由使用。
 

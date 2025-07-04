@@ -8,7 +8,7 @@
 
 如果已经按照 “在 CentOS 8 上与 Windows 双重启动” 章节中的步骤挂载了 Windows 分区，继续本章之前应该先卸载该分区。假设 Windows 分区挂载在 /mnt/windows，以下命令可以卸载它：
 
-# umount /mnt/windows
+# 第五章：umount /mnt/windows
 
 /etc/fstab 文件也应该被编辑，以删除先前添加的 /mnt/windows 自动挂载项（如果有的话）。
 

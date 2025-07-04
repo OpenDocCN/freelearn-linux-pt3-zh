@@ -1,6 +1,6 @@
 
 
-# Shell 脚本的可移植性
+# 第十九章：Shell 脚本的可移植性
 
 如我们稍后会看到，Linux、Unix 和类 Unix 操作系统有很多不同的 Shell 可用。但到目前为止，我们主要一直在使用`bash`。`bash`的一个大优点是它已经在大多数 Linux 发行版、macOS 和 OpenIndiana 上预装了。它通常不会在 BSD 类型的发行版上默认安装，但如果需要，你可以自行安装。
 

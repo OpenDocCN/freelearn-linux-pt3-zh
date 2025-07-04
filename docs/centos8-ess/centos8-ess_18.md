@@ -16,7 +16,7 @@ KVM 与许多其他 Type-1 解决方案不同，它将主机 Linux 操作系统�
 
 要检查虚拟化支持情况，请在终端窗口中运行以下命令：
 
-# lscpu | grep Virtualization:
+# 第十九章：lscpu | grep Virtualization:
 
 如果系统中包含支持 Intel VT 的 CPU，则上述命令将提供以下输出：
 
