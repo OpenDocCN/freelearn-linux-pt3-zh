@@ -1,4 +1,4 @@
-# *第六章*：理解`systemd` targets
+# 第六章：理解`systemd` targets
 
 在本章中，我们将看看`systemd` targets 是什么，以及它们能为我们做些什么。现在，我得告诉你，这个话题有些困惑，我希望能澄清这一点。
 

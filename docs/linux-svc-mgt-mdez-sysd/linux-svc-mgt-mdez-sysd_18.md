@@ -1,4 +1,4 @@
-# *第十五章*：使用 systemd-networkd 和 systemd-resolved
+# 第十五章：使用 systemd-networkd 和 systemd-resolved
 
 systemd 生态系统有其自己的网络组件。使用这些组件完全是可选的，甚至你可能会发现自己根本不需要使用它们。然而，有时候使用 systemd 的网络组件可以帮助你做一些传统 Linux 的 NetworkManager 做不到的事情。
 

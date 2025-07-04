@@ -1,4 +1,4 @@
-# *第十四章*：使用 journald
+# 第十四章：使用 journald
 
 本章将关注一种新的日志记录方式。虽然 `journald` 日志系统不是 systemd 的 `init` 系统的一部分，但它是 `systemd` 生态系统的一部分。`journald` 系统相较于旧的 `rsyslog` 系统有其优势。然而，仍有几个主要原因使得我们还没有完全过渡到 `journald`。尽管如此，`journald` 仍然是一个重要工具，可以帮助繁忙的 Linux 管理员轻松查看系统发生了什么。
 

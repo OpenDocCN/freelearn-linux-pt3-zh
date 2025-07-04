@@ -1,4 +1,4 @@
-# 3
+
 
 # PowerShell 管道——如何将 cmdlet 串联起来
 

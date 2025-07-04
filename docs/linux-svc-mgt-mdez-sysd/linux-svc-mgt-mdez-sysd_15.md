@@ -1,4 +1,4 @@
-# *第十三章*：理解 cgroup Version 2
+# 第十三章：理解 cgroup Version 2
 
 在本章中，我们将讨论**cgroup** **Version 2**。我们将看到它与**cgroups** **Version 1**有何不同，以及它如何在 Version 1 的基础上进行改进。之后，我们将简要了解如何使用它。最后，我们将把**AlmaLinux**机器转换为使用 cgroup Version 2。学习如何使用 cgroup Version 2 将对新软件开发者以及希望为未来做好准备的**Linux**管理员非常有帮助。
 

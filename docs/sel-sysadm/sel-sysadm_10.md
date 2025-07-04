@@ -1,4 +1,4 @@
-# *第八章*：SEPostgreSQL——通过 SELinux 扩展 PostgreSQL
+# 第八章：SEPostgreSQL——通过 SELinux 扩展 PostgreSQL
 
 在上一章中，我们讨论了几个示例 SELinux 感知应用程序：这些应用程序能够识别并与 SELinux 子系统交互，以进一步增强应用程序上下文中的安全性。部分应用程序使用现有的策略构件，例如 Apache 的`mod_selinux`，而其他应用程序则通过自定义类来增强策略，从而更精细地调整其行为（如 D-Bus 和`acquire_svc`权限）。
 
